@@ -269,6 +269,93 @@ export async function rolloverIncompleteTasks() {
   return data; // number of tasks rolled
 }
 
+// ---------------------------------------------------------------------------
+// Plan presets (reusable blocks and whole days) + overview rollups.
+// ---------------------------------------------------------------------------
+
+export async function fetchTemplates(userId, kind) {
+  let query = supabase.from("plan_templates").select("*").eq("user_id", userId).order("name", { ascending: true });
+  if (kind) query = query.eq("kind", kind);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Full contents of one preset, for previewing before applying / editing.
+export async function fetchTemplateDetail(templateId) {
+  const { data: chunks, error: cErr } = await supabase
+    .from("template_chunks")
+    .select("*")
+    .eq("template_id", templateId)
+    .order("position", { ascending: true });
+  if (cErr) throw cErr;
+
+  const chunkIds = (chunks ?? []).map((c) => c.id);
+  if (chunkIds.length === 0) return { chunks: [], tasks: [] };
+
+  const { data: tasks, error: tErr } = await supabase
+    .from("template_tasks")
+    .select("*")
+    .in("template_chunk_id", chunkIds)
+    .order("position", { ascending: true });
+  if (tErr) throw tErr;
+
+  return { chunks: chunks ?? [], tasks: tasks ?? [] };
+}
+
+// Creates a single-block preset ("chunk" kind) plus its tasks in one go.
+export async function createChunkTemplate(userId, { name, title, startTime, endTime, goalNodeId, taskTitles = [] }) {
+  const { data: template, error } = await supabase
+    .from("plan_templates")
+    .insert({ user_id: userId, name, kind: "chunk" })
+    .select()
+    .single();
+  if (error) throw error;
+
+  const { data: chunk, error: cErr } = await supabase
+    .from("template_chunks")
+    .insert({ template_id: template.id, title, start_time: startTime, end_time: endTime, goal_node_id: goalNodeId || null })
+    .select()
+    .single();
+  if (cErr) throw cErr;
+
+  const rows = taskTitles.filter((t) => t.trim()).map((t, i) => ({ template_chunk_id: chunk.id, title: t.trim(), position: i }));
+  if (rows.length > 0) {
+    const { error: tErr } = await supabase.from("template_tasks").insert(rows);
+    if (tErr) throw tErr;
+  }
+  return template;
+}
+
+export async function deleteTemplate(templateId) {
+  const { error } = await supabase.from("plan_templates").delete().eq("id", templateId);
+  if (error) throw error;
+}
+
+// Stamps a preset onto a date (server-side, one round trip). Returns the
+// number of blocks created.
+export async function applyTemplate(templateId, date) {
+  const { data, error } = await supabase.rpc("apply_plan_template", { p_template_id: templateId, p_date: date });
+  if (error) throw error;
+  return data;
+}
+
+export async function saveDayAsTemplate(date, name) {
+  const { data, error } = await supabase.rpc("save_day_as_template", { p_date: date, p_name: name });
+  if (error) throw error;
+  return data;
+}
+
+// Per-day rollup for the month/year overview grids — one call per range.
+// The browser's own zone goes along for the ride so logged time buckets
+// into the right local day (an 8pm entry is tonight, not tomorrow-in-UTC).
+export async function fetchPlanSummary(startDate, endDate) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const { data, error } = await supabase.rpc("plan_summary", { p_start: startDate, p_end: endDate, p_tz: tz });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // Lightweight id+title list for goal-link pickers elsewhere in the app —
 // deliberately not the full fetchTree (no edges, no tracking state needed
 // just to tag an entry).
