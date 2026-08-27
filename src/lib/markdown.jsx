@@ -21,6 +21,21 @@ import { Fragment } from "react";
 //   <mark ...>text</mark>               ~112
 //   ![[embed]]                          rare — shown as a muted placeholder
 
+// The vault's own annotation vocabulary, written as <span class="...">.
+// These are not decoration — "law" and "blessing" are the working pair the
+// whole vault is organized around, and "insight" marks the writer's own
+// thought inside quoted scripture. Styled so the distinction survives the
+// trip out of Obsidian, using the app's existing ramp rather than new hues.
+const SPAN_STYLES = {
+  insight: { color: "#d8933b", fontStyle: "italic" },
+  law: { color: "#c0743b", fontWeight: 600 },
+  blessing: { color: "var(--accent-strong)", fontWeight: 600 },
+  context: { color: "var(--text-muted)" },
+  doctrine: { color: "#a8553a", fontWeight: 600 },
+  translation: { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-muted)" },
+  "original-language": { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-muted)" },
+};
+
 const CALLOUT_ACCENT = {
   tip: "var(--accent-strong)",
   christ: "var(--accent-strong)",
@@ -51,12 +66,14 @@ const INLINE_RE = new RegExp(
     "\\[\\[([^\\]]+)\\]\\]", // 3 wikilink
     "\\[([^\\]]+)\\]\\(([^)]+)\\)", // 4 text, 5 href
     "<mark[^>]*>([\\s\\S]*?)</mark>", // 6 html highlight
-    "==([\\s\\S]+?)==", // 7 highlight
-    "\\*\\*([\\s\\S]+?)\\*\\*", // 8 bold
-    "__([\\s\\S]+?)__", // 9 bold
-    "\\*([^*\\n]+?)\\*", // 10 italic
-    "_([^_\\n]+?)_", // 11 italic
-    "~~([\\s\\S]+?)~~", // 12 strikethrough
+    "<span[^>]*?class=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)</span>", // 7 class, 8 body
+    "==([\\s\\S]+?)==", // 9 highlight
+    "\\*\\*([\\s\\S]+?)\\*\\*", // 10 bold
+    "__([\\s\\S]+?)__", // 11 bold
+    "\\*([^*\\n]+?)\\*", // 12 italic
+    "_([^_\\n]+?)_", // 13 italic
+    "~~([\\s\\S]+?)~~", // 14 strikethrough
+    "</?[a-zA-Z][^>]*>", // 15 any other tag — unwrapped, never rendered as HTML
   ].join("|"),
   "g"
 );
@@ -70,7 +87,7 @@ function renderInline(text, keyPrefix = "i") {
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const key = `${keyPrefix}-${n++}`;
-    const [, code, embed, wiki, linkText, , htmlMark, highlight, bold1, bold2, ital1, ital2, strike] = m;
+    const [, code, embed, wiki, linkText, , htmlMark, spanClass, spanBody, highlight, bold1, bold2, ital1, ital2, strike] = m;
 
     if (code !== undefined) {
       out.push(<code key={key} style={codeStyle}>{code}</code>);
@@ -100,6 +117,16 @@ function renderInline(text, keyPrefix = "i") {
         <mark key={key} style={markStyle}>
           {renderInline(htmlMark ?? highlight, key)}
         </mark>
+      );
+    } else if (spanBody !== undefined) {
+      // Known annotation class gets its styling; anything else is simply
+      // unwrapped. Either way the tag's own attributes are discarded — a
+      // style= or onclick= written into a note never reaches the DOM.
+      const style = SPAN_STYLES[(spanClass ?? "").trim().toLowerCase()];
+      out.push(
+        <span key={key} style={style} title={style ? spanClass : undefined}>
+          {renderInline(spanBody, key)}
+        </span>
       );
     } else if (bold1 !== undefined || bold2 !== undefined) {
       out.push(<strong key={key}>{renderInline(bold1 ?? bold2, key)}</strong>);
