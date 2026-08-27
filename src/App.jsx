@@ -4,6 +4,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
 import Today from "./pages/Today";
+import Plan from "./pages/Plan";
 import Tree from "./pages/Tree";
 import History from "./pages/History";
 
@@ -17,6 +18,7 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route path="/today" element={<Today />} />
+            <Route path="/plan" element={<Plan />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/history" element={<History />} />
           </Route>

@@ -149,6 +149,22 @@ export async function fetchTimeEntries(userId, { sinceISO, limit = 100 } = {}) {
   return data ?? [];
 }
 
+// Entries whose started_at falls on the given local calendar date (YYYY-MM-DD) —
+// used for the planner's plan-vs-actual comparison.
+export async function fetchTimeEntriesForDate(userId, dateStr) {
+  const start = new Date(`${dateStr}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("started_at", start.toISOString())
+    .lt("started_at", end.toISOString());
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function logWinLoss(userId, { kind, habitLabel, goalNodeId, note }) {
   const { data, error } = await supabase
     .from("win_losses")
@@ -175,6 +191,82 @@ export async function logPrayer(userId, { context, content, feltResponse, tags }
     .single();
   if (error) throw error;
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Daily Planning & Time-Chunking.
+// ---------------------------------------------------------------------------
+
+export async function fetchDayPlan(userId, date) {
+  const { data, error } = await supabase.from("day_plans").select("*").eq("user_id", userId).eq("date", date).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function setDayEnergyTag(userId, date, energyTag) {
+  const { error } = await supabase.from("day_plans").upsert({ user_id: userId, date, energy_tag: energyTag }, { onConflict: "user_id,date" });
+  if (error) throw error;
+}
+
+export async function fetchTimeChunks(userId, date) {
+  const { data, error } = await supabase
+    .from("time_chunks")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .order("start_time", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTimeChunk(userId, fields) {
+  const { data, error } = await supabase.from("time_chunks").insert({ user_id: userId, ...fields }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTimeChunk(chunkId) {
+  const { error } = await supabase.from("time_chunks").delete().eq("id", chunkId);
+  if (error) throw error;
+}
+
+export async function fetchTasks(userId, date) {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("date", date)
+    .order("position", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createTask(userId, fields) {
+  const { data, error } = await supabase.from("tasks").insert({ user_id: userId, ...fields }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTask(taskId, fields) {
+  const { error } = await supabase.from("tasks").update({ ...fields, updated_at: new Date().toISOString() }).eq("id", taskId);
+  if (error) throw error;
+}
+
+export async function toggleTask(taskId, done) {
+  await updateTask(taskId, { status: done, completed_at: done ? new Date().toISOString() : null });
+}
+
+export async function deleteTask(taskId) {
+  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+  if (error) throw error;
+}
+
+// Moves every incomplete task dated before today onto today (unscheduled),
+// bumping rollover_count — call once when the Plan page lands on "today".
+export async function rolloverIncompleteTasks() {
+  const { data, error } = await supabase.rpc("rollover_incomplete_tasks");
+  if (error) throw error;
+  return data; // number of tasks rolled
 }
 
 // Lightweight id+title list for goal-link pickers elsewhere in the app —
