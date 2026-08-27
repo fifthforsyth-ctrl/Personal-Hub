@@ -356,6 +356,31 @@ export async function fetchPlanSummary(startDate, endDate) {
   return data ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1 — Reflection. Every rollup is computed in the database, so asking
+// an 18-month question costs one round trip instead of downloading every
+// entry in the range.
+// ---------------------------------------------------------------------------
+
+function localZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+async function reflectionRpc(name, startDate, endDate) {
+  const { data, error } = await supabase.rpc(name, { p_start: startDate, p_end: endDate, p_tz: localZone() });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export const fetchTimeByCategory = (s, e) => reflectionRpc("time_by_category", s, e);
+export const fetchHabitStrength = (s, e) => reflectionRpc("habit_strength", s, e);
+export const fetchProductivityHeatmap = (s, e) => reflectionRpc("productivity_heatmap", s, e);
+
+export async function fetchReflectionTotals(startDate, endDate) {
+  const rows = await reflectionRpc("reflection_totals", startDate, endDate);
+  return rows[0] ?? null;
+}
+
 // Lightweight id+title list for goal-link pickers elsewhere in the app —
 // deliberately not the full fetchTree (no edges, no tracking state needed
 // just to tag an entry).

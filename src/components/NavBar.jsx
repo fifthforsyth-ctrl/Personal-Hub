@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Sunrise, CalendarClock, GitBranch, ScrollText, LogOut } from "lucide-react";
+import { Sunrise, CalendarClock, BarChart3, GitBranch, ScrollText, LogOut } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export function TopBar() {
@@ -21,7 +21,8 @@ export function BottomTabs() {
   const tabs = [
     { to: "/today", label: "Today", Icon: Sunrise },
     { to: "/plan", label: "Plan", Icon: CalendarClock },
-    { to: "/tree", label: "Goal Tree", Icon: GitBranch },
+    { to: "/tree", label: "Tree", Icon: GitBranch },
+    { to: "/reflect", label: "Reflect", Icon: BarChart3 },
     { to: "/history", label: "History", Icon: ScrollText },
   ];
   return (

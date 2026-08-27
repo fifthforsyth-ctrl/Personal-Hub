@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchPlanSummary } from "../../lib/api";
 import { monthGrid, startOfMonth, endOfMonth, parseDateStr, todayStr, dayIntensity } from "../../lib/planDates";
+import { intensityColor, intensityTextColor } from "../../lib/nodeStyle";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -57,8 +58,8 @@ export default function MonthView({ monthDate, onPickDay }) {
                 aspectRatio: "1",
                 borderRadius: 8,
                 border: isToday ? "1.5px solid var(--accent-strong)" : "1px solid var(--border)",
-                background: intensity > 0 ? `rgba(224, 165, 69, ${0.08 + intensity * 0.5})` : "var(--bg-inset)",
-                color: intensity > 0.55 ? "#180f00" : "var(--text)",
+                background: intensity > 0 ? intensityColor(intensity) : "var(--bg-inset)",
+                color: intensity > 0 ? intensityTextColor(intensity) : "var(--text)",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -85,7 +86,15 @@ export default function MonthView({ monthDate, onPickDay }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontSize: 10.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
         <span>QUIET</span>
-        <div style={{ flex: 1, height: 6, borderRadius: 3, background: "linear-gradient(90deg, var(--bg-inset), rgba(224, 165, 69, 0.58))", border: "1px solid var(--border)" }} />
+        <div
+          style={{
+            flex: 1,
+            height: 6,
+            borderRadius: 3,
+            background: `linear-gradient(90deg, ${intensityColor(0)}, ${intensityColor(0.35)}, ${intensityColor(0.7)}, ${intensityColor(1)})`,
+            border: "1px solid var(--border)",
+          }}
+        />
         <span>FULL</span>
       </div>
     </div>

@@ -83,6 +83,42 @@ export function getWedgeVisual(ringIndex, brightness) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Planner day intensity — the month/year grids' fill color.
+//
+// Same idea as the wheel's ring ramp, and deliberately the same family of
+// colors, so both halves of the app say "how lit up is this" the same way.
+// It's a designed multi-stop ramp rather than one amber at varying alpha:
+// alpha-blending gold over a near-black surface lands in muddy khaki
+// through the whole middle of the range, which is exactly where most real
+// days live. Cool and deep when quiet, warm and bright when full.
+const INTENSITY_STOPS = [
+  { t: 0.0, rgb: [0x18, 0x14, 0x22] }, // barely above the inset surface
+  { t: 0.35, rgb: [0x4a, 0x2a, 0x55] }, // plum
+  { t: 0.7, rgb: [0xa8, 0x55, 0x3a] }, // ember
+  { t: 1.0, rgb: [0xf0, 0xb2, 0x3c] }, // gold
+];
+
+export function intensityColor(t) {
+  const clamped = Math.min(1, Math.max(0, t));
+  for (let i = 0; i < INTENSITY_STOPS.length - 1; i++) {
+    const a = INTENSITY_STOPS[i];
+    const b = INTENSITY_STOPS[i + 1];
+    if (clamped >= a.t && clamped <= b.t) {
+      const local = b.t === a.t ? 0 : (clamped - a.t) / (b.t - a.t);
+      return rgbToHex([0, 1, 2].map((j) => lerp(a.rgb[j], b.rgb[j], local)));
+    }
+  }
+  return rgbToHex(INTENSITY_STOPS[INTENSITY_STOPS.length - 1].rgb);
+}
+
+// Only the gold end of the ramp is light enough to need dark text; the
+// threshold sits past the ember stop so neighboring days don't flip back
+// and forth across it.
+export function intensityTextColor(t) {
+  return t >= 0.82 ? "#180f00" : "#f3efe8";
+}
+
 function rgbToHex([r, g, b]) {
   const toHex = (n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;

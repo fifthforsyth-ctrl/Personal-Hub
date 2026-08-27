@@ -6,6 +6,7 @@ import SignUp from "./pages/SignUp";
 import Today from "./pages/Today";
 import Plan from "./pages/Plan";
 import Tree from "./pages/Tree";
+import Reflect from "./pages/Reflect";
 import History from "./pages/History";
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/today" element={<Today />} />
             <Route path="/plan" element={<Plan />} />
             <Route path="/tree" element={<Tree />} />
+            <Route path="/reflect" element={<Reflect />} />
             <Route path="/history" element={<History />} />
           </Route>
 

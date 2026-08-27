@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchPlanSummary } from "../../lib/api";
 import { toDateStr, todayStr, dayIntensity } from "../../lib/planDates";
+import { intensityColor } from "../../lib/nodeStyle";
 
 // The full year at a glance: twelve mini-months, every day a dot lit by the
 // same intensity scale the month grid uses. One query for the whole year.
@@ -81,7 +82,7 @@ export default function YearView({ year, onPickMonth }) {
                     style={{
                       aspectRatio: "1",
                       borderRadius: 2,
-                      background: intensity > 0 ? `rgba(224, 165, 69, ${0.12 + intensity * 0.72})` : "var(--bg-inset)",
+                      background: intensity > 0 ? intensityColor(intensity) : "var(--bg-inset)",
                       boxShadow: isToday ? "0 0 0 1.5px var(--accent-strong)" : "none",
                     }}
                   />
