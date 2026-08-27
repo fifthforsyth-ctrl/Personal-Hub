@@ -33,11 +33,28 @@ function arg(name, fallback = null) {
 }
 
 const VAULT = arg("vault");
-const TAG = arg("tag", "hub");
+// Selection is by FOLDER first and tag second, because a vault that predates
+// this app has no #hub tags in it and hand-tagging a hundred existing notes
+// is not a reasonable setup step. --tag stays available for anyone who does
+// tag as they write.
+const FOLDERS = (arg("folder") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const EXCLUDE = (arg("exclude") ?? "Templates").split(",").map((s) => s.trim()).filter(Boolean);
+const TAG = arg("tag", null);
+const MIN_CHARS = Number(arg("min-chars", "80"));
 const DRY_RUN = process.argv.includes("--dry-run");
 
 if (!VAULT) {
-  console.error("Usage: node scripts/sync-obsidian.mjs --vault <path-to-vault> [--tag hub] [--dry-run]");
+  console.error(
+    [
+      "Usage: node scripts/sync-obsidian.mjs --vault <path> [options]",
+      "",
+      "  --folder A,B     only sync these top-level folders (default: all)",
+      "  --exclude A,B    skip these folders (default: Templates)",
+      "  --tag hub        additionally require this tag",
+      "  --min-chars N    skip notes shorter than N characters (default: 80)",
+      "  --dry-run        show what would happen, write nothing",
+    ].join("\n")
+  );
   process.exit(1);
 }
 
@@ -83,16 +100,34 @@ function collectTags(meta, body) {
 }
 
 // Come, Follow Me and General Conference get their own source kinds so the
-// app can group a year of study by where it came from (doc §4.4).
-function inferSource(meta, tags, body, title) {
+// app can group a year of study by where it came from (doc §4.4). A vault
+// organized into canon folders already answers this, so the folder path is
+// consulted before falling back to guessing from content.
+const SCRIPTURE_FOLDERS = /^(ot|nt|d&c|dc|book of mormon|pearl of great price|pgp)\b/i;
+
+function inferSource(meta, tags, body, title, relPath) {
   const declared = String(meta.source ?? "").toLowerCase();
   if (["scripture", "conference", "come_follow_me", "other"].includes(declared)) return declared;
 
-  const haystack = `${tags.join(" ")} ${title}`.toLowerCase();
+  const topFolder = relPath.includes("/") ? relPath.split("/")[0] : "";
+  if (SCRIPTURE_FOLDERS.test(topFolder)) return "scripture";
+  if (/conference/i.test(topFolder)) return "conference";
+  if (meta.canon) return "scripture";
+
+  const haystack = `${tags.join(" ")} ${title} ${topFolder}`.toLowerCase();
   if (/\b(cfm|come-follow-me|comefollowme|come_follow_me)\b/.test(haystack)) return "come_follow_me";
   if (/\b(conference|genconf|general-conference)\b/.test(haystack)) return "conference";
   if (parseScriptureRefs(`${title}\n${body}`).length > 0) return "scripture";
   return "other";
+}
+
+// The template frontmatter in this vault carries canon/book/chapter, which
+// makes a cleaner reference than anything guessed from the body.
+function inferRef(meta, refs, title) {
+  if (meta.ref) return String(meta.ref);
+  const book = meta.book || meta.canon;
+  if (book && meta.chapter) return `${book} ${meta.chapter}`;
+  return refs[0]?.rawRef ?? title;
 }
 
 function isoDate(value) {
@@ -113,35 +148,58 @@ async function* walk(dir) {
 // --- main ------------------------------------------------------------------
 
 async function main() {
-  const email = process.env.HUB_EMAIL;
-  const password = process.env.HUB_PASSWORD;
-  if (!email || !password) {
-    console.error("Set HUB_EMAIL and HUB_PASSWORD (see scripts/README.md).");
-    process.exit(1);
-  }
+  // A dry run touches nothing and needs no account — so you can see exactly
+  // which notes would leave this machine before deciding to set up any
+  // credentials at all.
+  let supabase = null;
+  let userId = null;
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
-  const { data: auth, error: authError } = await supabase.auth.signInWithPassword({ email, password });
-  if (authError) {
-    console.error("Sign-in failed:", authError.message);
-    process.exit(1);
+  if (!DRY_RUN) {
+    const email = process.env.HUB_EMAIL;
+    const password = process.env.HUB_PASSWORD;
+    if (!email || !password) {
+      console.error("Set HUB_EMAIL and HUB_PASSWORD (see scripts/README.md), or pass --dry-run to preview.");
+      process.exit(1);
+    }
+
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    const { data: auth, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError) {
+      console.error("Sign-in failed:", authError.message);
+      process.exit(1);
+    }
+    userId = auth.user.id;
+  } else {
+    console.log("DRY RUN — nothing is written and nothing leaves this machine.\n");
   }
-  const userId = auth.user.id;
 
   let scanned = 0;
   let matched = 0;
   let written = 0;
   let skipped = 0;
+  let skippedShort = 0;
 
   for await (const path of walk(VAULT)) {
     scanned += 1;
+    const relPath = relative(VAULT, path);
+    const topFolder = relPath.includes("/") ? relPath.split("/")[0] : "";
+
+    if (EXCLUDE.some((ex) => topFolder.toLowerCase() === ex.toLowerCase())) continue;
+    if (FOLDERS.length > 0 && !FOLDERS.some((f) => topFolder.toLowerCase() === f.toLowerCase())) continue;
+
     const raw = await readFile(path, "utf8");
     const { meta, body } = parseFrontmatter(raw);
     const tags = collectTags(meta, body);
-    if (!tags.includes(TAG.toLowerCase())) continue;
+    if (TAG && !tags.includes(TAG.toLowerCase())) continue;
+
+    // Stubs and scratch files ("Untitled.md" with two lines in it) are noise
+    // in an archive meant to be reread years from now.
+    if (body.trim().length < MIN_CHARS) {
+      skippedShort += 1;
+      continue;
+    }
     matched += 1;
 
-    const relPath = relative(VAULT, path);
     const title = meta.title || relPath.split("/").pop().replace(/\.md$/, "");
     const hash = createHash("sha256").update(body).digest("hex");
     const stats = await stat(path);
@@ -150,12 +208,14 @@ async function main() {
 
     // Unchanged since last sync? Leave it alone — re-writing would clear the
     // distillation for no reason and cost an AI call to redo.
-    const { data: existing } = await supabase
-      .from("study_notes")
-      .select("id, content_hash")
-      .eq("user_id", userId)
-      .eq("obsidian_uid", relPath)
-      .maybeSingle();
+    const { data: existing } = DRY_RUN
+      ? { data: null }
+      : await supabase
+          .from("study_notes")
+          .select("id, content_hash")
+          .eq("user_id", userId)
+          .eq("obsidian_uid", relPath)
+          .maybeSingle();
 
     if (existing && existing.content_hash === hash) {
       skipped += 1;
@@ -163,7 +223,12 @@ async function main() {
     }
 
     if (DRY_RUN) {
-      console.log(`[dry-run] would ${existing ? "update" : "insert"}: ${relPath} (${refs.length} refs)`);
+      const kind = inferSource(meta, tags, body, title, relPath);
+      console.log(
+        `  ${existing ? "update" : "  add "}  ${relPath}` +
+          `\n           ${kind} · ${inferRef(meta, refs, title)} · ${body.trim().length} chars` +
+          (refs.length ? ` · refs: ${refs.slice(0, 4).map((r) => r.rawRef).join(", ")}${refs.length > 4 ? "…" : ""}` : "")
+      );
       written += 1;
       continue;
     }
@@ -172,8 +237,8 @@ async function main() {
       user_id: userId,
       title,
       body,
-      source_kind: inferSource(meta, tags, body, title),
-      source_ref: meta.ref || refs[0]?.rawRef || null,
+      source_kind: inferSource(meta, tags, body, title, relPath),
+      source_ref: inferRef(meta, refs, title),
       studied_on: studiedOn,
       tags,
       obsidian_uid: relPath,
@@ -219,14 +284,15 @@ async function main() {
   }
 
   console.log(
-    `\nScanned ${scanned} notes · ${matched} tagged #${TAG} · ${written} written · ${skipped} unchanged`
+    `\nScanned ${scanned} · selected ${matched} · ${DRY_RUN ? "would write" : "wrote"} ${written}` +
+      ` · ${skipped} unchanged · ${skippedShort} too short`
   );
 
   if (written > 0 && !DRY_RUN) {
     console.log("Run distillation next:  node scripts/distill-notes.mjs");
   }
 
-  await supabase.auth.signOut();
+  if (supabase) await supabase.auth.signOut();
 }
 
 main().catch((err) => {
