@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CircleDot, CheckCircle2, BookOpen, History, Sparkles, X, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { MarkdownNote, toPlainText } from "../lib/markdown";
 import {
   fetchOpenLoops,
   fetchExperiences,
@@ -167,7 +168,7 @@ function OpenLoops({ userId }) {
                   {new Date(item.occurred_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
                 </span>
               </div>
-              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{item.body}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{toPlainText(item.body, 260)}</div>
             </div>
           ))}
         </div>
@@ -395,7 +396,9 @@ function StudyTab({ userId, goalOptions }) {
           </button>
 
           {expanded === n.id && (
-            <div style={{ marginTop: 10, fontSize: 13.5, lineHeight: 1.65, whiteSpace: "pre-wrap", color: "var(--text)" }}>{n.body}</div>
+            <div style={{ marginTop: 10 }}>
+              <MarkdownNote text={n.body} />
+            </div>
           )}
         </div>
       ))}
@@ -541,7 +544,7 @@ function ScriptureTab({ userId }) {
                 </span>
               </div>
               <div style={{ fontWeight: 600, fontSize: 13 }}>{KIND_LABEL[e.title] ?? e.title}</div>
-              <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{e.body}</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{toPlainText(e.body, 260)}</div>
             </div>
           ))}
         </div>
