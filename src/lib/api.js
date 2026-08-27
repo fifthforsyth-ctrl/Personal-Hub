@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { parseScriptureRefs } from "./scripture";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -379,6 +380,182 @@ export const fetchProductivityHeatmap = (s, e) => reflectionRpc("productivity_he
 export async function fetchReflectionTotals(startDate, endDate) {
   const rows = await reflectionRpc("reflection_totals", startDate, endDate);
   return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Spiritual layer.
+// ---------------------------------------------------------------------------
+
+// Re-indexes every verse reference in a piece of text against its entity.
+// Deletes first so an edit that REMOVES a reference doesn't leave the old
+// row behind pointing at text that no longer mentions it.
+async function syncScriptureRefs(userId, entityType, entityId, ...texts) {
+  const combined = texts.filter(Boolean).join("\n");
+  const refs = parseScriptureRefs(combined);
+
+  await supabase.from("scripture_refs").delete().eq("entity_type", entityType).eq("entity_id", entityId);
+  if (refs.length === 0) return [];
+
+  const rows = refs.map((r) => ({
+    user_id: userId,
+    entity_type: entityType,
+    entity_id: entityId,
+    book: r.book,
+    chapter: r.chapter,
+    verse_start: r.verseStart,
+    verse_end: r.verseEnd,
+    raw_ref: r.rawRef,
+  }));
+  const { error } = await supabase.from("scripture_refs").insert(rows);
+  if (error) throw error;
+  return refs;
+}
+
+export async function logExperience(userId, { kind, whatCame, triggerContext, linkedGoalId, tags }) {
+  const { data, error } = await supabase
+    .from("spiritual_experiences")
+    .insert({
+      user_id: userId,
+      kind: kind || "prompting",
+      what_came: whatCame,
+      trigger_context: triggerContext || null,
+      linked_goal_id: linkedGoalId || null,
+      tags: tags ?? [],
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  await syncScriptureRefs(userId, "experience", data.id, whatCame, triggerContext);
+  return data;
+}
+
+export async function updateExperience(userId, experienceId, fields) {
+  const { data, error } = await supabase
+    .from("spiritual_experiences")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", experienceId)
+    .select()
+    .single();
+  if (error) throw error;
+  await syncScriptureRefs(userId, "experience", experienceId, data.what_came, data.trigger_context, data.follow_up_notes);
+  return data;
+}
+
+// Closing the loop: what you actually did, and what came of it.
+export async function closeExperienceLoop(userId, experienceId, { actionTaken, followUpNotes }) {
+  return updateExperience(userId, experienceId, {
+    acted_on: true,
+    acted_on_at: new Date().toISOString(),
+    action_taken: actionTaken || null,
+    follow_up_notes: followUpNotes || null,
+  });
+}
+
+export async function fetchExperiences(userId, { limit = 100, sinceISO } = {}) {
+  let query = supabase
+    .from("spiritual_experiences")
+    .select("*")
+    .eq("user_id", userId)
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+  if (sinceISO) query = query.gte("occurred_at", sinceISO);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Promptings still waiting on a follow-up, oldest first — the weekly-review
+// queue. `minAgeHours` keeps something logged an hour ago out of the way;
+// it hasn't had a chance to be acted on yet.
+export async function fetchOpenLoops(userId, { minAgeHours = 24 } = {}) {
+  const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("spiritual_experiences")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("acted_on", false)
+    .lte("occurred_at", cutoff)
+    .order("occurred_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createStudyNote(userId, { title, body, sourceKind, sourceRef, studiedOn, linkedGoalId, tags }) {
+  const { data, error } = await supabase
+    .from("study_notes")
+    .insert({
+      user_id: userId,
+      title,
+      body,
+      source_kind: sourceKind || "other",
+      source_ref: sourceRef || null,
+      studied_on: studiedOn || undefined,
+      linked_goal_id: linkedGoalId || null,
+      tags: tags ?? [],
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  await syncScriptureRefs(userId, "study_note", data.id, title, body, sourceRef);
+  return data;
+}
+
+export async function fetchStudyNotes(userId, { limit = 50 } = {}) {
+  const { data, error } = await supabase
+    .from("study_notes")
+    .select("*")
+    .eq("user_id", userId)
+    .order("studied_on", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function deleteStudyNote(noteId) {
+  const { error } = await supabase.from("study_notes").delete().eq("id", noteId);
+  if (error) throw error;
+}
+
+export async function fetchOnThisDay() {
+  const { data, error } = await supabase.rpc("on_this_day", { p_tz: localZone() });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchEntriesForScripture(book, chapter) {
+  const { data, error } = await supabase.rpc("entries_for_scripture", {
+    p_book: book,
+    p_chapter: chapter ?? null,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Distinct books/chapters you've referenced, for the cross-reference picker.
+export async function fetchReferencedScriptures(userId) {
+  const { data, error } = await supabase
+    .from("scripture_refs")
+    .select("book, chapter, raw_ref")
+    .eq("user_id", userId);
+  if (error) throw error;
+
+  const byBook = new Map();
+  for (const r of data ?? []) {
+    const entry = byBook.get(r.book) ?? { book: r.book, count: 0, chapters: new Set() };
+    entry.count += 1;
+    if (r.chapter != null) entry.chapters.add(r.chapter);
+    byBook.set(r.book, entry);
+  }
+  return [...byBook.values()]
+    .map((e) => ({ ...e, chapters: [...e.chapters].sort((a, b) => a - b) }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// Also index prayers, which Phase 0 wrote before scripture_refs existed.
+export async function logPrayerWithRefs(userId, fields) {
+  const prayer = await logPrayer(userId, fields);
+  await syncScriptureRefs(userId, "prayer", prayer.id, fields.content, fields.context, fields.feltResponse);
+  return prayer;
 }
 
 // Lightweight id+title list for goal-link pickers elsewhere in the app —

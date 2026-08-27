@@ -5,3 +5,7 @@ dev-dist
 .env.local
 *.log
 .DS_Store
+
+# local secrets for scripts/
+scripts/.env.local
+.env.local

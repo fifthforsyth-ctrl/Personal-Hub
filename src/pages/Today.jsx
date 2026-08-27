@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Play, Square, Plus, Minus, HandHeart } from "lucide-react";
+import { Play, Square, Plus, Minus, HandHeart, Flame } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchOpenTimeEntry,
@@ -8,9 +8,11 @@ import {
   fetchTimeEntries,
   logWinLoss,
   fetchWinLosses,
-  logPrayer,
+  logPrayerWithRefs,
   fetchPrayers,
   fetchGoalOptions,
+  logExperience,
+  fetchExperiences,
 } from "../lib/api";
 
 function todayStartISO() {
@@ -51,9 +53,79 @@ export default function Today() {
       <h1 className="page-title">Today</h1>
       <p className="page-subtitle">Log it as it happens — exact beats convenient.</p>
 
+      <PromptingCard userId={user?.id} />
       <TimeCard userId={user?.id} goalOptions={goalOptions} />
       <WinLossCard userId={user?.id} goalOptions={goalOptions} />
       <PrayerCard userId={user?.id} />
+    </div>
+  );
+}
+
+// Deliberately the first thing on the page and deliberately one field. A
+// prompting comes mid-task, on a phone, and anything that asks you to
+// categorize it in the moment is something you won't open. Kind, context,
+// and follow-up all get filled in later from the Spirit tab.
+function PromptingCard({ userId }) {
+  const [whatCame, setWhatCame] = useState("");
+  const [entries, setEntries] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!userId) return;
+    setEntries(await fetchExperiences(userId, { sinceISO: todayStartISO(), limit: 20 }));
+  }, [userId]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!whatCame.trim() || busy) return;
+    setBusy(true);
+    try {
+      await logExperience(userId, { whatCame: whatCame.trim() });
+      setWhatCame("");
+      await reload();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="section-label">Something came</div>
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 6 }}>
+        <input
+          value={whatCame}
+          onChange={(e) => setWhatCame(e.target.value)}
+          placeholder="A prompting, impression, answer…"
+          style={inputStyle}
+        />
+        <button
+          type="submit"
+          disabled={busy || !whatCame.trim()}
+          className="btn-primary"
+          style={{ width: "auto", margin: 0, padding: "10px 14px", flexShrink: 0 }}
+        >
+          <Flame size={14} />
+        </button>
+      </form>
+
+      {entries.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {entries.map((e) => (
+            <div key={e.id} className="entry-row">
+              <span>{e.what_came}</span>
+              <span className="entry-meta">
+                {new Date(e.occurred_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -262,7 +334,7 @@ function PrayerCard({ userId }) {
     if (!content.trim() || busy) return;
     setBusy(true);
     try {
-      await logPrayer(userId, { context: context.trim(), content: content.trim(), feltResponse: feltResponse.trim() });
+      await logPrayerWithRefs(userId, { context: context.trim(), content: content.trim(), feltResponse: feltResponse.trim() });
       setContext("");
       setContent("");
       setFeltResponse("");

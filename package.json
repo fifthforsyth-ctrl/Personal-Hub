@@ -16,8 +16,10 @@
     "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@vitejs/plugin-react": "^4.3.0",
     "vite": "^5.4.0",
-    "vite-plugin-pwa": "^0.20.5"
+    "vite-plugin-pwa": "^0.20.5",
+    "zod": "^4.4.3"
   }
 }
