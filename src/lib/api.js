@@ -1,0 +1,195 @@
+import { supabase } from "./supabaseClient";
+
+// ---------------------------------------------------------------------------
+// Goal tree (nodes + node_edges) — structurally identical to Symposium's,
+// minus the hiking/elevation gamification layer, which doesn't fit this
+// app's tone.
+// ---------------------------------------------------------------------------
+
+export async function fetchTree(userId) {
+  const { data: nodes, error: nodesError } = await supabase
+    .from("nodes")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (nodesError) throw nodesError;
+
+  const nodeIds = (nodes ?? []).map((n) => n.id);
+  if (nodeIds.length === 0) return { nodes: [], edges: [] };
+
+  const { data: edges, error: edgesError } = await supabase
+    .from("node_edges")
+    .select("id, child_id, parent_id, weight")
+    .in("child_id", nodeIds);
+  if (edgesError) throw edgesError;
+
+  return { nodes: nodes ?? [], edges: edges ?? [] };
+}
+
+export async function createNode(userId, fields) {
+  const { data, error } = await supabase.from("nodes").insert({ user_id: userId, ...fields }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateNode(nodeId, fields) {
+  const { data, error } = await supabase.from("nodes").update(fields).eq("id", nodeId).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteNode(nodeId) {
+  const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
+  if (error) throw error;
+}
+
+export async function createEdge(childId, parentId, weight) {
+  const { error } = await supabase.from("node_edges").insert({ child_id: childId, parent_id: parentId, weight: weight ?? null });
+  if (error) throw error;
+}
+
+export async function setFocused(nodeId, isFocused) {
+  const { error } = await supabase.from("nodes").update({ is_focused: isFocused }).eq("id", nodeId);
+  if (error) throw error;
+}
+
+export async function recordCompletion(nodeId, kind) {
+  const { error } = await supabase.rpc("record_completion", { p_node_id: nodeId, p_kind: kind });
+  if (error) throw error;
+}
+
+// Backs both the Checkbox method (amount always 1) and the Counter method
+// (arbitrary amount).
+export async function recordProgress(nodeId, amount = 1) {
+  const { error } = await supabase.rpc("record_progress", { p_node_id: nodeId, p_amount: amount });
+  if (error) throw error;
+}
+
+// Note method: the note itself is the "activity" event. A trigger stamps
+// the node's last_activity_at automatically on insert.
+export async function recordNote(userId, nodeId, text) {
+  const clean = (text ?? "").trim();
+  if (!clean) throw new Error("Note can't be empty.");
+  const { error } = await supabase.from("node_notes").insert({ user_id: userId, node_id: nodeId, note_text: clean });
+  if (error) throw error;
+}
+
+export async function repeatNode(nodeId, newTarget) {
+  const { error } = await supabase.rpc("repeat_node", { p_node_id: nodeId, p_new_target: newTarget ?? null });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 0 — Minute tracking, win/loss log, prayer log.
+// ---------------------------------------------------------------------------
+
+export async function startTimeEntry(userId, { category, subcategory, description, goalNodeId, tags }) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .insert({
+      user_id: userId,
+      category,
+      subcategory: subcategory || null,
+      description: description || null,
+      goal_node_id: goalNodeId || null,
+      tags: tags ?? [],
+      started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function stopTimeEntry(entryId) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .update({ ended_at: new Date().toISOString() })
+    .eq("id", entryId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Manual (non-timer) entry — logging time after the fact.
+export async function createTimeEntry(userId, fields) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .insert({ user_id: userId, ...fields })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTimeEntry(entryId) {
+  const { error } = await supabase.from("time_log_entries").delete().eq("id", entryId);
+  if (error) throw error;
+}
+
+export async function fetchOpenTimeEntry(userId) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("*")
+    .eq("user_id", userId)
+    .is("ended_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchTimeEntries(userId, { sinceISO, limit = 100 } = {}) {
+  let query = supabase.from("time_log_entries").select("*").eq("user_id", userId).order("started_at", { ascending: false }).limit(limit);
+  if (sinceISO) query = query.gte("started_at", sinceISO);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function logWinLoss(userId, { kind, habitLabel, goalNodeId, note }) {
+  const { data, error } = await supabase
+    .from("win_losses")
+    .insert({ user_id: userId, kind, habit_label: habitLabel, goal_node_id: goalNodeId || null, note: note || null })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchWinLosses(userId, { sinceISO, limit = 100 } = {}) {
+  let query = supabase.from("win_losses").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }).limit(limit);
+  if (sinceISO) query = query.gte("occurred_at", sinceISO);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function logPrayer(userId, { context, content, feltResponse, tags }) {
+  const { data, error } = await supabase
+    .from("prayer_logs")
+    .insert({ user_id: userId, context: context || null, content, felt_response: feltResponse || null, tags: tags ?? [] })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Lightweight id+title list for goal-link pickers elsewhere in the app —
+// deliberately not the full fetchTree (no edges, no tracking state needed
+// just to tag an entry).
+export async function fetchGoalOptions(userId) {
+  const { data, error } = await supabase.from("nodes").select("id, title").eq("user_id", userId).order("title", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {
+  let query = supabase.from("prayer_logs").select("*").eq("user_id", userId).order("prayed_at", { ascending: false }).limit(limit);
+  if (sinceISO) query = query.gte("prayed_at", sinceISO);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
