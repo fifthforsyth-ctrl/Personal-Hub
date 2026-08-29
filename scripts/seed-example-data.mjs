@@ -321,17 +321,29 @@ async function main() {
         const values = batch
           .map((r) => "(" + cols.map((c) => sqlLiteral(r[c])).join(", ") + ")")
           .join(",\n  ");
-        console.log(`insert into public.${table} (${cols.join(", ")}) values\n  ${values};\n`);
+        const conflict = table === "day_plans" ? "\non conflict (user_id, date) do nothing" : "";
+        console.log(`insert into public.${table} (${cols.join(", ")}) values\n  ${values}${conflict};\n`);
       }
     }
     return;
   }
 
+  // Re-seeding should replace, not accumulate — otherwise a second run
+  // silently doubles every category total and the analytics become garbage.
+  const { data: purged } = await supabase.rpc("purge_example_data");
+  if (purged > 0) console.log(`Cleared ${purged} rows from a previous seed.\n`);
+
   console.log(`Seeding ${WEEKS} weeks of example data…\n`);
   for (const [table, rows, label] of tables) {
     if (rows.length === 0) continue;
     for (let i = 0; i < rows.length; i += 500) {
-      const { error } = await supabase.from(table).insert(rows.slice(i, i + 500));
+      const batch = rows.slice(i, i + 500);
+      // day_plans is keyed on (user_id, date), so a seeded day that you have
+      // already planned by hand would collide. Leave the real row alone.
+      const { error } =
+        table === "day_plans"
+          ? await supabase.from(table).upsert(batch, { onConflict: "user_id,date", ignoreDuplicates: true })
+          : await supabase.from(table).insert(batch);
       if (error) throw new Error(`${table}: ${error.message}`);
     }
     console.log(`  ${String(rows.length).padStart(5)} ${label}`);
