@@ -262,12 +262,29 @@ export async function deleteTask(taskId) {
   if (error) throw error;
 }
 
-// Moves every incomplete task dated before today onto today (unscheduled),
-// bumping rollover_count — call once when the Plan page lands on "today".
+// Moves incomplete past tasks onto today (unscheduled), bumping
+// rollover_count — call once when the Plan page lands on "today". Tasks
+// past the rollover cap stop moving and become stalled instead; see
+// fetchStalledTasks.
 export async function rolloverIncompleteTasks() {
   const { data, error } = await supabase.rpc("rollover_incomplete_tasks");
   if (error) throw error;
   return data; // number of tasks rolled
+}
+
+// Unfinished, in the past, and no longer rolling — these want a decision
+// (do it, reschedule it, or admit it isn't happening) rather than another
+// silent move to tomorrow.
+export async function fetchStalledTasks() {
+  const { data, error } = await supabase.rpc("stalled_tasks");
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Pull a stalled task back onto a live day, resetting its roll counter so
+// it gets a fresh run rather than immediately stalling again.
+export async function reviveTask(taskId, date) {
+  return updateTask(taskId, { date, rollover_count: 0, time_chunk_id: null });
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +573,39 @@ export async function logPrayerWithRefs(userId, fields) {
   const prayer = await logPrayer(userId, fields);
   await syncScriptureRefs(userId, "prayer", prayer.id, fields.content, fields.context, fields.feltResponse);
   return prayer;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4.7 — Daily Journal & Day Archive.
+// ---------------------------------------------------------------------------
+
+export async function fetchDayArchive(dateStr) {
+  const { data, error } = await supabase.rpc("day_archive", { p_date: dateStr, p_tz: localZone() });
+  if (error) throw error;
+  return data;
+}
+
+// Days that have anything on them, newest first — so paging back through
+// the record skips empty dates instead of stepping over them one at a time.
+export async function fetchArchiveDays(limit = 120) {
+  const { data, error } = await supabase.rpc("archive_days", { p_limit: limit, p_tz: localZone() });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function saveJournalEntry(userId, dateStr, { thoughts, gratitude, godsHand }) {
+  const { error } = await supabase.from("journal_entries").upsert(
+    {
+      user_id: userId,
+      date: dateStr,
+      thoughts: thoughts || null,
+      gratitude: gratitude || null,
+      gods_hand: godsHand || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,date" }
+  );
+  if (error) throw error;
 }
 
 // Lightweight id+title list for goal-link pickers elsewhere in the app —

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, X, RotateCcw, Trash2, LayoutTemplate, Bookmark } from "lucide-react";
+import { Plus, X, RotateCcw, Trash2, LayoutTemplate, Bookmark, Archive } from "lucide-react";
 import {
   fetchDayPlan,
   setDayEnergyTag,
@@ -12,6 +12,8 @@ import {
   updateTask,
   deleteTask,
   rolloverIncompleteTasks,
+  fetchStalledTasks,
+  reviveTask,
   fetchTimeEntriesForDate,
   fetchTemplates,
   applyTemplate,
@@ -31,6 +33,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
   const [tasks, setTasks] = useState([]);
   const [actualEntries, setActualEntries] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [stalled, setStalled] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addingChunk, setAddingChunk] = useState(false);
   const [rolledMsg, setRolledMsg] = useState(null);
@@ -40,18 +43,20 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
   const reload = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
-    const [plan, chunkList, taskList, actual, tmpl] = await Promise.all([
+    const [plan, chunkList, taskList, actual, tmpl, stale] = await Promise.all([
       fetchDayPlan(userId, date),
       fetchTimeChunks(userId, date),
       fetchTasks(userId, date),
       fetchTimeEntriesForDate(userId, date),
       fetchTemplates(userId),
+      fetchStalledTasks().catch(() => []),
     ]);
     setDayPlanState(plan);
     setChunks(chunkList);
     setTasks(taskList);
     setActualEntries(actual);
     setTemplates(tmpl);
+    setStalled(stale);
     setLoading(false);
     onDataChanged?.();
   }, [userId, date, onDataChanged]);
@@ -149,6 +154,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
   const handleDeleteChunk = (id) => guard(() => deleteTimeChunk(id));
   const handleAssignChunk = (taskId, chunkId) => guard(() => updateTask(taskId, { time_chunk_id: chunkId || null }));
   const handleApplyTemplate = (templateId) => guard(() => applyTemplate(templateId, date));
+  const handleRevive = (taskId) => guard(() => reviveTask(taskId, date));
 
   return (
     <>
@@ -231,6 +237,10 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
         <InlineAdd placeholder="Add an unscheduled task…" onAdd={(title) => handleAddTask(null, title)} />
       </div>
 
+      {isToday && stalled.length > 0 && (
+        <StalledCard stalled={stalled} onRevive={handleRevive} onDelete={handleDeleteTask} />
+      )}
+
       {(chunks.length > 0 || topLevel.length > 0) && (
         <div className="card">
           <div className="section-label">Plan vs. actual</div>
@@ -240,6 +250,46 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
         </div>
       )}
     </>
+  );
+}
+
+// Tasks that stopped rolling. Kept off today's plan on purpose — the point
+// is that they need a decision, and leaving them mixed in with today makes
+// them invisible again. Collapsed by default so a long backlog doesn't
+// become the loudest thing on the page.
+function StalledCard({ stalled, onRevive, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const shown = open ? stalled : stalled.slice(0, 3);
+
+  return (
+    <div className="card" style={{ borderColor: "var(--border-strong)" }}>
+      <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <Archive size={12} />
+        Stalled · {stalled.length}
+      </div>
+      <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: "-4px 0 10px" }}>
+        These stopped moving forward on their own. Pull one back to today, or let it go.
+      </p>
+
+      {shown.map((t) => (
+        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+          <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{t.title}</span>
+          <span className="entry-meta">{t.date}</span>
+          <button onClick={() => onRevive(t.id)} style={{ ...iconBtnStyle, color: "var(--accent-strong)" }} title="Bring to today">
+            <RotateCcw size={13} />
+          </button>
+          <button onClick={() => onDelete(t.id)} style={iconBtnStyle} title="Let it go">
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+
+      {stalled.length > 3 && (
+        <button onClick={() => setOpen((v) => !v)} style={textBtnStyle}>
+          {open ? "Show fewer" : `Show all ${stalled.length}`}
+        </button>
+      )}
+    </div>
   );
 }
 

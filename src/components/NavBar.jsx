@@ -24,7 +24,7 @@ export function BottomTabs() {
     { to: "/spirit", label: "Spirit", Icon: Flame },
     { to: "/tree", label: "Tree", Icon: GitBranch },
     { to: "/reflect", label: "Reflect", Icon: BarChart3 },
-    { to: "/history", label: "History", Icon: ScrollText },
+    { to: "/archive", label: "Archive", Icon: ScrollText },
   ];
   return (
     <div className="bottom-tabs">

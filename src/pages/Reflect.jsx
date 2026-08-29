@@ -140,6 +140,12 @@ function Summary({ totals, categories, habits, rangeLabel, days }) {
         `You logged ${fmtHours(mins)} across ${totals.days_logged} ${totals.days_logged === 1 ? "day" : "days"} this past ${rangeLabel}` +
           (perDay > 0 ? `, averaging ${fmtHours(perDay)} on the days you tracked.` : ".")
       );
+      // Categories can run concurrently — driving logged inside a block of
+      // service, say — so the daily average can exceed the clock. Saying so
+      // is better than printing "averaging 25h 46m" as if it were a day.
+      if (perDay > 24 * 60) {
+        parts.push("That's more than a day per day, so some categories are running concurrently — the totals below double-count wherever two were logged at once.");
+      }
     }
 
     if (categories.length > 0) {

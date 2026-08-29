@@ -8,7 +8,7 @@ import Plan from "./pages/Plan";
 import Spirit from "./pages/Spirit";
 import Tree from "./pages/Tree";
 import Reflect from "./pages/Reflect";
-import History from "./pages/History";
+import Archive from "./pages/Archive";
 
 export default function App() {
   return (
@@ -24,7 +24,7 @@ export default function App() {
             <Route path="/spirit" element={<Spirit />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
-            <Route path="/history" element={<History />} />
+            <Route path="/archive" element={<Archive />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/today" replace />} />
