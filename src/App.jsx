@@ -9,6 +9,7 @@ import Spirit from "./pages/Spirit";
 import Tree from "./pages/Tree";
 import Reflect from "./pages/Reflect";
 import Archive from "./pages/Archive";
+import GoalLinks from "./pages/GoalLinks";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
             <Route path="/archive" element={<Archive />} />
+            <Route path="/links" element={<GoalLinks />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/today" replace />} />

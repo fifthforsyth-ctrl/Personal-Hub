@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, GitBranch, ChevronLeft, Maximize2, Layers } from "lucide-react";
+import { Plus, GitBranch, ChevronLeft, Maximize2, Layers, Link2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchTree,
@@ -144,6 +145,9 @@ export default function Tree() {
       <div className="tree-header-chip">
         <GitBranch size={16} />
         <span style={{ fontWeight: 700, fontSize: 14 }}>{centerNode ? centerNode.title : "Goal Tree"}</span>
+        <Link to="/links" title="What feeds what" style={{ display: "flex", alignItems: "center", color: "var(--text-muted)", marginLeft: 2 }}>
+          <Link2 size={13} />
+        </Link>
         {centerNode && (
           <button
             onClick={() => setCenterNodeId(null)}

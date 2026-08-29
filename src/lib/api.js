@@ -608,6 +608,95 @@ export async function saveJournalEntry(userId, dateStr, { thoughts, gratitude, g
   if (error) throw error;
 }
 
+// ---------------------------------------------------------------------------
+// Goal linking — mapping categories/habits onto the tree, and the credit
+// that flows up it.
+// ---------------------------------------------------------------------------
+
+export async function fetchGoalMappings(userId) {
+  const { data, error } = await supabase
+    .from("goal_mappings")
+    .select("*")
+    .eq("user_id", userId)
+    .order("source_kind", { ascending: true })
+    .order("source_value", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Distinct values actually present in the logs, so the setup screen lists
+// what you really track rather than what you once typed.
+export async function fetchMappableSources(userId) {
+  const [{ data: entries, error: e1 }, { data: habits, error: e2 }] = await Promise.all([
+    supabase.from("time_log_entries").select("category, subcategory").eq("user_id", userId),
+    supabase.from("win_losses").select("habit_label").eq("user_id", userId),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+
+  const counts = new Map();
+  const bump = (kind, value) => {
+    const key = `${kind} ${value}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
+  for (const e of entries ?? []) {
+    bump("category", e.category);
+    if (e.subcategory) bump("subcategory", `${e.category} / ${e.subcategory}`);
+  }
+  for (const w of habits ?? []) bump("habit", w.habit_label);
+
+  return [...counts.entries()]
+    .map(([key, count]) => {
+      const [source_kind, source_value] = key.split(" ");
+      return { source_kind, source_value, count };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+
+export async function upsertGoalMapping(userId, { sourceKind, sourceValue, goalNodeId, confirmed }) {
+  const { error } = await supabase.from("goal_mappings").upsert(
+    {
+      user_id: userId,
+      source_kind: sourceKind,
+      source_value: sourceValue,
+      goal_node_id: goalNodeId || null,
+      origin: "manual",
+      confirmed: confirmed ?? true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,source_kind,source_value" }
+  );
+  if (error) throw error;
+}
+
+export async function confirmGoalMappings(userId, ids) {
+  const { error } = await supabase
+    .from("goal_mappings")
+    .update({ confirmed: true, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .in("id", ids);
+  if (error) throw error;
+}
+
+// Pushes the confirmed mappings across every existing entry. Returns how
+// many rows changed.
+export async function applyGoalMappings() {
+  const { data, error } = await supabase.rpc("apply_goal_mappings", { p_only_confirmed: true });
+  if (error) throw error;
+  return data;
+}
+
+// What fed which goal over a range, with credit rolled up to ancestors.
+export async function fetchGoalCredit(startDate, endDate) {
+  const { data, error } = await supabase.rpc("goal_credit", {
+    p_start: startDate,
+    p_end: endDate,
+    p_tz: localZone(),
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // Lightweight id+title list for goal-link pickers elsewhere in the app —
 // deliberately not the full fetchTree (no edges, no tracking state needed
 // just to tag an entry).
@@ -615,6 +704,32 @@ export async function fetchGoalOptions(userId) {
   const { data, error } = await supabase.from("nodes").select("id, title").eq("user_id", userId).order("title", { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+// Every node with its full path ("in tune with God > Scripture Study >
+// Daily study"). Titles alone are ambiguous in this tree — there are three
+// separate "Reading" nodes and two "Obedience" — so any picker that has to
+// identify a node precisely needs the path, not the title.
+export async function fetchGoalPaths(userId) {
+  const { nodes, edges } = await fetchTree(userId);
+  const parentOf = new Map();
+  for (const e of edges) if (!parentOf.has(e.child_id)) parentOf.set(e.child_id, e.parent_id);
+  const titleById = new Map(nodes.map((n) => [n.id, n.title]));
+
+  return nodes
+    .map((n) => {
+      const parts = [n.title];
+      let cur = n.id;
+      const seen = new Set([cur]);
+      while (parentOf.has(cur)) {
+        cur = parentOf.get(cur);
+        if (seen.has(cur)) break; // cycle guard
+        seen.add(cur);
+        parts.unshift(titleById.get(cur) ?? "?");
+      }
+      return { id: n.id, title: n.title, path: parts.join(" › "), depth: parts.length - 1 };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {

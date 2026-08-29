@@ -17,6 +17,7 @@ import { fetchDayArchive, fetchArchiveDays, saveJournalEntry } from "../lib/api"
 import { toPlainText } from "../lib/markdown";
 import { todayStr, addDays, parseDateStr, fmtDayHeading, fmtTime, minutesOf } from "../lib/planDates";
 import { intensityColor } from "../lib/nodeStyle";
+import GoalFruits from "../components/GoalFruits";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -150,6 +151,8 @@ export default function Archive() {
             )}
             {timeByCategory.length > 0 && <CategoryStrip rows={timeByCategory} total={totalMinutes} />}
           </div>
+
+          <GoalFruits startDate={date} endDate={date} title="What today fed" />
 
           <JournalCard userId={user?.id} date={date} journal={a.journal} onSaved={reload} />
 
