@@ -398,7 +398,9 @@ function StudySection({ notes }) {
         <div key={n.id} className="entry-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
           <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 10 }}>
             <span style={{ fontWeight: 600, fontSize: 13 }}>{n.title}</span>
-            {n.source_ref && <span className="entry-meta">{n.source_ref}</span>}
+            {/* A note with no verse reference falls back to its own title,
+                which would otherwise print twice on the same row. */}
+            {n.source_ref && n.source_ref !== n.title && <span className="entry-meta">{n.source_ref}</span>}
           </div>
           {(n.ai_theme || n.ai_summary) && (
             <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{n.ai_theme || toPlainText(n.ai_summary, 200)}</div>

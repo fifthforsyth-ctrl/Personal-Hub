@@ -366,7 +366,9 @@ function StudyTab({ userId, goalOptions }) {
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            {n.source_ref && <span className="pill" style={{ fontSize: 10.5 }}>{n.source_ref}</span>}
+            {n.source_ref && n.source_ref !== n.title && (
+              <span className="pill" style={{ fontSize: 10.5 }}>{n.source_ref}</span>
+            )}
             {n.obsidian_uid && <span className="pill" style={{ fontSize: 10.5, color: "var(--text-faint)" }}>Obsidian</span>}
           </div>
 
