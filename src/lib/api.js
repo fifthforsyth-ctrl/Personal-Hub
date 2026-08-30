@@ -697,6 +697,50 @@ export async function fetchGoalCredit(startDate, endDate) {
   return data ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// The assistant. Everything runs in the `assistant` Edge Function so the
+// Anthropic key stays server-side — nothing here ever sees it.
+// ---------------------------------------------------------------------------
+
+async function callAssistant(action, payload = {}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You need to be signed in.");
+
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/assistant`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabase.supabaseKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, tz: localZone(), ...payload }),
+  });
+
+  const body = await response.json().catch(() => ({ error: "The assistant returned something unreadable." }));
+  if (!response.ok) throw new Error(body.error ?? `Assistant failed (${response.status}).`);
+  return body;
+}
+
+export function proposePlans() {
+  return callAssistant("propose_plan");
+}
+
+// Turns one accepted proposal into real blocks and tasks on a date.
+export async function applyProposedPlan(userId, dateStr, plan) {
+  for (const block of plan.blocks ?? []) {
+    const chunk = await createTimeChunk(userId, {
+      date: dateStr,
+      start_time: block.start,
+      end_time: block.end,
+      title: block.title,
+    });
+    for (const [position, title] of (block.tasks ?? []).entries()) {
+      await createTask(userId, { date: dateStr, time_chunk_id: chunk.id, title, position });
+    }
+  }
+}
+
 // Lightweight id+title list for goal-link pickers elsewhere in the app —
 // deliberately not the full fetchTree (no edges, no tracking state needed
 // just to tag an entry).

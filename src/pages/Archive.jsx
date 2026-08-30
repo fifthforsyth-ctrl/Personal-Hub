@@ -18,6 +18,7 @@ import { toPlainText } from "../lib/markdown";
 import { todayStr, addDays, parseDateStr, fmtDayHeading, fmtTime, minutesOf } from "../lib/planDates";
 import { intensityColor } from "../lib/nodeStyle";
 import GoalFruits from "../components/GoalFruits";
+import PlanProposals from "../components/PlanProposals";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -162,6 +163,8 @@ export default function Archive() {
           {(a.study_notes ?? []).length > 0 && <StudySection notes={a.study_notes} />}
           {(a.wins_losses ?? []).length > 0 && <WinLossSection entries={a.wins_losses} />}
           {(a.time_entries ?? []).length > 0 && <TimeSection entries={a.time_entries} />}
+
+          <PlanProposals userId={user?.id} date={date} />
         </>
       )}
     </div>
