@@ -1,0 +1,16 @@
+-- Multi-tag analytics.
+--
+-- His tracking is multi-label: "Meetings for zons" is Serve AND Minister AND
+-- Meeting, and his own totals credit the full duration to each tag. The
+-- schema stored a single `category` per entry, so every analytic
+-- under-reported every tag but the first — Minister showed a fraction of its
+-- real 2,181 minutes.
+--
+-- time_by_category and day_archive now unnest `tags`, falling back to the
+-- `category` column for entries that predate tagging. Counting each tag
+-- separately makes category totals exceed wall-clock time; that is correct
+-- for how he tracks, and Reflect's summary already says so when the daily
+-- average passes 24 hours.
+--
+-- (Applied via the Supabase MCP; recorded here so the schema history is
+-- complete. See 0016 for the matching change to plan_context.)
