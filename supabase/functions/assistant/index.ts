@@ -130,10 +130,20 @@ Rules:
 - The tags are a hint, not the answer. Where the description contradicts the tag, follow the description.
 - Return exactly one object per input entry, including ones that already have a current_goal — if the existing link is right, return it again.`;
 
-async function suggestGoalLinks(supabase: any, anthropic: Anthropic, tz: string, date: string) {
-  const { data: context, error } = await supabase.rpc("link_context", { p_date: date, p_tz: tz });
+async function suggestGoalLinks(
+  supabase: any,
+  anthropic: Anthropic,
+  tz: string,
+  opts: { start: string; end: string; onlyUnlinked?: boolean }
+) {
+  const { data: context, error } = await supabase.rpc("link_context", {
+    p_start: opts.start,
+    p_end: opts.end,
+    p_tz: tz,
+    p_only_unlinked: opts.onlyUnlinked ?? false,
+  });
   if (error) throw new Error(`link_context: ${error.message}`);
-  if (!context?.entries?.length) return { links: [], for_date: date };
+  if (!context?.entries?.length) return { links: [], start: opts.start, end: opts.end };
 
   const response = await anthropic.messages.parse({
     model: MODEL,
@@ -170,7 +180,7 @@ async function suggestGoalLinks(supabase: any, anthropic: Anthropic, tz: string,
       };
     });
 
-  return { links, for_date: date, usage: response.usage };
+  return { links, start: opts.start, end: opts.end, usage: response.usage };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,9 +219,12 @@ Deno.serve(async (req) => {
     switch (action) {
       case "propose_plan":
         return json(await proposePlan(supabase, anthropic, tz));
-      case "suggest_goal_links":
-        if (!body.date) return json({ error: "suggest_goal_links needs a date." }, 400);
-        return json(await suggestGoalLinks(supabase, anthropic, tz, body.date));
+      case "suggest_goal_links": {
+        const start = body.start ?? body.date;
+        const end = body.end ?? body.date;
+        if (!start || !end) return json({ error: "suggest_goal_links needs a date or a start/end range." }, 400);
+        return json(await suggestGoalLinks(supabase, anthropic, tz, { start, end, onlyUnlinked: body.onlyUnlinked }));
+      }
       default:
         return json({ error: `Unknown action "${action}".` }, 400);
     }

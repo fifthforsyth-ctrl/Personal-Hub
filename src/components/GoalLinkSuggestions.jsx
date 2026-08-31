@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Sparkles, Check, ArrowRight, X } from "lucide-react";
-import { suggestGoalLinks, applyGoalLinks } from "../lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { Sparkles, Check, ArrowRight, X, Link2 } from "lucide-react";
+import { suggestGoalLinks, applyGoalLinks, fetchLinkStats } from "../lib/api";
 import { fmtMinutes } from "../lib/categories";
+import { addDays } from "../lib/planDates";
 
 const CONFIDENCE_COLOR = {
   high: "var(--accent-strong)",
@@ -27,13 +28,36 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(0);
   const [error, setError] = useState(null);
+  const [dayStats, setDayStats] = useState(null);
+  const [backlog, setBacklog] = useState(null);
 
-  async function run() {
+  // The backlog window is generous on purpose: catching up a month of loose
+  // entries is one call, and the button should say how many that is before
+  // spending anything.
+  const backlogStart = addDays(date, -30);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const [d, b] = await Promise.all([fetchLinkStats(date, date), fetchLinkStats(backlogStart, addDays(date, -1))]);
+      setDayStats(d);
+      setBacklog(b);
+    } catch {
+      /* counts are a nicety; the buttons still work without them */
+    }
+  }, [date, backlogStart]);
+
+  useEffect(() => {
+    setResult(null);
+    setApplied(0);
+    loadStats();
+  }, [loadStats]);
+
+  async function run(opts) {
     setLoading(true);
     setError(null);
     setApplied(0);
     try {
-      const data = await suggestGoalLinks(date);
+      const data = await suggestGoalLinks(opts);
       setResult(data);
       // Pre-check what the model is confident about; leave the rest to you.
       setChosen(new Set(data.links.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
@@ -60,6 +84,7 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
       await applyGoalLinks(links);
       setApplied(links.length);
       setResult(null);
+      await loadStats();
       await onApplied?.();
     } catch (err) {
       setError(err.message);
@@ -71,20 +96,50 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
   return (
     <div className="card">
       <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <Sparkles size={12} />
-        What did this time serve?
+        <Link2 size={12} />
+        Link minutes to goals
       </div>
 
       {!result && !loading && (
         <>
           <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.55 }}>
-            {applied > 0
-              ? `Linked ${applied} ${applied === 1 ? "entry" : "entries"}.`
-              : "Read this day's descriptions and propose which goal each stretch of time actually fed."}
+            {applied > 0 ? (
+              <>Linked {applied} {applied === 1 ? "entry" : "entries"}.</>
+            ) : (
+              <>
+                Read every description from this day and work out which goal each stretch of time actually fed.
+                {dayStats?.total > 0 && (
+                  <>
+                    {" "}
+                    <span style={{ color: "var(--text-faint)" }}>
+                      {dayStats.total} {dayStats.total === 1 ? "entry" : "entries"} today
+                      {dayStats.unlinked > 0 ? `, ${dayStats.unlinked} with no goal yet` : ", all currently linked by category"}.
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </p>
-          <button onClick={run} className="btn-primary" style={{ width: "auto", margin: 0 }}>
-            {applied > 0 ? "Review again" : "Read the day"}
+
+          <button
+            onClick={() => run({ start: date, end: date })}
+            disabled={dayStats?.total === 0}
+            className="btn-primary"
+            style={{ width: "100%", margin: 0, minHeight: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            <Sparkles size={15} />
+            {dayStats?.total > 0 ? `Link today's ${dayStats.total} entries` : "Nothing logged today"}
           </button>
+
+          {backlog?.unlinked > 0 && (
+            <button
+              onClick={() => run({ start: backlogStart, end: addDays(date, -1), onlyUnlinked: true })}
+              className="btn-secondary"
+              style={{ width: "100%", marginTop: 8 }}
+            >
+              Catch up {backlog.unlinked} unlinked from earlier days
+            </button>
+          )}
         </>
       )}
 
@@ -99,7 +154,8 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
       {result && result.links.length > 0 && (
         <>
           <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: "-4px 0 10px" }}>
-            Tap a row to include or exclude it. Low-confidence guesses start off.
+            Tap a row to include or exclude it. Low-confidence guesses start off, and "serves none" is a real answer —
+            driving and meals usually do.
           </p>
 
           {result.links.map((link) => {
@@ -138,6 +194,11 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
                     {on && <Check size={11} color="#180f00" />}
                   </span>
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 600, minWidth: 0 }}>{link.what ?? entry?.what ?? "Entry"}</span>
+                  {link.minutes > 0 && (
+                    <span style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", flexShrink: 0 }}>
+                      {fmtMinutes(link.minutes)}
+                    </span>
+                  )}
                   <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: CONFIDENCE_COLOR[link.confidence], textTransform: "uppercase", flexShrink: 0 }}>
                     {link.confidence}
                   </span>

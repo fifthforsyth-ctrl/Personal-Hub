@@ -765,10 +765,22 @@ export function proposePlans() {
   return callAssistant("propose_plan");
 }
 
-// Reads a day's descriptions and proposes which goal each stretch fed.
-// Returns suggestions only — nothing is written until they're accepted.
-export function suggestGoalLinks(dateStr) {
-  return callAssistant("suggest_goal_links", { date: dateStr });
+// Reads descriptions over a date range and proposes which goal each stretch
+// fed. Returns suggestions only — nothing is written until they're accepted.
+export function suggestGoalLinks({ start, end, onlyUnlinked = false }) {
+  return callAssistant("suggest_goal_links", { start, end: end ?? start, onlyUnlinked });
+}
+
+// How much there is to review, and how much has no link at all — so the
+// button can say what it will actually do.
+export async function fetchLinkStats(startDate, endDate) {
+  const { data, error } = await supabase.rpc("link_stats", {
+    p_start: startDate,
+    p_end: endDate ?? startDate,
+    p_tz: localZone(),
+  });
+  if (error) throw error;
+  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0 };
 }
 
 export async function applyGoalLinks(links) {

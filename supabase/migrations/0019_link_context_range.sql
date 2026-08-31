@@ -1,0 +1,8 @@
+-- Range support for AI goal-linking (applied via Supabase MCP).
+--
+-- link_context was single-day only, so catching up a backlog meant one paid
+-- API call per day. It now takes a start/end range plus an only-unlinked
+-- flag, so the evening review is one call and so is a month's catch-up.
+--
+-- link_stats(start, end) returns total / linked / unlinked so the button can
+-- state what it is about to do before any money is spent on it.
