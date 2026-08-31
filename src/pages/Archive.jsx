@@ -19,6 +19,7 @@ import { todayStr, addDays, parseDateStr, fmtDayHeading, fmtTime, minutesOf } fr
 import { intensityColor } from "../lib/nodeStyle";
 import GoalFruits from "../components/GoalFruits";
 import PlanProposals from "../components/PlanProposals";
+import GoalLinkSuggestions from "../components/GoalLinkSuggestions";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -56,6 +57,8 @@ export default function Archive() {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showJump, setShowJump] = useState(false);
+  // Bumped when links are accepted so the fruits recompute immediately.
+  const [fruitsVersion, setFruitsVersion] = useState(0);
 
   const reload = useCallback(async () => {
     if (!user?.id) return;
@@ -63,6 +66,7 @@ export default function Archive() {
     try {
       const data = await fetchDayArchive(date);
       setArchive(data);
+      setFruitsVersion((v) => v + 1);
     } finally {
       setLoading(false);
     }
@@ -153,7 +157,9 @@ export default function Archive() {
             {timeByCategory.length > 0 && <CategoryStrip rows={timeByCategory} total={totalMinutes} />}
           </div>
 
-          <GoalFruits startDate={date} endDate={date} title="What today fed" />
+          <GoalLinkSuggestions date={date} onApplied={reload} />
+
+          <GoalFruits key={`fruits-${date}-${fruitsVersion}`} startDate={date} endDate={date} title="What today fed" />
 
           <JournalCard userId={user?.id} date={date} journal={a.journal} onSaved={reload} />
 

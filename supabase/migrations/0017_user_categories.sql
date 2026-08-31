@@ -1,0 +1,11 @@
+-- User-owned tracking categories (applied via Supabase MCP; recorded here so
+-- the schema history is complete).
+--
+-- Categories were a hardcoded list in the client, so a new recurring activity
+-- had no home until someone shipped a code change. They belong to the user.
+--
+-- Removal is archival, never deletion: a category that has been used is
+-- attached to months of history, and dropping it would silently rewrite what
+-- those entries meant. Archiving takes it out of the picker and leaves the
+-- record intact. seed_user_categories() backfills from the tracker's defaults
+-- plus anything already present in the logs.

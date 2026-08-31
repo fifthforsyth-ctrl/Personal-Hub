@@ -38,9 +38,25 @@ export const CATEGORY_COLOR = {
   Other: "#71717a",
 };
 
-export function colorFor(category) {
-  return CATEGORY_COLOR[category] ?? "#71717a";
+// Colors now live per-user in the database; this module keeps the defaults
+// and a live lookup that the app fills in once categories are loaded, so any
+// component can color a tag by name without threading the list through it.
+let runtimeColors = {};
+
+export function setCategoryColors(categories) {
+  runtimeColors = Object.fromEntries((categories ?? []).map((c) => [c.name, c.color]));
 }
+
+export function colorFor(category) {
+  return runtimeColors[category] ?? CATEGORY_COLOR[category] ?? "#71717a";
+}
+
+// Offered when adding a category, so a new one doesn't default to grey.
+export const PALETTE = [
+  "#a855f7", "#3b82f6", "#10b981", "#f43f5e", "#14b8a6", "#06b6d4",
+  "#6366f1", "#f59e0b", "#f97316", "#d946ef", "#64748b", "#ef4444",
+  "#8b5cf6", "#84cc16", "#ec4899", "#71717a",
+];
 
 export function fmtMinutes(minutes) {
   const m = Math.round(Number(minutes) || 0);

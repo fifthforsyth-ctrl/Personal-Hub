@@ -1,0 +1,10 @@
+-- Context for AI goal-link suggestions (applied via Supabase MCP).
+--
+-- link_context(date, tz) returns the day's entries — description, tags,
+-- minutes, current link — alongside the whole goal tree as id+path pairs.
+--
+-- The descriptions are the point: "Serve zone making app" and "Help sister
+-- Shumway" are both tagged Serve and feed different branches, which a
+-- category-level mapping can never distinguish. Paths (not bare titles) are
+-- sent because this tree has three separate "Reading" nodes and two
+-- "Obedience" — a title alone does not identify a node.

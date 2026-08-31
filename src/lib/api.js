@@ -765,6 +765,72 @@ export function proposePlans() {
   return callAssistant("propose_plan");
 }
 
+// Reads a day's descriptions and proposes which goal each stretch fed.
+// Returns suggestions only — nothing is written until they're accepted.
+export function suggestGoalLinks(dateStr) {
+  return callAssistant("suggest_goal_links", { date: dateStr });
+}
+
+export async function applyGoalLinks(links) {
+  for (const link of links) {
+    await supabase.from("time_log_entries").update({ goal_node_id: link.goal_id }).eq("id", link.entry_id);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Categories — the tracker's vocabulary, owned by the user.
+// ---------------------------------------------------------------------------
+
+export async function fetchCategories(userId, { includeArchived = false } = {}) {
+  let query = supabase.from("user_categories").select("*").eq("user_id", userId);
+  if (!includeArchived) query = query.eq("archived", false);
+  const { data, error } = await query.order("position", { ascending: true }).order("name", { ascending: true });
+  if (error) throw error;
+
+  // First run on a device: fill the list from the defaults plus whatever
+  // has already been logged, so the picker is never empty.
+  if ((data ?? []).length === 0) {
+    const { error: seedError } = await supabase.rpc("seed_user_categories");
+    if (seedError) throw seedError;
+    const { data: seeded, error: reError } = await supabase
+      .from("user_categories")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("archived", false)
+      .order("position", { ascending: true });
+    if (reError) throw reError;
+    return seeded ?? [];
+  }
+  return data;
+}
+
+export async function createCategory(userId, { name, color }) {
+  const clean = (name ?? "").trim();
+  if (!clean) throw new Error("Give the category a name.");
+  const { error } = await supabase.from("user_categories").upsert(
+    { user_id: userId, name: clean, color: color || "#71717a", archived: false, position: 50 },
+    { onConflict: "user_id,name" }
+  );
+  if (error) throw error;
+}
+
+// Archive rather than delete: a used category is attached to months of
+// history, and removing it would rewrite what those entries meant.
+export async function archiveCategory(categoryId) {
+  const { error } = await supabase.from("user_categories").update({ archived: true }).eq("id", categoryId);
+  if (error) throw error;
+}
+
+export async function restoreCategory(categoryId) {
+  const { error } = await supabase.from("user_categories").update({ archived: false }).eq("id", categoryId);
+  if (error) throw error;
+}
+
+export async function updateCategory(categoryId, fields) {
+  const { error } = await supabase.from("user_categories").update(fields).eq("id", categoryId);
+  if (error) throw error;
+}
+
 // Turns one accepted proposal into real blocks and tasks on a date.
 export async function applyProposedPlan(userId, dateStr, plan) {
   for (const block of plan.blocks ?? []) {

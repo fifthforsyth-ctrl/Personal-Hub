@@ -17,7 +17,8 @@ import {
   logExperience,
   fetchExperiences,
 } from "../lib/api";
-import { CATEGORIES, colorFor, fmtMinutes } from "../lib/categories";
+import { fetchCategories, createCategory, archiveCategory } from "../lib/api";
+import { colorFor, fmtMinutes, setCategoryColors, PALETTE } from "../lib/categories";
 
 const VIEWS = ["Minutes", "Wins", "Spirit"];
 
@@ -70,15 +71,20 @@ function MinutesView({ userId }) {
   const [picked, setPicked] = useState([]);
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [categories, setCategories] = useState([]);
 
   const reload = useCallback(async () => {
     if (!userId) return;
-    const [o, list] = await Promise.all([
+    const [o, list, cats] = await Promise.all([
       fetchOpenTimeEntry(userId),
       fetchTimeEntries(userId, { sinceISO: todayStartISO(), limit: 200 }),
+      fetchCategories(userId),
     ]);
     setOpen(o);
     setEntries(list.filter((e) => e.ended_at));
+    setCategories(cats);
+    // Publish the colors so tag chips elsewhere on the page match.
+    setCategoryColors(cats);
   }, [userId]);
 
   useEffect(() => {
@@ -149,7 +155,18 @@ function MinutesView({ userId }) {
             style={{ ...inputStyle, fontSize: 16, padding: "13px 14px", marginBottom: 12 }}
           />
 
-          <CategoryGrid picked={picked} onToggle={toggleCategory} />
+          <CategoryGrid
+            categories={categories}
+            picked={picked}
+            onToggle={toggleCategory}
+            onAdd={(name, color) => guard(() => createCategory(userId, { name, color }))}
+            onArchive={(id) =>
+              guard(async () => {
+                await archiveCategory(id);
+                setPicked((p) => p.filter((c) => c !== categories.find((x) => x.id === id)?.name));
+              })
+            }
+          />
 
           {manualOpen ? (
             <ManualEntry
@@ -235,42 +252,113 @@ function RunningCard({ entry, onStop, busy }) {
   );
 }
 
-// "Pick multiple if overlapping" — the whole point. A two-column grid of
-// toggles, each big enough to hit without aiming.
-function CategoryGrid({ picked, onToggle }) {
+// "Pick multiple if overlapping" — the whole point. A grid of toggles, each
+// big enough to hit without aiming.
+//
+// The list is yours to change: add a category the moment a new recurring
+// thing appears, remove one that stopped mattering. Removal archives rather
+// than deletes, so months of history keep meaning what they meant.
+function CategoryGrid({ categories, picked, onToggle, onAdd, onArchive }) {
+  const [managing, setManaging] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState(PALETTE[0]);
+
+  function submitNew(e) {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    onAdd(newName.trim(), newColor);
+    setNewName("");
+    setNewColor(PALETTE[(PALETTE.indexOf(newColor) + 1) % PALETTE.length]);
+  }
+
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 7 }}>
-        Categories · pick any that overlap
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+        <span style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          Categories · pick any that overlap
+        </span>
+        <button onClick={() => setManaging((v) => !v)} style={linkBtnStyle}>
+          {managing ? "Done" : "Edit"}
+        </button>
       </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))", gap: 6 }}>
-        {CATEGORIES.map((cat) => {
-          const on = picked.includes(cat);
+        {categories.map((cat) => {
+          const on = picked.includes(cat.name);
           return (
-            <button
-              key={cat}
-              onClick={() => onToggle(cat)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                padding: "11px 10px",
-                minHeight: 44,
-                borderRadius: 10,
-                border: `1px solid ${on ? colorFor(cat) : "var(--border)"}`,
-                background: on ? `${colorFor(cat)}22` : "var(--bg-inset)",
-                color: on ? "var(--text)" : "var(--text-muted)",
-                fontSize: 12.5,
-                fontWeight: on ? 700 : 500,
-                textAlign: "left",
-              }}
-            >
-              <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorFor(cat), flexShrink: 0, opacity: on ? 1 : 0.45 }} />
-              {cat}
-            </button>
+            <div key={cat.id} style={{ position: "relative" }}>
+              <button
+                onClick={() => !managing && onToggle(cat.name)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  width: "100%",
+                  padding: "11px 10px",
+                  minHeight: 44,
+                  borderRadius: 10,
+                  border: `1px solid ${on && !managing ? cat.color : "var(--border)"}`,
+                  background: on && !managing ? `${cat.color}22` : "var(--bg-inset)",
+                  color: on && !managing ? "var(--text)" : "var(--text-muted)",
+                  fontSize: 12.5,
+                  fontWeight: on && !managing ? 700 : 500,
+                  textAlign: "left",
+                  opacity: managing ? 0.75 : 1,
+                }}
+              >
+                <span style={{ width: 9, height: 9, borderRadius: "50%", background: cat.color, flexShrink: 0, opacity: on || managing ? 1 : 0.45 }} />
+                {cat.name}
+              </button>
+              {managing && (
+                <button
+                  onClick={() => onArchive(cat.id)}
+                  title={`Remove ${cat.name}`}
+                  style={{
+                    position: "absolute",
+                    top: -6,
+                    right: -6,
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--danger)",
+                    color: "var(--danger)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 0,
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
+
+      {managing && (
+        <form onSubmit={submitNew} style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => setNewColor(PALETTE[(PALETTE.indexOf(newColor) + 1) % PALETTE.length])}
+            title="Change color"
+            style={{ width: 34, height: 38, borderRadius: 9, border: "1px solid var(--border)", background: "var(--bg-inset)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            <span style={{ width: 14, height: 14, borderRadius: "50%", background: newColor }} />
+          </button>
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New category" style={{ ...inputStyle, flex: 1 }} />
+          <button type="submit" disabled={!newName.trim()} style={{ ...iconBtnStyle, border: "1px solid var(--border)", borderRadius: 9, width: 38, height: 38, justifyContent: "center", color: "var(--accent-strong)" }}>
+            <Plus size={16} />
+          </button>
+        </form>
+      )}
+
+      {managing && (
+        <p style={{ fontSize: 11, color: "var(--text-faint)", margin: "8px 0 0", lineHeight: 1.45 }}>
+          Removing a category hides it from this picker. Past entries keep it, so your history stays accurate.
+        </p>
+      )}
     </div>
   );
 }

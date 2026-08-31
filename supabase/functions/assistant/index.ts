@@ -99,6 +99,81 @@ async function proposePlan(supabase: any, anthropic: Anthropic, tz: string) {
 }
 
 // ---------------------------------------------------------------------------
+// suggest_goal_links
+// ---------------------------------------------------------------------------
+
+const LinkSchema = z.object({
+  links: z
+    .array(
+      z.object({
+        entry_id: z.string().describe("The id of the entry, copied exactly from the input."),
+        goal_id: z
+          .string()
+          .nullable()
+          .describe("The id of the goal this time fed, copied exactly from the goals list. null if it genuinely serves none."),
+        confidence: z.enum(["high", "medium", "low"]),
+        why: z.string().describe("One short clause naming what in the entry decided it."),
+      })
+    )
+    .describe("One entry per input entry, in the same order."),
+});
+
+const LINK_SYSTEM = `You read a day of logged time and decide which goal on a personal goal tree each stretch of time actually fed.
+
+The descriptions are the point. Two entries can carry the same category tag and serve completely different goals — "Serve zone making app" is building something, "Help sister Shumway" is ministering to a person. Read what was actually written.
+
+Rules:
+- goal_id must be copied exactly from the supplied goals list. Never invent an id or a goal name.
+- Prefer the most specific goal that genuinely fits. Credit flows upward on its own, so choosing a leaf is better than choosing a pillar when the leaf is right.
+- Return null when the time honestly serves no goal on the tree — commuting, meals, and idle time usually do. A forced link is worse than none.
+- Mark confidence honestly. "low" is the correct answer for a vague description like "Untitled Activity"; do not guess confidently to look useful.
+- The tags are a hint, not the answer. Where the description contradicts the tag, follow the description.
+- Return exactly one object per input entry, including ones that already have a current_goal — if the existing link is right, return it again.`;
+
+async function suggestGoalLinks(supabase: any, anthropic: Anthropic, tz: string, date: string) {
+  const { data: context, error } = await supabase.rpc("link_context", { p_date: date, p_tz: tz });
+  if (error) throw new Error(`link_context: ${error.message}`);
+  if (!context?.entries?.length) return { links: [], for_date: date };
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    system: LINK_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content: `Decide what each of these ${context.entries.length} entries fed.\n\n${JSON.stringify(context, null, 1)}`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(LinkSchema) },
+  });
+
+  if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
+
+  // Only hand back links that name a real entry and a real goal — the model
+  // is instructed to copy ids, but nothing downstream should trust that.
+  // The entry's own text rides along so the review screen can show what is
+  // being linked without refetching the day.
+  const entryById = new Map(context.entries.map((e: any) => [e.id, e]));
+  const goalById = new Map(context.goals.map((g: any) => [g.id, g.path]));
+  const links = response.parsed_output.links
+    .filter((l) => entryById.has(l.entry_id) && (l.goal_id === null || goalById.has(l.goal_id)))
+    .map((l) => {
+      const entry = entryById.get(l.entry_id) as any;
+      return {
+        ...l,
+        goal_path: l.goal_id ? goalById.get(l.goal_id) : null,
+        what: entry?.what,
+        minutes: entry?.minutes,
+        current_goal: entry?.current_goal ?? null,
+      };
+    });
+
+  return { links, for_date: date, usage: response.usage };
+}
+
+// ---------------------------------------------------------------------------
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -134,6 +209,9 @@ Deno.serve(async (req) => {
     switch (action) {
       case "propose_plan":
         return json(await proposePlan(supabase, anthropic, tz));
+      case "suggest_goal_links":
+        if (!body.date) return json({ error: "suggest_goal_links needs a date." }, 400);
+        return json(await suggestGoalLinks(supabase, anthropic, tz, body.date));
       default:
         return json({ error: `Unknown action "${action}".` }, 400);
     }
