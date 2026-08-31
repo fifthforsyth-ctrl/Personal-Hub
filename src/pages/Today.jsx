@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Play, Square, Plus, Minus, HandHeart, Flame } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Play, Square, Plus, Minus, HandHeart, Flame, X, Pencil, Clock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchOpenTimeEntry,
   startTimeEntry,
   stopTimeEntry,
+  logPastTimeEntry,
   fetchTimeEntries,
+  updateTimeEntry,
+  deleteTimeEntry,
   logWinLoss,
   fetchWinLosses,
+  deleteWinLoss,
   logPrayerWithRefs,
   fetchPrayers,
-  fetchGoalOptions,
   logExperience,
   fetchExperiences,
 } from "../lib/api";
+import { CATEGORIES, colorFor, fmtMinutes } from "../lib/categories";
+
+const VIEWS = ["Minutes", "Wins", "Spirit"];
 
 function todayStartISO() {
   const d = new Date();
@@ -21,146 +27,73 @@ function todayStartISO() {
   return d.toISOString();
 }
 
-function useElapsed(startedAt) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    if (!startedAt) return;
-    const id = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-  if (!startedAt) return "0:00";
-  const secs = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+function timeOf(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-// Phase 0 — the ground-level view: start/stop the day's time, log a win or
-// a loss the moment it happens, and record a prayer with what you felt in
-// response. Everything here is exact, timestamped, and (optionally) tied
-// back to a node in the Goal Tree.
+// The capture surface. Everything here is built for one hand on a phone
+// mid-day: big targets, no dropdowns in the fast path, and nothing required
+// beyond the thing you're actually recording.
+//
+// Goal links are deliberately absent — they used to be a picker over 86
+// nodes on every entry, which is why not one of a thousand entries had one.
+// The category→goal mapping now does it automatically on insert.
 export default function Today() {
   const { user } = useAuth();
-  const [goalOptions, setGoalOptions] = useState([]);
-
-  useEffect(() => {
-    if (user?.id) fetchGoalOptions(user.id).then(setGoalOptions).catch(() => {});
-  }, [user?.id]);
+  const [view, setView] = useState("Minutes");
 
   return (
     <div className="page">
-      <h1 className="page-title">Today</h1>
-      <p className="page-subtitle">Log it as it happens — exact beats convenient.</p>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {VIEWS.map((v) => (
+          <button key={v} onClick={() => setView(v)} style={segStyle(view === v)}>
+            {v}
+          </button>
+        ))}
+      </div>
 
-      <PromptingCard userId={user?.id} />
-      <TimeCard userId={user?.id} goalOptions={goalOptions} />
-      <WinLossCard userId={user?.id} goalOptions={goalOptions} />
-      <PrayerCard userId={user?.id} />
+      {view === "Minutes" && <MinutesView userId={user?.id} />}
+      {view === "Wins" && <WinsView userId={user?.id} />}
+      {view === "Spirit" && <SpiritView userId={user?.id} />}
     </div>
   );
 }
 
-// Deliberately the first thing on the page and deliberately one field. A
-// prompting comes mid-task, on a phone, and anything that asks you to
-// categorize it in the moment is something you won't open. Kind, context,
-// and follow-up all get filled in later from the Spirit tab.
-function PromptingCard({ userId }) {
-  const [whatCame, setWhatCame] = useState("");
-  const [entries, setEntries] = useState([]);
-  const [busy, setBusy] = useState(false);
+// ---------------------------------------------------------------------------
+// Minutes
+// ---------------------------------------------------------------------------
 
-  const reload = useCallback(async () => {
-    if (!userId) return;
-    setEntries(await fetchExperiences(userId, { sinceISO: todayStartISO(), limit: 20 }));
-  }, [userId]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!whatCame.trim() || busy) return;
-    setBusy(true);
-    try {
-      await logExperience(userId, { whatCame: whatCame.trim() });
-      setWhatCame("");
-      await reload();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="card">
-      <div className="section-label">Something came</div>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 6 }}>
-        <input
-          value={whatCame}
-          onChange={(e) => setWhatCame(e.target.value)}
-          placeholder="A prompting, impression, answer…"
-          style={inputStyle}
-        />
-        <button
-          type="submit"
-          disabled={busy || !whatCame.trim()}
-          className="btn-primary"
-          style={{ width: "auto", margin: 0, padding: "10px 14px", flexShrink: 0 }}
-        >
-          <Flame size={14} />
-        </button>
-      </form>
-
-      {entries.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          {entries.map((e) => (
-            <div key={e.id} className="entry-row">
-              <span>{e.what_came}</span>
-              <span className="entry-meta">
-                {new Date(e.occurred_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TimeCard({ userId, goalOptions }) {
+function MinutesView({ userId }) {
   const [open, setOpen] = useState(null);
   const [entries, setEntries] = useState([]);
-  const [category, setCategory] = useState("");
-  const [subcategory, setSubcategory] = useState("");
   const [description, setDescription] = useState("");
-  const [goalNodeId, setGoalNodeId] = useState("");
+  const [picked, setPicked] = useState([]);
   const [busy, setBusy] = useState(false);
-  const elapsed = useElapsed(open?.started_at);
+  const [manualOpen, setManualOpen] = useState(false);
 
   const reload = useCallback(async () => {
     if (!userId) return;
-    const [o, list] = await Promise.all([fetchOpenTimeEntry(userId), fetchTimeEntries(userId, { sinceISO: todayStartISO() })]);
+    const [o, list] = await Promise.all([
+      fetchOpenTimeEntry(userId),
+      fetchTimeEntries(userId, { sinceISO: todayStartISO(), limit: 200 }),
+    ]);
     setOpen(o);
-    setEntries(list);
+    setEntries(list.filter((e) => e.ended_at));
   }, [userId]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  async function handleStart(e) {
-    e.preventDefault();
-    if (!category.trim() || busy) return;
+  function toggleCategory(cat) {
+    setPicked((p) => (p.includes(cat) ? p.filter((c) => c !== cat) : [...p, cat]));
+  }
+
+  async function guard(fn) {
+    if (busy) return;
     setBusy(true);
     try {
-      await startTimeEntry(userId, { category: category.trim(), subcategory: subcategory.trim(), description: description.trim(), goalNodeId: goalNodeId || null });
-      setCategory("");
-      setSubcategory("");
-      setDescription("");
-      setGoalNodeId("");
+      await fn();
       await reload();
     } catch (err) {
       alert(err.message);
@@ -169,99 +102,364 @@ function TimeCard({ userId, goalOptions }) {
     }
   }
 
-  async function handleStop() {
-    if (!open || busy) return;
-    setBusy(true);
-    try {
-      await stopTimeEntry(open.id);
-      await reload();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBusy(false);
+  const handleStart = () =>
+    guard(async () => {
+      await startTimeEntry(userId, { categories: picked, description: description.trim() });
+      setDescription("");
+      setPicked([]);
+    });
+
+  const handleStop = () => guard(() => stopTimeEntry(open.id));
+
+  // Totals credit every tag on an entry, matching how the categories are
+  // actually used — an activity that is both Serve and Minister counts fully
+  // toward each, so these deliberately sum past the wall clock.
+  const { byCategory, totalMinutes } = useMemo(() => {
+    const totals = new Map();
+    let total = 0;
+    for (const e of entries) {
+      const mins = Number(e.duration_minutes) || 0;
+      total += mins;
+      const tags = e.tags?.length ? e.tags : [e.category];
+      for (const t of tags) totals.set(t, (totals.get(t) ?? 0) + mins);
     }
-  }
+    return {
+      byCategory: [...totals.entries()].map(([c, m]) => ({ category: c, minutes: m })).sort((a, b) => b.minutes - a.minutes),
+      totalMinutes: total,
+    };
+  }, [entries]);
 
   return (
-    <div className="card">
-      <div className="section-label">Minute tracking</div>
-
+    <>
       {open ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{open.category}{open.subcategory ? ` · ${open.subcategory}` : ""}</div>
-            {open.description && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 2 }}>{open.description}</div>}
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color: "var(--accent-strong)", marginTop: 6 }}>{elapsed}</div>
-          </div>
-          <button onClick={handleStop} disabled={busy} className="btn-danger" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <Square size={14} />
-            Stop
-          </button>
-        </div>
+        <RunningCard entry={open} onStop={handleStop} busy={busy} />
       ) : (
-        <form onSubmit={handleStart} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input placeholder="Category (e.g. Editing)" value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle} required />
-            <input placeholder="Subcategory (optional)" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} style={inputStyle} />
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div className="section-label" style={{ margin: 0 }}>Track</div>
+            <button onClick={() => setManualOpen((v) => !v)} style={linkBtnStyle}>
+              {manualOpen ? "Cancel" : "+ Log past time"}
+            </button>
           </div>
-          <input placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} style={inputStyle} />
-          {goalOptions.length > 0 && (
-            <select value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)} style={inputStyle}>
-              <option value="">No linked goal</option>
-              {goalOptions.map((g) => (
-                <option key={g.id} value={g.id}>{g.title}</option>
-              ))}
-            </select>
+
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What are you up to?"
+            style={{ ...inputStyle, fontSize: 16, padding: "13px 14px", marginBottom: 12 }}
+          />
+
+          <CategoryGrid picked={picked} onToggle={toggleCategory} />
+
+          {manualOpen ? (
+            <ManualEntry
+              userId={userId}
+              description={description}
+              picked={picked}
+              onDone={async () => {
+                setManualOpen(false);
+                setDescription("");
+                setPicked([]);
+                await reload();
+              }}
+            />
+          ) : (
+            <button
+              onClick={handleStart}
+              disabled={busy || picked.length === 0}
+              style={{ ...bigButtonStyle, background: picked.length ? "var(--accent)" : "var(--bg-inset)", color: picked.length ? "#180f00" : "var(--text-faint)" }}
+            >
+              <Play size={16} />
+              Start timer
+            </button>
           )}
-          <button type="submit" disabled={busy || !category.trim()} className="btn-primary" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "auto" }}>
-            <Play size={14} />
-            Start
-          </button>
-        </form>
+        </div>
       )}
 
       {entries.length > 0 && (
-        <div style={{ marginTop: 16 }}>
+        <div className="card">
+          <div className="section-label">Today so far</div>
+          <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
+            <Stat label="Logged" value={fmtMinutes(totalMinutes)} />
+            <Stat label="Entries" value={String(entries.length)} />
+          </div>
+          <Distribution rows={byCategory} total={totalMinutes} />
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div className="card">
+          <div className="section-label">Timeline</div>
           {entries.map((e) => (
-            <div key={e.id} className="entry-row">
-              <span>
-                {e.category}
-                {e.subcategory ? ` · ${e.subcategory}` : ""}
-                {e.description ? ` — ${e.description}` : ""}
-              </span>
-              <span className="entry-meta">{e.duration_minutes != null ? `${e.duration_minutes}m` : "running"}</span>
-            </div>
+            <EntryRow key={e.id} entry={e} onChanged={reload} />
           ))}
         </div>
       )}
+
+      {entries.length === 0 && !open && (
+        <p className="placeholder-note">Nothing logged yet today.</p>
+      )}
+    </>
+  );
+}
+
+function RunningCard({ entry, onStop, busy }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(entry.started_at).getTime()) / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const elapsed = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+  const tags = entry.tags?.length ? entry.tags : [entry.category];
+
+  return (
+    <div className="card" style={{ borderColor: "var(--accent-strong)" }}>
+      <div className="section-label" style={{ color: "var(--accent-strong)" }}>Tracking since {timeOf(entry.started_at)}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 40, fontWeight: 700, lineHeight: 1.1, margin: "6px 0 4px" }}>{elapsed}</div>
+      {entry.description && <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>{entry.description}</div>}
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        {tags.map((t) => (
+          <TagChip key={t} tag={t} />
+        ))}
+      </div>
+      <button onClick={onStop} disabled={busy} style={{ ...bigButtonStyle, background: "var(--danger)", color: "#fff" }}>
+        <Square size={15} />
+        Stop &amp; log
+      </button>
     </div>
   );
 }
 
-function WinLossCard({ userId, goalOptions }) {
-  const [entries, setEntries] = useState([]);
-  const [habitLabel, setHabitLabel] = useState("");
-  const [goalNodeId, setGoalNodeId] = useState("");
-  const [note, setNote] = useState("");
+// "Pick multiple if overlapping" — the whole point. A two-column grid of
+// toggles, each big enough to hit without aiming.
+function CategoryGrid({ picked, onToggle }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 7 }}>
+        Categories · pick any that overlap
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))", gap: 6 }}>
+        {CATEGORIES.map((cat) => {
+          const on = picked.includes(cat);
+          return (
+            <button
+              key={cat}
+              onClick={() => onToggle(cat)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "11px 10px",
+                minHeight: 44,
+                borderRadius: 10,
+                border: `1px solid ${on ? colorFor(cat) : "var(--border)"}`,
+                background: on ? `${colorFor(cat)}22` : "var(--bg-inset)",
+                color: on ? "var(--text)" : "var(--text-muted)",
+                fontSize: 12.5,
+                fontWeight: on ? 700 : 500,
+                textAlign: "left",
+              }}
+            >
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorFor(cat), flexShrink: 0, opacity: on ? 1 : 0.45 }} />
+              {cat}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ManualEntry({ userId, description, picked, onDone }) {
+  const [minutes, setMinutes] = useState("30");
   const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    const n = Number(minutes);
+    if (!n || n <= 0 || picked.length === 0 || busy) return;
+    setBusy(true);
+    try {
+      await logPastTimeEntry(userId, { categories: picked, description: description.trim(), minutes: n });
+      await onDone();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={{ display: "flex", gap: 8 }}>
+      <input
+        type="number"
+        inputMode="numeric"
+        min="1"
+        value={minutes}
+        onChange={(e) => setMinutes(e.target.value)}
+        style={{ ...inputStyle, width: 100, fontSize: 16, textAlign: "center" }}
+      />
+      <button
+        type="submit"
+        disabled={busy || picked.length === 0}
+        style={{ ...bigButtonStyle, flex: 1, marginTop: 0, background: picked.length ? "var(--accent)" : "var(--bg-inset)", color: picked.length ? "#180f00" : "var(--text-faint)" }}
+      >
+        <Clock size={15} />
+        Log {minutes || 0}m
+      </button>
+    </form>
+  );
+}
+
+function Distribution({ rows, total }) {
+  if (rows.length === 0) return null;
+  const max = Math.max(...rows.map((r) => r.minutes), 1);
+  return (
+    <>
+      {/* One proportional strip rather than a pie: at fourteen possible
+          categories a pie is unreadable, and the question here is the shape
+          of the day, not precise slice comparison. */}
+      <div style={{ display: "flex", height: 9, borderRadius: 5, overflow: "hidden", gap: 2, marginBottom: 12 }}>
+        {rows.map((r) => (
+          <div key={r.category} title={`${r.category} · ${fmtMinutes(r.minutes)}`} style={{ width: `${(r.minutes / total) * 100}%`, background: colorFor(r.category) }} />
+        ))}
+      </div>
+      {rows.map((r) => (
+        <div key={r.category} style={{ marginBottom: 9 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: colorFor(r.category) }} />
+              {r.category}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{fmtMinutes(r.minutes)}</span>
+          </div>
+          <div style={{ height: 6, background: "var(--bg-inset)", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${(r.minutes / max) * 100}%`, height: "100%", background: colorFor(r.category), borderRadius: 3 }} />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function EntryRow({ entry, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [desc, setDesc] = useState(entry.description ?? "");
+  const [mins, setMins] = useState(String(Math.round(Number(entry.duration_minutes) || 0)));
+  const tags = entry.tags?.length ? entry.tags : [entry.category];
+
+  async function save(e) {
+    e.preventDefault();
+    const n = Number(mins);
+    if (!n || n <= 0) return;
+    const started = new Date(entry.started_at);
+    await updateTimeEntry(entry.id, {
+      description: desc.trim() || null,
+      ended_at: new Date(started.getTime() + n * 60000).toISOString(),
+    });
+    setEditing(false);
+    await onChanged();
+  }
+
+  async function remove() {
+    await deleteTimeEntry(entry.id);
+    await onChanged();
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={save} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description" style={{ ...inputStyle, marginBottom: 8 }} autoFocus />
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="number" inputMode="numeric" min="1" value={mins} onChange={(e) => setMins(e.target.value)} style={{ ...inputStyle, width: 90, textAlign: "center" }} />
+          <button type="button" onClick={() => setEditing(false)} className="btn-secondary">Cancel</button>
+          <button type="submit" className="btn-primary" style={{ width: "auto", flex: 1, margin: 0 }}>Save</button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div style={{ padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+        <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0 }}>{entry.description || "Untitled"}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent-strong)", fontWeight: 700 }}>
+            {fmtMinutes(entry.duration_minutes)}
+          </span>
+          <button onClick={() => setEditing(true)} style={iconBtnStyle} title="Edit"><Pencil size={12} /></button>
+          <button onClick={remove} style={iconBtnStyle} title="Delete"><X size={13} /></button>
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5, alignItems: "center" }}>
+        <span className="entry-meta">{timeOf(entry.started_at)}</span>
+        {tags.map((t) => (
+          <TagChip key={t} tag={t} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TagChip({ tag }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10,
+        fontWeight: 700,
+        padding: "2px 7px",
+        borderRadius: 5,
+        border: `1px solid ${colorFor(tag)}55`,
+        background: `${colorFor(tag)}1a`,
+        color: "var(--text)",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: colorFor(tag) }} />
+      {tag}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wins
+// ---------------------------------------------------------------------------
+
+function WinsView({ userId }) {
+  const [entries, setEntries] = useState([]);
+  const [desc, setDesc] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
 
   const reload = useCallback(async () => {
     if (!userId) return;
-    setEntries(await fetchWinLosses(userId, { sinceISO: todayStartISO() }));
+    setEntries(await fetchWinLosses(userId, { sinceISO: todayStartISO(), limit: 200 }));
   }, [userId]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  async function handleLog(kind) {
-    if (!habitLabel.trim() || busy) return;
+  const wins = entries.filter((e) => e.kind === "win").length;
+  const losses = entries.filter((e) => e.kind === "loss").length;
+
+  async function log(kind) {
+    if (busy) return;
     setBusy(true);
     try {
-      await logWinLoss(userId, { kind, habitLabel: habitLabel.trim(), goalNodeId: goalNodeId || null, note: note.trim() });
-      setHabitLabel("");
-      setNote("");
-      setGoalNodeId("");
+      // The description IS the win here — his real log is 182 one-off
+      // moments ("Say hi at car wash"), not a fixed habit checklist, so the
+      // text goes in habit_label rather than being an optional note on it.
+      await logWinLoss(userId, { kind, habitLabel: desc.trim() || (kind === "win" ? "Win" : "Loss") });
+      setDesc("");
+      inputRef.current?.focus();
       await reload();
     } catch (err) {
       alert(err.message);
@@ -271,73 +469,107 @@ function WinLossCard({ userId, goalOptions }) {
   }
 
   return (
-    <div className="card">
-      <div className="section-label">Wins &amp; losses</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input placeholder="Habit (e.g. Scripture study)" value={habitLabel} onChange={(e) => setHabitLabel(e.target.value)} style={inputStyle} />
-        <input placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} style={inputStyle} />
-        {goalOptions.length > 0 && (
-          <select value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)} style={inputStyle}>
-            <option value="">No linked goal</option>
-            {goalOptions.map((g) => (
-              <option key={g.id} value={g.id}>{g.title}</option>
-            ))}
-          </select>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => handleLog("win")} disabled={busy || !habitLabel.trim()} className="btn-primary" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <Plus size={14} />
+    <>
+      <div className="card">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Score label="Wins" value={wins} color="var(--accent-strong)" />
+          <Score label="Losses" value={losses} color="var(--danger)" />
+        </div>
+      </div>
+
+      <div className="card">
+        <input
+          ref={inputRef}
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          placeholder="What happened?"
+          style={{ ...inputStyle, fontSize: 16, padding: "13px 14px", marginBottom: 10 }}
+        />
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => log("win")} disabled={busy} style={{ ...bigButtonStyle, flex: 1, marginTop: 0, background: "var(--accent)", color: "#180f00" }}>
+            <Plus size={16} />
             Win
           </button>
-          <button onClick={() => handleLog("loss")} disabled={busy || !habitLabel.trim()} className="btn-secondary" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <Minus size={14} />
+          <button onClick={() => log("loss")} disabled={busy} style={{ ...bigButtonStyle, flex: 1, marginTop: 0, background: "transparent", color: "var(--danger)", border: "1px solid var(--danger)" }}>
+            <Minus size={16} />
             Loss
           </button>
         </div>
       </div>
 
-      {entries.length > 0 && (
-        <div style={{ marginTop: 16 }}>
+      {entries.length > 0 ? (
+        <div className="card">
+          <div className="section-label">Today</div>
           {entries.map((e) => (
-            <div key={e.id} className="entry-row">
-              <span className="pill" style={{ color: e.kind === "win" ? "var(--accent-strong)" : "var(--danger)" }}>
-                {e.kind === "win" ? <Plus size={12} /> : <Minus size={12} />}
-                {e.habit_label}
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ color: e.kind === "win" ? "var(--accent-strong)" : "var(--danger)", display: "flex", flexShrink: 0 }}>
+                {e.kind === "win" ? <Plus size={14} /> : <Minus size={14} />}
               </span>
-              <span className="entry-meta">{new Date(e.occurred_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+              <span style={{ flex: 1, fontSize: 13.5, minWidth: 0 }}>{e.habit_label}</span>
+              <span className="entry-meta">{timeOf(e.occurred_at)}</span>
+              <button
+                onClick={async () => {
+                  await deleteWinLoss(e.id);
+                  await reload();
+                }}
+                style={iconBtnStyle}
+                title="Delete"
+              >
+                <X size={13} />
+              </button>
             </div>
           ))}
         </div>
+      ) : (
+        <p className="placeholder-note">Nothing logged yet today.</p>
       )}
+    </>
+  );
+}
+
+function Score({ label, value, color }) {
+  return (
+    <div style={{ background: "var(--bg-inset)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 12px", textAlign: "center" }}>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 44, fontWeight: 800, color, lineHeight: 1.1, marginTop: 2, fontFamily: "var(--font-display)" }}>{value}</div>
     </div>
   );
 }
 
-function PrayerCard({ userId }) {
-  const [entries, setEntries] = useState([]);
+// ---------------------------------------------------------------------------
+// Spirit — quick capture + prayer
+// ---------------------------------------------------------------------------
+
+function SpiritView({ userId }) {
+  const [whatCame, setWhatCame] = useState("");
+  const [experiences, setExperiences] = useState([]);
+  const [prayers, setPrayers] = useState([]);
   const [context, setContext] = useState("");
   const [content, setContent] = useState("");
-  const [feltResponse, setFeltResponse] = useState("");
+  const [felt, setFelt] = useState("");
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     if (!userId) return;
-    setEntries(await fetchPrayers(userId, { sinceISO: todayStartISO() }));
+    const [e, p] = await Promise.all([
+      fetchExperiences(userId, { sinceISO: todayStartISO(), limit: 50 }),
+      fetchPrayers(userId, { sinceISO: todayStartISO(), limit: 50 }),
+    ]);
+    setExperiences(e);
+    setPrayers(p);
   }, [userId]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!content.trim() || busy) return;
+  async function guard(fn) {
+    if (busy) return;
     setBusy(true);
     try {
-      await logPrayerWithRefs(userId, { context: context.trim(), content: content.trim(), feltResponse: feltResponse.trim() });
-      setContext("");
-      setContent("");
-      setFeltResponse("");
+      await fn();
       await reload();
     } catch (err) {
       alert(err.message);
@@ -347,43 +579,143 @@ function PrayerCard({ userId }) {
   }
 
   return (
-    <div className="card">
-      <div className="section-label">Prayer &amp; revelation</div>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input placeholder="Context (optional)" value={context} onChange={(e) => setContext(e.target.value)} style={inputStyle} />
-        <textarea placeholder="What did you pray about?" value={content} onChange={(e) => setContent(e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} />
-        <input placeholder="Impression or response felt (optional)" value={feltResponse} onChange={(e) => setFeltResponse(e.target.value)} style={inputStyle} />
-        <button type="submit" disabled={busy || !content.trim()} className="btn-primary" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "auto" }}>
-          <HandHeart size={14} />
-          Log prayer
-        </button>
-      </form>
+    <>
+      <div className="card">
+        <div className="section-label">Something came</div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!whatCame.trim()) return;
+            guard(async () => {
+              await logExperience(userId, { whatCame: whatCame.trim() });
+              setWhatCame("");
+            });
+          }}
+          style={{ display: "flex", gap: 8 }}
+        >
+          <input
+            value={whatCame}
+            onChange={(e) => setWhatCame(e.target.value)}
+            placeholder="A prompting, impression, answer…"
+            style={{ ...inputStyle, fontSize: 16, padding: "13px 14px" }}
+          />
+          <button type="submit" disabled={busy || !whatCame.trim()} style={{ ...bigButtonStyle, marginTop: 0, width: 56, flexShrink: 0, background: "var(--accent)", color: "#180f00" }}>
+            <Flame size={16} />
+          </button>
+        </form>
 
-      {entries.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          {entries.map((e) => (
-            <div key={e.id} className="entry-row" style={{ flexDirection: "column", alignItems: "flex-start" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                <span style={{ fontWeight: 600 }}>{e.context || "Prayer"}</span>
-                <span className="entry-meta">{new Date(e.prayed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-              </div>
-              <div style={{ color: "var(--text-muted)", marginTop: 2 }}>{e.content}</div>
-              {e.felt_response && <div style={{ color: "var(--accent-strong)", marginTop: 2, fontSize: 12.5 }}>Felt: {e.felt_response}</div>}
+        {experiences.map((e) => (
+          <div key={e.id} className="entry-row">
+            <span>{e.what_came}</span>
+            <span className="entry-meta">{timeOf(e.occurred_at)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="section-label">Prayer</div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!content.trim()) return;
+            guard(async () => {
+              await logPrayerWithRefs(userId, { context: context.trim(), content: content.trim(), feltResponse: felt.trim() });
+              setContext("");
+              setContent("");
+              setFelt("");
+            });
+          }}
+          style={{ display: "flex", flexDirection: "column", gap: 8 }}
+        >
+          <input value={context} onChange={(e) => setContext(e.target.value)} placeholder="Context (optional)" style={inputStyle} />
+          <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="What did you pray about?" style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} />
+          <input value={felt} onChange={(e) => setFelt(e.target.value)} placeholder="What came in response? (optional)" style={inputStyle} />
+          <button type="submit" disabled={busy || !content.trim()} style={{ ...bigButtonStyle, marginTop: 0, background: "var(--accent)", color: "#180f00" }}>
+            <HandHeart size={15} />
+            Log prayer
+          </button>
+        </form>
+
+        {prayers.map((p) => (
+          <div key={p.id} className="entry-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+              <span style={{ fontWeight: 600 }}>{p.context || "Prayer"}</span>
+              <span className="entry-meta">{timeOf(p.prayed_at)}</span>
             </div>
-          ))}
-        </div>
-      )}
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{p.content}</div>
+            {p.felt_response && <div style={{ color: "var(--accent-strong)", fontSize: 12.5 }}>Felt: {p.felt_response}</div>}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-display)", marginTop: 1 }}>{value}</div>
     </div>
   );
 }
+
+function segStyle(active) {
+  return {
+    flex: 1,
+    background: active ? "var(--accent-dim)" : "var(--bg-inset)",
+    border: `1px solid ${active ? "var(--accent-strong)" : "var(--border)"}`,
+    color: active ? "var(--text)" : "var(--text-muted)",
+    borderRadius: 9,
+    padding: "10px 0",
+    fontSize: 13,
+    fontWeight: 700,
+    minHeight: 42,
+  };
+}
+
+const bigButtonStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  width: "100%",
+  minHeight: 50,
+  border: "none",
+  borderRadius: 11,
+  fontSize: 15,
+  fontWeight: 800,
+  letterSpacing: "0.01em",
+};
+
+const iconBtnStyle = {
+  background: "none",
+  border: "none",
+  color: "var(--text-faint)",
+  display: "flex",
+  alignItems: "center",
+  padding: 5,
+  flexShrink: 0,
+};
+
+const linkBtnStyle = {
+  background: "none",
+  border: "none",
+  color: "var(--accent-strong)",
+  fontSize: 12,
+  fontWeight: 700,
+  padding: 0,
+};
 
 const inputStyle = {
   width: "100%",
   background: "var(--bg-inset)",
   border: "1px solid var(--border)",
-  borderRadius: 6,
-  padding: "10px 12px",
+  borderRadius: 9,
+  padding: "11px 12px",
   color: "var(--text)",
-  fontSize: 13.5,
+  fontSize: 14,
   fontFamily: "inherit",
 };

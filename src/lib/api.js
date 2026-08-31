@@ -84,17 +84,46 @@ export async function repeatNode(nodeId, newTarget) {
 // Phase 0 — Minute tracking, win/loss log, prayer log.
 // ---------------------------------------------------------------------------
 
-export async function startTimeEntry(userId, { category, subcategory, description, goalNodeId, tags }) {
+// Tracking is multi-tag: one activity can be Serve AND Minister AND Meeting
+// at once, and each tag is credited the full duration. `category` holds the
+// first tag so older single-category code keeps working; `tags` is the truth.
+export async function startTimeEntry(userId, { categories, description, subcategory, goalNodeId }) {
+  const tags = (categories ?? []).filter(Boolean);
+  if (tags.length === 0) throw new Error("Pick at least one category.");
+
   const { data, error } = await supabase
     .from("time_log_entries")
     .insert({
       user_id: userId,
-      category,
+      category: tags[0],
       subcategory: subcategory || null,
       description: description || null,
       goal_node_id: goalNodeId || null,
-      tags: tags ?? [],
+      tags,
       started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// A stretch of time logged after the fact — ends now, started `minutes` ago.
+export async function logPastTimeEntry(userId, { categories, description, minutes }) {
+  const tags = (categories ?? []).filter(Boolean);
+  if (tags.length === 0) throw new Error("Pick at least one category.");
+  const ended = new Date();
+  const started = new Date(ended.getTime() - minutes * 60000);
+
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .insert({
+      user_id: userId,
+      category: tags[0],
+      description: description || null,
+      tags,
+      started_at: started.toISOString(),
+      ended_at: ended.toISOString(),
     })
     .select()
     .single();
@@ -124,8 +153,18 @@ export async function createTimeEntry(userId, fields) {
   return data;
 }
 
+export async function updateTimeEntry(entryId, fields) {
+  const { error } = await supabase.from("time_log_entries").update(fields).eq("id", entryId);
+  if (error) throw error;
+}
+
 export async function deleteTimeEntry(entryId) {
   const { error } = await supabase.from("time_log_entries").delete().eq("id", entryId);
+  if (error) throw error;
+}
+
+export async function deleteWinLoss(id) {
+  const { error } = await supabase.from("win_losses").delete().eq("id", id);
   if (error) throw error;
 }
 
