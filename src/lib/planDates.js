@@ -97,3 +97,24 @@ export function dayIntensity(summary) {
   const logged = Math.min(0.3, (Number(summary.logged_minutes) || 0) / 480 * 0.3);
   return Math.min(1, planned + followThrough + logged);
 }
+
+// Weeks start Sunday, matching the month grid's column order so the two views
+// never disagree about which day sits where.
+export function startOfWeek(dateStr) {
+  const d = parseDateStr(dateStr);
+  return toDateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
+}
+
+export function weekDays(dateStr) {
+  const start = startOfWeek(dateStr);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+export function fmtWeekHeading(dateStr) {
+  const start = parseDateStr(startOfWeek(dateStr));
+  const end = parseDateStr(addDays(startOfWeek(dateStr), 6));
+  const sameMonth = start.getMonth() === end.getMonth();
+  const left = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const right = end.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" });
+  return `${left} – ${right}, ${end.getFullYear()}`;
+}

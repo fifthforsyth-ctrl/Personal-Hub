@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sparkles, Check, ArrowRight, X, Link2 } from "lucide-react";
-import { suggestGoalLinks, applyGoalLinks, fetchLinkStats } from "../lib/api";
+import { Sparkles, Check, ArrowRight, X, Link2, Pencil } from "lucide-react";
+import { suggestGoalLinks, applyGoalLinks, fetchLinkStats, fetchGoalPaths } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
+import GoalPicker from "./GoalPicker";
 import { fmtMinutes } from "../lib/categories";
 import { addDays } from "../lib/planDates";
 
 const CONFIDENCE_COLOR = {
-  high: "var(--accent-strong)",
-  medium: "var(--text-muted)",
-  low: "var(--text-faint)",
+  high: "var(--accent)",
+  medium: "var(--text-2)",
+  low: "var(--text-3)",
 };
 
 // "Be as fluid as I can throughout the day, then have AI put the brass tacks
@@ -21,7 +23,14 @@ const CONFIDENCE_COLOR = {
 // Nothing is written until accepted, and low-confidence rows are left
 // unchecked by default — a wrong link is worse than none, because it makes
 // the fruits view quietly lie.
+//
+// Every proposal is editable. The model is reading a four-word description
+// and guessing; when it guesses wrong the fix has to be one click away, or
+// you end up accepting links you don't believe to avoid the friction.
 export default function GoalLinkSuggestions({ date, onApplied }) {
+  const { user } = useAuth();
+  const [goals, setGoals] = useState([]);
+  const [editing, setEditing] = useState(null); // entry_id whose goal is being changed
   const [result, setResult] = useState(null);
   const [chosen, setChosen] = useState(new Set());
   const [loading, setLoading] = useState(false);
@@ -52,6 +61,12 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
     loadStats();
   }, [loadStats]);
 
+  // Loaded once and held: the picker has to open instantly, and the tree
+  // doesn't change while you're reviewing a day.
+  useEffect(() => {
+    if (user?.id) fetchGoalPaths(user.id).then(setGoals).catch(() => {});
+  }, [user?.id]);
+
   async function run(opts) {
     setLoading(true);
     setError(null);
@@ -76,6 +91,20 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
     });
   }
 
+  // Overriding a suggestion also includes the row — you went to the trouble
+  // of picking, so the intent is obviously to link it. `edited` marks the row
+  // so the confidence label can step aside for "yours".
+  function setGoal(entryId, goalId, goalPath) {
+    setResult((r) => ({
+      ...r,
+      links: r.links.map((l) =>
+        l.entry_id === entryId ? { ...l, goal_id: goalId, goal_path: goalPath, edited: true } : l
+      ),
+    }));
+    setChosen((prev) => new Set(prev).add(entryId));
+    setEditing(null);
+  }
+
   async function apply() {
     const links = result.links.filter((l) => chosen.has(l.entry_id));
     if (links.length === 0) return;
@@ -95,14 +124,13 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
 
   return (
     <div className="card">
-      <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <Link2 size={12} />
-        Link minutes to goals
+      <div className="card-head">
+        <span className="card-title"><Link2 size={14} />Link minutes to goals</span>
       </div>
 
       {!result && !loading && (
         <>
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.55 }}>
+          <p className="card-note" style={{ margin: "0 0 12px" }}>
             {applied > 0 ? (
               <>Linked {applied} {applied === 1 ? "entry" : "entries"}.</>
             ) : (
@@ -111,7 +139,7 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
                 {dayStats?.total > 0 && (
                   <>
                     {" "}
-                    <span style={{ color: "var(--text-faint)" }}>
+                    <span className="faint">
                       {dayStats.total} {dayStats.total === 1 ? "entry" : "entries"} today
                       {dayStats.unlinked > 0 ? `, ${dayStats.unlinked} with no goal yet` : ", all currently linked by category"}.
                     </span>
@@ -143,80 +171,111 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
         </>
       )}
 
-      {loading && <p className="placeholder-note" style={{ margin: 0 }}>Reading the day…</p>}
+      {loading && <p className="empty">Reading the day…</p>}
 
       {error && <div className="form-error" style={{ margin: "10px 0 0" }}>{error}</div>}
 
       {result && result.links.length === 0 && (
-        <p className="placeholder-note" style={{ margin: 0 }}>Nothing to link on this day.</p>
+        <p className="empty">Nothing to link on this day.</p>
       )}
 
       {result && result.links.length > 0 && (
         <>
-          <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: "-4px 0 10px" }}>
-            Tap a row to include or exclude it. Low-confidence guesses start off, and "serves none" is a real answer —
-            driving and meals usually do.
+          <p className="faint" style={{ fontSize: 11.5, margin: "-4px 0 10px" }}>
+            Tap a row to include or exclude it, or press the goal underneath to change it. Low-confidence guesses start
+            off, and "serves none" is a real answer — driving and meals usually do.
           </p>
 
           {result.links.map((link) => {
             const on = chosen.has(link.entry_id);
             const entry = result.entries?.find?.((e) => e.id === link.entry_id);
             return (
-              <button
+              <div
                 key={link.entry_id}
-                onClick={() => toggle(link.entry_id)}
                 style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  background: on ? "var(--bg-inset)" : "transparent",
-                  border: `1px solid ${on ? "var(--accent-strong)" : "var(--border)"}`,
-                  borderRadius: 9,
-                  padding: "9px 11px",
+                  background: on ? "var(--inset)" : "transparent",
+                  border: `1px solid ${on ? "var(--accent-line)" : "var(--line)"}`,
+                  borderRadius: "var(--r)",
+                  padding: "10px 12px",
                   marginBottom: 6,
-                  color: "inherit",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  onClick={() => toggle(link.entry_id)}
+                  className="row"
+                  style={{ gap: 9, width: "100%", background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left" }}
+                >
                   <span
                     style={{
-                      width: 15,
-                      height: 15,
-                      borderRadius: 4,
-                      border: `1px solid ${on ? "var(--accent-strong)" : "var(--border-strong)"}`,
+                      width: 16,
+                      height: 16,
+                      borderRadius: 5,
+                      border: `1px solid ${on ? "var(--accent)" : "var(--line-strong)"}`,
                       background: on ? "var(--accent)" : "transparent",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      display: "grid",
+                      placeItems: "center",
                       flexShrink: 0,
                     }}
                   >
-                    {on && <Check size={11} color="#180f00" />}
+                    {on && <Check size={11} color="var(--on-accent)" />}
                   </span>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, minWidth: 0 }}>{link.what ?? entry?.what ?? "Entry"}</span>
-                  {link.minutes > 0 && (
-                    <span style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", flexShrink: 0 }}>
-                      {fmtMinutes(link.minutes)}
-                    </span>
-                  )}
-                  <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: CONFIDENCE_COLOR[link.confidence], textTransform: "uppercase", flexShrink: 0 }}>
-                    {link.confidence}
+                  <span className="truncate" style={{ flex: 1, fontSize: 13, fontWeight: 570 }}>
+                    {link.what ?? entry?.what ?? "Entry"}
                   </span>
-                </div>
+                  {link.minutes > 0 && <span className="mono faint" style={{ fontSize: 10.5, flexShrink: 0 }}>{fmtMinutes(link.minutes)}</span>}
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 9.5,
+                      color: link.edited ? "var(--accent)" : CONFIDENCE_COLOR[link.confidence],
+                      textTransform: "uppercase",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {link.edited ? "yours" : link.confidence}
+                  </span>
+                </button>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginLeft: 23, fontSize: 11.5 }}>
-                  <ArrowRight size={11} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
-                  <span style={{ color: link.goal_path ? "var(--accent-strong)" : "var(--text-faint)", minWidth: 0 }}>
+                {/* The proposed goal is its own control, not a label. */}
+                <button
+                  onClick={() => setEditing(link.entry_id)}
+                  className="row"
+                  title="Change which goal this fed"
+                  style={{
+                    gap: 6,
+                    marginTop: 7,
+                    marginLeft: 25,
+                    width: "calc(100% - 25px)",
+                    background: "transparent",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--r-sm)",
+                    padding: "6px 9px",
+                    color: "inherit",
+                    textAlign: "left",
+                  }}
+                >
+                  <ArrowRight size={11} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+                  <span className="truncate" style={{ flex: 1, fontSize: 11.5, color: link.goal_path ? "var(--accent)" : "var(--text-3)" }}>
                     {link.goal_path ?? "No goal — serves none"}
                   </span>
-                </div>
+                  <Pencil size={11} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+                </button>
 
-                {link.why && (
-                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 3, marginLeft: 23, lineHeight: 1.45 }}>{link.why}</div>
+                {link.why && !link.edited && (
+                  <div className="faint" style={{ fontSize: 11, marginTop: 5, marginLeft: 25, lineHeight: 1.45 }}>{link.why}</div>
                 )}
-              </button>
+              </div>
             );
           })}
+
+          {editing && (
+            <GoalPicker
+              goals={goals}
+              value={result.links.find((l) => l.entry_id === editing)?.goal_id ?? null}
+              onPick={(goalId, goalPath) => setGoal(editing, goalId, goalPath)}
+              onClose={() => setEditing(null)}
+            />
+          )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={() => setResult(null)} className="btn-secondary">

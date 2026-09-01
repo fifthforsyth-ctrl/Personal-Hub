@@ -16,8 +16,8 @@ export default defineConfig({
         name: "Personal Hub",
         short_name: "Personal Hub",
         description: "Life archival, tracking, and personal vision centered on Christlike discipleship.",
-        theme_color: "#0b0a12",
-        background_color: "#0b0a12",
+        theme_color: "#0a0a0c",
+        background_color: "#0a0a0c",
         display: "standalone",
         start_url: "/",
         icons: [

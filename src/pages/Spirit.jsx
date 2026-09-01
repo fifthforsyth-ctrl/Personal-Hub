@@ -245,7 +245,7 @@ function RecordTab({ userId, goalOptions }) {
 
   if (loading) return <p className="placeholder-note">Loading…</p>;
   if (entries.length === 0)
-    return <p className="placeholder-note">Nothing recorded yet. Capture promptings from the Today tab as they come.</p>;
+    return <p className="placeholder-note">Nothing recorded yet. Capture promptings from the home screen as they come.</p>;
 
   return (
     <div className="card">

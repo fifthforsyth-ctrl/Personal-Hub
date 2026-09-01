@@ -74,7 +74,7 @@ Rules:
 - State things plainly. No praise, no exhortation, no scripture quoting back at them. They are choosing between options, not being coached.
 - If the data is thin, say so in the rationale rather than inventing detail.`;
 
-async function proposePlan(supabase: any, anthropic: Anthropic, tz: string) {
+async function proposePlan(supabase: any, anthropic: Anthropic, tz: string, notes?: string | null) {
   const { data: context, error } = await supabase.rpc("plan_context", { p_tz: tz, p_days: 14 });
   if (error) throw new Error(`plan_context: ${error.message}`);
 
@@ -86,9 +86,16 @@ async function proposePlan(supabase: any, anthropic: Anthropic, tz: string) {
     messages: [
       {
         role: "user",
-        content: `Here is the recent record. Propose three plans for ${context.tomorrow} (${String(
-          context.tomorrow_weekday ?? ""
-        ).trim()}).\n\n${JSON.stringify(context, null, 1)}`,
+        content:
+          `Here is the recent record. Propose three plans for ${context.tomorrow} (${String(
+            context.tomorrow_weekday ?? ""
+          ).trim()}).\n\n${JSON.stringify(context, null, 1)}` +
+          // Notes written just before pressing generate outrank anything
+          // inferred from the logs — they are the only source for things
+          // that haven't happened yet.
+          (notes?.trim()
+            ? `\n\nNotes they left about tomorrow. These are FIXED FACTS about the day and take priority over any pattern in the data above — build every one of the three plans around them:\n${notes.trim()}`
+            : ""),
       },
     ],
     output_config: { format: zodOutputFormat(PlanSchema) },
@@ -184,6 +191,148 @@ async function suggestGoalLinks(
 }
 
 // ---------------------------------------------------------------------------
+// ask_chart — "map out my sleep over the past 6 months"
+//
+// The shape of these questions is open, so no fixed set of rollups can serve
+// them. The model writes the query instead. Two things keep that safe: the
+// statement runs through run_readonly_select, which refuses anything that
+// isn't a single read-only SELECT, and it executes under the caller's own
+// JWT, so RLS confines it to rows they already own. The worst a bad query
+// can do is fail.
+// ---------------------------------------------------------------------------
+
+const SCHEMA_DOC = `All tables are row-level-secured to the signed-in user; you do NOT need to filter by user_id, and auth.uid() is available if you want it.
+
+time_log_entries(id, category text, subcategory text, description text, started_at timestamptz, ended_at timestamptz, duration_minutes numeric, tags text[], goal_node_id uuid)
+  — the minute tracking. One row per stretch of tracked time. tags holds every category on the entry; category holds the first. Prefer unnest(tags) when a row can belong to several.
+win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text, note text, goal_node_id uuid)
+tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
+  — status true means done. parent_task_id not null means it is a subtask.
+time_chunks(id, date date, title text, start_time time, end_time time, goal_node_id uuid)
+day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text)
+journal_entries(date date, thoughts text, gratitude text, gods_hand text, q_christ text, q_principles text, q_success text, reflection_completed_at timestamptz)
+prayer_logs(id, prayed_at timestamptz, context text, content text, felt_response text, tags text[])
+spiritual_experiences(id, occurred_at timestamptz, kind text, what_came text, acted_on boolean, action_taken text)
+study_notes(id, title text, body text, studied_on date, source_ref text, ai_theme text, ai_summary text)
+nodes(id, title text, description text, is_completed boolean, is_focused boolean, last_activity_at timestamptz) and node_edges(child_id, parent_id) — the goal tree.
+user_categories(id, name text, color text, archived boolean)`;
+
+const CHART_SYSTEM = `You answer questions about a person's own life-tracking data by writing one PostgreSQL query and choosing how to plot the result.
+
+${SCHEMA_DOC}
+
+Hard rules for the SQL:
+- Exactly ONE statement. No semicolon. SELECT or WITH only. Never write, never DDL.
+- Always convert timestamps to the user's local day, writing the timezone you are given as a literal: (started_at AT TIME ZONE 'America/Denver')::date. There are no bind parameters — inline every value.
+- Give every output column a short, plain lower_snake_case alias. The alias is what gets shown on the axis.
+- Return a modest number of rows: aggregate rather than dumping raw entries. A daily series over six months (about 180 rows) is fine; 5,000 rows is not.
+- Order by the x column ascending for anything time-based.
+- If a category is named in the question, match it case-insensitively and against tags as well as category — e.g. exists (select 1 from unnest(tags) t where lower(t) = 'sleep') or lower(category) = 'sleep'.
+- Days with nothing logged are genuinely absent, not zero. Do not invent them with generate_series unless the question is specifically about gaps.
+- Avoid the bare words insert, update, delete, create, drop, alter, set, execute and call anywhere in the statement, including inside string literals — a safety filter rejects the query if it sees them.
+
+Choosing the form:
+- line — a measure over time. The default for "over the past N months/weeks".
+- column — a measure across a modest number of ordered buckets (hours of the day, days of the week, months).
+- bars — ranked magnitude across named things (categories, habits, goals).
+- donut — part-to-whole, only when the parts sum to a meaningful whole and there are at most about eight of them.
+- none — the honest answer is a sentence or a single number, not a plot.
+
+Also write \`answer\`: one or two plain sentences saying what the query will show. Do not predict the numbers — you have not seen them yet. No praise, no coaching.`;
+
+const ChartSchema = z.object({
+  title: z.string().describe("A short title for the chart, in the person's own words where possible."),
+  answer: z.string().describe("One or two sentences describing what is being plotted and over what window."),
+  chart_type: z.enum(["line", "column", "bars", "donut", "none"]),
+  sql: z.string().describe("One PostgreSQL SELECT statement, no semicolon."),
+  x_key: z.string().describe("The output column alias for the x axis / category label."),
+  y_key: z.string().describe("The output column alias for the measured value."),
+  x_kind: z.enum(["date", "category", "number"]),
+  y_unit: z.enum(["minutes", "hours", "count", "percent", "raw"]),
+});
+
+async function askChart(supabase: any, anthropic: Anthropic, tz: string, question: string) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 8000,
+    system: CHART_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content: `Timezone: ${tz}. Today is ${today}.\n\nQuestion: ${question}`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(ChartSchema) },
+  });
+
+  const spec = response.parsed_output;
+  if (!spec) throw new Error("The model returned nothing parsable.");
+  if (spec.chart_type === "none") return { spec, rows: [], usage: response.usage };
+
+  const { data: rows, error } = await supabase.rpc("run_readonly_select", { p_sql: spec.sql });
+  if (error) throw new Error(`That query didn't run: ${error.message}`);
+
+  return { spec, rows: rows ?? [], usage: response.usage };
+}
+
+// ---------------------------------------------------------------------------
+// day_synopsis — the paragraph at the top of a banked day
+//
+// Written from the day's own record: what was tracked, what got done, what it
+// fed, and what was written in the reflection. It goes at the top of the
+// banked card, so it has to be the thing you'd want to read a year from now
+// when the charts underneath have stopped meaning anything specific.
+// ---------------------------------------------------------------------------
+
+const SYNOPSIS_SYSTEM = `You write the one-paragraph synopsis that sits at the top of a finished day in a private life-tracking journal. The person is a member of The Church of Jesus Christ of Latter-day Saints serving as a missionary.
+
+You are given everything recorded on that date: tracked time by category, the planned blocks and which tasks were finished, wins and losses, prayers, promptings, study notes, which goals the day fed, and the reflection they wrote in their own words.
+
+Write three to five sentences.
+
+Rules:
+- Say what the day WAS, not what its numbers were. "A long service day that ran into the evening" beats "6h 12m in Serve". Numbers are allowed when one carries the shape of the day; a list of them is not.
+- The reflection they wrote outranks everything else. If they said the day was hard, it was hard, however good the completion rate looks.
+- Name specifics — the actual task, the actual person, the actual chapter. Never "various activities" or "several tasks".
+- Past tense, plain language, second person ("you").
+- No praise, no encouragement, no coaching, no scripture quoted back at them, no advice about tomorrow. You are writing a record, not a report card.
+- If almost nothing was recorded, say so in a sentence and stop. Do not pad.`;
+
+const SynopsisSchema = z.object({
+  synopsis: z.string().describe("Three to five sentences, past tense, second person."),
+  headline: z.string().describe("Four to seven words naming what kind of day it was. No punctuation at the end."),
+});
+
+async function daySynopsis(supabase: any, anthropic: Anthropic, tz: string, date: string) {
+  const [{ data: archive, error: e1 }, { data: credit, error: e2 }] = await Promise.all([
+    supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
+    supabase.rpc("goal_credit", { p_start: date, p_end: date, p_tz: tz }),
+  ]);
+  if (e1) throw new Error(`day_archive: ${e1.message}`);
+  if (e2) throw new Error(`goal_credit: ${e2.message}`);
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 6000,
+    system: SYNOPSIS_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content: `Write the synopsis for ${date}.\n\nThe day's record:\n${JSON.stringify(archive, null, 1)}\n\nWhat it fed on the goal tree:\n${JSON.stringify(credit ?? [], null, 1)}`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(SynopsisSchema) },
+  });
+
+  if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
+  return { ...response.parsed_output, date, usage: response.usage };
+}
+
+// ---------------------------------------------------------------------------
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -218,7 +367,18 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "propose_plan":
-        return json(await proposePlan(supabase, anthropic, tz));
+        return json(await proposePlan(supabase, anthropic, tz, body.notes));
+      case "day_synopsis": {
+        const date = String(body.date ?? "").trim();
+        if (!date) return json({ error: "day_synopsis needs a date." }, 400);
+        return json(await daySynopsis(supabase, anthropic, tz, date));
+      }
+      case "ask_chart": {
+        const question = String(body.question ?? "").trim();
+        if (!question) return json({ error: "ask_chart needs a question." }, 400);
+        if (question.length > 1000) return json({ error: "That question is too long." }, 400);
+        return json(await askChart(supabase, anthropic, tz, question));
+      }
       case "suggest_goal_links": {
         const start = body.start ?? body.date;
         const end = body.end ?? body.date;

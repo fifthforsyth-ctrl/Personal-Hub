@@ -188,7 +188,7 @@ export default function NodeForm({ node, presetParent, onSave, onDelete, onClose
         )}
 
         {confirmingDelete && (
-          <p style={{ color: "#ffabaf", fontSize: 12.5, marginBottom: 10 }}>
+          <p style={{ color: "var(--danger-text)", fontSize: 12.5, marginBottom: 10 }}>
             Delete "{node?.title}" and everything under it? This can't be undone.
           </p>
         )}

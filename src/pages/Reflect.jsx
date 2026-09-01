@@ -6,6 +6,8 @@ import {
   fetchReflectionTotals,
 } from "../lib/api";
 import { intensityColor } from "../lib/nodeStyle";
+import { RankedBars } from "../components/charts";
+import { colorFor } from "../lib/categories";
 import { todayStr, addDays, parseDateStr } from "../lib/planDates";
 
 const RANGES = [
@@ -77,46 +79,39 @@ export default function Reflect() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Reflect</h1>
-      <p className="page-subtitle">
-        {parseDateStr(startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} –{" "}
-        {parseDateStr(endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-      </p>
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">Reflect</div>
+          <h1 className="page-title" style={{ marginTop: 3 }}>The long view</h1>
+          <p className="page-sub">
+            {parseDateStr(startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })} –{" "}
+            {parseDateStr(endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          </p>
+        </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        {RANGES.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setRangeKey(r.key)}
-            style={{
-              flex: 1,
-              background: rangeKey === r.key ? "var(--accent-dim)" : "var(--bg-inset)",
-              border: `1px solid ${rangeKey === r.key ? "var(--accent-strong)" : "var(--border)"}`,
-              color: rangeKey === r.key ? "var(--text)" : "var(--text-muted)",
-              borderRadius: 8,
-              padding: "8px 0",
-              fontSize: 12.5,
-              fontWeight: 700,
-            }}
-          >
-            {r.label}
-          </button>
-        ))}
+        {/* One filter row above the charts, never repeated per chart. */}
+        <div className="seg">
+          {RANGES.map((r) => (
+            <button key={r.key} className={"seg-btn" + (rangeKey === r.key ? " active" : "")} onClick={() => setRangeKey(r.key)}>
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <div className="form-error">{error}</div>}
-      {loading && <p className="placeholder-note">Reading the record…</p>}
+      {loading && <p className="empty">Reading the record…</p>}
 
       {!loading && !hasAnything && (
-        <p className="placeholder-note">
+        <p className="empty">
           Nothing logged in this range yet. Track some time, log a win, or plan a day — this page fills itself in from what you record.
         </p>
       )}
 
       {!loading && hasAnything && (
         <>
-          <Summary totals={totals} categories={categories} habits={habits} rangeLabel={range.label.toLowerCase()} days={range.days} />
           <StatTiles totals={totals} />
+          <Summary totals={totals} categories={categories} habits={habits} rangeLabel={range.label.toLowerCase()} days={range.days} />
           <CategoryChart rows={categories} />
           <HabitChart rows={habits} />
           <Heatmap rows={heatmap} />
@@ -180,9 +175,9 @@ function Summary({ totals, categories, habits, rangeLabel, days }) {
   }, [totals, categories, habits, rangeLabel, days]);
 
   return (
-    <div className="card">
-      <div className="section-label">The short version</div>
-      <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.65, fontFamily: "var(--font-display)" }}>{text}</p>
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-head"><span className="card-title">The short version</span></div>
+      <p className="prose" style={{ margin: 0, whiteSpace: "normal" }}>{text}</p>
     </div>
   );
 }
@@ -201,13 +196,11 @@ function StatTiles({ totals }) {
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginTop: 14 }}>
+    <div className="grid grid--stats">
       {tiles.map((t) => (
-        <div key={t.label} className="card" style={{ padding: 14, margin: 0 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
-            {t.label}
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "var(--font-display)" }}>{t.value}</div>
+        <div key={t.label} className="stat">
+          <div className="stat-top"><span className="stat-label">{t.label}</span></div>
+          <div className="stat-value">{t.value}</div>
         </div>
       ))}
     </div>
@@ -237,34 +230,32 @@ function CategoryChart({ rows }) {
 
   return (
     <div className="card">
-      <div className="section-label">Where the time went</div>
-      {grouped.map((g) => (
-        <div key={g.category} style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {g.category}
-            </span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)", flexShrink: 0 }}>{fmtHours(g.minutes)}</span>
-          </div>
-          <div
-            style={{ height: 10, background: "var(--bg-inset)", borderRadius: 5, overflow: "hidden" }}
-            title={`${g.category}: ${fmtHours(g.minutes)}${g.subs.length ? ` — ${g.subs.map((s) => `${s.name} ${fmtHours(s.minutes)}`).join(", ")}` : ""}`}
-          >
-            <div style={{ width: `${(g.minutes / max) * 100}%`, height: "100%", background: BAR_COLOR, borderRadius: 5 }} />
-          </div>
-          {g.subs.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 }}>
-              {g.subs
+      <div className="card-head">
+        <span className="card-title">Where the time went</span>
+        <span className="mono faint" style={{ fontSize: 11.5 }}>{grouped.length} categories</span>
+      </div>
+      <RankedBars
+        rows={grouped.map((g) => ({ key: g.category, value: g.minutes, color: colorFor(g.category) }))}
+        format={fmtHours}
+        max={max}
+      />
+      {grouped.some((g) => g.subs.length > 0) && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+          <div className="eyebrow" style={{ marginBottom: 7 }}>Broken down</div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+            {grouped.flatMap((g) =>
+              [...g.subs]
                 .sort((a, b) => b.minutes - a.minutes)
-                .map((s) => (
-                  <span key={s.name} className="pill" style={{ fontSize: 10.5, padding: "2px 8px" }}>
-                    {s.name} · {fmtHours(s.minutes)}
+                .map((sub) => (
+                  <span key={`${g.category}-${sub.name}`} className="chip" style={{ fontSize: 10.5 }}>
+                    <span className="dot" style={{ background: colorFor(g.category), width: 6, height: 6 }} />
+                    {sub.name} · {fmtHours(sub.minutes)}
                   </span>
-                ))}
-            </div>
-          )}
+                ))
+            )}
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -278,31 +269,22 @@ function HabitChart({ rows }) {
 
   return (
     <div className="card">
-      <div className="section-label">Habit strength</div>
-      <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: "-4px 0 12px" }}>
+      <div className="card-head"><span className="card-title">Habit strength</span></div>
+      <p className="card-note" style={{ marginTop: -6, marginBottom: 14 }}>
         Share of logged attempts that were wins. Presented as information, not a verdict.
       </p>
-      {rows.map((h) => {
-        const rate = Number(h.win_rate) || 0;
-        return (
-          <div key={h.habit_label} style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, gap: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {h.habit_label}
-              </span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-muted)", flexShrink: 0 }}>
-                {h.wins}W · {h.losses}L · {h.active_days}d
-              </span>
-            </div>
-            <div
-              style={{ height: 10, background: "var(--bg-inset)", borderRadius: 5, overflow: "hidden" }}
-              title={`${h.habit_label}: ${Math.round(rate * 100)}% wins (${h.wins} wins, ${h.losses} losses across ${h.active_days} days)`}
-            >
-              <div style={{ width: `${rate * 100}%`, height: "100%", background: BAR_COLOR_STRONG, borderRadius: 5 }} />
-            </div>
-          </div>
-        );
-      })}
+      <RankedBars
+        rows={rows.map((h) => ({ key: h.habit_label, value: Math.round((Number(h.win_rate) || 0) * 100) }))}
+        format={(v) => `${v}%`}
+        max={100}
+      />
+      <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+        {rows.slice(0, 8).map((h) => (
+          <span key={h.habit_label} className="chip" style={{ fontSize: 10.5 }}>
+            {h.habit_label} · {h.wins}W {h.losses}L
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -326,20 +308,20 @@ function Heatmap({ rows }) {
 
   return (
     <div className="card">
-      <div className="section-label">When the hours happen</div>
+      <div className="card-head"><span className="card-title">When the hours happen</span></div>
       <div style={{ overflowX: "auto" }}>
         <div style={{ minWidth: 460 }}>
           <div style={{ display: "grid", gridTemplateColumns: "34px repeat(24, 1fr)", gap: 2, marginBottom: 3 }}>
             <span />
             {Array.from({ length: 24 }, (_, h) => (
-              <span key={h} style={{ fontSize: 8, textAlign: "center", color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+              <span key={h} style={{ fontSize: 8, textAlign: "center", color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
                 {h % 6 === 0 ? h : ""}
               </span>
             ))}
           </div>
           {grid.map((row, dow) => (
             <div key={dow} style={{ display: "grid", gridTemplateColumns: "34px repeat(24, 1fr)", gap: 2, marginBottom: 2 }}>
-              <span style={{ fontSize: 9.5, color: "var(--text-muted)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 9.5, color: "var(--text-2)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center" }}>
                 {WEEKDAYS[dow]}
               </span>
               {row.map((mins, hour) => (
@@ -349,7 +331,7 @@ function Heatmap({ rows }) {
                   style={{
                     aspectRatio: "1",
                     borderRadius: 2,
-                    background: mins > 0 ? intensityColor(mins / max) : "var(--bg-inset)",
+                    background: mins > 0 ? intensityColor(mins / max) : "var(--inset)",
                   }}
                 />
               ))}
@@ -357,7 +339,7 @@ function Heatmap({ rows }) {
           ))}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 10, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
         <span>NONE</span>
         <div
           style={{
@@ -365,7 +347,7 @@ function Heatmap({ rows }) {
             height: 6,
             borderRadius: 3,
             background: `linear-gradient(90deg, ${intensityColor(0)}, ${intensityColor(0.35)}, ${intensityColor(0.7)}, ${intensityColor(1)})`,
-            border: "1px solid var(--border)",
+            border: "1px solid var(--line)",
           }}
         />
         <span>{fmtHours(max).toUpperCase()}</span>

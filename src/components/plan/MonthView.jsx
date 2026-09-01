@@ -1,101 +1,65 @@
 import { useEffect, useState } from "react";
-import { fetchPlanSummary } from "../../lib/api";
-import { monthGrid, startOfMonth, endOfMonth, parseDateStr, todayStr, dayIntensity } from "../../lib/planDates";
-import { intensityColor, intensityTextColor } from "../../lib/nodeStyle";
+import { useAuth } from "../../context/AuthContext";
+import { fetchPlanSummary, fetchRangeTimeByDay } from "../../lib/api";
+import { MonthCell } from "../DayCard";
+import { monthGrid, startOfMonth, endOfMonth } from "../../lib/planDates";
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// The month birdseye: every day of the month at once, each cell lit by how
-// much actually happened on it (see dayIntensity) — the "10,000 foot view"
-// one level down from the year. Tap any day to drop into it.
+// The month, as the same day cards shrunk to squares. Each one still carries
+// its colour strip and its completion count, so the grid reads as a month of
+// days rather than a heat map of an abstract "intensity" — you can see which
+// days were full of what, not just which were busy.
 export default function MonthView({ monthDate, onPickDay }) {
+  const { user } = useAuth();
   const [summaryByDay, setSummaryByDay] = useState(new Map());
+  const [timeByDay, setTimeByDay] = useState(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchPlanSummary(startOfMonth(monthDate), endOfMonth(monthDate))
-      .then((rows) => {
+    const start = startOfMonth(monthDate);
+    const end = endOfMonth(monthDate);
+    Promise.all([
+      fetchPlanSummary(start, end).catch(() => []),
+      user?.id ? fetchRangeTimeByDay(user.id, start, end).catch(() => new Map()) : Promise.resolve(new Map()),
+    ])
+      .then(([rows, time]) => {
         if (cancelled) return;
         setSummaryByDay(new Map(rows.map((r) => [r.day, r])));
+        setTimeByDay(time);
       })
-      .catch(() => {})
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [monthDate]);
+  }, [monthDate, user?.id]);
 
   const cells = monthGrid(monthDate);
-  const today = todayStr();
 
   return (
-    <div className="card">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
-        {WEEKDAYS.map((d, i) => (
-          <div key={i} style={{ textAlign: "center", fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-faint)", textTransform: "uppercase" }}>
-            {d}
-          </div>
+    <div className="card" style={{ opacity: loading ? 0.55 : 1, transition: "opacity 0.2s" }}>
+      <div className="month-grid" style={{ marginBottom: 8 }}>
+        {WEEKDAYS.map((d) => (
+          <div key={d} className="eyebrow" style={{ textAlign: "center", fontSize: 9.5 }}>{d.slice(0, 2)}</div>
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-        {cells.map((dateStr, i) => {
-          if (!dateStr) return <div key={`blank-${i}`} />;
-          const s = summaryByDay.get(dateStr);
-          const intensity = dayIntensity(s);
-          const isToday = dateStr === today;
-          const dayNum = parseDateStr(dateStr).getDate();
-          const hasTasks = s && s.task_count > 0;
-
-          return (
-            <button
+      <div className="month-grid">
+        {cells.map((dateStr, i) =>
+          dateStr ? (
+            <MonthCell
               key={dateStr}
+              date={dateStr}
+              summary={summaryByDay.get(dateStr)}
+              timeRows={timeByDay.get(dateStr) ?? []}
               onClick={() => onPickDay(dateStr)}
-              title={s ? `${s.chunk_count} blocks · ${s.done_count}/${s.task_count} tasks · ${Math.round(Number(s.logged_minutes))}m logged` : undefined}
-              style={{
-                aspectRatio: "1",
-                borderRadius: 8,
-                border: isToday ? "1.5px solid var(--accent-strong)" : "1px solid var(--border)",
-                background: intensity > 0 ? intensityColor(intensity) : "var(--bg-inset)",
-                color: intensity > 0 ? intensityTextColor(intensity) : "var(--text)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 2,
-                padding: 2,
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                fontWeight: isToday ? 700 : 500,
-                opacity: loading ? 0.5 : 1,
-                transition: "background 0.2s, opacity 0.2s",
-              }}
-            >
-              {dayNum}
-              {hasTasks && (
-                <span style={{ fontSize: 8.5, opacity: 0.85, lineHeight: 1 }}>
-                  {s.done_count}/{s.task_count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontSize: 10.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
-        <span>QUIET</span>
-        <div
-          style={{
-            flex: 1,
-            height: 6,
-            borderRadius: 3,
-            background: `linear-gradient(90deg, ${intensityColor(0)}, ${intensityColor(0.35)}, ${intensityColor(0.7)}, ${intensityColor(1)})`,
-            border: "1px solid var(--border)",
-          }}
-        />
-        <span>FULL</span>
+            />
+          ) : (
+            <MonthCell key={`blank-${i}`} date={null} />
+          )
+        )}
       </div>
     </div>
   );

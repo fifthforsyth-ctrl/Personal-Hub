@@ -159,8 +159,8 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
   return (
     <>
       {rolledMsg && (
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--accent-dim)", border: "1px solid var(--accent-strong)", marginBottom: 14 }}>
-          <RotateCcw size={14} color="var(--accent-strong)" />
+        <div className="card card--accent" style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--accent-soft)", marginBottom: 14, padding: 14 }}>
+          <RotateCcw size={15} color="var(--accent)" />
           <span style={{ fontSize: 13 }}>{rolledMsg}</span>
         </div>
       )}
@@ -275,7 +275,7 @@ function StalledCard({ stalled, onRevive, onDelete }) {
         <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
           <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{t.title}</span>
           <span className="entry-meta">{t.date}</span>
-          <button onClick={() => onRevive(t.id)} style={{ ...iconBtnStyle, color: "var(--accent-strong)" }} title="Bring to today">
+          <button onClick={() => onRevive(t.id)} style={{ ...iconBtnStyle, color: "var(--accent)" }} title="Bring to today">
             <RotateCcw size={13} />
           </button>
           <button onClick={() => onDelete(t.id)} style={iconBtnStyle} title="Let it go">
@@ -483,11 +483,11 @@ function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, onAddTask, onA
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
             {fmtTime(chunk.start_time)} – {fmtTime(chunk.end_time)}
           </div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginTop: 2 }}>{chunk.title}</div>
+          <div style={{ fontWeight: 620, fontSize: 15, marginTop: 3, letterSpacing: "-0.01em" }}>{chunk.title}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {goal && <span className="pill" style={{ fontSize: 11 }}>{goal.title}</span>}
             {tasks.length > 0 && (
-              <span className="pill" style={{ fontSize: 11, color: done === tasks.length ? "var(--accent-strong)" : "var(--text-muted)" }}>
+              <span className="pill" style={{ fontSize: 11, color: done === tasks.length ? "var(--accent)" : "var(--text-2)" }}>
                 {done}/{tasks.length}
               </span>
             )}
@@ -524,7 +524,7 @@ function TaskRow({ task, subtasks, chunks, onToggle, onToggleSub, onDelete, onAd
           {task.title}
         </span>
         {task.rollover_count > 0 && (
-          <span className="pill" style={{ fontSize: 10, color: "var(--danger)", borderColor: "var(--danger)", flexShrink: 0 }} title={`Moved forward ${task.rollover_count} day(s) in a row`}>
+          <span className="pill" style={{ fontSize: 10, color: "var(--danger-text)", borderColor: "rgba(217,69,59,0.5)", flexShrink: 0 }} title={`Moved forward ${task.rollover_count} day(s) in a row`}>
             moved {task.rollover_count}×
           </span>
         )}
@@ -626,13 +626,13 @@ function AddChunkForm({ goalOptions, onSave, onCancel }) {
 
 function chipStyle(active) {
   return {
-    background: active ? "var(--accent-dim)" : "var(--bg-inset)",
-    border: `1px solid ${active ? "var(--accent-strong)" : "var(--border)"}`,
-    color: active ? "var(--text)" : "var(--text-muted)",
-    borderRadius: 999,
-    padding: "6px 12px",
+    background: active ? "var(--accent)" : "var(--inset)",
+    border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
+    color: active ? "var(--on-accent)" : "var(--text-2)",
+    borderRadius: "var(--r-pill)",
+    padding: "6px 13px",
     fontSize: 12,
-    fontWeight: 600,
+    fontWeight: active ? 650 : 550,
   };
 }
 
@@ -641,11 +641,13 @@ const addCardStyle = {
   alignItems: "center",
   justifyContent: "center",
   gap: 6,
-  color: "var(--accent-strong)",
-  fontWeight: 700,
+  color: "var(--accent)",
+  fontWeight: 600,
   fontSize: 13,
   cursor: "pointer",
-  border: "1px dashed var(--border-strong)",
+  border: "1px dashed var(--line-strong)",
+  borderRadius: "var(--r-lg)",
+  padding: 16,
   background: "transparent",
   width: "100%",
 };
@@ -663,19 +665,19 @@ const iconBtnStyle = {
 const textBtnStyle = {
   display: "flex",
   alignItems: "center",
-  gap: 4,
+  gap: 5,
   background: "none",
   border: "none",
-  color: "var(--accent-strong)",
-  fontSize: 12,
-  fontWeight: 700,
+  color: "var(--accent)",
+  fontSize: 12.5,
+  fontWeight: 600,
   padding: 0,
 };
 
 const miniSelectStyle = {
-  background: "var(--bg-inset)",
-  border: "1px solid var(--border)",
-  borderRadius: 6,
+  background: "var(--inset)",
+  border: "1px solid var(--line)",
+  borderRadius: "var(--r-sm)",
   color: "var(--text-muted)",
   fontSize: 10.5,
   padding: "3px 4px",
@@ -685,9 +687,9 @@ const miniSelectStyle = {
 
 const inputStyle = {
   width: "100%",
-  background: "var(--bg-inset)",
-  border: "1px solid var(--border)",
-  borderRadius: 6,
+  background: "var(--inset)",
+  border: "1px solid var(--line)",
+  borderRadius: "var(--r)",
   padding: "10px 12px",
   color: "var(--text)",
   fontSize: 13.5,

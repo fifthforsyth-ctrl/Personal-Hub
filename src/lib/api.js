@@ -632,18 +632,24 @@ export async function fetchArchiveDays(limit = 120) {
   return data ?? [];
 }
 
-export async function saveJournalEntry(userId, dateStr, { thoughts, gratitude, godsHand }) {
-  const { error } = await supabase.from("journal_entries").upsert(
-    {
-      user_id: userId,
-      date: dateStr,
-      thoughts: thoughts || null,
-      gratitude: gratitude || null,
-      gods_hand: godsHand || null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,date" }
-  );
+export async function saveJournalEntry(userId, dateStr, fields) {
+  const { thoughts, gratitude, godsHand, qChrist, qPrinciples, qSuccess, completed } = fields;
+  const row = {
+    user_id: userId,
+    date: dateStr,
+    thoughts: thoughts || null,
+    gratitude: gratitude || null,
+    gods_hand: godsHand || null,
+    q_christ: qChrist || null,
+    q_principles: qPrinciples || null,
+    q_success: qSuccess || null,
+    updated_at: new Date().toISOString(),
+  };
+  // Only stamped on the pass that finishes the reflection — saving a draft
+  // must never make the day look reflected-on when it isn't.
+  if (completed) row.reflection_completed_at = new Date().toISOString();
+
+  const { error } = await supabase.from("journal_entries").upsert(row, { onConflict: "user_id,date" });
   if (error) throw error;
 }
 
@@ -761,8 +767,19 @@ async function callAssistant(action, payload = {}) {
   return body;
 }
 
-export function proposePlans() {
-  return callAssistant("propose_plan");
+// `notes` is whatever you typed into "anything I should know about
+// tomorrow?" before pressing generate — the one piece of context the app
+// cannot read off your own logs.
+export function proposePlans({ notes, forDate } = {}) {
+  return callAssistant("propose_plan", { notes: notes || null, for_date: forDate || null });
+}
+
+// "Map out my sleep over the past 6 months." The question goes to the
+// assistant, which writes a read-only query against your own tables and
+// picks a chart form for the answer; the query runs server-side under your
+// RLS, so nothing it can reach is anything you couldn't already read.
+export function askChart(question) {
+  return callAssistant("ask_chart", { question });
 }
 
 // Reads descriptions over a date range and proposes which goal each stretch
@@ -888,7 +905,7 @@ export async function fetchGoalPaths(userId) {
         seen.add(cur);
         parts.unshift(titleById.get(cur) ?? "?");
       }
-      return { id: n.id, title: n.title, path: parts.join(" › "), depth: parts.length - 1 };
+      return { id: n.id, title: n.title, path: parts.join(" › "), depth: parts.length - 1, is_focused: n.is_focused ?? false };
     })
     .sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -899,4 +916,130 @@ export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+
+// ---------------------------------------------------------------------------
+// Phase 5 — the Day Card and the desktop home.
+// ---------------------------------------------------------------------------
+
+// Everything ever logged, by tag. The pie on the home page is explicitly a
+// lifetime view, so the window starts before any row could exist rather than
+// at some arbitrary "far enough back".
+export function fetchLifetimeByCategory() {
+  const end = new Date();
+  end.setDate(end.getDate() + 1);
+  return reflectionRpc("time_by_category", "1970-01-01", end.toISOString().slice(0, 10));
+}
+
+// Notes you leave for a day before its plan is drafted. Upserts the day_plan
+// row, which may not exist yet on a day nothing has touched.
+export async function setDayNotes(userId, dateStr, notes) {
+  const { error } = await supabase
+    .from("day_plans")
+    .upsert({ user_id: userId, date: dateStr, notes: notes || null }, { onConflict: "user_id,date" });
+  if (error) throw error;
+}
+
+// One call for everything the whole-day view shows, so opening a day is a
+// single round trip rather than nine.
+export async function fetchDayEverything(userId, dateStr) {
+  const [archive, plan, chunks, tasks] = await Promise.all([
+    fetchDayArchive(dateStr),
+    fetchDayPlan(userId, dateStr),
+    fetchTimeChunks(userId, dateStr),
+    fetchTasks(userId, dateStr),
+  ]);
+  return { archive: archive ?? {}, plan, chunks, tasks };
+}
+
+// A week of day cards needs every block and task in the range at once —
+// seven separate day fetches would be seven round trips for one screen.
+export async function fetchRangePlan(userId, startDate, endDate) {
+  const [{ data: chunks, error: e1 }, { data: tasks, error: e2 }] = await Promise.all([
+    supabase
+      .from("time_chunks")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("start_time", { ascending: true }),
+    supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("position", { ascending: true }),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  return { chunks: chunks ?? [], tasks: tasks ?? [] };
+}
+
+// Minutes per category per day across a range — what paints the coloured
+// strip on each day card in the week and month grids.
+export async function fetchRangeTimeByDay(userId, startDate, endDate) {
+  const tz = localZone();
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("category, tags, duration_minutes, started_at")
+    .eq("user_id", userId)
+    .gte("started_at", new Date(`${startDate}T00:00:00`).toISOString())
+    .lt("started_at", new Date(new Date(`${endDate}T00:00:00`).getTime() + 86400000).toISOString());
+  if (error) throw error;
+
+  const byDay = new Map();
+  for (const e of data ?? []) {
+    // Bucketed in the browser's own zone so a 10pm entry belongs to tonight.
+    const day = new Date(e.started_at).toLocaleDateString("en-CA", { timeZone: tz });
+    if (!byDay.has(day)) byDay.set(day, new Map());
+    const bucket = byDay.get(day);
+    const tags = e.tags?.length ? e.tags : [e.category];
+    const mins = Number(e.duration_minutes) || 0;
+    for (const t of tags) bucket.set(t, (bucket.get(t) ?? 0) + mins);
+  }
+
+  return new Map(
+    [...byDay.entries()].map(([day, bucket]) => [
+      day,
+      [...bucket.entries()].map(([category, minutes]) => ({ category, minutes })).sort((a, b) => b.minutes - a.minutes),
+    ])
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The day bank — closing a day out.
+// ---------------------------------------------------------------------------
+
+// Writes the synopsis and stamps the day banked in one go, so a day can never
+// end up marked finished with no summary on it.
+export async function bankDay(userId, dateStr, synopsis) {
+  const { error } = await supabase.from("day_plans").upsert(
+    {
+      user_id: userId,
+      date: dateStr,
+      synopsis: synopsis || null,
+      banked_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,date" }
+  );
+  if (error) throw error;
+}
+
+// Reopening a banked day keeps the synopsis — you're editing the day, not
+// throwing away what was written about it.
+export async function unbankDay(userId, dateStr) {
+  const { error } = await supabase
+    .from("day_plans")
+    .update({ banked_at: null })
+    .eq("user_id", userId)
+    .eq("date", dateStr);
+  if (error) throw error;
+}
+
+// Asks the assistant to read the whole day and write a few sentences about
+// it. Returns the text without saving — banking is what saves it.
+export function writeDaySynopsis(dateStr) {
+  return callAssistant("day_synopsis", { date: dateStr });
 }

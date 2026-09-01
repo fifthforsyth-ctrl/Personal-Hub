@@ -1,10 +1,12 @@
-// Visual language for the goal-tree wheel — same mechanic as Symposium's
-// (hue by ring depth, brightness by recency, gold focus rim, neutral hover
-// rim) but its own palette: deep indigo at the center easing through plum
-// to warm gold at the rim, rather than Symposium's purple-to-blue hiking
-// ramp. "Let your light so shine" (Matt. 5:16) — the center (identity,
-// formed inwardly) is dim and deep; the outer rings (today's actions) are
-// where it breaks into light. Same gradient the app icon uses.
+// Visual language for the goal-tree wheel — hue by ring depth, brightness by
+// recency, accent focus rim, neutral hover rim.
+//
+// One sequential ramp, deep and cool at the center easing to the app's coral
+// accent at the rim. "Let your light so shine" (Matt. 5:16): the center
+// (identity, formed inwardly) is dim and deep; the outer rings (today's
+// actions) are where it breaks into light. Because it is a single ramp rather
+// than a set of hues, depth reads as depth — nothing here is trying to tell
+// two goals apart by colour.
 
 export const TRACKING_LABEL = {
   checkbox: "Checkbox",
@@ -12,18 +14,18 @@ export const TRACKING_LABEL = {
   note: "Note",
 };
 
-export const FOCUS_COLOR = "#f0b23c";
-export const FOCUS_RING = "0 0 0 3px #f0b23c, 0 0 16px rgba(240, 178, 60, 0.5)";
-export const HOVER_COLOR = "#f3efe8";
+export const FOCUS_COLOR = "#ff6f52";
+export const FOCUS_RING = "0 0 0 3px #ff6f52, 0 0 16px rgba(255, 111, 82, 0.5)";
+export const HOVER_COLOR = "#f4f4f5";
 
 // A dark, hue-independent divider — visible against any fill color.
-export const WEDGE_SEPARATOR = "#050408";
+export const WEDGE_SEPARATOR = "#08080a";
 
 const RING_STOPS = [
-  { t: 0.0, rgb: [0x2a, 0x1f, 0x52] }, // indigo — identity/character
-  { t: 0.35, rgb: [0x54, 0x2a, 0x54] }, // plum
-  { t: 0.68, rgb: [0xa8, 0x55, 0x3a] }, // ember
-  { t: 1.0, rgb: [0xf0, 0xb2, 0x3c] }, // gold — daily action
+  { t: 0.0, rgb: [0x2b, 0x24, 0x38] }, // deep violet-grey — identity/character
+  { t: 0.35, rgb: [0x5a, 0x27, 0x38] }, // maroon
+  { t: 0.68, rgb: [0xa8, 0x3c, 0x2f] }, // ember
+  { t: 1.0, rgb: [0xff, 0x7a, 0x5c] }, // coral — daily action
 ];
 const HUE_RINGS = 6; // depth at which the ramp settles into its outermost color
 
@@ -62,7 +64,7 @@ export function getNodeVisual(ringIndex, tier) {
     tier,
     background: withAlpha(hue, fillAlpha),
     border: withAlpha(hue, 0.5),
-    text: textIsDark ? "#0d0906" : "#f3efe8",
+    text: textIsDark ? "#1a0703" : "#f4f4f5",
     textShadow: textIsDark ? "none" : "0 1px 3px rgba(0,0,0,0.6)",
     glow: glowAlpha > 0 ? `0 0 0 1px ${withAlpha(hue, 0.6)}, 0 0 20px ${withAlpha(hue, glowAlpha)}` : "none",
   };
@@ -78,7 +80,7 @@ export function getWedgeVisual(ringIndex, brightness) {
     fill: withAlpha(hue, fillAlpha),
     stroke: WEDGE_SEPARATOR,
     strokeWidth: 2,
-    labelColor: fillAlpha >= 0.55 ? "#0d0906" : "#f3efe8",
+    labelColor: fillAlpha >= 0.62 ? "#1a0703" : "#f4f4f5",
     glowFilter: brightness >= 0.7 ? "url(#wedge-glow)" : "none",
   };
 }
@@ -93,10 +95,10 @@ export function getWedgeVisual(ringIndex, brightness) {
 // through the whole middle of the range, which is exactly where most real
 // days live. Cool and deep when quiet, warm and bright when full.
 const INTENSITY_STOPS = [
-  { t: 0.0, rgb: [0x18, 0x14, 0x22] }, // barely above the inset surface
-  { t: 0.35, rgb: [0x4a, 0x2a, 0x55] }, // plum
-  { t: 0.7, rgb: [0xa8, 0x55, 0x3a] }, // ember
-  { t: 1.0, rgb: [0xf0, 0xb2, 0x3c] }, // gold
+  { t: 0.0, rgb: [0x1c, 0x1c, 0x20] }, // barely above the inset surface
+  { t: 0.35, rgb: [0x4d, 0x24, 0x2f] }, // maroon
+  { t: 0.7, rgb: [0xa8, 0x3c, 0x2f] }, // ember
+  { t: 1.0, rgb: [0xff, 0x7a, 0x5c] }, // coral
 ];
 
 export function intensityColor(t) {
@@ -112,11 +114,11 @@ export function intensityColor(t) {
   return rgbToHex(INTENSITY_STOPS[INTENSITY_STOPS.length - 1].rgb);
 }
 
-// Only the gold end of the ramp is light enough to need dark text; the
-// threshold sits past the ember stop so neighboring days don't flip back
-// and forth across it.
+// Only the top of the ramp is light enough to need dark text; the threshold
+// sits past the ember stop so neighboring days don't flip back and forth
+// across it.
 export function intensityTextColor(t) {
-  return t >= 0.82 ? "#180f00" : "#f3efe8";
+  return t >= 0.86 ? "#1a0703" : "#f4f4f5";
 }
 
 function rgbToHex([r, g, b]) {

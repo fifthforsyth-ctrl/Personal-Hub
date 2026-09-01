@@ -9,3 +9,9 @@ dev-dist
 # local secrets for scripts/
 scripts/.env.local
 .env.local
+
+# supabase CLI scratch
+supabase/.temp
+
+# local scheduler lock
+.claude/scheduled_tasks.lock

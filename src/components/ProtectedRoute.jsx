@@ -1,7 +1,10 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { TopBar, BottomTabs } from "./NavBar";
+import { Sidebar, TopBar, BottomTabs } from "./NavBar";
 
+// Both navigations are always mounted; CSS decides which one is real at this
+// width. Keeping it in CSS rather than JS means no flash of the wrong chrome
+// on first paint and no resize listener to keep in sync.
 export default function ProtectedRoute() {
   const { user, loading } = useAuth();
 
@@ -9,11 +12,12 @@ export default function ProtectedRoute() {
   if (!user) return <Navigate to="/login" replace />;
 
   return (
-    <div className="app-shell">
+    <div className="shell">
+      <Sidebar />
       <TopBar />
-      <div className="app-content">
+      <main className="main">
         <Outlet />
-      </div>
+      </main>
       <BottomTabs />
     </div>
   );
