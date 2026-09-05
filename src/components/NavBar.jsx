@@ -9,6 +9,7 @@ import {
   LogOut,
   Flame,
   BookOpen,
+  GraduationCap,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { todayStr } from "../lib/planDates";
@@ -20,6 +21,7 @@ export const NAV = [
   { to: "/", label: "Home", Icon: LayoutDashboard, end: true },
   { to: "/day", label: "Day", Icon: CalendarDays },
   { to: "/plan", label: "Plan", Icon: CalendarRange },
+  { to: "/study", label: "Study", Icon: GraduationCap },
   { to: "/tree", label: "Goals", Icon: GitBranch },
   { to: "/reflect", label: "Reflect", Icon: BarChart3 },
 ];
@@ -57,7 +59,7 @@ export function Sidebar() {
       <div className="side-foot">
         <NavLink to="/spirit" className={({ isActive }) => "side-link" + (isActive ? " active" : "")}>
           <BookOpen size={17} strokeWidth={2} />
-          Study &amp; spirit
+          Promptings &amp; prayer
         </NavLink>
         <NavLink to="/links" className={({ isActive }) => "side-link" + (isActive ? " active" : "")}>
           <Link2 size={17} strokeWidth={2} />

@@ -259,6 +259,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .bottom-tab.active { color: var(--text); background: var(--card); }
 .bottom-tab.active svg { color: var(--accent); }
 
+/* Six tabs at 375px leaves ~60px each; the label has to give a little. */
+@media (max-width: 400px) {
+  .bottom-tab { font-size: 9px; gap: 2px; }
+}
+
 /* ---------------------------------------------------------------------------
    Cards
    --------------------------------------------------------------------------- */

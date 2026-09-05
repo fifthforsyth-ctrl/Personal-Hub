@@ -1043,3 +1043,153 @@ export async function unbankDay(userId, dateStr) {
 export function writeDaySynopsis(dateStr) {
   return callAssistant("day_synopsis", { date: dateStr });
 }
+
+// ---------------------------------------------------------------------------
+// The student section — reading notes, highlights, and sub-notes.
+// ---------------------------------------------------------------------------
+
+// The whole shelf in one call. The directory is a tree and trees are built in
+// memory; fetching per level would mean a round trip per expand.
+export async function fetchNotes(userId) {
+  const { data, error } = await supabase
+    .from("study_notes")
+    .select("id, title, body, excerpt, note_kind, parent_note_id, position, pinned, source_kind, source_ref, studied_on, tags, ai_theme, ai_summary, linked_goal_id, obsidian_uid, last_surfaced_at, surfaced_count, created_at, updated_at")
+    .eq("user_id", userId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchNote(noteId) {
+  const { data, error } = await supabase.from("study_notes").select("*").eq("id", noteId).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createNote(userId, fields = {}) {
+  const row = {
+    user_id: userId,
+    title: fields.title?.trim() || "Untitled",
+    body: fields.body ?? "",
+    excerpt: fields.excerpt ?? null,
+    note_kind: fields.noteKind ?? "thought",
+    parent_note_id: fields.parentId ?? null,
+    source_kind: fields.sourceKind ?? "other",
+    source_ref: fields.sourceRef ?? null,
+    studied_on: fields.studiedOn ?? new Date().toISOString().slice(0, 10),
+    tags: fields.tags ?? [],
+    position: fields.position ?? 0,
+  };
+  const { data, error } = await supabase.from("study_notes").insert(row).select("*").single();
+  if (error) throw error;
+  // Verse references are indexed the same way here as everywhere else, so a
+  // note that mentions Alma 32 shows up under Alma 32 on the scripture page.
+  await syncScriptureRefs(userId, "study_note", data.id, data.title, data.body).catch(() => {});
+  return data;
+}
+
+export async function updateNote(userId, noteId, fields) {
+  const row = { updated_at: new Date().toISOString() };
+  if (fields.title !== undefined) row.title = fields.title.trim() || "Untitled";
+  if (fields.body !== undefined) row.body = fields.body;
+  if (fields.sourceRef !== undefined) row.source_ref = fields.sourceRef || null;
+  if (fields.sourceKind !== undefined) row.source_kind = fields.sourceKind;
+  if (fields.parentId !== undefined) row.parent_note_id = fields.parentId;
+  if (fields.pinned !== undefined) row.pinned = fields.pinned;
+  if (fields.noteKind !== undefined) row.note_kind = fields.noteKind;
+  if (fields.tags !== undefined) row.tags = fields.tags;
+
+  const { data, error } = await supabase.from("study_notes").update(row).eq("id", noteId).select("*").single();
+  if (error) throw error;
+  if (fields.title !== undefined || fields.body !== undefined) {
+    await syncScriptureRefs(userId, "study_note", noteId, data.title, data.body).catch(() => {});
+  }
+  return data;
+}
+
+// Children are re-parented to the deleted note's own parent rather than left
+// pointing at nothing — the database would null them to the top level, which
+// loses where they came from.
+export async function deleteNote(noteId) {
+  const { data: note } = await supabase.from("study_notes").select("parent_note_id").eq("id", noteId).single();
+  await supabase.from("study_notes").update({ parent_note_id: note?.parent_note_id ?? null }).eq("parent_note_id", noteId);
+  const { error } = await supabase.from("study_notes").delete().eq("id", noteId);
+  if (error) throw error;
+}
+
+export async function fetchHighlights(userId, noteIds) {
+  if (!noteIds?.length) return [];
+  const { data, error } = await supabase
+    .from("note_highlights")
+    .select("*")
+    .eq("user_id", userId)
+    .in("note_id", noteIds)
+    .order("start_offset", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createHighlight(userId, { noteId, quotedText, startOffset, endOffset, color = "accent", childNoteId = null }) {
+  const { data, error } = await supabase
+    .from("note_highlights")
+    .insert({
+      user_id: userId,
+      note_id: noteId,
+      quoted_text: quotedText,
+      start_offset: startOffset,
+      end_offset: endOffset,
+      color,
+      child_note_id: childNoteId,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteHighlight(highlightId) {
+  const { error } = await supabase.from("note_highlights").delete().eq("id", highlightId);
+  if (error) throw error;
+}
+
+// Highlight a passage, then promote it into its own note — one operation, so
+// a failure can't leave a highlight pointing at a note that was never made.
+export async function createSubNoteFromHighlight(userId, { noteId, quotedText, startOffset, endOffset, title, sourceRef, position, noteKind }) {
+  const child = await createNote(userId, {
+    title: title || quotedText.slice(0, 70),
+    body: "",
+    excerpt: quotedText,
+    parentId: noteId,
+    sourceRef,
+    noteKind,
+    position: position ?? 0,
+  });
+  const highlight = await createHighlight(userId, {
+    noteId,
+    quotedText,
+    startOffset,
+    endOffset,
+    childNoteId: child.id,
+  });
+  return { child, highlight };
+}
+
+export async function fetchNotesToResurface(limit = 3) {
+  const { data, error } = await supabase.rpc("notes_to_resurface", { p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markNoteSurfaced(noteId) {
+  const { error } = await supabase.rpc("mark_note_surfaced", { p_note_id: noteId });
+  if (error) throw error;
+}
+
+// The note of the day. Deterministic per date server-side, so it doesn't
+// change under you when you reload or pick up your phone.
+export async function fetchNoteOfTheDay(dateStr) {
+  const { data, error } = await supabase.rpc("note_of_the_day", { p_date: dateStr });
+  if (error) throw error;
+  return (data ?? [])[0] ?? null;
+}
