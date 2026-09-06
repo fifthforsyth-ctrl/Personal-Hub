@@ -16,7 +16,7 @@ import { computeWheel } from "../lib/wheel";
 import PyramidWheel from "../components/tree/PyramidWheel";
 import { Donut, Legend } from "../components/charts";
 import AskClaude from "../components/AskClaude";
-import DailyNote from "../components/study/DailyNote";
+import CuratedCards from "../components/curator/CuratedCards";
 import Capture from "../components/Capture";
 import { DayCard } from "../components/DayCard";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
@@ -43,7 +43,7 @@ function MobileHome({ userId }) {
         <h1 className="page-title" style={{ fontSize: 21, marginTop: 2 }}>Capture</h1>
       </div>
       <div className="stack">
-        <DailyNote compact />
+        <CuratedCards slot="home" title="For today" compact />
         <Capture userId={userId} />
       </div>
     </div>
@@ -197,7 +197,7 @@ function DesktopHome({ userId }) {
           </div>
         </div>
 
-        <DailyNote />
+        <CuratedCards slot="home" title="For today" />
 
         {/* Today, as the same card object it is everywhere else. */}
         <div className="grid" style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr", alignItems: "start" }}>

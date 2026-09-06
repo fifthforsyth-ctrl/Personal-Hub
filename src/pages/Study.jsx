@@ -32,6 +32,7 @@ import {
 import NoteTree from "../components/study/NoteTree";
 import NoteReader from "../components/study/NoteReader";
 import CaptureBar from "../components/study/CaptureBar";
+import QuoteWall from "../components/study/QuoteWall";
 import { KindChip, KindFilter } from "../components/study/KindChip";
 import { buildTree } from "../lib/noteText";
 import { NOTE_KINDS, kindOf } from "../lib/noteKinds";
@@ -53,6 +54,7 @@ export default function Study() {
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState(null);
   const [shelfOpen, setShelfOpen] = useState(false);
+  const [view, setView] = useState("stream");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState(null);
@@ -245,11 +247,19 @@ export default function Study() {
                 </div>
               </div>
 
-              <div style={{ marginBottom: 16 }}>
+              <div className="row row--between" style={{ marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
                 <KindFilter counts={kindCounts} active={kindFilter} onChange={setKindFilter} />
+                <div className="seg">
+                  <button className={"seg-btn" + (view === "stream" ? " active" : "")} onClick={() => setView("stream")}>Stream</button>
+                  <button className={"seg-btn" + (view === "wall" ? " active" : "")} onClick={() => setView("wall")}>Wall</button>
+                </div>
               </div>
 
-              <Streams notes={filtered} kindFilter={kindFilter} onOpen={select} />
+              {view === "wall" ? (
+                <QuoteWall notes={filtered} onOpen={select} onChanged={reload} />
+              ) : (
+                <Streams notes={filtered} kindFilter={kindFilter} onOpen={select} />
+              )}
             </div>
           )}
 

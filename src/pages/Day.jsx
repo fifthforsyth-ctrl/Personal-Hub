@@ -29,6 +29,7 @@ import GoalLinkSuggestions from "../components/GoalLinkSuggestions";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import Tomorrow from "../components/day/Tomorrow";
 import CloseOut from "../components/day/CloseOut";
+import CuratedCards from "../components/curator/CuratedCards";
 import BankedDayCard from "../components/day/BankedDayCard";
 import { MinutesView } from "../components/Capture";
 import { Legend } from "../components/charts";
@@ -242,6 +243,11 @@ export default function Day() {
               </div>
             </div>
           )}
+
+          {/* Placed above the reflection on purpose: what an old note or a
+              mentor's counsel says about today is worth reading BEFORE you
+              answer the questions, not after you've closed them. */}
+          {isToday && <CuratedCards slot="day" date={date} title="Worth holding today" />}
 
           <ReflectionFlow userId={user?.id} date={date} journal={a.journal} onSaved={reload} />
 

@@ -21,6 +21,7 @@ import {
   createChunkTemplate,
 } from "../../lib/api";
 import { todayStr, fmtTime, minutesOf } from "../../lib/planDates";
+import ChunkNotes from "../day/ChunkNotes";
 
 const ENERGY_TAGS = ["Open day", "Heavy edit day", "Deep focus", "Recovery day"];
 
@@ -202,6 +203,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
           tasks={byChunk.get(chunk.id) ?? []}
           subtasksByParent={subtasksByParent}
           goalOptions={goalOptions}
+          date={date}
           onAddTask={(title) => handleAddTask(chunk.id, title)}
           onAddSubtask={handleAddSubtask}
           onToggle={handleToggle}
@@ -472,7 +474,7 @@ function NewChunkTemplateForm({ userId, goalOptions, onCancel, onSaved }) {
   );
 }
 
-function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, onAddTask, onAddSubtask, onToggle, onDeleteTask, onDeleteChunk }) {
+function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTask, onAddSubtask, onToggle, onDeleteTask, onDeleteChunk }) {
   const goal = goalOptions.find((g) => g.id === chunk.goal_node_id);
   const done = tasks.filter((t) => t.status).length;
 
@@ -510,6 +512,9 @@ function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, onAddTask, onA
         />
       ))}
       <InlineAdd placeholder="Add a task…" onAdd={onAddTask} />
+
+      {/* Where meeting notes live: on the hour they happened in. */}
+      <ChunkNotes chunk={chunk} date={date} />
     </div>
   );
 }

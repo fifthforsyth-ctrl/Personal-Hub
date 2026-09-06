@@ -1,9 +1,9 @@
 // What a note is.
 //
-// Six, and six on purpose. A vocabulary you have to think about is a
-// vocabulary you stop using — the point of tagging a thought is that it takes
-// no longer than having it. "Thought" is the default and carries no judgment;
-// nothing is required to be more than that.
+// Seven, and no more. A vocabulary you have to think about is a vocabulary you
+// stop using — the point of tagging a thought is that it takes no longer than
+// having it. "Thought" is the default and carries no judgment; nothing is
+// required to be more than that.
 //
 // Colors are an aid, never the encoding: every chip prints its own name, so
 // none of this depends on telling gold from amber.
@@ -28,6 +28,13 @@ export const NOTE_KINDS = [
     short: "Motivation",
     color: "#e0603f",
     hint: "Something to come back to on a hard day.",
+  },
+  {
+    key: "counsel",
+    label: "Counsel from a mentor",
+    short: "Counsel",
+    color: "#cf7fb0",
+    hint: "Something someone further along the road told you.",
   },
   {
     key: "question",

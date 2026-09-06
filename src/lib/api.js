@@ -1193,3 +1193,152 @@ export async function fetchNoteOfTheDay(dateStr) {
   if (error) throw error;
   return (data ?? [])[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Meeting notes on a time block, and the cards lifted out of them.
+// ---------------------------------------------------------------------------
+
+export async function saveChunkNotes(chunkId, notes) {
+  const { error } = await supabase.from("time_chunks").update({ notes: notes || null }).eq("id", chunkId);
+  if (error) throw error;
+}
+
+export async function fetchChunkHighlights(userId, chunkIds) {
+  if (!chunkIds?.length) return [];
+  const { data, error } = await supabase
+    .from("note_highlights")
+    .select("*")
+    .eq("user_id", userId)
+    .in("chunk_id", chunkIds)
+    .order("start_offset", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// A line from a meeting, promoted into a card that keeps the way back to the
+// day it was said.
+export async function createCardFromChunk(userId, { chunkId, date, quotedText, startOffset, endOffset, noteKind, title }) {
+  const card = await createNote(userId, {
+    title: title || quotedText.slice(0, 70),
+    body: "",
+    excerpt: quotedText,
+    noteKind: noteKind ?? "counsel",
+    studiedOn: date,
+  });
+
+  const { error: linkError } = await supabase
+    .from("study_notes")
+    .update({ origin_chunk_id: chunkId, origin_date: date })
+    .eq("id", card.id);
+  if (linkError) throw linkError;
+
+  const { data: highlight, error } = await supabase
+    .from("note_highlights")
+    .insert({
+      user_id: userId,
+      chunk_id: chunkId,
+      note_id: null,
+      child_note_id: card.id,
+      quoted_text: quotedText,
+      start_offset: startOffset,
+      end_offset: endOffset,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  return { card, highlight };
+}
+
+// ---------------------------------------------------------------------------
+// Quote images. Private bucket, so what's persisted is the object path and
+// the app signs a short-lived URL each time it needs to show one.
+// ---------------------------------------------------------------------------
+
+export async function uploadNoteImage(userId, noteId, file) {
+  const extension = (file.name?.split(".").pop() || "jpg").toLowerCase().slice(0, 5);
+  const path = `${userId}/${noteId}-${Date.now()}.${extension}`;
+
+  const { error } = await supabase.storage.from("note-images").upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw error;
+
+  const { error: linkError } = await supabase
+    .from("study_notes")
+    .update({ image_path: path, updated_at: new Date().toISOString() })
+    .eq("id", noteId);
+  if (linkError) throw linkError;
+
+  return path;
+}
+
+export async function signedImageUrl(path, seconds = 3600) {
+  if (!path) return null;
+  // Already a URL — a data: URI from a fixture, or anything else fully
+  // qualified. Signing it would be nonsense, so hand it straight back.
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
+  const { data, error } = await supabase.storage.from("note-images").createSignedUrl(path, seconds);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
+
+export async function removeNoteImage(userId, noteId, path) {
+  if (path) await supabase.storage.from("note-images").remove([path]).catch(() => {});
+  const { error } = await supabase.from("study_notes").update({ image_path: null }).eq("id", noteId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// The curator.
+// ---------------------------------------------------------------------------
+
+export async function fetchDailySelection(dateStr) {
+  const { data, error } = await supabase.rpc("daily_selection", { p_date: dateStr });
+  if (error) throw error;
+  return data ?? null;
+}
+
+// The fallback path. The midnight job normally has this done before you look;
+// this is what runs when it didn't, and it authenticates as you rather than
+// as the scheduler.
+export async function runCurator(dateStr) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You need to be signed in.");
+
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/curator`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabase.supabaseKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ tz: localZone(), date: dateStr ?? null }),
+  });
+
+  const body = await response.json().catch(() => ({ error: "The curator returned something unreadable." }));
+  if (!response.ok) throw new Error(body.error ?? `The curator failed (${response.status}).`);
+  return body;
+}
+
+export async function scoreSelectionItem(itemId, score, feedback) {
+  const { error } = await supabase.rpc("score_selection_item", {
+    p_item_id: itemId,
+    p_score: score,
+    p_feedback: feedback ?? null,
+  });
+  if (error) throw error;
+}
+
+// The device's own clock is the only place the zone is actually known, so the
+// app writes it whenever it loads — that's what the midnight job reads.
+export async function syncProfileTimezone(userId) {
+  const tz = localZone();
+  await supabase.from("profiles").update({ timezone: tz }).eq("id", userId).then(
+    () => {},
+    () => {}
+  );
+}

@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Day from "./pages/Day";
 import Plan from "./pages/Plan";
 import Study from "./pages/Study";
+import Preview from "./pages/Preview";
 import Spirit from "./pages/Spirit";
 import Tree from "./pages/Tree";
 import Reflect from "./pages/Reflect";
@@ -24,6 +25,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
+          {/* Signed-out design preview with sample data. */}
+          <Route path="/preview" element={<Preview />} />
 
           <Route element={<ProtectedRoute />}>
             <Route index element={<Home />} />
