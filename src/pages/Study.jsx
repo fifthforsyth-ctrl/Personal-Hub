@@ -33,6 +33,7 @@ import NoteTree from "../components/study/NoteTree";
 import NoteReader from "../components/study/NoteReader";
 import CaptureBar from "../components/study/CaptureBar";
 import QuoteWall from "../components/study/QuoteWall";
+import SourceMiner from "../components/study/SourceMiner";
 import { KindChip, KindFilter } from "../components/study/KindChip";
 import { buildTree } from "../lib/noteText";
 import { NOTE_KINDS, kindOf } from "../lib/noteKinds";
@@ -223,6 +224,8 @@ export default function Study() {
           <CaptureBar onCapture={capture} />
 
           <Resurfaced onOpen={select} />
+
+          <SourceMiner onChanged={reload} />
 
           {shelfOpen && (
             <NoteTree notes={notes} selectedId={selectedId} onSelect={select} onCreateTop={createTop} query={query} onQueryChange={setQuery} />

@@ -1342,3 +1342,95 @@ export async function syncProfileTimezone(userId) {
     () => {}
   );
 }
+
+// ---------------------------------------------------------------------------
+// Mining long sources for keepable lines.
+// ---------------------------------------------------------------------------
+
+export async function fetchMiningStats() {
+  const { data, error } = await supabase.rpc("mining_stats");
+  if (error) throw error;
+  return data ?? { sources: 0, mined: 0, cards_from_sources: 0 };
+}
+
+export async function fetchUnminedSources(limit = 25) {
+  const { data, error } = await supabase.rpc("unmined_sources", { p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Proposals only. Nothing is written until you accept a snippet, and the
+// source isn't marked mined until you've been through it.
+export async function mineSource(noteId) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You need to be signed in.");
+
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/miner`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabase.supabaseKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ note_id: noteId }),
+  });
+
+  const body = await response.json().catch(() => ({ error: "The miner returned something unreadable." }));
+  if (!response.ok) throw new Error(body.error ?? `Mining failed (${response.status}).`);
+  return body;
+}
+
+// An accepted snippet becomes a card AND a highlight on the source, which is
+// exactly what the manual gesture produces — so a mined line and one you
+// picked out yourself are the same object afterwards, and the source shows
+// both marked in its text.
+export async function acceptSnippet(userId, source, snippet) {
+  const card = await createNote(userId, {
+    title: snippet.essence?.slice(0, 90) || snippet.quote.slice(0, 70),
+    body: "",
+    excerpt: snippet.quote,
+    noteKind: snippet.kind ?? "thought",
+    parentId: source.id,
+    sourceRef: source.source_ref,
+    studiedOn: source.studied_on,
+  });
+
+  const { error: essenceError } = await supabase
+    .from("study_notes")
+    .update({ essence: snippet.essence || null })
+    .eq("id", card.id);
+  if (essenceError) throw essenceError;
+
+  await createHighlight(userId, {
+    noteId: source.id,
+    quotedText: snippet.quote,
+    startOffset: snippet.start_offset,
+    endOffset: snippet.end_offset,
+    childNoteId: card.id,
+  });
+
+  return card;
+}
+
+export async function markSourceMined(noteId, kept) {
+  const { error } = await supabase
+    .from("study_notes")
+    .update({ mined_at: new Date().toISOString(), mined_count: kept })
+    .eq("id", noteId);
+  if (error) throw error;
+}
+
+// Cards the nightly mining kept while you were asleep. They're already usable;
+// this is just the short pass so nothing arrives on the shelf unseen.
+export async function fetchUnreviewedCards(limit = 30) {
+  const { data, error } = await supabase.rpc("unreviewed_auto_cards", { p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markCardsReviewed(ids) {
+  if (!ids?.length) return;
+  const { error } = await supabase.rpc("mark_cards_reviewed", { p_ids: ids });
+  if (error) throw error;
+}
