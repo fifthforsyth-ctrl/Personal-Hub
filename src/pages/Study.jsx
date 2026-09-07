@@ -19,6 +19,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import {
   fetchNotes,
+  fetchNote,
   fetchHighlights,
   createNote,
   updateNote,
@@ -82,7 +83,29 @@ export default function Study() {
     reload();
   }, [reload]);
 
-  const note = useMemo(() => notes.find((n) => n.id === selectedId) ?? null, [notes, selectedId]);
+  // The shelf listing carries previews, not bodies. Opening a note fetches the
+  // whole thing — which is the point of the split, since a body averages
+  // eleven thousand characters and sixty-one of them is not a page load.
+  const [openNote, setOpenNote] = useState(null);
+  const listed = useMemo(() => notes.find((n) => n.id === selectedId) ?? null, [notes, selectedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedId) {
+      setOpenNote(null);
+      return;
+    }
+    fetchNote(selectedId)
+      .then((n) => !cancelled && setOpenNote(n))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, notes]);
+
+  // Show the listing immediately and swap in the full row when it lands, so
+  // opening a note never blanks the page while the body is in flight.
+  const note = openNote?.id === selectedId ? openNote : listed;
   const byParent = useMemo(() => buildTree(notes), [notes]);
   const noteHighlights = useMemo(() => highlights.filter((h) => h.note_id === selectedId), [highlights, selectedId]);
   const childrenByHighlight = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
@@ -162,7 +185,7 @@ export default function Study() {
       if (!q) return true;
       return (
         n.title?.toLowerCase().includes(q) ||
-        n.body?.toLowerCase().includes(q) ||
+        n.body_preview?.toLowerCase().includes(q) ||
         n.excerpt?.toLowerCase().includes(q)
       );
     });
@@ -349,7 +372,7 @@ function Stream({ kind, items, onOpen, expanded }) {
                 fontSize: 12.5,
               }}
             >
-              {n.excerpt || n.body}
+              {n.essence || n.excerpt || n.body_preview}
             </div>
             <div className="mono faint" style={{ fontSize: 10, marginTop: 8 }}>
               {new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
@@ -558,7 +581,7 @@ function Resurfaced({ onOpen }) {
               <span className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</span>
             </div>
             <div className="prose prose--sm" style={{ whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", color: "var(--text-2)" }}>
-              {n.excerpt || n.body}
+              {n.essence || n.excerpt || n.body_preview}
             </div>
             {n.last_surfaced_at && (
               <div className="mono faint" style={{ fontSize: 10, marginTop: 7 }}>

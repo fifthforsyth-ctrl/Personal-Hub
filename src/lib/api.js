@@ -1050,10 +1050,12 @@ export function writeDaySynopsis(dateStr) {
 
 // The whole shelf in one call. The directory is a tree and trees are built in
 // memory; fetching per level would mean a round trip per expand.
+// The whole shelf in one call, bodies excluded — see the note_cards view.
+// A note's full text arrives only when you open it.
 export async function fetchNotes(userId) {
   const { data, error } = await supabase
-    .from("study_notes")
-    .select("id, title, body, excerpt, note_kind, parent_note_id, position, pinned, source_kind, source_ref, studied_on, tags, ai_theme, ai_summary, linked_goal_id, obsidian_uid, last_surfaced_at, surfaced_count, created_at, updated_at")
+    .from("note_cards")
+    .select("*")
     .eq("user_id", userId)
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });

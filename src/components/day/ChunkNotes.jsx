@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { NotebookPen, Check, StickyNote, X, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { saveChunkNotes, fetchChunkHighlights, createCardFromChunk, fetchNotes } from "../../lib/api";
-import { resolveHighlights, splitParagraphs, segmentsFor, selectionRange } from "../../lib/noteText";
+import { resolveHighlights, splitParagraphs, segmentsFor, selectionInfo, findInSource } from "../../lib/noteText";
 import { NOTE_KINDS, kindOf } from "../../lib/noteKinds";
 
 // Meeting notes, kept where the meeting was.
@@ -48,15 +48,18 @@ export default function ChunkNotes({ chunk, date }) {
   useEffect(() => {
     if (editing || !open) return;
     function capture() {
-      const range = selectionRange(bodyRef.current);
-      setSelection(range);
-      if (range && bodyRef.current) {
-        const box = bodyRef.current.getBoundingClientRect();
-        setBarPos({ left: range.rect.left - box.left + range.rect.width / 2, top: range.rect.top - box.top });
-      } else {
+      const info = selectionInfo(bodyRef.current);
+      const found = info ? findInSource(saved, info.text) : null;
+      if (!info || !found) {
+        setSelection(null);
         setBarPos(null);
         setKindMenu(false);
+        return;
       }
+      setSelection({ text: info.text.trim(), start: found.start, end: found.end });
+      const box = bodyRef.current.getBoundingClientRect();
+      const top = info.rect.top - box.top;
+      setBarPos({ left: info.rect.left - box.left + info.rect.width / 2, top, below: top < 50 });
     }
     document.addEventListener("mouseup", capture);
     document.addEventListener("touchend", capture);
@@ -64,7 +67,7 @@ export default function ChunkNotes({ chunk, date }) {
       document.removeEventListener("mouseup", capture);
       document.removeEventListener("touchend", capture);
     };
-  }, [editing, open]);
+  }, [editing, open, saved]);
 
   const resolved = useMemo(() => resolveHighlights(saved, highlights), [saved, highlights]);
   const paragraphs = useMemo(() => splitParagraphs(saved), [saved]);
@@ -175,7 +178,7 @@ export default function ChunkNotes({ chunk, date }) {
               style={{
                 position: "absolute",
                 left: Math.max(80, barPos.left),
-                top: barPos.top - 44,
+                top: barPos.below ? barPos.top + 28 : barPos.top - 44,
                 transform: "translateX(-50%)",
                 display: "flex",
                 gap: 4,

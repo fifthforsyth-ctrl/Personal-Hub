@@ -18,7 +18,7 @@ export default function NoteTree({ notes, selectedId, onSelect, onCreateTop, que
     return notes.filter(
       (n) =>
         n.title?.toLowerCase().includes(q) ||
-        n.body?.toLowerCase().includes(q) ||
+        n.body_preview?.toLowerCase().includes(q) ||
         n.excerpt?.toLowerCase().includes(q) ||
         n.source_ref?.toLowerCase().includes(q)
     );

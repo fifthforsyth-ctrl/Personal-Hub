@@ -56,6 +56,21 @@ const CALLOUT_ACCENT = {
 // Inline
 // ---------------------------------------------------------------------------
 
+// Private-use characters, so a note can never contain them by accident. A
+// stored highlight is injected into the source as
+// <START><id><SEP><text><END> before rendering, which lets the existing inline
+// pass mark it without the renderer having to track source offsets through
+// every block rule.
+//
+// The pattern is built FROM these constants rather than written out a second
+// time — spelling the escape twice is exactly how the two ended up disagreeing,
+// with the sentinel rendering as visible boxes because nothing matched it.
+export const HL_START = String.fromCharCode(0xe000);
+export const HL_SEP = String.fromCharCode(0xe001);
+export const HL_END = String.fromCharCode(0xe002);
+
+const HL_PATTERN = `${HL_START}([^${HL_SEP}]*)${HL_SEP}([\\s\\S]*?)${HL_END}`;
+
 // Order matters: code first so its contents are never re-parsed, then the
 // paired-delimiter forms, then links. Each alternative captures its own
 // payload group, and the branch is chosen by whichever group matched.
@@ -74,11 +89,41 @@ const INLINE_RE = new RegExp(
     "_([^_\\n]+?)_", // 13 italic
     "~~([\\s\\S]+?)~~", // 14 strikethrough
     "</?[a-zA-Z][^>]*>", // 15 any other tag — unwrapped, never rendered as HTML
+    HL_PATTERN, // 16 id, 17 body — a stored highlight
   ].join("|"),
   "g"
 );
 
-function renderInline(text, keyPrefix = "i") {
+// Private-use characters, so a note can never contain them by accident. A
+// stored highlight is injected into the source as
+// \uE000<id>\uE001<text>\uE002 before rendering, which lets the existing
+// inline pass mark it without the renderer having to track source offsets
+// through every block rule.
+
+// Wraps each resolved highlight in the sentinel form. Applied back-to-front so
+// each insertion leaves the offsets of the ones before it untouched, and
+// overlaps are dropped rather than nested — two marks over the same words
+// render as mud.
+export function annotateHighlights(body, resolved) {
+  if (!body || !resolved?.length) return body ?? "";
+
+  const usable = [...resolved]
+    .filter((h) => !h.orphaned && h.end > h.start && h.end <= body.length)
+    .sort((a, b) => a.start - b.start)
+    .filter((h, i, all) => i === 0 || h.start >= all[i - 1].end);
+
+  let out = body;
+  for (let i = usable.length - 1; i >= 0; i--) {
+    const h = usable[i];
+    out =
+      out.slice(0, h.start) +
+      HL_START + h.id + HL_SEP + out.slice(h.start, h.end) + HL_END +
+      out.slice(h.end);
+  }
+  return out;
+}
+
+function renderInline(text, keyPrefix = "i", marks = null) {
   if (!text) return null;
   const out = [];
   let last = 0;
@@ -88,8 +133,32 @@ function renderInline(text, keyPrefix = "i") {
     if (m.index > last) out.push(text.slice(last, m.index));
     const key = `${keyPrefix}-${n++}`;
     const [, code, embed, wiki, linkText, , htmlMark, spanClass, spanBody, highlight, bold1, bold2, ital1, ital2, strike] = m;
+    // 15 and 16, not 16 and 17: alternative 15 (any other tag) captures
+    // nothing, so it does not advance the group numbering.
+    const hlId = m[15];
+    const hlBody = m[16];
 
-    if (code !== undefined) {
+    if (hlId !== undefined) {
+      const mark = marks?.get(hlId);
+      out.push(
+        <mark
+          key={key}
+          data-hl={hlId}
+          onClick={mark?.onClick}
+          title={mark?.title}
+          style={{
+            background: mark ? `${mark.color}26` : "var(--accent-soft)",
+            color: "inherit",
+            borderBottom: `2px solid ${mark ? mark.color : "var(--accent)"}`,
+            borderRadius: 2,
+            padding: "1px 0",
+            cursor: mark?.onClick ? "pointer" : "text",
+          }}
+        >
+          {renderInline(hlBody, key, marks)}
+        </mark>
+      );
+    } else if (code !== undefined) {
       out.push(<code key={key} style={codeStyle}>{code}</code>);
     } else if (embed !== undefined) {
       out.push(
@@ -115,7 +184,7 @@ function renderInline(text, keyPrefix = "i") {
     } else if (htmlMark !== undefined || highlight !== undefined) {
       out.push(
         <mark key={key} style={markStyle}>
-          {renderInline(htmlMark ?? highlight, key)}
+          {renderInline(htmlMark ?? highlight, key, marks)}
         </mark>
       );
     } else if (spanBody !== undefined) {
@@ -125,15 +194,15 @@ function renderInline(text, keyPrefix = "i") {
       const style = SPAN_STYLES[(spanClass ?? "").trim().toLowerCase()];
       out.push(
         <span key={key} style={style} title={style ? spanClass : undefined}>
-          {renderInline(spanBody, key)}
+          {renderInline(spanBody, key, marks)}
         </span>
       );
     } else if (bold1 !== undefined || bold2 !== undefined) {
-      out.push(<strong key={key}>{renderInline(bold1 ?? bold2, key)}</strong>);
+      out.push(<strong key={key}>{renderInline(bold1 ?? bold2, key, marks)}</strong>);
     } else if (ital1 !== undefined || ital2 !== undefined) {
-      out.push(<em key={key}>{renderInline(ital1 ?? ital2, key)}</em>);
+      out.push(<em key={key}>{renderInline(ital1 ?? ital2, key, marks)}</em>);
     } else if (strike !== undefined) {
-      out.push(<s key={key}>{renderInline(strike, key)}</s>);
+      out.push(<s key={key}>{renderInline(strike, key, marks)}</s>);
     }
     last = m.index + m[0].length;
   }
@@ -146,7 +215,7 @@ function renderInline(text, keyPrefix = "i") {
 // Block
 // ---------------------------------------------------------------------------
 
-export function MarkdownNote({ text }) {
+export function MarkdownNote({ text, marks = null }) {
   if (!text) return null;
   const lines = stripFrontmatter(text).split("\n");
   const blocks = [];
@@ -188,7 +257,7 @@ export function MarkdownNote({ text }) {
       const level = heading[1].length;
       blocks.push(
         <div key={key++} style={headingStyle(level)}>
-          {renderInline(heading[2], `h${key}`)}
+          {renderInline(heading[2], `h${key}`, marks)}
         </div>
       );
       i += 1;
@@ -202,7 +271,7 @@ export function MarkdownNote({ text }) {
         quoted.push(lines[i].replace(/^\s*>\s?/, ""));
         i += 1;
       }
-      blocks.push(<Callout key={key++} lines={quoted} />);
+      blocks.push(<Callout key={key++} lines={quoted} marks={marks} />);
       continue;
     }
 
@@ -220,7 +289,7 @@ export function MarkdownNote({ text }) {
         <ListTag key={key++} style={listStyle}>
           {items.map((item, n) => (
             <li key={n} style={{ marginLeft: item.indent ? 18 : 0, marginBottom: 3 }}>
-              {renderInline(item.text, `l${key}-${n}`)}
+              {renderInline(item.text, `l${key}-${n}`, marks)}
             </li>
           ))}
         </ListTag>
@@ -244,7 +313,7 @@ export function MarkdownNote({ text }) {
     }
     blocks.push(
       <p key={key++} style={paraStyle}>
-        {renderInline(para.join(" "), `p${key}`)}
+        {renderInline(para.join(" "), `p${key}`, marks)}
       </p>
     );
   }
@@ -252,7 +321,7 @@ export function MarkdownNote({ text }) {
   return <div style={{ fontSize: 14, lineHeight: 1.7 }}>{blocks}</div>;
 }
 
-function Callout({ lines }) {
+function Callout({ lines, marks = null }) {
   const header = lines[0]?.match(/^\s*\[!([^\]]+)\]\s*(.*)$/);
   const type = header ? header[1].trim().toLowerCase() : null;
   const accent = type ? CALLOUT_ACCENT[type] ?? "var(--text-muted)" : "var(--border-strong)";
@@ -280,7 +349,7 @@ function Callout({ lines }) {
         .filter((p) => p.trim())
         .map((p, n) => (
           <p key={n} style={{ margin: n === 0 ? 0 : "8px 0 0", color: "var(--text-muted)" }}>
-            {renderInline(p.replace(/\n/g, " "), `c${n}`)}
+            {renderInline(p.replace(/\n/g, " "), `c${n}`, marks)}
           </p>
         ))}
     </div>

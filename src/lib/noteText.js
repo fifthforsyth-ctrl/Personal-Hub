@@ -173,3 +173,83 @@ export function descendantsOf(byParent, id, seen = new Set()) {
   const children = byParent.get(id) ?? [];
   return children.flatMap((c) => [c, ...descendantsOf(byParent, c.id, seen)]);
 }
+
+
+// ---------------------------------------------------------------------------
+// Finding selected text back in the source
+// ---------------------------------------------------------------------------
+//
+// Once a note is rendered as markdown, what you see is not what is stored:
+// **bold** shows as bold, [[a|b]] shows as b, and a paragraph broken over four
+// source lines shows as one. So the selection can't be converted into a source
+// offset by counting characters in the DOM — the counts don't correspond.
+//
+// Instead the SELECTED TEXT is the anchor, and it gets located in the source by
+// search. Three tiers, each looser than the last, and it stops rather than
+// guessing:
+//
+//   1. exact — the common case, plain prose
+//   2. whitespace-insensitive — the selection crossed a source line break
+//   3. markup-insensitive — the selection crossed **bold** or ==a highlight==,
+//      so markup characters are allowed to appear between the words
+//
+// A selection that matches none of these is genuinely not in the source (you
+// selected a callout's label, or an [embedded: …] placeholder) and the caller
+// is told so, rather than being handed a wrong offset.
+
+const MARKUP_CHARS = "[*_=~`\\[\\]>#|]*";
+
+function escapeRe(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findInSource(body, selected) {
+  if (!body || !selected) return null;
+  const needle = selected.trim();
+  if (!needle) return null;
+
+  const exact = body.indexOf(needle);
+  if (exact !== -1) return { start: exact, end: exact + needle.length, tier: "exact" };
+
+  const words = needle.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+
+  const loose = new RegExp(words.map(escapeRe).join("\\s+")).exec(body);
+  if (loose) return { start: loose.index, end: loose.index + loose[0].length, tier: "whitespace" };
+
+  // Allow markup to sit between words AND inside them, which covers a
+  // selection that ran through **bo**ld or across a wikilink's pipe.
+  const permissive = new RegExp(
+    words
+      .map((w) =>
+        w
+          .split("")
+          .map((c) => escapeRe(c))
+          .join(MARKUP_CHARS)
+      )
+      .join(`${MARKUP_CHARS}\\s+${MARKUP_CHARS}`)
+  ).exec(body);
+  if (permissive) return { start: permissive.index, end: permissive.index + permissive[0].length, tier: "markup" };
+
+  return null;
+}
+
+// The live selection, as text plus where it sits on screen. Deliberately does
+// NOT care which element it started or ended in — the old version refused any
+// selection that crossed a paragraph, which silently did nothing and is most
+// of the reason highlighting felt broken.
+export function selectionInfo(containerEl) {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!containerEl?.contains(range.commonAncestorContainer)) return null;
+
+  const text = selection.toString();
+  if (!text.trim() || text.trim().length < 2) return null;
+
+  const rects = [...range.getClientRects()].filter((r) => r.width > 0 || r.height > 0);
+  const rect = rects[0] ?? range.getBoundingClientRect();
+
+  return { text, rect };
+}

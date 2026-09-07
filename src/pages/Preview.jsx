@@ -30,6 +30,7 @@ const CARDS = [
     essence: "Nothing is so fatiguing as the eternal hanging on of an uncompleted task.",
     source_ref: "William James",
     image_path: IMG("#3a2118", "#0d0c10"),
+    body_preview: "Nothing is so fatiguing as the eternal hanging on of an uncompleted task.",
     created_at: "2026-06-11T10:00:00Z",
     pinned: true,
   },
@@ -49,6 +50,7 @@ const CARDS = [
     body: "Battery died outside the chapel with forty minutes until the lesson. I said a short prayer, mostly frustrated. Brother Ahn pulled in behind me two minutes later with cables in his trunk — he had no reason to be there on a Tuesday.",
     essence: "The battery died and Brother Ahn pulled in behind me two minutes later, on a Tuesday, with cables.",
     image_path: IMG("#2a2030", "#0b0a10"),
+    body_preview: "Battery died outside the chapel with forty minutes until the lesson.",
     created_at: "2026-03-18T10:00:00Z",
   },
   {
@@ -94,9 +96,16 @@ const NOTE = {
   id: "long",
   title: "Everyday Missionary — chapter 3",
   note_kind: "thought",
-  body: `The work is not a program you run. It is the ordinary attention you already pay to people, pointed somewhere.
+  body: `## What the work actually is
 
-Most of what stops us is not doctrinal difficulty. It is the fear of being the strange one in the room, which is a fear about ourselves and not about them.
+The work is not a program you run. It is the ordinary attention you already pay to people, pointed somewhere.
+
+> [!insight] What I keep coming back to
+> Most of what stops us is not **doctrinal difficulty**. It is the fear of being the strange one in the room.
+
+- It is a fear about ourselves, not about them
+- ==Nobody claps== — that is the hard part
+- See [[Alma 32|the seed]] for where this started
 
 The hardest part is that nobody claps. You will do this well for months and no one will notice, and the only evidence will be that somebody's life got quietly better.`,
 };
@@ -158,13 +167,13 @@ export default function Preview() {
             </div>
           </Section>
 
-          <Section label="Study · the wall" note="Quotes and experiences as tiles. The picture lands before the words do.">
+          <Section label="Study · the wall" note="Pictures now show on the wall itself, not only when a card is chosen for the front page.">
             <QuoteWall notes={CARDS} onOpen={() => {}} onChanged={async () => {}} />
           </Section>
 
           <Section
             label="Study · highlight becomes a sub-note"
-            note="The child renders in full beneath the paragraph it grew from, and is its own note in the directory."
+            note="Rendered as Obsidian markdown — callouts, lists, wikilinks. Select any line to keep it."
           >
             <div className="card">
               <h2 style={{ fontSize: 20, marginBottom: 8 }}>{NOTE.title}</h2>

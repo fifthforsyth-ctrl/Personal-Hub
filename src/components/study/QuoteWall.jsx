@@ -71,7 +71,7 @@ function QuoteTile({ note, onOpen, onChanged }) {
     }
   }
 
-  const text = note.essence || note.excerpt || note.body || note.title;
+  const text = note.essence || note.excerpt || note.body_preview || note.title;
 
   return (
     <div
