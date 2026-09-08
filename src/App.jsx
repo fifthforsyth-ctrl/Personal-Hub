@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Day from "./pages/Day";
 import Plan from "./pages/Plan";
 import Study from "./pages/Study";
+import Work from "./pages/Work";
 import Preview from "./pages/Preview";
 import Spirit from "./pages/Spirit";
 import Tree from "./pages/Tree";
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/day/:date" element={<Day />} />
             <Route path="/plan" element={<Plan />} />
             <Route path="/study" element={<Study />} />
+            <Route path="/work" element={<Work />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
             <Route path="/spirit" element={<Spirit />} />

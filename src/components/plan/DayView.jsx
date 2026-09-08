@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, X, RotateCcw, Trash2, LayoutTemplate, Bookmark, Archive } from "lucide-react";
+import { Plus, X, RotateCcw, Trash2, LayoutTemplate, Bookmark, Archive, Briefcase } from "lucide-react";
 import {
   fetchDayPlan,
   setDayEnergyTag,
@@ -19,6 +19,7 @@ import {
   applyTemplate,
   saveDayAsTemplate,
   createChunkTemplate,
+  setTaskWork,
 } from "../../lib/api";
 import { todayStr, fmtTime, minutesOf } from "../../lib/planDates";
 import ChunkNotes from "../day/ChunkNotes";
@@ -151,6 +152,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
     });
 
   const handleToggle = (task) => guard(() => toggleTask(task.id, !task.status));
+  const handleToggleWork = (task) => guard(() => setTaskWork(task.id, !task.is_work));
   const handleDeleteTask = (id) => guard(() => deleteTask(id));
   const handleDeleteChunk = (id) => guard(() => deleteTimeChunk(id));
   const handleAssignChunk = (taskId, chunkId) => guard(() => updateTask(taskId, { time_chunk_id: chunkId || null }));
@@ -207,6 +209,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
           onAddTask={(title) => handleAddTask(chunk.id, title)}
           onAddSubtask={handleAddSubtask}
           onToggle={handleToggle}
+          onToggleWork={handleToggleWork}
           onDeleteTask={handleDeleteTask}
           onDeleteChunk={() => handleDeleteChunk(chunk.id)}
         />
@@ -231,6 +234,7 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
             chunks={chunks}
             onToggle={() => handleToggle(task)}
             onToggleSub={handleToggle}
+            onToggleWork={() => handleToggleWork(task)}
             onDelete={() => handleDeleteTask(task.id)}
             onAddSubtask={(title) => handleAddSubtask(task.id, title)}
             onAssignChunk={(chunkId) => handleAssignChunk(task.id, chunkId)}
@@ -474,7 +478,7 @@ function NewChunkTemplateForm({ userId, goalOptions, onCancel, onSaved }) {
   );
 }
 
-function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTask, onAddSubtask, onToggle, onDeleteTask, onDeleteChunk }) {
+function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTask, onAddSubtask, onToggle, onToggleWork, onDeleteTask, onDeleteChunk }) {
   const goal = goalOptions.find((g) => g.id === chunk.goal_node_id);
   const done = tasks.filter((t) => t.status).length;
 
@@ -507,6 +511,7 @@ function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTas
           subtasks={subtasksByParent.get(task.id) ?? []}
           onToggle={() => onToggle(task)}
           onToggleSub={onToggle}
+          onToggleWork={() => onToggleWork(task)}
           onDelete={() => onDeleteTask(task.id)}
           onAddSubtask={(title) => onAddSubtask(task.id, title)}
         />
@@ -519,7 +524,7 @@ function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTas
   );
 }
 
-function TaskRow({ task, subtasks, chunks, onToggle, onToggleSub, onDelete, onAddSubtask, onAssignChunk }) {
+function TaskRow({ task, subtasks, chunks, onToggle, onToggleSub, onToggleWork, onDelete, onAddSubtask, onAssignChunk }) {
   const [showSubAdd, setShowSubAdd] = useState(false);
   return (
     <div style={{ marginBottom: 4 }}>
@@ -540,6 +545,17 @@ function TaskRow({ task, subtasks, chunks, onToggle, onToggleSub, onDelete, onAd
               <option key={c.id} value={c.id}>{c.title}</option>
             ))}
           </select>
+        )}
+        {/* Marks this as work, which is the only thing that decides whether it
+            reaches the end-of-day report. */}
+        {onToggleWork && (
+          <button
+            onClick={onToggleWork}
+            style={{ ...iconBtnStyle, color: task.is_work ? "var(--accent)" : "var(--text-3)" }}
+            title={task.is_work ? "This is work — on the report" : "Mark as work"}
+          >
+            <Briefcase size={13} />
+          </button>
         )}
         <button onClick={() => setShowSubAdd((v) => !v)} style={iconBtnStyle} title="Add sub-task">
           <Plus size={13} />

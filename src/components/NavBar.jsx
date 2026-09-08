@@ -10,6 +10,7 @@ import {
   Flame,
   BookOpen,
   GraduationCap,
+  Briefcase,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { todayStr } from "../lib/planDates";
@@ -22,8 +23,11 @@ export const NAV = [
   { to: "/day", label: "Day", Icon: CalendarDays },
   { to: "/plan", label: "Plan", Icon: CalendarRange },
   { to: "/study", label: "Study", Icon: GraduationCap },
-  { to: "/tree", label: "Goals", Icon: GitBranch },
-  { to: "/reflect", label: "Reflect", Icon: BarChart3 },
+  { to: "/work", label: "Work", Icon: Briefcase },
+  // desk: reachable everywhere, but dropped from a narrow phone's tab bar
+  // rather than squeezing seven labels into 375px.
+  { to: "/tree", label: "Goals", Icon: GitBranch, desk: true },
+  { to: "/reflect", label: "Reflect", Icon: BarChart3, desk: true },
 ];
 
 // `/day` alone means today; the sidebar link has to say so explicitly or it
@@ -93,12 +97,12 @@ export function TopBar() {
 export function BottomTabs() {
   return (
     <nav className="bottom-tabs">
-      {NAV.map(({ to, label, Icon, end }) => (
+      {NAV.map(({ to, label, Icon, end, desk }) => (
         <NavLink
           key={to}
           to={to === "/day" ? dayHref() : to}
           end={end}
-          className={({ isActive }) => "bottom-tab" + (isActive ? " active" : "")}
+          className={({ isActive }) => "bottom-tab" + (isActive ? " active" : "") + (desk ? " bottom-tab--desk" : "")}
         >
           <Icon size={19} strokeWidth={2} />
           <span>{label}</span>

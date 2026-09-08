@@ -259,9 +259,15 @@ button { cursor: pointer; touch-action: manipulation; }
 .bottom-tab.active { color: var(--text); background: var(--card); }
 .bottom-tab.active svg { color: var(--accent); }
 
-/* Six tabs at 375px leaves ~60px each; the label has to give a little. */
-@media (max-width: 400px) {
+/* Seven tabs will not fit a phone. The label shrinks, and the two that are
+   desk work by nature drop off the bar — they stay reachable from the sidebar
+   on a laptop, which is where they get used anyway. */
+@media (max-width: 460px) {
   .bottom-tab { font-size: 9px; gap: 2px; }
+}
+
+@media (max-width: 400px) {
+  .bottom-tab--desk { display: none; }
 }
 
 /* ---------------------------------------------------------------------------

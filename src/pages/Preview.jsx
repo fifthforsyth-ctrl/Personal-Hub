@@ -5,6 +5,8 @@ import CaptureBar from "../components/study/CaptureBar";
 import { KindFilter, KindChip } from "../components/study/KindChip";
 import NoteReader from "../components/study/NoteReader";
 import { DayCard } from "../components/DayCard";
+import ReportCard from "../components/work/ReportCard";
+import { reportToText } from "../lib/workReport";
 import { NOTE_KINDS } from "../lib/noteKinds";
 
 // A public, signed-out rendering of the new surfaces with sample data.
@@ -124,6 +126,22 @@ const SUB = {
   body: "This reframes the whole thing. I'm not being asked to become a different person on the doorstep — I'm being asked to aim something I already do.",
 };
 
+const WORK = {
+  date: "2026-09-08",
+  minutes: 440,
+  tasks: [
+    { id: "w1", title: "Wire up address validation on checkout", done: true },
+    { id: "w2", title: "Fix the Safari layout bug from Friday", done: true },
+    { id: "w3", title: "Payment retry logic", done: false, rolled: 2 },
+  ],
+  notes: [
+    { id: "n1", kind: "did", body: "Helped Sam debug the staging deploy", minutes: 35 },
+    { id: "n2", kind: "blocked", body: "Need the staging API key to test refunds" },
+    { id: "n3", kind: "question", body: "Partial refunds — original card, or store credit?" },
+  ],
+  tomorrow: [{ title: "Finish payment retries" }, { title: "Start the reporting screen" }],
+};
+
 export default function Preview() {
   const [kind, setKind] = useState(null);
   const counts = new Map(NOTE_KINDS.map((k) => [k.key, CARDS.filter((c) => c.note_kind === k.key).length]));
@@ -142,6 +160,16 @@ export default function Preview() {
         </div>
 
         <div className="stack" style={{ gap: 30 }}>
+          <Section label="Work · the card you screenshot" note="Fixed width, own background, hours and date up top.">
+            <ReportCard work={WORK} />
+          </Section>
+
+          <Section label="Work · the text you paste" note="Same data, assembled — never written by a model.">
+            <pre style={{ background: "var(--inset)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 16, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "var(--font-mono)", margin: 0 }}>
+              {reportToText(WORK)}
+            </pre>
+          </Section>
+
           <Section label="Home · what the curator chose" note="The reason it was picked is the part you rate.">
             <CuratedCard item={ITEMS[0]} onScored={async () => {}} />
           </Section>

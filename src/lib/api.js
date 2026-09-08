@@ -1436,3 +1436,60 @@ export async function markCardsReviewed(ids) {
   const { error } = await supabase.rpc("mark_cards_reviewed", { p_ids: ids });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// The work day, and reporting it.
+// ---------------------------------------------------------------------------
+
+export async function fetchWorkDay(dateStr) {
+  const { data, error } = await supabase.rpc("work_day", { p_date: dateStr, p_tz: localZone() });
+  if (error) throw error;
+  return data ?? null;
+}
+
+export async function addWorkNote(userId, dateStr, { kind = "did", body, minutes }) {
+  const { data, error } = await supabase
+    .from("work_notes")
+    .insert({ user_id: userId, date: dateStr, kind, body: body.trim(), minutes: minutes ?? null })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteWorkNote(id) {
+  const { error } = await supabase.from("work_notes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setTaskWork(taskId, isWork) {
+  const { error } = await supabase.from("tasks").update({ is_work: isWork }).eq("id", taskId);
+  if (error) throw error;
+}
+
+// `sent` is what separates a draft you looked at from a report you actually
+// gave him — only the second one gets stamped.
+export async function saveWorkReport(dateStr, report, sent = false) {
+  const { error } = await supabase.rpc("save_work_report", {
+    p_date: dateStr,
+    p_report: report,
+    p_sent: sent,
+  });
+  if (error) throw error;
+}
+
+export async function fetchWorkCategories(userId) {
+  const { data, error } = await supabase
+    .from("user_categories")
+    .select("id, name, color, is_work")
+    .eq("user_id", userId)
+    .eq("archived", false)
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function setCategoryWork(categoryId, isWork) {
+  const { error } = await supabase.from("user_categories").update({ is_work: isWork }).eq("id", categoryId);
+  if (error) throw error;
+}
