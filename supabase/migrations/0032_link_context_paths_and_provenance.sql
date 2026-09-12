@@ -1,0 +1,9 @@
+-- link_context told the model too little to beat the default it was already
+-- staring at. (Applied via Supabase MCP; this file records the change.)
+--
+--   * current_goal is now {id, path, source}, not a bare title — this tree
+--     has three separate nodes titled "Action", so a title identified
+--     nothing, and `source` says whether the existing link was a real read
+--     or just the category rule's unreviewed guess.
+--   * goals carry `depth` and `leaf`, so "prefer the most specific goal
+--     that fits" is something the model can actually act on.

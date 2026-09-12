@@ -1,0 +1,17 @@
+-- Ideal days. (Applied via Supabase MCP; this file records the change.)
+--
+-- A day template already held blocks and tasks. What was missing was which
+-- weekday it is the ideal FOR, and somewhere to write the constraint behind
+-- it ("Thu 7-8:30pm is not mine"). With plan_templates.applies_to_weekdays
+-- and .notes, plan_context can hand the planner the ideal for tomorrow
+-- specifically instead of only what the last fortnight happened to look
+-- like — the standing intent alongside the record.
+--
+--   * plan_templates.applies_to_weekdays smallint[]  (0 = Sun .. 6 = Sat)
+--   * plan_templates.notes text
+--   * ideal_days() — day templates with blocks AND their tasks
+--   * plan_context: `day_presets` replaced by `ideal_days` plus
+--     `ideal_day_for_tomorrow`, so the relevant one can't be lost in a pile.
+--
+-- Seeded from the "Shoot & Cut Week" schedule, Cut 01 (Split-Shift), with
+-- study and exercise swapped as asked.

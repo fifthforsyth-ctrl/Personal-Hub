@@ -1,6 +1,7 @@
 import { X, CheckSquare, Hash, NotebookPen, Star, Pencil, Plus, RotateCcw, ZoomIn } from "lucide-react";
 import { getNodeVisual, TRACKING_LABEL, FOCUS_COLOR } from "../../lib/nodeStyle";
 import CompletionControl from "./CompletionControl";
+import GoalLedger from "./GoalLedger";
 
 const METHOD_ICON = { checkbox: CheckSquare, counter: Hash, note: NotebookPen };
 const TIER_LABEL = { bright: "Active", medium: "Ticking along", dull: "Gone quiet" };
@@ -22,6 +23,9 @@ export default function WedgeDetailPanel({
   onAddChild,
   onRepeat,
   onRecenter,
+  ledgerStart,
+  ledgerEnd,
+  windowLabel,
 }) {
   const Icon = METHOD_ICON[node.tracking_method] ?? NotebookPen;
   const visual = getNodeVisual(ringIndex, tier);
@@ -101,6 +105,10 @@ export default function WedgeDetailPanel({
       <div style={{ marginTop: 16 }}>
         <CompletionControl node={node} onLogProgress={onLogProgress} onAddNote={onAddNote} />
       </div>
+
+      {ledgerStart && (
+        <GoalLedger key={node.id} nodeId={node.id} start={ledgerStart} end={ledgerEnd} windowLabel={windowLabel} />
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
         <button onClick={() => onToggleFocus(node)} style={actionBtnStyle}>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Sparkles, Check, RefreshCw, ChevronDown, ChevronRight, Lock } from "lucide-react";
-import { proposePlans, applyProposedPlan, setDayNotes, fetchDayPlan } from "../../lib/api";
+import { Sparkles, Check, RefreshCw, ChevronDown, ChevronRight, Lock, CalendarCheck, Pencil } from "lucide-react";
+import { proposePlans, applyProposedPlan, setDayNotes, fetchDayPlan, fetchIdealDays, idealDayFor } from "../../lib/api";
 import { addDays, fmtDayHeading, fmtTime } from "../../lib/planDates";
+import PlanEditor from "./PlanEditor";
 
 // The last step of the evening, in order: write down what the app can't know
 // about tomorrow, then ask for three plans, then pick one.
@@ -21,14 +22,23 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
   const [applying, setApplying] = useState(null);
   const [applied, setApplied] = useState(null);
   const [openPlan, setOpenPlan] = useState(0);
+  const [drafting, setDrafting] = useState(null); // index of the plan being edited
+  const [ideal, setIdeal] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     setResult(null);
     setApplied(null);
+    setDrafting(null);
     if (!userId) return;
     fetchDayPlan(userId, tomorrow)
       .then((p) => !cancelled && setNotes(p?.notes ?? ""))
+      .catch(() => {});
+    // Which ideal day governs tomorrow. Shown before you write your notes,
+    // because the useful note is usually the one that says where tomorrow
+    // has to depart from it.
+    fetchIdealDays(userId)
+      .then((days) => !cancelled && setIdeal(idealDayFor(days, tomorrow)))
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -48,6 +58,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
     setLoading(true);
     setError(null);
     setApplied(null);
+    setDrafting(null);
     try {
       // Persist first: the plan you get should always be the plan your notes
       // asked for, even if you never blurred the textarea.
@@ -62,11 +73,12 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
     }
   }
 
-  async function apply(plan, index) {
-    setApplying(index);
+  async function commit(plan) {
+    setApplying(drafting);
     try {
       await applyProposedPlan(userId, result.for_date ?? tomorrow, plan);
-      setApplied(index);
+      setApplied(drafting);
+      setDrafting(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -86,6 +98,16 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
       {!reflectionDone && (
         <p className="card-note" style={{ marginBottom: 14 }}>
           Tomorrow gets planned after today gets read. Finish the reflection above and this opens up.
+        </p>
+      )}
+
+      {ideal && drafting === null && (
+        <p className="faint row" style={{ fontSize: 11.5, gap: 5, margin: "0 0 10px", alignItems: "flex-start" }}>
+          <CalendarCheck size={12} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>
+            Built on <strong style={{ fontWeight: 650 }}>{ideal.name}</strong> — {ideal.blocks.length} blocks, yours to
+            change under Plan → Ideal days.
+          </span>
         </p>
       )}
 
@@ -123,7 +145,17 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
 
       {error && <div className="form-error" style={{ marginTop: 12 }}>{error}</div>}
 
-      {result?.plans?.map((plan, i) => {
+      {result && drafting !== null && (
+        <PlanEditor
+          plan={result.plans[drafting]}
+          date={result.for_date ?? tomorrow}
+          onCommit={commit}
+          onBack={() => setDrafting(null)}
+          busy={applying !== null}
+        />
+      )}
+
+      {result && drafting === null && result.plans?.map((plan, i) => {
         const isOpen = openPlan === i;
         return (
           <div
@@ -175,10 +207,11 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
                   <button
                     className="btn btn--accent"
                     style={{ marginTop: 12 }}
-                    onClick={() => apply(plan, i)}
-                    disabled={applying !== null || applied !== null}
+                    onClick={() => setDrafting(i)}
+                    disabled={applied !== null}
                   >
-                    {applying === i ? "Adding…" : "Use this plan"}
+                    <Pencil size={14} />
+                    Take this one and edit it
                   </button>
                 )}
               </>
@@ -187,7 +220,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
         );
       })}
 
-      {result && (
+      {result && drafting === null && (
         <button className="btn-link" style={{ marginTop: 12 }} onClick={generate} disabled={loading}>
           <RefreshCw size={12} />
           Propose again

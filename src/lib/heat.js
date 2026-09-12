@@ -1,4 +1,4 @@
-import { isDailyDoneToday } from "./dates";
+import { isDailyDoneToday } from "./dates.js";
 
 // ---------------------------------------------------------------------------
 // Heat model
@@ -104,4 +104,86 @@ export function buildChildrenByParent(edges) {
     map.get(e.parent_id).push(e.child_id);
   }
   return map;
+}
+
+// ---------------------------------------------------------------------------
+// Minute brightness
+//
+// The heat model above answers "is this still being tended". It deliberately
+// says nothing about how MUCH — a goal touched once for four minutes is as
+// bright as one that ate the week. That is the wrong question for a wheel
+// you are using to see where your day actually went, so this is the other
+// reading: brightness straight from logged minutes.
+//
+// Normalized within each ring rather than globally. Credit rolls up, so a
+// root always holds the sum of everything beneath it and a global scale
+// would leave the centre blazing and every leaf black no matter what you
+// did. Comparing siblings to siblings is also the question actually being
+// asked — which pillar got fed, and underneath it, through which branch.
+//
+// The curve is a 0.6 power: a goal with a tenth of its ring's leader still
+// reads at about a third brightness rather than vanishing, since most of a
+// real tree lives in that long tail.
+// ---------------------------------------------------------------------------
+
+const MINUTE_CURVE = 0.6;
+const MINUTE_FLOOR = 0.08; // anything with time at all clears the unlit ground
+const UNLIT = 0.03;
+
+export function computeDepths(nodes, edges) {
+  const nodesById = new Map(nodes.map((n) => [n.id, n]));
+  const childrenByParent = new Map();
+  const hasParent = new Set();
+  for (const e of edges) {
+    if (!nodesById.has(e.child_id) || !nodesById.has(e.parent_id)) continue;
+    if (!childrenByParent.has(e.parent_id)) childrenByParent.set(e.parent_id, []);
+    childrenByParent.get(e.parent_id).push(e.child_id);
+    hasParent.add(e.child_id);
+  }
+
+  // Breadth-first from every root at once, so a node reachable by two paths
+  // takes the shallower depth and each node is visited once.
+  const depth = new Map();
+  const queue = [];
+  for (const n of nodes) {
+    if (!hasParent.has(n.id)) {
+      depth.set(n.id, 0);
+      queue.push(n.id);
+    }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const id = queue[i];
+    for (const childId of childrenByParent.get(id) ?? []) {
+      if (depth.has(childId)) continue;
+      depth.set(childId, depth.get(id) + 1);
+      queue.push(childId);
+    }
+  }
+  // Orphans of a cycle never get reached from a root; park them at the rim.
+  for (const n of nodes) if (!depth.has(n.id)) depth.set(n.id, 0);
+  return depth;
+}
+
+// `minutesById` is node id -> rolled-up minutes (goal_credit.total_minutes).
+export function computeMinuteBrightness(nodes, edges, minutesById) {
+  const depth = computeDepths(nodes, edges);
+
+  const maxByDepth = new Map();
+  for (const n of nodes) {
+    const m = Number(minutesById.get(n.id) ?? 0);
+    const d = depth.get(n.id) ?? 0;
+    if (m > (maxByDepth.get(d) ?? 0)) maxByDepth.set(d, m);
+  }
+
+  const brightness = new Map();
+  for (const n of nodes) {
+    const m = Number(minutesById.get(n.id) ?? 0);
+    const max = maxByDepth.get(depth.get(n.id) ?? 0) ?? 0;
+    if (m <= 0 || max <= 0) {
+      brightness.set(n.id, UNLIT);
+      continue;
+    }
+    brightness.set(n.id, MINUTE_FLOOR + (1 - MINUTE_FLOOR) * Math.pow(m / max, MINUTE_CURVE));
+  }
+  return brightness;
 }

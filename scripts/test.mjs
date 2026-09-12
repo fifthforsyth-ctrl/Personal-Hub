@@ -10,6 +10,7 @@
 
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
+import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
 
 let pass = 0;
 let fail = 0;
@@ -124,6 +125,70 @@ ok("a question is marked as one", text.includes("· Q: Partial refunds"));
 ok("tomorrow is listed", /TOMORROW[\s\S]*Finish payment retries/.test(text));
 ok("an unplanned tomorrow says so", reportToText({ date: "2026-09-08", minutes: 0, tasks: [], notes: [], tomorrow: [] }).includes("(not planned yet)"));
 ok("no section is invented when empty", !text.includes("NOTES"));
+
+
+// ---------------------------------------------------------------------------
+
+console.log("\nwheel brightness from minutes");
+
+// Two pillars, each with two children. Credit is already rolled up by
+// goal_credit, so a parent's minutes are the sum of its subtree.
+const wNodes = [
+  { id: "A" }, { id: "B" },
+  { id: "A1" }, { id: "A2" },
+  { id: "B1" }, { id: "B2" },
+];
+const wEdges = [
+  { parent_id: "A", child_id: "A1" },
+  { parent_id: "A", child_id: "A2" },
+  { parent_id: "B", child_id: "B1" },
+  { parent_id: "B", child_id: "B2" },
+];
+
+const depths = computeDepths(wNodes, wEdges);
+ok("roots sit at depth 0", depths.get("A") === 0 && depths.get("B") === 0);
+ok("children sit at depth 1", depths.get("A1") === 1 && depths.get("B2") === 1);
+
+const mins = new Map([
+  ["A", 600], ["A1", 600], ["A2", 0],
+  ["B", 60], ["B1", 30], ["B2", 30],
+]);
+const bright = computeMinuteBrightness(wNodes, wEdges, mins);
+
+ok("the busiest node in a ring is fully lit", Math.abs(bright.get("A") - 1) < 1e-9, String(bright.get("A")));
+ok("the busiest child is fully lit too, though it has a tenth of the root's ring leader",
+   Math.abs(bright.get("A1") - 1) < 1e-9, String(bright.get("A1")));
+ok("a node with no minutes is unlit", bright.get("A2") < 0.05, String(bright.get("A2")));
+ok("a quiet sibling is dim but visible", bright.get("B") > 0.1 && bright.get("B") < 0.45, String(bright.get("B")));
+ok("equal siblings light equally", bright.get("B1") === bright.get("B2"));
+ok("a node holding a twentieth of its ring's leader stays dim", bright.get("B1") < 0.3, String(bright.get("B1")));
+
+// The whole point of normalizing per ring. Under a single global scale a
+// deep node could never be brighter than the root that contains it, so the
+// rim would be permanently dark however the week actually went. Here a
+// depth-2 leaf leads its own ring and is fully lit, while the root holding
+// six times its minutes is no brighter.
+const deepNodes = [...wNodes, { id: "A1a" }, { id: "A1b" }];
+const deepEdges = [...wEdges, { parent_id: "A1", child_id: "A1a" }, { parent_id: "A1", child_id: "A1b" }];
+const deepBright = computeMinuteBrightness(
+  deepNodes,
+  deepEdges,
+  new Map([
+    ["A", 660], ["A1", 600], ["A2", 0], ["A1a", 600], ["A1b", 0],
+    ["B", 60], ["B1", 30], ["B2", 30],
+  ])
+);
+ok("a depth-2 leaf can be fully lit", Math.abs(deepBright.get("A1a") - 1) < 1e-9, String(deepBright.get("A1a")));
+ok("its root, holding more minutes, is no brighter", deepBright.get("A") <= deepBright.get("A1a"));
+
+// A node reachable from no root at all must still resolve rather than throw.
+const orphanBright = computeMinuteBrightness(
+  [{ id: "X" }, { id: "Y" }],
+  [{ parent_id: "X", child_id: "Y" }, { parent_id: "Y", child_id: "X" }],
+  new Map([["X", 10], ["Y", 10]])
+);
+ok("a cycle resolves instead of hanging", orphanBright.size === 2);
+
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

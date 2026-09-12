@@ -1,0 +1,8 @@
+-- "This time served no goal" is a decision, and it has to survive.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- apply_goal_mappings filled any entry whose goal was null, so a deliberate
+-- "serves none" — the right answer for a commute or a meal — was overwritten
+-- the next time mappings ran, and the fruits view went back to claiming
+-- lunch fed Whole food meals. The category rule now fills only slots with no
+-- goal AND no recorded source, i.e. ones nobody has ruled on yet.

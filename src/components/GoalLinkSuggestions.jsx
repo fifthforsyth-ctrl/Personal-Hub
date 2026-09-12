@@ -141,7 +141,9 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
                     {" "}
                     <span className="faint">
                       {dayStats.total} {dayStats.total === 1 ? "entry" : "entries"} today
-                      {dayStats.unlinked > 0 ? `, ${dayStats.unlinked} with no goal yet` : ", all currently linked by category"}.
+                      {dayStats.unread > 0
+                        ? `, ${dayStats.unread} still on a category default or no goal at all`
+                        : ", all of them already read"}.
                     </span>
                   </>
                 )}
@@ -159,13 +161,13 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
             {dayStats?.total > 0 ? `Link today's ${dayStats.total} entries` : "Nothing logged today"}
           </button>
 
-          {backlog?.unlinked > 0 && (
+          {backlog?.unread > 0 && (
             <button
               onClick={() => run({ start: backlogStart, end: addDays(date, -1), onlyUnlinked: true })}
               className="btn-secondary"
               style={{ width: "100%", marginTop: 8 }}
             >
-              Catch up {backlog.unlinked} unlinked from earlier days
+              Catch up {backlog.unread} unread from earlier days
             </button>
           )}
         </>
@@ -182,8 +184,9 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
       {result && result.links.length > 0 && (
         <>
           <p className="faint" style={{ fontSize: 11.5, margin: "-4px 0 10px" }}>
-            Tap a row to include or exclude it, or press the goal underneath to change it. Low-confidence guesses start
-            off, and "serves none" is a real answer — driving and meals usually do.
+            {result.links.filter((l) => l.changed).length} of {result.links.length} would change. Tap a row to include or
+            exclude it, or press the goal underneath to change it. Low-confidence guesses start off, and "serves none" is
+            a real answer — driving and meals usually do.
           </p>
 
           {result.links.map((link) => {
@@ -260,6 +263,13 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
                   </span>
                   <Pencil size={11} style={{ color: "var(--text-3)", flexShrink: 0 }} />
                 </button>
+
+                {link.changed && link.current_goal && (
+                  <div className="faint" style={{ fontSize: 10.5, marginTop: 5, marginLeft: 25, lineHeight: 1.45 }}>
+                    was {link.current_goal}
+                    {link.current_source === "mapping" ? " (category default)" : ""}
+                  </div>
+                )}
 
                 {link.why && !link.edited && (
                   <div className="faint" style={{ fontSize: 11, marginTop: 5, marginLeft: 25, lineHeight: 1.45 }}>{link.why}</div>

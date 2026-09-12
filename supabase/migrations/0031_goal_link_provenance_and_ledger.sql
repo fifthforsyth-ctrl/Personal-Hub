@@ -1,0 +1,16 @@
+-- Where a goal link came from, and the per-goal record of what fed it.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- Until now a link was just a uuid, so a coarse category default ("anything
+-- tagged Prep serves Self Mastery") was indistinguishable from a real read of
+-- the description — and apply_goal_mappings would overwrite the good one with
+-- the dumb one. The backfill found 290 of 311 existing links were nothing but
+-- the category default; the tree looked fed while 70 of its 86 nodes had
+-- never received a minute.
+--
+--   * time_log_entries.goal_link_source — 'mapping' | 'ai' | 'manual'
+--   * apply_goal_mappings no longer clobbers an 'ai' or 'manual' link
+--   * goal_ledger(node, start, end, tz) — every entry, task and win that
+--     landed on a node OR anywhere beneath it, each labelled with the node it
+--     actually landed on, so a pillar can show what came up through which
+--     child. This is what clicking a wedge reads.

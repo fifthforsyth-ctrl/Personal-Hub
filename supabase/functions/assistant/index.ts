@@ -59,7 +59,11 @@ const PlanSchema = z.object({
 
 const PLAN_SYSTEM = `You propose plans for the coming day inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary.
 
-You are given a compact summary of their recent days: how time was actually spent by category, which goal-tree branches got fed, which have gone quiet, tasks left unfinished, promptings recorded but not yet acted on, and the block shapes and presets they already use.
+You are given two different things, and the difference matters.
+
+The record: how time was actually spent by category over recent days, which goal-tree branches got fed, which have gone quiet, tasks left unfinished, promptings recorded but not yet acted on, and the block shapes they already use.
+
+The intent: "ideal_day_for_tomorrow" is the shape they have decided this weekday should have — a standing decision, not an observation. Where it exists, it is the skeleton. Start from its blocks and its times, keep its fixed points exactly (anything named unavailable, reserved, or rest is not yours to move), and depart from it only where the record or their notes give you a reason you can name. If no ideal day claims tomorrow, build from the recent record instead.
 
 Produce exactly three plans that differ in strategy, not just in wording. Good axes to differ along:
 - continue what is already working, tightened
@@ -67,7 +71,8 @@ Produce exactly three plans that differ in strategy, not just in wording. Good a
 - a lighter or recovery-shaped day when the recent data shows sustained heavy load
 
 Rules:
-- Build from the block shapes and times they ALREADY use. You are proposing tomorrow, not redesigning their life.
+- Build from the ideal day for tomorrow where there is one, and otherwise from the block shapes and times they ALREADY use. You are proposing tomorrow, not redesigning their life.
+- The three plans should differ in how they handle the gap between the ideal and the record — holding to the ideal, conceding to what the last week actually sustained, or protecting one thing that has been getting squeezed. Say in the rationale which you did.
 - Respect the obvious fixed points visible in the data (sleep, study hours, meal times, standing meetings).
 - Cite real numbers in each rationale — "Creative Mastery has had nothing for 12 days", "you finished 9 of 9 yesterday". Never invent a figure.
 - Every plan must be livable. Do not stack a day past what their recent days show they actually do.
@@ -125,17 +130,19 @@ const LinkSchema = z.object({
     .describe("One entry per input entry, in the same order."),
 });
 
-const LINK_SYSTEM = `You read a day of logged time and decide which goal on a personal goal tree each stretch of time actually fed.
+const LINK_SYSTEM = `You read logged time and decide which goal on a personal goal tree each stretch of time actually fed.
 
 The descriptions are the point. Two entries can carry the same category tag and serve completely different goals — "Serve zone making app" is building something, "Help sister Shumway" is ministering to a person. Read what was actually written.
 
 Rules:
 - goal_id must be copied exactly from the supplied goals list. Never invent an id or a goal name.
-- Prefer the most specific goal that genuinely fits. Credit flows upward on its own, so choosing a leaf is better than choosing a pillar when the leaf is right.
+- Go as deep as the description supports. Credit rolls upward on its own: linking to a leaf also credits every goal above it, while linking to a pillar credits the pillar and nothing below. So a pillar link throws away everything the description told you. Reach for a goal with "leaf": true, and only settle higher when the description genuinely does not distinguish between that node's children.
+- A goal near the top of the tree ("depth" 0 or 1) is the wrong answer unless nothing beneath it fits at all. If you are about to return one, read the goal list again for a descendant that fits.
+- An entry's current_goal with "source": "mapping" was assigned by a blunt rule — every entry carrying one tag was given the same goal, without anyone reading the description. Do not treat it as a prior. Decide from the description as though the slot were empty, and expect to disagree with it often; that rule is exactly what this pass exists to correct. A current_goal with source "ai" or "manual" was a real decision, so keep it unless the description clearly says otherwise.
 - Return null when the time honestly serves no goal on the tree — commuting, meals, and idle time usually do. A forced link is worse than none.
 - Mark confidence honestly. "low" is the correct answer for a vague description like "Untitled Activity"; do not guess confidently to look useful.
 - The tags are a hint, not the answer. Where the description contradicts the tag, follow the description.
-- Return exactly one object per input entry, including ones that already have a current_goal — if the existing link is right, return it again.`;
+- Return exactly one object per input entry, including ones that already carry a current_goal.`;
 
 async function suggestGoalLinks(
   supabase: any,
@@ -183,7 +190,13 @@ async function suggestGoalLinks(
         goal_path: l.goal_id ? goalById.get(l.goal_id) : null,
         what: entry?.what,
         minutes: entry?.minutes,
-        current_goal: entry?.current_goal ?? null,
+        day: entry?.day,
+        // What the review screen shows as "was", so a change is legible as a
+        // change. The source rides along because replacing a blunt category
+        // default is a different act from overruling a considered link.
+        current_goal: entry?.current_goal?.path ?? null,
+        current_source: entry?.current_goal?.source ?? null,
+        changed: (entry?.current_goal?.id ?? null) !== (l.goal_id ?? null),
       };
     });
 
@@ -203,8 +216,8 @@ async function suggestGoalLinks(
 
 const SCHEMA_DOC = `All tables are row-level-secured to the signed-in user; you do NOT need to filter by user_id, and auth.uid() is available if you want it.
 
-time_log_entries(id, category text, subcategory text, description text, started_at timestamptz, ended_at timestamptz, duration_minutes numeric, tags text[], goal_node_id uuid)
-  — the minute tracking. One row per stretch of tracked time. tags holds every category on the entry; category holds the first. Prefer unnest(tags) when a row can belong to several.
+time_log_entries(id, category text, subcategory text, description text, started_at timestamptz, ended_at timestamptz, duration_minutes numeric, tags text[], goal_node_id uuid, goal_link_source text 'mapping'|'ai'|'manual')
+  — the minute tracking. One row per stretch of tracked time. tags holds every category on the entry; category holds the first. Prefer unnest(tags) when a row can belong to several. goal_link_source says how goal_node_id was decided: 'mapping' is a blunt per-category default, so treat those links as weak evidence.
 win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text, note text, goal_node_id uuid)
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
   — status true means done. parent_task_id not null means it is a subtask.

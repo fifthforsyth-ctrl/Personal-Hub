@@ -1,0 +1,11 @@
+-- "Unlinked" was the wrong thing for the catch-up button to chase.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- A link assigned by the category rule is not a read entry — it is a
+-- placeholder that happens to be non-null, and chasing only nulls hid 290 of
+-- 311 entries from the pass that would have improved them.
+--
+--   * link_context: p_only_unlinked now means "not yet read" — no link at
+--     all, or one no better than the category default.
+--   * link_stats gains `unread` on the same definition, so the button can
+--     say how much is genuinely unexamined rather than merely null.

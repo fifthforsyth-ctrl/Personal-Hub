@@ -797,13 +797,154 @@ export async function fetchLinkStats(startDate, endDate) {
     p_tz: localZone(),
   });
   if (error) throw error;
-  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0 };
+  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0, unread: 0 };
 }
 
+// Accepting a suggestion stamps it as the model's read, not the category
+// rule's guess — which is what stops apply_goal_mappings from later
+// flattening it back onto whatever pillar the tag defaults to.
+//
+// Grouped by goal so accepting a whole evening is a handful of round trips
+// rather than one per entry.
 export async function applyGoalLinks(links) {
+  const byGoal = new Map();
   for (const link of links) {
-    await supabase.from("time_log_entries").update({ goal_node_id: link.goal_id }).eq("id", link.entry_id);
+    const key = link.goal_id ?? "__none__";
+    if (!byGoal.has(key)) byGoal.set(key, []);
+    byGoal.get(key).push(link.entry_id);
   }
+  for (const [goalId, entryIds] of byGoal) {
+    const goal_node_id = goalId === "__none__" ? null : goalId;
+    const { error } = await supabase
+      .from("time_log_entries")
+      // Stamped 'ai' even when the goal is null: "this served nothing" is a
+      // decision, and leaving the source null would let the category rule
+      // quietly refill the slot on its next run.
+      .update({ goal_node_id, goal_link_source: "ai" })
+      .in("id", entryIds);
+    if (error) throw error;
+  }
+}
+
+// The record one goal keeps: every entry, finished task and win that landed
+// on it or anywhere beneath it, each labelled with the node it actually
+// landed on. Answers "what time went to this, and through what".
+export async function fetchGoalLedger(nodeId, startDate, endDate) {
+  const { data, error } = await supabase.rpc("goal_ledger", {
+    p_node_id: nodeId,
+    p_start: startDate,
+    p_end: endDate,
+    p_tz: localZone(),
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Ideal days — the shape a weekday is supposed to have.
+//
+// Stored as ordinary day templates, so anything that already applies a
+// template to a date works on them unchanged. What makes one an "ideal day"
+// is that it names the weekdays it governs; the planner reads it alongside
+// the last fortnight of what actually happened.
+// ---------------------------------------------------------------------------
+
+export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export async function fetchIdealDays(userId) {
+  const templates = await fetchTemplates(userId, "day");
+  return Promise.all(
+    templates.map(async (t) => {
+      const { chunks, tasks } = await fetchTemplateDetail(t.id);
+      const tasksByChunk = new Map();
+      for (const task of tasks) {
+        if (!tasksByChunk.has(task.template_chunk_id)) tasksByChunk.set(task.template_chunk_id, []);
+        tasksByChunk.get(task.template_chunk_id).push(task.title);
+      }
+      return {
+        id: t.id,
+        name: t.name,
+        notes: t.notes ?? "",
+        weekdays: t.applies_to_weekdays ?? [],
+        blocks: chunks.map((c) => ({
+          title: c.title,
+          start: String(c.start_time ?? "").slice(0, 5),
+          end: String(c.end_time ?? "").slice(0, 5),
+          tasks: tasksByChunk.get(c.id) ?? [],
+        })),
+      };
+    })
+  );
+}
+
+// Saves a whole ideal day at once. The blocks are replaced rather than
+// diffed — an ideal day is short and edited as a single shape, and a
+// replace can't leave a half-applied schedule behind.
+export async function saveIdealDay(userId, { id, name, notes, weekdays, blocks }) {
+  let templateId = id;
+  const fields = {
+    name: name?.trim() || "Untitled day",
+    notes: notes?.trim() || null,
+    applies_to_weekdays: (weekdays ?? []).length > 0 ? weekdays : null,
+  };
+
+  if (templateId) {
+    const { error } = await supabase.from("plan_templates").update(fields).eq("id", templateId);
+    if (error) throw error;
+    const { data: old, error: oErr } = await supabase.from("template_chunks").select("id").eq("template_id", templateId);
+    if (oErr) throw oErr;
+    if ((old ?? []).length > 0) {
+      const { error: dErr } = await supabase
+        .from("template_chunks")
+        .delete()
+        .in("id", old.map((c) => c.id));
+      if (dErr) throw dErr;
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("plan_templates")
+      .insert({ user_id: userId, kind: "day", ...fields })
+      .select()
+      .single();
+    if (error) throw error;
+    templateId = data.id;
+  }
+
+  const ordered = [...(blocks ?? [])].filter((b) => b.title?.trim() && b.start && b.end).sort((a, b) => a.start.localeCompare(b.start));
+
+  for (const [position, block] of ordered.entries()) {
+    const { data: chunk, error } = await supabase
+      .from("template_chunks")
+      .insert({
+        template_id: templateId,
+        title: block.title.trim(),
+        start_time: block.start,
+        end_time: block.end,
+        position,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    const taskRows = (block.tasks ?? [])
+      .filter((t) => t.trim())
+      .map((t, i) => ({ template_chunk_id: chunk.id, title: t.trim(), position: i }));
+    if (taskRows.length > 0) {
+      const { error: tErr } = await supabase.from("template_tasks").insert(taskRows);
+      if (tErr) throw tErr;
+    }
+  }
+
+  return templateId;
+}
+
+// The ideal day governing a given date, if one claims that weekday.
+export function idealDayFor(idealDays, dateStr) {
+  // Built from parts rather than Date.parse: "2026-09-12" parsed as a string
+  // is UTC midnight, which is the previous weekday west of Greenwich.
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  return idealDays.find((day) => (day.weekdays ?? []).includes(dow)) ?? null;
 }
 
 // ---------------------------------------------------------------------------

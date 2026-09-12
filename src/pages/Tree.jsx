@@ -12,14 +12,26 @@ import {
   recordNote,
   setFocused,
   repeatNode,
+  fetchGoalCredit,
 } from "../lib/api";
-import { computeAllBrightness, brightnessTier } from "../lib/heat";
+import { computeAllBrightness, computeMinuteBrightness, brightnessTier } from "../lib/heat";
+import { todayStr, addDays } from "../lib/planDates";
 import { computeWheel } from "../lib/wheel";
 import useIsMobile from "../lib/useIsMobile";
 import PyramidWheel from "../components/tree/PyramidWheel";
 import SectionWheel from "../components/tree/SectionWheel";
 import WedgeDetailPanel from "../components/tree/WedgeDetailPanel";
 import NodeForm from "../components/tree/NodeForm";
+
+// What "bright" means on the wheel. Recency answers "is this still being
+// tended"; the others answer "where did the time actually go", which is a
+// different question and the one you ask at the end of a day.
+const LIT_MODES = [
+  { key: "today", label: "Today", days: 1 },
+  { key: "7", label: "7 days", days: 7 },
+  { key: "30", label: "30 days", days: 30 },
+  { key: "recency", label: "Recency", days: 30 },
+];
 
 // The meaning layer — Identity/Character down through Life Themes, Goals,
 // Sub-goals, to daily actions at the leaves. Same ring-wheel visualization
@@ -41,6 +53,12 @@ export default function Tree() {
   const [mobileFullView, setMobileFullView] = useState(false);
   const [mobileCenterOverrideId, setMobileCenterOverrideId] = useState(null);
   const usingSectionWheel = isMobile && !mobileFullView;
+  const [litKey, setLitKey] = useState("7");
+  const [minutesById, setMinutesById] = useState(new Map());
+
+  const lit = LIT_MODES.find((m) => m.key === litKey) ?? LIT_MODES[1];
+  const rangeEnd = todayStr();
+  const rangeStart = addDays(rangeEnd, -(lit.days - 1));
 
   const reload = useCallback(async () => {
     if (!user?.id) return;
@@ -55,7 +73,28 @@ export default function Tree() {
     reload();
   }, [reload]);
 
-  const brightnessById = useMemo(() => computeAllBrightness(nodes, edges), [nodes, edges]);
+  // Rolled-up minutes for the window, which both the wheel's lighting and
+  // the selected goal's ledger are read against.
+  useEffect(() => {
+    let cancelled = false;
+    fetchGoalCredit(rangeStart, rangeEnd)
+      .then((rows) => {
+        if (cancelled) return;
+        setMinutesById(new Map(rows.map((r) => [r.node_id, Number(r.total_minutes) || 0])));
+      })
+      .catch(() => !cancelled && setMinutesById(new Map()));
+    return () => {
+      cancelled = true;
+    };
+  }, [rangeStart, rangeEnd, nodes.length]);
+
+  // The panel's "Active / Ticking along / Gone quiet" line is about tending,
+  // not volume, so it keeps reading recency however the wheel is lit.
+  const recencyById = useMemo(() => computeAllBrightness(nodes, edges), [nodes, edges]);
+  const brightnessById = useMemo(
+    () => (litKey === "recency" ? recencyById : computeMinuteBrightness(nodes, edges, minutesById)),
+    [litKey, recencyById, nodes, edges, minutesById]
+  );
   const wheel = useMemo(() => computeWheel(nodes, edges, centerNodeId), [nodes, edges, centerNodeId]);
 
   const childrenByParent = useMemo(() => {
@@ -160,6 +199,22 @@ export default function Tree() {
         )}
       </div>
 
+      {nodes.length > 0 && (
+        <div className="tree-lit-chip">
+          <span className="tree-lit-chip__label">Lit by</span>
+          {LIT_MODES.map((m) => (
+            <button
+              key={m.key}
+              className={m.key === litKey ? "active" : ""}
+              onClick={() => setLitKey(m.key)}
+              title={m.key === "recency" ? "How recently each goal was tended" : `Minutes logged over the last ${m.label.toLowerCase()}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isMobile && nodes.length > 0 && (
         <button
           onClick={() => {
@@ -215,7 +270,7 @@ export default function Tree() {
       {selectedNode && (
         <WedgeDetailPanel
           node={selectedNode}
-          tier={brightnessTier(brightnessById.get(selectedNode.id) ?? 0)}
+          tier={brightnessTier(recencyById.get(selectedNode.id) ?? 0)}
           ringIndex={wheel.layout.get(selectedNode.id)?.ringIndex ?? 0}
           hasChildren={(childrenByParent.get(selectedNode.id) ?? []).length > 0}
           childCount={(childrenByParent.get(selectedNode.id) ?? []).length}
@@ -227,6 +282,9 @@ export default function Tree() {
           onAddChild={handleAddChild}
           onRepeat={handleRepeat}
           onRecenter={handleRecenter}
+          ledgerStart={rangeStart}
+          ledgerEnd={rangeEnd}
+          windowLabel={lit.key === "today" ? "today" : `last ${lit.days} days`}
         />
       )}
 

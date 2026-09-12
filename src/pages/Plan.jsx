@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import WeekView from "../components/plan/WeekView";
 import MonthView from "../components/plan/MonthView";
 import YearView from "../components/plan/YearView";
+import IdealDays from "../components/plan/IdealDays";
 import {
   todayStr,
   addDays,
@@ -16,7 +17,10 @@ import {
   yearOf,
 } from "../lib/planDates";
 
-const VIEWS = ["Week", "Month", "Year"];
+// "Ideal" is not an altitude like the other three — it is what the other
+// three are being measured against, which is why it lives beside them
+// rather than buried in settings.
+const VIEWS = ["Week", "Month", "Year", "Ideal"];
 
 // Planning at three altitudes. Every one of them is made of the same day
 // card, and every one of them drops you into a real day when you press it —
@@ -39,10 +43,18 @@ export default function Plan() {
   }
 
   const heading =
-    view === "Week" ? fmtWeekHeading(date) : view === "Month" ? fmtMonthYear(date) : String(yearOf(date));
+    view === "Ideal"
+      ? "Ideal days"
+      : view === "Week"
+      ? fmtWeekHeading(date)
+      : view === "Month"
+      ? fmtMonthYear(date)
+      : String(yearOf(date));
 
   const isNow =
-    view === "Week"
+    view === "Ideal"
+      ? true
+      : view === "Week"
       ? startOfWeek(date) === startOfWeek(todayStr())
       : view === "Month"
       ? date.slice(0, 7) === todayStr().slice(0, 7)
@@ -69,20 +81,23 @@ export default function Plan() {
               </button>
             ))}
           </div>
-          <div className="row" style={{ gap: 4 }}>
-            <button className="btn-icon btn-icon--bordered" onClick={() => step(-1)} title="Previous">
-              <ChevronLeft size={16} />
-            </button>
-            <button className="btn-icon btn-icon--bordered" onClick={() => step(1)} title="Next">
-              <ChevronRight size={16} />
-            </button>
-          </div>
+          {view !== "Ideal" && (
+            <div className="row" style={{ gap: 4 }}>
+              <button className="btn-icon btn-icon--bordered" onClick={() => step(-1)} title="Previous">
+                <ChevronLeft size={16} />
+              </button>
+              <button className="btn-icon btn-icon--bordered" onClick={() => step(1)} title="Next">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {view === "Week" && <WeekView anchorDate={date} />}
       {view === "Month" && <MonthView monthDate={date} onPickDay={(d) => navigate(`/day/${d}`)} />}
       {view === "Year" && <YearView year={yearOf(date)} onPickMonth={pickMonth} />}
+      {view === "Ideal" && <IdealDays />}
     </div>
   );
 }
