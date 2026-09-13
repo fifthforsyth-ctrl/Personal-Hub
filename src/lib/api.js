@@ -99,6 +99,10 @@ export async function startTimeEntry(userId, { categories, description, subcateg
       subcategory: subcategory || null,
       description: description || null,
       goal_node_id: goalNodeId || null,
+      // A goal chosen at the moment of tracking is your own decision, so it
+      // is stamped as one — otherwise the linker offers it back to you later
+      // as though a category rule had guessed it.
+      goal_link_source: goalNodeId ? "manual" : null,
       tags,
       started_at: new Date().toISOString(),
     })
@@ -816,7 +820,7 @@ export async function fetchLinkStats(startDate, endDate) {
     p_tz: localZone(),
   });
   if (error) throw error;
-  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0, unread: 0 };
+  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0, unread: 0, serves_none: 0 };
 }
 
 // Accepting a suggestion stamps it as the model's read, not the category

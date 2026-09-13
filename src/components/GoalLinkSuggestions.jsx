@@ -189,9 +189,8 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
                     {" "}
                     <span className="faint">
                       {dayStats.total} {dayStats.total === 1 ? "entry" : "entries"} today
-                      {dayStats.unread > 0
-                        ? `, ${dayStats.unread} still on a category default or no goal at all`
-                        : ", all of them already read"}.
+                      {dayStats.unread > 0 ? `, ${dayStats.unread} not yet read` : ", all of them already read"}
+                      {dayStats.serves_none > 0 && `, ${dayStats.serves_none} read and left serving nothing`}.
                     </span>
                   </>
                 )}
@@ -217,6 +216,16 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
             >
               Catch up {backlog.unread} unread from earlier days
             </button>
+          )}
+
+          {/* An entry the model read and left serving nothing has no goal,
+              which looks exactly like an entry nobody has touched. Saying so
+              is the difference between "caught up" and "still 106 to go". */}
+          {backlog?.unread === 0 && backlog?.total > 0 && (
+            <p className="faint" style={{ fontSize: 11.5, margin: "10px 0 0", textAlign: "center" }}>
+              Earlier days are caught up — {backlog.linked} linked
+              {backlog.serves_none > 0 && `, ${backlog.serves_none} read and serving nothing`}.
+            </p>
           )}
         </>
       )}

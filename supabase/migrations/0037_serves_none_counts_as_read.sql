@@ -1,0 +1,18 @@
+-- "Unread" was still asking the wrong question, one layer further in.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- It meant "has no goal, or has only a category default" — so an entry the
+-- model HAD read and deliberately returned null for (a commute, a meal,
+-- sleep) counted as unread forever. 106 entries were stuck in that loop:
+-- offered by the catch-up button, read again, decided "none" again, offered
+-- again. The queue could never reach zero, and every pass paid to re-decide
+-- what had already been decided.
+--
+-- What the button chases is entries nobody has ruled on, which is the source
+-- column alone: null (never examined) or 'mapping' (a blunt per-category
+-- default nobody looked at). Whether a ruling produced a goal or produced
+-- "this served nothing" is beside the point — both are answers.
+--
+--   * link_context: p_only_unlinked keys off goal_link_source, not the goal
+--   * link_stats: same for `unread`, plus `serves_none` so the card can say
+--     why so many entries legitimately have no goal
