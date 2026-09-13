@@ -1,0 +1,16 @@
+-- A planned block needs to know what it IS, not just what it is called.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- Without a category the week's plan is seven lists of strings: you cannot
+-- total how much study it contains, cannot colour it, and cannot hold it
+-- against the ring of what actually happened. With one, a plan and a record
+-- are the same kind of object measured the same way — which is what makes
+-- the dials possible at all.
+--
+--   * time_chunks.category, backfilled by title where the title was one the
+--     seeded ideal days used. Anything unmatched stays null and goes
+--     uncounted rather than counted wrongly.
+--   * week_context sends the legal category names, since the planner cannot
+--     pick one without being told what exists; a category it invented would
+--     count toward nothing while looking deliberate, so the function drops
+--     any name not on the list.

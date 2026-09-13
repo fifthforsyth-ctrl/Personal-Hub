@@ -1309,3 +1309,66 @@ form.card + .card { margin-top: 14px; }
   height: 100%;
   border-radius: 2px;
 }
+
+/* Target dials. They wrap rather than scroll: four gauges on a desk, two up
+   on a phone, and the numbers stay legible at both. */
+.dial-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 10px;
+  justify-content: center;
+}
+.dial {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 96px;
+}
+.dial__centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+}
+.dial__planned {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.dial__goal {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.dial__name {
+  font-size: 11.5px;
+  font-weight: 570;
+  color: var(--text-2);
+  text-align: center;
+  max-width: 104px;
+}
+.dial__controls {
+  display: flex;
+  gap: 4px;
+}
+.dial__controls button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+}
+.dial__controls button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

@@ -11,8 +11,9 @@ import {
   fetchCategories,
   clearWeekPlan,
 } from "../../lib/api";
-import { setCategoryColors } from "../../lib/categories";
+import { setCategoryColors, colorFor } from "../../lib/categories";
 import WeekTargets from "./WeekTargets";
+import TargetDials from "./TargetDials";
 import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -77,12 +78,12 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
     }
   }, [reload, user?.id]);
 
-  async function generate() {
+  async function generate(overrides) {
     setLoading(true);
     setError(null);
     setCommitted(false);
     try {
-      setResult(await proposeWeek({ weekStart, notes }));
+      setResult(await proposeWeek({ weekStart, notes, overrides }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -241,7 +242,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
             </p>
           )}
 
-          <button className="btn btn--accent btn--block" onClick={generate} disabled={loading}>
+          <button className="btn btn--accent btn--block" onClick={() => generate()} disabled={loading}>
             <Sparkles size={15} />
             {loading ? "Laying out the week…" : "Lay out the week"}
           </button>
@@ -257,7 +258,11 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
 
       {result && (
         <>
-          <p className="card-note" style={{ margin: "0 0 12px" }}>{result.strategy}</p>
+          <p className="card-note" style={{ margin: "0 0 14px" }}>{result.strategy}</p>
+
+          {targets.length > 0 && !committed && (
+            <TargetDials targets={targets} days={result.days} onRebalance={generate} busy={loading} />
+          )}
 
           {committed ? (
             <div className="row" style={{ gap: 6, fontSize: 13, color: "var(--accent)", marginBottom: 10 }}>
@@ -284,7 +289,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
           {error && <div className="form-error" style={{ margin: "10px 0" }}>{error}</div>}
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button className="btn-secondary" onClick={generate} disabled={loading || committing}>
+            <button className="btn-secondary" onClick={() => generate()} disabled={loading || committing}>
               <RefreshCw size={13} />
               Again
             </button>
@@ -325,6 +330,16 @@ function PlannedDay({ day, onPatch, onRemove, onAdd }) {
             return (
               <div key={k} className="row" style={{ gap: 6, alignItems: "center", marginBottom: 6 }}>
                 {locked && <Lock size={11} style={{ flexShrink: 0, color: "var(--accent)" }} />}
+                <span
+                  title={b.category ?? "no category"}
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: 3,
+                    flexShrink: 0,
+                    background: b.category ? colorFor(b.category) : "var(--line-strong)",
+                  }}
+                />
                 <input
                   className="input"
                   value={b.title}

@@ -1048,8 +1048,14 @@ export async function clearWeekPlan(weekStart) {
   return data ?? 0;
 }
 
-export function proposeWeek({ weekStart, notes } = {}) {
-  return callAssistant("propose_week", { week_start: weekStart, notes: notes || null });
+// `overrides` is a rebalance: amounts the person set by hand after looking
+// at a draft, which replace the targets for that one pass.
+export function proposeWeek({ weekStart, notes, overrides } = {}) {
+  return callAssistant("propose_week", {
+    week_start: weekStart,
+    notes: notes || null,
+    overrides: overrides?.length ? overrides : null,
+  });
 }
 
 // Commits a whole week at once.
@@ -1096,6 +1102,7 @@ export async function applyWeekPlan(userId, days) {
         user_id: userId,
         date: day.date,
         title: block.title.trim(),
+        category: block.category ?? null,
         start_time: block.start,
         end_time: block.end,
         source: "plan",

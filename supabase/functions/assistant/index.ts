@@ -127,6 +127,9 @@ const WeekSchema = z.object({
           .array(
             z.object({
               title: z.string().describe("What the block is. Broad — the granular version gets planned on the day."),
+              category: z
+                .string()
+                .describe('The category this block counts as, copied exactly from the supplied "categories" list.'),
               start: z.string().describe('24-hour "HH:MM".'),
               end: z.string().describe('24-hour "HH:MM".'),
             })
@@ -155,6 +158,7 @@ Rules:
 - Where a day has no ideal day, build from what the recent record shows those weekdays usually look like.
 - A target with period "day" must appear on every one of the seven days, not once with the total lumped in. A target with period "week" is a total across the week and may be distributed however the days allow.
 - Check your own arithmetic before you answer: add up the minutes you allotted to each target across the seven days and compare them to weekly_minutes. State both figures in the strategy for the largest target.
+- Every block must carry a category copied exactly from the "categories" list. Where a block exists to serve a target, use the category that target names — that is the only way the week can be totalled against it.
 - Keep the blocks BROAD. "Film / Edit", "Study", "Exercise", "Dinner". This is the week at altitude; the detail gets planned on the morning of each day, by someone who knows more than you do about that day. Never invent tasks, subtasks, or specific errands.
 - Do not fill every waking minute. A week with no slack is a week that breaks on Tuesday.
 - The week must be livable end to end. If what is already scheduled makes a day heavy, let the surrounding blocks give way rather than stacking on top of them.
@@ -162,7 +166,14 @@ Rules:
 - Cite real numbers in the strategy — a target's last_week_minutes against its weekly_minutes, "Creative Mastery has had nothing for 12 days". Never invent a figure.
 - State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
 
-async function proposeWeek(supabase: any, anthropic: Anthropic, tz: string, weekStart: string, notes?: string | null) {
+async function proposeWeek(
+  supabase: any,
+  anthropic: Anthropic,
+  tz: string,
+  weekStart: string,
+  notes?: string | null,
+  overrides?: Array<{ label: string; weekly_minutes: number }> | null
+) {
   const { data: context, error } = await supabase.rpc("week_context", { p_start: weekStart, p_tz: tz });
   if (error) throw new Error(`week_context: ${error.message}`);
 
@@ -178,6 +189,15 @@ async function proposeWeek(supabase: any, anthropic: Anthropic, tz: string, week
           `Lay out the week of ${context.week_start} to ${context.week_end}.\n\n${JSON.stringify(context, null, 1)}` +
           (notes?.trim()
             ? `\n\nNotes they left about this week. These are FIXED FACTS and take priority over any pattern in the data above:\n${notes.trim()}`
+            : "") +
+          // A rebalance. They have looked at a draft, decided the split was
+          // wrong, and moved the dials themselves — so these amounts replace
+          // the targets rather than sitting alongside them, and the whole
+          // point of the pass is that they come out exactly.
+          (overrides?.length
+            ? `\n\nThey have adjusted the amounts by hand after seeing a first draft. For THIS pass these replace the weekly_minutes on the matching targets and are not negotiable — hit each one to within fifteen minutes across the week, and take the time from whatever else the day holds:\n${overrides
+                .map((o) => `- ${o.label}: ${(o.weekly_minutes / 60).toFixed(2)} hours across the week`)
+                .join("\n")}`
             : ""),
       },
     ],
@@ -198,9 +218,18 @@ async function proposeWeek(supabase: any, anthropic: Anthropic, tz: string, week
       const source = asked.get(d.date) as any;
       const fixed = (source.scheduled ?? []).filter((c: any) => c.source !== "plan");
       const keys = new Set(fixed.map((c: any) => `${c.start}-${c.end}-${c.title}`));
+      // A category the model invented is worse than none: it would be
+      // counted toward nothing and coloured grey while looking deliberate.
+      const known = new Set((context.categories ?? []).map((c: any) => c.name));
       const generated = (d.blocks ?? [])
         .filter((b) => !keys.has(`${b.start}-${b.end}-${b.title}`))
-        .map((b) => ({ title: b.title, start: b.start, end: b.end, source: "plan" }));
+        .map((b) => ({
+          title: b.title,
+          category: known.has(b.category) ? b.category : null,
+          start: b.start,
+          end: b.end,
+          source: "plan",
+        }));
       return {
         date: d.date,
         weekday: source.weekday,
@@ -352,7 +381,7 @@ time_log_entries(id, category text, subcategory text, description text, started_
 win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text, note text, goal_node_id uuid)
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
   — status true means done. parent_task_id not null means it is a subtask.
-time_chunks(id, date date, title text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan')
+time_chunks(id, date date, title text, category text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan')
   — planned blocks. source 'plan' means generated by the week planner; anything else was put there deliberately.
 weekly_targets(id, label text, categories text[], minutes int, period text 'week'|'day', active boolean)
   — standing quotas the week is planned around. minutes is per period; categories names which tracked categories count toward it.
@@ -529,7 +558,7 @@ Deno.serve(async (req) => {
       case "propose_week": {
         const weekStart = String(body.week_start ?? "").trim();
         if (!weekStart) return json({ error: "propose_week needs a week_start." }, 400);
-        return json(await proposeWeek(supabase, anthropic, tz, weekStart, body.notes));
+        return json(await proposeWeek(supabase, anthropic, tz, weekStart, body.notes, body.overrides));
       }
       case "suggest_goal_links": {
         const start = body.start ?? body.date;
