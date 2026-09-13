@@ -1,0 +1,23 @@
+-- What the week is FOR, and a way to throw a proposal away.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- A commitment is a promise to someone else and arrives with its own time
+-- attached. A target is a promise to yourself with no time attached at all —
+-- sixty hours of filming, an hour of study — and that is exactly why it
+-- loses every argument with a calendar unless something states it out loud
+-- and places it first. Meals, free time and wind-downs are what give way to
+-- a target; never the reverse.
+--
+--   * weekly_targets(label, categories[], minutes, period 'week'|'day')
+--     with RLS. `categories` is a list because "film and edit" is not one
+--     category, and a target that could only name one would be unmeasurable.
+--   * weekly_targets(week_start, tz) returns each target with what actually
+--     happened last week and so far this week — a target nobody measures is
+--     a wish.
+--   * week_context carries them, ordered, ahead of the ideal days.
+--   * clear_week_plan(start) removes a week's generated blocks so the
+--     planner can start over. Without it a retry plans around its own
+--     previous answer. Only source='plan' blocks with no tasks are removed.
+--
+-- Seeded from what was asked for: Film / Edit 60h a week, Study 1h a day,
+-- Exercise 1h a day.

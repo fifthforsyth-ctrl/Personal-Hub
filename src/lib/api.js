@@ -1000,6 +1000,54 @@ export async function fetchDayRings(startDate, endDate) {
 // Week planning — commitments first, ideal days for the rest.
 // ---------------------------------------------------------------------------
 
+// What the week is FOR, with how the last one actually went. A target has
+// no time attached — that is the whole difficulty with one, and the reason
+// it has to be stated somewhere rather than hoped for.
+export async function fetchWeeklyTargets(weekStart) {
+  const { data, error } = await supabase.rpc("weekly_targets", {
+    p_week_start: weekStart,
+    p_tz: localZone(),
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function saveWeeklyTarget(userId, { id, label, categories, minutes, period, position }) {
+  const row = {
+    label: label?.trim() || "Untitled",
+    categories: (categories ?? []).filter(Boolean),
+    minutes: Math.max(1, Math.round(Number(minutes) || 0)),
+    period: period === "day" ? "day" : "week",
+    position: position ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+  if (id) {
+    const { error } = await supabase.from("weekly_targets").update(row).eq("id", id);
+    if (error) throw error;
+    return id;
+  }
+  const { data, error } = await supabase
+    .from("weekly_targets")
+    .insert({ user_id: userId, ...row })
+    .select()
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function deleteWeeklyTarget(id) {
+  const { error } = await supabase.from("weekly_targets").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Throws away a week's proposal so it can be asked for again. Only the
+// planner's own blocks go — never one you scheduled, never one with tasks.
+export async function clearWeekPlan(weekStart) {
+  const { data, error } = await supabase.rpc("clear_week_plan", { p_start: weekStart });
+  if (error) throw error;
+  return data ?? 0;
+}
+
 export function proposeWeek({ weekStart, notes } = {}) {
   return callAssistant("propose_week", { week_start: weekStart, notes: notes || null });
 }

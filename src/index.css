@@ -1281,3 +1281,31 @@ form.card + .card { margin-top: 14px; }
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* A weekly target: what was asked for, and a bar showing what last week
+   actually delivered against it. */
+.week-target {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 0;
+  color: inherit;
+  cursor: pointer;
+}
+.week-target:hover { background: var(--inset); }
+.week-target__bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--inset);
+  overflow: hidden;
+  margin-top: 6px;
+}
+.week-target__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}

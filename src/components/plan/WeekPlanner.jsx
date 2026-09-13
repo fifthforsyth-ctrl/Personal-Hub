@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarRange, Sparkles, Plus, Trash2, Check, Lock, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { CalendarRange, Sparkles, Plus, Trash2, Check, Lock, RefreshCw, ChevronDown, ChevronRight, Eraser } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchRangePlan, proposeWeek, applyWeekPlan, fetchIdealDays, idealDayFor } from "../../lib/api";
+import {
+  fetchRangePlan,
+  proposeWeek,
+  applyWeekPlan,
+  fetchIdealDays,
+  idealDayFor,
+  fetchWeeklyTargets,
+  fetchCategories,
+  clearWeekPlan,
+} from "../../lib/api";
+import { setCategoryColors } from "../../lib/categories";
+import WeekTargets from "./WeekTargets";
 import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -25,6 +36,9 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   const [open, setOpen] = useState(false);
   const [scheduled, setScheduled] = useState([]);
   const [ideals, setIdeals] = useState([]);
+  const [targets, setTargets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [cleared, setCleared] = useState(null);
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -35,8 +49,12 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   const reload = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const plan = await fetchRangePlan(user.id, days[0], days[6]);
+      const [plan, tg] = await Promise.all([
+        fetchRangePlan(user.id, days[0], days[6]),
+        fetchWeeklyTargets(days[0]).catch(() => []),
+      ]);
       setScheduled(plan.chunks ?? []);
+      setTargets(tg);
     } catch (err) {
       setError(err.message);
     }
@@ -46,8 +64,17 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   useEffect(() => {
     setResult(null);
     setCommitted(false);
+    setCleared(null);
     reload();
-    if (user?.id) fetchIdealDays(user.id).then(setIdeals).catch(() => {});
+    if (user?.id) {
+      fetchIdealDays(user.id).then(setIdeals).catch(() => {});
+      fetchCategories(user.id)
+        .then((cats) => {
+          setCategoryColors(cats);
+          setCategories(cats);
+        })
+        .catch(() => {});
+    }
   }, [reload, user?.id]);
 
   async function generate() {
@@ -60,6 +87,23 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Throwing the proposal away and asking again is a different act from
+  // asking again with the old one still on the calendar — without this, a
+  // retry plans around its own previous answer.
+  async function clearPlan() {
+    setError(null);
+    try {
+      const removed = await clearWeekPlan(weekStart);
+      setCleared(removed);
+      setResult(null);
+      setCommitted(false);
+      await reload();
+      await onCommitted?.();
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -120,6 +164,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   // Anything already on a day is fixed by definition, and worth showing
   // before you press generate so you can see what it is planning around.
   const fixed = scheduled.filter((c) => c.source !== "plan");
+  const planned = scheduled.length - fixed.length;
 
   return (
     <div className="card" style={{ marginBottom: 14 }}>
@@ -171,6 +216,10 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
             Anything you've already put on a day stays exactly where it is. Add more from the day itself.
           </p>
 
+          <div style={{ marginTop: 16 }}>
+            <WeekTargets userId={user?.id} targets={targets} categories={categories} onChanged={reload} />
+          </div>
+
           <label className="field" style={{ marginTop: 14 }}>
             <span>Anything about this week it can't see?</span>
             <textarea
@@ -184,10 +233,25 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
 
           {error && <div className="form-error" style={{ marginBottom: 10 }}>{error}</div>}
 
+          {cleared !== null && (
+            <p className="faint" style={{ fontSize: 11.5, margin: "0 0 10px" }}>
+              {cleared === 0
+                ? "Nothing of the planner's was on this week."
+                : `Cleared ${cleared} planned ${cleared === 1 ? "block" : "blocks"}. Everything you scheduled yourself is still there.`}
+            </p>
+          )}
+
           <button className="btn btn--accent btn--block" onClick={generate} disabled={loading}>
             <Sparkles size={15} />
             {loading ? "Laying out the week…" : "Lay out the week"}
           </button>
+
+          {planned > 0 && (
+            <button className="btn-link" style={{ marginTop: 10 }} onClick={clearPlan}>
+              <Eraser size={12} />
+              Clear the {planned} block{planned === 1 ? "" : "s"} this planner put on the week
+            </button>
+          )}
         </>
       )}
 
