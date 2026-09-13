@@ -11,7 +11,17 @@
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
-import { resolveRing, ringCoverage, pointAt, arcPath, fmtClock } from "../src/lib/ring.js";
+import {
+  resolveRing,
+  ringCoverage,
+  pointAt,
+  arcPath,
+  windowPath,
+  fmtClock,
+  DAY_START_MIN,
+  DAY_END_MIN,
+  WINDOW_MINUTES,
+} from "../src/lib/ring.js";
 
 let pass = 0;
 let fail = 0;
@@ -196,15 +206,42 @@ ok("a cycle resolves instead of hanging", orphanBright.size === 2);
 
 console.log("\nthe day ring");
 
-// Midnight at the top, noon at the bottom, morning down the right side.
-const [x0, y0] = pointAt(50, 50, 40, 0);
-ok("midnight is at the top", Math.abs(x0 - 50) < 1e-9 && Math.abs(y0 - 10) < 1e-9, `${x0},${y0}`);
-const [x12, y12] = pointAt(50, 50, 40, 720);
-ok("noon is at the bottom", Math.abs(x12 - 50) < 1e-9 && Math.abs(y12 - 90) < 1e-9, `${x12},${y12}`);
-const [x6] = pointAt(50, 50, 40, 360);
-ok("6am is on the right, so the clock runs forwards", x6 > 89, String(x6));
-const [x18] = pointAt(50, 50, 40, 1080);
-ok("6pm is on the left", x18 < 11, String(x18));
+// The face covers the waking day: 5am just clockwise of twelve o'clock,
+// 10pm just anticlockwise of it, with a gap between them.
+const [xStart, yStart] = pointAt(50, 50, 40, DAY_START_MIN);
+ok("5am sits just past the top, going clockwise", xStart > 50 && yStart < 15, `${xStart.toFixed(1)},${yStart.toFixed(1)}`);
+const [xEnd, yEnd] = pointAt(50, 50, 40, DAY_END_MIN);
+ok("10pm sits just before the top", xEnd < 50 && yEnd < 15, `${xEnd.toFixed(1)},${yEnd.toFixed(1)}`);
+ok("the two ends do not meet", Math.abs(xEnd - xStart) > 4);
+
+// Halfway through the window is the bottom of the circle. That is 1:30pm,
+// not noon — the window is not centred on midday and should not pretend to
+// be.
+const mid = (DAY_START_MIN + DAY_END_MIN) / 2;
+const [xMid, yMid] = pointAt(50, 50, 40, mid);
+ok("the middle of the waking day is at the bottom", Math.abs(xMid - 50) < 0.01 && yMid > 89, `${xMid.toFixed(1)},${yMid.toFixed(1)}`);
+
+// The morning is the right-hand side, the evening the left.
+const [xMorning] = pointAt(50, 50, 40, 8 * 60);
+const [xEvening] = pointAt(50, 50, 40, 19 * 60);
+ok("8am is on the right", xMorning > 50, String(xMorning));
+ok("7pm is on the left", xEvening < 50, String(xEvening));
+
+// Night is outside the window entirely.
+ok("an entry wholly before 5am is dropped",
+   resolveRing([{ start_min: 0, end_min: 240, category: "Sleep" }]).length === 0);
+ok("an entry wholly after 10pm is dropped",
+   resolveRing([{ start_min: 1350, end_min: 1440, category: "Prep" }]).length === 0);
+
+// ...but the part of a night that runs into the morning is a fact about the
+// day, and is kept.
+const overnight = resolveRing([{ start_min: 0, end_min: 7 * 60, category: "Sleep" }]);
+ok("a lie-in past 5am is clipped, not dropped", overnight.length === 1, JSON.stringify(overnight));
+ok("it starts at the window edge", overnight[0].start_min === DAY_START_MIN);
+ok("and ends when you woke", overnight[0].end_min === 7 * 60);
+
+const late = resolveRing([{ start_min: 21 * 60, end_min: 23 * 60 + 30, category: "Study" }]);
+ok("an evening running past 10pm is clipped at the far edge", late[0].end_min === DAY_END_MIN);
 
 // A short entry inside a long one is the truer description of those minutes.
 const overlapped = resolveRing(
@@ -220,42 +257,48 @@ ok("the longer one resumes after it", overlapped[2].category === "Work" && overl
 
 // Touching entries of the same kind must not become a barcode.
 const merged = resolveRing([
-  { start_min: 0, end_min: 60, category: "Sleep" },
-  { start_min: 60, end_min: 120, category: "Sleep" },
+  { start_min: 6 * 60, end_min: 7 * 60, category: "Study" },
+  { start_min: 7 * 60, end_min: 8 * 60, category: "Study" },
 ]);
-ok("adjacent runs of one category merge", merged.length === 1 && merged[0].end_min === 120);
+ok("adjacent runs of one category merge", merged.length === 1 && merged[0].end_min === 8 * 60);
 
 // Gaps are real and must survive: an unaccounted hour is information.
 const gapped = resolveRing([
-  { start_min: 0, end_min: 60, category: "Sleep" },
-  { start_min: 180, end_min: 240, category: "Study" },
+  { start_min: 6 * 60, end_min: 7 * 60, category: "Study" },
+  { start_min: 9 * 60, end_min: 10 * 60, category: "Exercise" },
 ]);
-ok("a gap is left unpainted", gapped.length === 2 && gapped[1].start_min === 180);
-ok("coverage reports the painted fraction", Math.abs(ringCoverage(gapped) - 120 / 1440) < 1e-9);
+ok("a gap is left unpainted", gapped.length === 2 && gapped[1].start_min === 9 * 60);
+ok("coverage is measured against the waking window, not the clock",
+   Math.abs(ringCoverage(gapped) - 120 / WINDOW_MINUTES) < 1e-9, String(ringCoverage(gapped)));
 
 // Two entries covering exactly the same span must not depend on row order.
 const tieA = resolveRing([
-  { start_min: 0, end_min: 400, category: "Sleep" },
-  { start_min: 0, end_min: 400, category: "Prep" },
+  { start_min: 6 * 60, end_min: 10 * 60, category: "Sleep" },
+  { start_min: 6 * 60, end_min: 10 * 60, category: "Prep" },
 ]);
 const tieB = resolveRing([
-  { start_min: 0, end_min: 400, category: "Prep" },
-  { start_min: 0, end_min: 400, category: "Sleep" },
+  { start_min: 6 * 60, end_min: 10 * 60, category: "Prep" },
+  { start_min: 6 * 60, end_min: 10 * 60, category: "Sleep" },
 ]);
 ok("an exact tie resolves the same way whichever order it arrives in",
    tieA.length === 1 && tieB.length === 1 && tieA[0].category === tieB[0].category,
    `${tieA[0]?.category} vs ${tieB[0]?.category}`);
 
 // An entry carrying only tags still colours the ring.
-const tagged = resolveRing([{ start_min: 0, end_min: 30, tags: ["Prep"] }]);
+const tagged = resolveRing([{ start_min: 6 * 60, end_min: 7 * 60, tags: ["Prep"] }]);
 ok("tags stand in when category is absent", tagged.length === 1 && tagged[0].category === "Prep");
 
-// Arcs over half the face need the large-arc flag or they draw inside out.
-const short = arcPath(50, 50, 40, 30, 0, 300);
-const long = arcPath(50, 50, 40, 30, 0, 900);
-ok("a short arc is not flagged large", short.includes("0 1"), short);
-ok("an arc past twelve hours is", long.includes("1 1"), long);
-ok("a whole-day arc refuses to be a path", arcPath(50, 50, 40, 30, 0, 1440) === null);
+// Arcs sweeping past half the face need the large-arc flag or they draw
+// inside out. Half the face is now half of seventeen hours, not of twelve.
+const shortArc = arcPath(50, 50, 40, 30, 6 * 60, 9 * 60);
+const longArc = arcPath(50, 50, 40, 30, 6 * 60, 20 * 60);
+ok("a three-hour arc is not flagged large", shortArc.includes("0 1"), shortArc);
+ok("a fourteen-hour arc is", longArc.includes("1 1"), longArc);
+ok("an arc entirely outside the window is refused", arcPath(50, 50, 40, 30, 0, 4 * 60) === null);
+
+// The background is the whole window, and must be a real path rather than
+// collapsing the way a full circle would.
+ok("the window draws as an arc, not a degenerate circle", typeof windowPath(50, 50, 40, 30) === "string");
 
 ok("clock formatting reads as a clock", fmtClock(0) === "12:00am" && fmtClock(720) === "12:00pm" && fmtClock(1385) === "11:05pm",
    `${fmtClock(0)} ${fmtClock(720)} ${fmtClock(1385)}`);

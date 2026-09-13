@@ -56,7 +56,7 @@ export function DayCard({ date, chunks = [], tasks = [], timeRows = [], ringArcs
       <div className="day-card__body">
         {ringArcs?.length > 0 ? (
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-            <DayRing arcs={ringArcs} size={68} />
+            <DayRing arcs={ringArcs} size={124} fluid />
           </div>
         ) : (
           timeRows.length > 0 && <div style={{ marginBottom: 8 }}>{timeStrip(timeRows, { thin: true })}</div>
@@ -136,14 +136,19 @@ export function MonthCell({ date, summary, timeRows = [], ringArcs = null, onCli
         <span className="month-cell__num">{d.getDate()}</span>
         {summary?.banked && <Archive size={9} style={{ color: "var(--accent)", flexShrink: 0 }} />}
       </span>
+      {/* The ring takes the whole middle of the cell and fits itself to
+          whichever dimension runs out first, so it is large on a desk and
+          still inside its square on a phone. */}
       {ringArcs?.length > 0 ? (
-        <span style={{ display: "flex", justifyContent: "center", padding: "2px 0" }}>
-          <DayRing arcs={ringArcs} size={30} thickness={6} showTicks={false} />
+        <span className="month-cell__ring">
+          <DayRing arcs={ringArcs} size={128} fill />
         </span>
       ) : (
-        timeRows.length > 0 && timeStrip(timeRows, { thin: true })
+        <>
+          {timeRows.length > 0 && timeStrip(timeRows, { thin: true })}
+          <span className="spacer" />
+        </>
       )}
-      <span className="spacer" />
       {tasks > 0 && (
         <span className="mono" style={{ fontSize: 9.5, color: done === tasks ? "var(--accent)" : "var(--text-3)" }}>
           {done}/{tasks}

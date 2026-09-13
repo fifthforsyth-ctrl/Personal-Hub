@@ -1184,3 +1184,15 @@ form.card + .card { margin-top: 14px; }
 .week-planner__open:hover {
   border-color: var(--accent-line);
 }
+
+/* The ring owns the middle of a month cell. min-height:0 is what lets a
+   flex child actually shrink below its content size, which is the whole
+   trick to keeping a square SVG inside a square cell. */
+.month-cell__ring {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 0;
+}

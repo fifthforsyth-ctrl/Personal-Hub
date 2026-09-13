@@ -199,7 +199,7 @@ export default function Day() {
               Both, because they are different questions and the second one
               is the one you compare across weeks. */}
           <div className="day-ring-row">
-            <DayRing arcs={ringArcs} size={188} showLabels />
+            <DayRing arcs={ringArcs} size={216} showLabels />
             <div style={{ flex: 1, minWidth: 200 }}>
               <RingLegend arcs={ringArcs} />
             </div>
