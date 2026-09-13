@@ -1,0 +1,15 @@
+-- Paging, because the ceiling that matters is time, not tokens.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- A 120-entry pass needs roughly 8,400 output tokens plus thinking, which
+-- runs past the 150-second wall clock Supabase gives an Edge Function. Two
+-- attempts died at exactly 150.26s with a 504, having decided nothing and
+-- been billed for the tokens anyway. link_context now takes p_offset and
+-- reports `matching` and `remaining_after`, so the client walks a backlog in
+-- short requests that each finish comfortably.
+--
+-- Entries also carry `n`, a 1-based number within the run, and the n -> id
+-- map comes back separately in `ids`. The model answers with `n` and never
+-- sees a uuid: a fifth of the output tokens per row, and it removes the one
+-- failure the schema could not catch — a subtly mistyped id silently
+-- dropping an entry from the results.

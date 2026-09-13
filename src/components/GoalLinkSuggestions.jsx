@@ -6,6 +6,13 @@ import GoalPicker from "./GoalPicker";
 import { fmtMinutes } from "../lib/categories";
 import { addDays } from "../lib/planDates";
 
+// A page small enough that one request finishes well inside the Edge
+// Function's 150-second wall clock, and a cap on how many pages one press
+// walks — 120 rows is already more than anyone reviews carefully in one
+// sitting, and the card says how many are left afterwards.
+const BATCH = 20;
+const MAX_PAGES = 6;
+
 const CONFIDENCE_COLOR = {
   high: "var(--accent)",
   medium: "var(--text-2)",
@@ -39,10 +46,10 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
   const [error, setError] = useState(null);
   const [dayStats, setDayStats] = useState(null);
   const [backlog, setBacklog] = useState(null);
+  const [progress, setProgress] = useState(null);
 
-  // The backlog window is generous on purpose: catching up a month of loose
-  // entries is one call, and the button should say how many that is before
-  // spending anything.
+  // The backlog window is generous on purpose, and the button says how many
+  // entries it is about to read before anything is spent on them.
   const backlogStart = addDays(date, -30);
 
   const loadStats = useCallback(async () => {
@@ -67,19 +74,45 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
     if (user?.id) fetchGoalPaths(user.id).then(setGoals).catch(() => {});
   }, [user?.id]);
 
-  async function run(opts) {
+  // Walked a page at a time. A single 120-entry request needs more than the
+  // 150 seconds Supabase gives an Edge Function and dies as a 504 having
+  // decided nothing, so the loop lives here where it can show progress and
+  // keep whatever it has already gathered if a later page fails.
+  async function run({ start, end, onlyUnlinked = false }) {
     setLoading(true);
     setError(null);
     setApplied(0);
+    setProgress({ done: 0, total: null });
+
+    const gathered = [];
+    let offset = 0;
+    let matching = null;
+    let remaining = 0;
+
     try {
-      const data = await suggestGoalLinks(opts);
-      setResult(data);
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const data = await suggestGoalLinks({ start, end, onlyUnlinked, limit: BATCH, offset });
+        gathered.push(...(data.links ?? []));
+        matching = data.matching ?? matching;
+        remaining = data.remaining_after ?? 0;
+        offset += BATCH;
+        setProgress({ done: gathered.length, total: matching });
+        if (remaining <= 0 || (data.links ?? []).length === 0) break;
+      }
+      setResult({ links: gathered, remaining, matching });
       // Pre-check what the model is confident about; leave the rest to you.
-      setChosen(new Set(data.links.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
+      setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
     } catch (err) {
-      setError(err.message);
+      // A page failing shouldn't throw away the pages that worked.
+      if (gathered.length > 0) {
+        setResult({ links: gathered, remaining, matching, partial: err.message });
+        setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   }
 
@@ -173,7 +206,13 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
         </>
       )}
 
-      {loading && <p className="empty">Reading the day…</p>}
+      {loading && (
+        <p className="empty">
+          {progress?.done > 0
+            ? `Read ${progress.done}${progress.total ? ` of ${progress.total}` : ""}…`
+            : "Reading…"}
+        </p>
+      )}
 
       {error && <div className="form-error" style={{ margin: "10px 0 0" }}>{error}</div>}
 
@@ -183,10 +222,18 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
 
       {result && result.links.length > 0 && (
         <>
+          {result.partial && (
+            <div className="form-error" style={{ margin: "0 0 10px" }}>
+              Stopped early — {result.partial} The {result.links.length} already read are below and still worth
+              accepting.
+            </div>
+          )}
+
           <p className="faint" style={{ fontSize: 11.5, margin: "-4px 0 10px" }}>
             {result.links.filter((l) => l.changed).length} of {result.links.length} would change. Tap a row to include or
             exclude it, or press the goal underneath to change it. Low-confidence guesses start off, and "serves none" is
             a real answer — driving and meals usually do.
+            {result.remaining > 0 && ` ${result.remaining} more are waiting — accept these, then press again.`}
           </p>
 
           {result.links.map((link) => {

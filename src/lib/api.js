@@ -762,7 +762,15 @@ async function callAssistant(action, payload = {}) {
     body: JSON.stringify({ action, tz: localZone(), ...payload }),
   });
 
-  const body = await response.json().catch(() => ({ error: "The assistant returned something unreadable." }));
+  // A 504 comes back as the gateway's own HTML, not our JSON — it means the
+  // function ran past Supabase's 150-second ceiling. Say that, rather than
+  // "something unreadable", because the fix is a smaller batch.
+  const body = await response.json().catch(() => ({
+    error:
+      response.status === 504
+        ? "That took longer than the 150 seconds the server allows. Try a smaller stretch."
+        : "The assistant returned something unreadable.",
+  }));
   if (!response.ok) throw new Error(body.error ?? `Assistant failed (${response.status}).`);
   return body;
 }
@@ -784,8 +792,19 @@ export function askChart(question) {
 
 // Reads descriptions over a date range and proposes which goal each stretch
 // fed. Returns suggestions only — nothing is written until they're accepted.
-export function suggestGoalLinks({ start, end, onlyUnlinked = false }) {
-  return callAssistant("suggest_goal_links", { start, end: end ?? start, onlyUnlinked });
+//
+// One page per call. The work is bounded by the Edge Function's 150-second
+// wall clock rather than by any token limit, so a backlog is walked in short
+// requests; the reply carries `remaining_after` so the caller knows whether
+// to ask again.
+export function suggestGoalLinks({ start, end, onlyUnlinked = false, limit, offset }) {
+  return callAssistant("suggest_goal_links", {
+    start,
+    end: end ?? start,
+    onlyUnlinked,
+    limit,
+    offset,
+  });
 }
 
 // How much there is to review, and how much has no link at all — so the

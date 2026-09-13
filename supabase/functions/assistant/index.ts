@@ -118,7 +118,7 @@ const LinkSchema = z.object({
   links: z
     .array(
       z.object({
-        entry_id: z.string().describe("The id of the entry, copied exactly from the input."),
+        n: z.number().int().describe("The entry's own n, copied from the input."),
         goal_id: z
           .string()
           .nullable()
@@ -135,7 +135,7 @@ const LINK_SYSTEM = `You read logged time and decide which goal on a personal go
 The descriptions are the point. Two entries can carry the same category tag and serve completely different goals — "Serve zone making app" is building something, "Help sister Shumway" is ministering to a person. Read what was actually written.
 
 Rules:
-- goal_id must be copied exactly from the supplied goals list. Never invent an id or a goal name.
+- Answer with the entry's own "n". goal_id must be copied exactly from the supplied goals list; never invent an id or a goal name.
 - Go as deep as the description supports. Credit rolls upward on its own: linking to a leaf also credits every goal above it, while linking to a pillar credits the pillar and nothing below. So a pillar link throws away everything the description told you. Reach for a goal with "leaf": true, and only settle higher when the description genuinely does not distinguish between that node's children.
 - A goal near the top of the tree ("depth" 0 or 1) is the wrong answer unless nothing beneath it fits at all. If you are about to return one, read the goal list again for a descendant that fits.
 - An entry's current_goal with "source": "mapping" was assigned by a blunt rule — every entry carrying one tag was given the same goal, without anyone reading the description. Do not treat it as a prior. Decide from the description as though the slot were empty, and expect to disagree with it often; that rule is exactly what this pass exists to correct. A current_goal with source "ai" or "manual" was a real decision, so keep it unless the description clearly says otherwise.
@@ -144,20 +144,34 @@ Rules:
 - The tags are a hint, not the answer. Where the description contradicts the tag, follow the description.
 - Return exactly one object per input entry, including ones that already carry a current_goal.`;
 
+// One page at a time. An Edge Function is killed at 150 seconds of wall
+// clock, and a 120-entry pass needs well past that once thinking is counted
+// — it returned 504 having decided nothing and charged for the tokens
+// anyway. The caller walks the backlog in short requests instead.
 async function suggestGoalLinks(
   supabase: any,
   anthropic: Anthropic,
   tz: string,
-  opts: { start: string; end: string; onlyUnlinked?: boolean }
+  opts: { start: string; end: string; onlyUnlinked?: boolean; limit?: number; offset?: number }
 ) {
+  const limit = Math.min(Math.max(opts.limit ?? 25, 1), 40);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
   const { data: context, error } = await supabase.rpc("link_context", {
     p_start: opts.start,
     p_end: opts.end,
     p_tz: tz,
     p_only_unlinked: opts.onlyUnlinked ?? false,
+    p_limit: limit,
+    p_offset: offset,
   });
   if (error) throw new Error(`link_context: ${error.message}`);
-  if (!context?.entries?.length) return { links: [], start: opts.start, end: opts.end };
+  if (!context?.entries?.length) {
+    return { links: [], start: opts.start, end: opts.end, offset, matching: context?.matching ?? 0, remaining_after: 0 };
+  }
+
+  // The model never sees the ids, so it cannot mistype one.
+  const idsByN: Record<string, string> = context.ids ?? {};
 
   const response = await anthropic.messages.parse({
     model: MODEL,
@@ -167,7 +181,11 @@ async function suggestGoalLinks(
     messages: [
       {
         role: "user",
-        content: `Decide what each of these ${context.entries.length} entries fed.\n\n${JSON.stringify(context, null, 1)}`,
+        content: `Decide what each of these ${context.entries.length} entries fed.\n\n${JSON.stringify(
+          { ...context, ids: undefined },
+          null,
+          1
+        )}`,
       },
     ],
     output_config: { format: zodOutputFormat(LinkSchema) },
@@ -175,18 +193,20 @@ async function suggestGoalLinks(
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
 
-  // Only hand back links that name a real entry and a real goal — the model
-  // is instructed to copy ids, but nothing downstream should trust that.
-  // The entry's own text rides along so the review screen can show what is
+  // Only hand back answers that name a real entry and a real goal. The
+  // entry's own text rides along so the review screen can show what is
   // being linked without refetching the day.
-  const entryById = new Map(context.entries.map((e: any) => [e.id, e]));
+  const entryByN = new Map(context.entries.map((e: any) => [Number(e.n), e]));
   const goalById = new Map(context.goals.map((g: any) => [g.id, g.path]));
   const links = response.parsed_output.links
-    .filter((l) => entryById.has(l.entry_id) && (l.goal_id === null || goalById.has(l.goal_id)))
+    .filter((l) => entryByN.has(Number(l.n)) && idsByN[String(l.n)] && (l.goal_id === null || goalById.has(l.goal_id)))
     .map((l) => {
-      const entry = entryById.get(l.entry_id) as any;
+      const entry = entryByN.get(Number(l.n)) as any;
       return {
-        ...l,
+        entry_id: idsByN[String(l.n)],
+        goal_id: l.goal_id,
+        confidence: l.confidence,
+        why: l.why,
         goal_path: l.goal_id ? goalById.get(l.goal_id) : null,
         what: entry?.what,
         minutes: entry?.minutes,
@@ -200,7 +220,15 @@ async function suggestGoalLinks(
       };
     });
 
-  return { links, start: opts.start, end: opts.end, usage: response.usage };
+  return {
+    links,
+    start: opts.start,
+    end: opts.end,
+    offset,
+    matching: context.matching ?? links.length,
+    remaining_after: context.remaining_after ?? 0,
+    usage: response.usage,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +424,15 @@ Deno.serve(async (req) => {
         const start = body.start ?? body.date;
         const end = body.end ?? body.date;
         if (!start || !end) return json({ error: "suggest_goal_links needs a date or a start/end range." }, 400);
-        return json(await suggestGoalLinks(supabase, anthropic, tz, { start, end, onlyUnlinked: body.onlyUnlinked }));
+        return json(
+          await suggestGoalLinks(supabase, anthropic, tz, {
+            start,
+            end,
+            onlyUnlinked: body.onlyUnlinked,
+            limit: body.limit,
+            offset: body.offset,
+          })
+        );
       }
       default:
         return json({ error: `Unknown action "${action}".` }, 400);
