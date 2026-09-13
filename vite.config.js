@@ -11,6 +11,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // Without these the new service worker installs but waits for every
+      // tab to close before taking over, so a redeploy can sit behind a
+      // stale bundle for days on a home-screen app that is never really
+      // closed. Claim the page and activate immediately instead.
+      workbox: { clientsClaim: true, skipWaiting: true },
       includeAssets: ["apple-touch-icon.png"],
       manifest: {
         name: "Personal Hub",

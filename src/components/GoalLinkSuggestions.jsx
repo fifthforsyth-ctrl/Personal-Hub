@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, Check, ArrowRight, X, Link2, Pencil } from "lucide-react";
 import { suggestGoalLinks, applyGoalLinks, fetchLinkStats, fetchGoalPaths } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
@@ -7,11 +7,18 @@ import { fmtMinutes } from "../lib/categories";
 import { addDays } from "../lib/planDates";
 
 // A page small enough that one request finishes well inside the Edge
-// Function's 150-second wall clock, and a cap on how many pages one press
-// walks — 120 rows is already more than anyone reviews carefully in one
-// sitting, and the card says how many are left afterwards.
-const BATCH = 20;
-const MAX_PAGES = 6;
+// Function's 150-second wall clock. Measured: 25 entries take 23-34s, so 30
+// leaves plenty of room.
+const BATCH = 30;
+
+// No page budget — "catch up" means catch up, and stopping at an arbitrary
+// count just means pressing the button twelve times. This is only a runaway
+// guard in case remaining_after ever stops shrinking.
+const HARD_CAP_PAGES = 40;
+
+// Past this many rows the list renders in chunks. All of them are still
+// selected and still get written; it is the DOM that gives up, not the data.
+const RENDER_CHUNK = 60;
 
 const CONFIDENCE_COLOR = {
   high: "var(--accent)",
@@ -47,6 +54,8 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
   const [dayStats, setDayStats] = useState(null);
   const [backlog, setBacklog] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [shown, setShown] = useState(RENDER_CHUNK);
+  const stopRef = useRef(false);
 
   // The backlog window is generous on purpose, and the button says how many
   // entries it is about to read before anything is spent on them.
@@ -82,7 +91,9 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
     setLoading(true);
     setError(null);
     setApplied(0);
-    setProgress({ done: 0, total: null });
+    setShown(RENDER_CHUNK);
+    stopRef.current = false;
+    setProgress({ done: 0, total: null, pages: 0 });
 
     const gathered = [];
     let offset = 0;
@@ -90,22 +101,26 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
     let remaining = 0;
 
     try {
-      for (let page = 0; page < MAX_PAGES; page++) {
+      for (let page = 0; page < HARD_CAP_PAGES; page++) {
         const data = await suggestGoalLinks({ start, end, onlyUnlinked, limit: BATCH, offset });
         gathered.push(...(data.links ?? []));
         matching = data.matching ?? matching;
-        remaining = data.remaining_after ?? 0;
+        // An older server that doesn't report this would read as 0 and stop
+        // the walk after one page, which is exactly the bug that made "catch
+        // up" mean "catch up thirty". Unknown means keep going.
+        remaining = data.remaining_after ?? null;
         offset += BATCH;
-        setProgress({ done: gathered.length, total: matching });
-        if (remaining <= 0 || (data.links ?? []).length === 0) break;
+        setProgress({ done: gathered.length, total: matching, pages: page + 1 });
+        if (remaining === 0 || (data.links ?? []).length === 0) break;
+        if (stopRef.current) break;
       }
-      setResult({ links: gathered, remaining, matching });
+      setResult({ links: gathered, remaining: remaining ?? 0, matching, stopped: stopRef.current });
       // Pre-check what the model is confident about; leave the rest to you.
       setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
     } catch (err) {
       // A page failing shouldn't throw away the pages that worked.
       if (gathered.length > 0) {
-        setResult({ links: gathered, remaining, matching, partial: err.message });
+        setResult({ links: gathered, remaining: remaining ?? 0, matching, partial: err.message });
         setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
       } else {
         setError(err.message);
@@ -207,11 +222,38 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
       )}
 
       {loading && (
-        <p className="empty">
-          {progress?.done > 0
-            ? `Read ${progress.done}${progress.total ? ` of ${progress.total}` : ""}…`
-            : "Reading…"}
-        </p>
+        <div style={{ padding: "14px 0" }}>
+          <p className="empty" style={{ margin: 0 }}>
+            {progress?.done > 0
+              ? `Read ${progress.done}${progress.total ? ` of ${progress.total}` : ""}…`
+              : "Reading…"}
+          </p>
+          {progress?.total > 0 && (
+            <div style={{ height: 5, background: "var(--inset)", borderRadius: 3, overflow: "hidden", margin: "9px 0 10px" }}>
+              <div
+                style={{
+                  width: `${Math.min(100, (progress.done / progress.total) * 100)}%`,
+                  height: "100%",
+                  background: "var(--accent)",
+                  borderRadius: 3,
+                  transition: "width 300ms ease",
+                }}
+              />
+            </div>
+          )}
+          <p className="faint" style={{ fontSize: 11.5, margin: 0, textAlign: "center" }}>
+            A few minutes for a long backlog. Leave this open.
+          </p>
+          <button
+            className="btn-link"
+            style={{ margin: "8px auto 0", display: "block" }}
+            onClick={() => {
+              stopRef.current = true;
+            }}
+          >
+            Stop and review what's read
+          </button>
+        </div>
       )}
 
       {error && <div className="form-error" style={{ margin: "10px 0 0" }}>{error}</div>}
@@ -233,10 +275,32 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
             {result.links.filter((l) => l.changed).length} of {result.links.length} would change. Tap a row to include or
             exclude it, or press the goal underneath to change it. Low-confidence guesses start off, and "serves none" is
             a real answer — driving and meals usually do.
+            {result.stopped && " Stopped early, at your ask."}
             {result.remaining > 0 && ` ${result.remaining} more are waiting — accept these, then press again.`}
           </p>
 
-          {result.links.map((link) => {
+          {/* A backlog of three hundred is not read row by row. These are how
+              you actually work through one: take the confident ones wholesale,
+              then scan for the handful that look wrong. */}
+          <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <button className="btn-link" onClick={() => setChosen(new Set(result.links.map((l) => l.entry_id)))}>
+              All
+            </button>
+            <button className="btn-link" onClick={() => setChosen(new Set())}>
+              None
+            </button>
+            <button
+              className="btn-link"
+              onClick={() => setChosen(new Set(result.links.filter((l) => l.confidence === "high").map((l) => l.entry_id)))}
+            >
+              High confidence only
+            </button>
+            <span className="mono faint" style={{ fontSize: 10.5, marginLeft: "auto" }}>
+              {chosen.size} selected
+            </span>
+          </div>
+
+          {result.links.slice(0, shown).map((link) => {
             const on = chosen.has(link.entry_id);
             const entry = result.entries?.find?.((e) => e.id === link.entry_id);
             return (
@@ -324,6 +388,12 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
               </div>
             );
           })}
+
+          {result.links.length > shown && (
+            <button className="btn-secondary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setShown((n) => n + RENDER_CHUNK)}>
+              Show {Math.min(RENDER_CHUNK, result.links.length - shown)} more of {result.links.length - shown}
+            </button>
+          )}
 
           {editing && (
             <GoalPicker

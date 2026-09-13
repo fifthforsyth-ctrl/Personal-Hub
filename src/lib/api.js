@@ -834,14 +834,19 @@ export async function applyGoalLinks(links) {
   }
   for (const [goalId, entryIds] of byGoal) {
     const goal_node_id = goalId === "__none__" ? null : goalId;
-    const { error } = await supabase
-      .from("time_log_entries")
-      // Stamped 'ai' even when the goal is null: "this served nothing" is a
-      // decision, and leaving the source null would let the category rule
-      // quietly refill the slot on its next run.
-      .update({ goal_node_id, goal_link_source: "ai" })
-      .in("id", entryIds);
-    if (error) throw error;
+    // Chunked because `in` travels in the query string: accepting a whole
+    // backlog can put two hundred uuids behind one goal, which is a URL long
+    // enough to be refused.
+    for (let i = 0; i < entryIds.length; i += 50) {
+      const { error } = await supabase
+        .from("time_log_entries")
+        // Stamped 'ai' even when the goal is null: "this served nothing" is a
+        // decision, and leaving the source null would let the category rule
+        // quietly refill the slot on its next run.
+        .update({ goal_node_id, goal_link_source: "ai" })
+        .in("id", entryIds.slice(i, i + 50));
+      if (error) throw error;
+    }
   }
 }
 
