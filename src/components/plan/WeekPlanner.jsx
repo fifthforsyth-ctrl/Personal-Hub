@@ -1,34 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarRange, Sparkles, Plus, Trash2, Check, Lock, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import {
-  fetchRangePlan,
-  addCommitment,
-  deleteTimeChunk,
-  proposeWeek,
-  applyWeekPlan,
-  fetchIdealDays,
-  idealDayFor,
-} from "../../lib/api";
+import { fetchRangePlan, proposeWeek, applyWeekPlan, fetchIdealDays, idealDayFor } from "../../lib/api";
 import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // The Sunday sitting.
 //
-// Two things are true of a week and not of a day. The commitments come
-// first — they are promises to other people and everything else has to fit
-// around them, so they are entered before anything is generated rather than
-// corrected afterwards. And the blocks stay broad: this is the week at
-// altitude, and the person planning Thursday morning on Thursday morning
-// knows more than anyone does on Sunday night.
+// It does not ask what you have on this week — it reads the calendar. Every
+// block already sitting on a day IS a commitment, whatever put it there, and
+// asking you to re-enter them would be asking you to maintain the same list
+// twice. What you actually have to supply is the part no record holds: the
+// things that have not happened yet and are not on anything.
+//
+// The blocks it produces stay broad. This is the week at altitude, and the
+// person planning Thursday morning on Thursday morning knows more about
+// Thursday than anyone does on Sunday night.
 export default function WeekPlanner({ anchorDate, onCommitted }) {
   const { user } = useAuth();
   const days = weekDays(anchorDate);
   const weekStart = days[0];
 
   const [open, setOpen] = useState(false);
-  const [commitments, setCommitments] = useState([]);
+  const [scheduled, setScheduled] = useState([]);
   const [ideals, setIdeals] = useState([]);
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState(null);
@@ -41,7 +36,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
     if (!user?.id) return;
     try {
       const plan = await fetchRangePlan(user.id, days[0], days[6]);
-      setCommitments((plan.chunks ?? []).filter((c) => c.source === "commitment"));
+      setScheduled(plan.chunks ?? []);
     } catch (err) {
       setError(err.message);
     }
@@ -116,11 +111,15 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
       <button className="card week-planner__open" onClick={() => setOpen(true)}>
         <span className="card-title"><CalendarRange size={14} />Plan this week</span>
         <span className="faint" style={{ fontSize: 12 }}>
-          Put in what's already promised, then let the rest fall on your ideal days.
+          Reads what's already on each day, then fills the rest from your ideal days.
         </span>
       </button>
     );
   }
+
+  // Anything already on a day is fixed by definition, and worth showing
+  // before you press generate so you can see what it is planning around.
+  const fixed = scheduled.filter((c) => c.source !== "plan");
 
   return (
     <div className="card" style={{ marginBottom: 14 }}>
@@ -131,36 +130,55 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
 
       {!result && (
         <>
-          <Commitments
-            days={days}
-            ideals={ideals}
-            commitments={commitments}
-            onAdd={async (fields) => {
-              try {
-                await addCommitment(user.id, fields);
-                await reload();
-              } catch (err) {
-                setError(err.message);
-              }
-            }}
-            onRemove={async (id) => {
-              try {
-                await deleteTimeChunk(id);
-                await reload();
-              } catch (err) {
-                setError(err.message);
-              }
-            }}
-          />
+          <div className="section-label" style={{ marginBottom: 8 }}>What it will work around</div>
+
+          {days.map((d) => {
+            const mine = fixed
+              .filter((c) => c.date === d)
+              .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
+            const ideal = idealDayFor(ideals, d);
+            return (
+              <div
+                key={d}
+                className="row"
+                style={{ gap: 10, alignItems: "flex-start", padding: "5px 0", borderBottom: "1px solid var(--border)" }}
+              >
+                <span className="mono" style={{ fontSize: 11, width: 52, flexShrink: 0, color: "var(--text-muted)" }}>
+                  {DOW[parseDateStr(d).getDay()]} {parseDateStr(d).getDate()}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {mine.length === 0 ? (
+                    <span className="faint" style={{ fontSize: 11.5 }}>
+                      {ideal ? ideal.name : "nothing standing — it'll use your recent weeks"}
+                    </span>
+                  ) : (
+                    mine.map((c) => (
+                      <span key={c.id} className="row" style={{ gap: 6, alignItems: "center", padding: "1px 0" }}>
+                        <Lock size={10} style={{ flexShrink: 0, color: "var(--accent)" }} />
+                        <span style={{ fontSize: 12.5, minWidth: 0 }}>{c.title}</span>
+                        <span className="mono faint" style={{ fontSize: 10.5 }}>
+                          {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
+                        </span>
+                      </span>
+                    ))
+                  )}
+                </span>
+              </div>
+            );
+          })}
+
+          <p className="faint" style={{ fontSize: 11.5, margin: "9px 0 0" }}>
+            Anything you've already put on a day stays exactly where it is. Add more from the day itself.
+          </p>
 
           <label className="field" style={{ marginTop: 14 }}>
-            <span>Anything else about this week?</span>
+            <span>Anything about this week it can't see?</span>
             <textarea
               className="textarea"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Parker needs the Hansen cut by Thursday. Fasting Sunday. Keep Wednesday light — long shoot Tuesday."
-              style={{ minHeight: 66 }}
+              placeholder="Parker needs the Hansen cut by Thursday. Fasting Sunday. Keep Wednesday light — long shoot Tuesday. Zone conference some time midweek, day not fixed yet."
+              style={{ minHeight: 76 }}
             />
           </label>
 
@@ -184,8 +202,8 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
             </div>
           ) : (
             <p className="faint" style={{ fontSize: 11.5, margin: "0 0 12px" }}>
-              Change anything before you commit. Committing replaces generated blocks on these days; your commitments and
-              any day you've already started working on are left alone.
+              Change anything before you commit. Committing replaces only this planner's own earlier blocks — what you
+              scheduled yourself, and any day already being worked on, is left alone.
             </p>
           )}
 
@@ -206,12 +224,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
               <RefreshCw size={13} />
               Again
             </button>
-            <button
-              className="btn btn--accent"
-              style={{ flex: 1 }}
-              onClick={commit}
-              disabled={committing || committed}
-            >
+            <button className="btn btn--accent" style={{ flex: 1 }} onClick={commit} disabled={committing || committed}>
               <Check size={15} />
               {committing ? "Committing…" : committed ? "Committed" : "Commit the week"}
             </button>
@@ -219,90 +232,6 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
         </>
       )}
     </div>
-  );
-}
-
-// Promises first. Entered before anything is generated, because a week built
-// around a commitment is a different week from one with a commitment dropped
-// into it afterwards.
-function Commitments({ days, ideals, commitments, onAdd, onRemove }) {
-  const [date, setDate] = useState(days[0]);
-  const [title, setTitle] = useState("");
-  const [start, setStart] = useState("09:00");
-  const [end, setEnd] = useState("10:00");
-
-  function submit() {
-    if (!title.trim()) return;
-    onAdd({ date, title, start, end });
-    setTitle("");
-  }
-
-  return (
-    <>
-      <div className="section-label" style={{ marginBottom: 8 }}>What's already promised</div>
-
-      {days.map((d) => {
-        const mine = commitments.filter((c) => c.date === d).sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
-        const ideal = idealDayFor(ideals, d);
-        return (
-          <div key={d} className="row" style={{ gap: 10, alignItems: "flex-start", padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
-            <span className="mono" style={{ fontSize: 11, width: 52, flexShrink: 0, color: "var(--text-muted)" }}>
-              {DOW[parseDateStr(d).getDay()]} {parseDateStr(d).getDate()}
-            </span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              {mine.length === 0 ? (
-                <span className="faint" style={{ fontSize: 11.5 }}>
-                  {ideal ? ideal.name : "nothing standing — the planner will use your recent weeks"}
-                </span>
-              ) : (
-                mine.map((c) => (
-                  <span key={c.id} className="row" style={{ gap: 6, alignItems: "center", padding: "1px 0" }}>
-                    <span style={{ fontSize: 12.5, minWidth: 0 }}>{c.title}</span>
-                    <span className="mono faint" style={{ fontSize: 10.5 }}>
-                      {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
-                    </span>
-                    <button className="btn-icon" onClick={() => onRemove(c.id)} title="Remove" style={{ color: "var(--text-3)" }}>
-                      <Trash2 size={11} />
-                    </button>
-                  </span>
-                ))
-              )}
-            </span>
-          </div>
-        );
-      })}
-
-      {/* Two rows rather than one: five controls on a line wrap into an
-          unreadable staircase on anything narrower than a laptop. */}
-      <div style={{ marginTop: 12 }}>
-        <div className="row" style={{ gap: 6, alignItems: "center" }}>
-          <select className="input" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 96, flexShrink: 0 }}>
-            {days.map((d) => (
-              <option key={d} value={d}>
-                {DOW[parseDateStr(d).getDay()]} {parseDateStr(d).getDate()}
-              </option>
-            ))}
-          </select>
-          <input
-            className="input"
-            value={title}
-            placeholder="What you've promised"
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-            style={{ flex: 1, minWidth: 0 }}
-          />
-        </div>
-        <div className="row" style={{ gap: 6, alignItems: "center", marginTop: 6 }}>
-          <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ width: 118, flexShrink: 0 }} />
-          <span className="faint" style={{ fontSize: 12 }}>to</span>
-          <input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: 118, flexShrink: 0 }} />
-          <button className="btn-secondary" onClick={submit} disabled={!title.trim()} style={{ marginLeft: "auto", flexShrink: 0 }}>
-            <Plus size={13} />
-            Add
-          </button>
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -328,10 +257,10 @@ function PlannedDay({ day, onPatch, onRemove, onAdd }) {
       {open && (
         <div style={{ padding: "0 11px 11px" }}>
           {day.blocks.map((b, k) => {
-            const locked = b.source === "commitment";
+            const locked = b.source !== "plan";
             return (
               <div key={k} className="row" style={{ gap: 6, alignItems: "center", marginBottom: 6 }}>
-                {locked && <Lock size={11} style={{ flexShrink: 0, color: "var(--accent)" }} title="Promised — not moved" />}
+                {locked && <Lock size={11} style={{ flexShrink: 0, color: "var(--accent)" }} />}
                 <input
                   className="input"
                   value={b.title}

@@ -139,15 +139,16 @@ const WeekSchema = z.object({
 
 const WEEK_SYSTEM = `You lay out a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary. This is the Sunday sitting: one pass over seven days, done before the week starts.
 
-You are given, for each day: the ideal day that claims that weekday, any commitments already promised, and any note left about it. You are also given the last fortnight of what actually happened.
+You are given, for each day: the ideal day that claims that weekday, everything already scheduled on it, and any note left about it. You are also given the last fortnight of what actually happened.
 
 Rules:
-- Commitments are fixed. Reproduce every one at exactly its given title, start and end. Never move, rename, shorten or drop one. Build the rest of the day around them.
-- Where a day has an ideal day, that is the skeleton. Keep its fixed points exactly — anything named unavailable, reserved, rest or date is not yours to move — and depart from the rest only where a commitment collides with it or a note gives you a reason.
+- Everything already scheduled is fixed, EXCEPT blocks whose source is "plan" — those came from an earlier run of this planner and you may replace them freely. Anything else was put on the calendar deliberately. Reproduce each one at exactly its given title, start and end. Never move, rename, shorten or drop one. Build the rest of the day around them.
+- Where a day has an ideal day, that is the skeleton. Keep its fixed points exactly — anything named unavailable, reserved, rest or date is not yours to move — and depart from the rest only where something already scheduled collides with it or a note gives you a reason.
 - Where a day has no ideal day, build from what the recent record shows those weekdays usually look like.
 - Keep the blocks BROAD. "Film / Edit", "Study", "Exercise", "Dinner". This is the week at altitude; the detail gets planned on the morning of each day, by someone who knows more than you do about that day. Never invent tasks, subtasks, or specific errands.
 - Do not fill every waking minute. A week with no slack is a week that breaks on Tuesday.
-- The week must be livable end to end. If the commitments already make a day heavy, let the surrounding blocks give way rather than stacking on top of them.
+- The week must be livable end to end. If what is already scheduled makes a day heavy, let the surrounding blocks give way rather than stacking on top of them.
+- The notes are the only source for things that are not on the calendar yet. Where a note names something without a time, place it where the day has room and say so in the strategy.
 - Cite real numbers in the strategy — "you averaged 6h 10m of sleep last week", "Creative Mastery has had nothing for 12 days". Never invent a figure.
 - State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
 
@@ -175,25 +176,27 @@ async function proposeWeek(supabase: any, anthropic: Anthropic, tz: string, week
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
 
-  // Only days that were actually asked about, and commitments re-attached
-  // from the record rather than trusted from the reply — a dropped or
-  // shifted commitment is the one failure that would cost a real promise.
+  // Only days that were actually asked about, and everything already on the
+  // calendar re-attached from the record rather than trusted from the reply
+  // — a silently dropped or shifted commitment is the one failure that would
+  // cost a real promise. Blocks the planner itself wrote last time are not
+  // re-attached; they are exactly what this run is allowed to replace.
   const asked = new Map((context.days ?? []).map((d: any) => [d.date, d]));
   const days = (response.parsed_output.days ?? [])
     .filter((d) => asked.has(d.date))
     .map((d) => {
       const source = asked.get(d.date) as any;
-      const commitments = (source.commitments ?? []).map((c: any) => ({ ...c, source: "commitment" }));
-      const keys = new Set(commitments.map((c: any) => `${c.start}-${c.end}-${c.title}`));
+      const fixed = (source.scheduled ?? []).filter((c: any) => c.source !== "plan");
+      const keys = new Set(fixed.map((c: any) => `${c.start}-${c.end}-${c.title}`));
       const generated = (d.blocks ?? [])
         .filter((b) => !keys.has(`${b.start}-${b.end}-${b.title}`))
-        .map((b) => ({ ...b, source: "plan" }));
+        .map((b) => ({ title: b.title, start: b.start, end: b.end, source: "plan" }));
       return {
         date: d.date,
         weekday: source.weekday,
         note: d.note,
         ideal_day: source.ideal_day?.[0]?.name ?? null,
-        blocks: [...commitments, ...generated].sort((a, b) => String(a.start).localeCompare(String(b.start))),
+        blocks: [...fixed, ...generated].sort((a, b) => String(a.start).localeCompare(String(b.start))),
       };
     });
 
@@ -340,7 +343,7 @@ win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
   — status true means done. parent_task_id not null means it is a subtask.
 time_chunks(id, date date, title text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan')
-  — planned blocks. source 'commitment' means promised to someone else; 'plan' means generated by the week planner.
+  — planned blocks. source 'plan' means generated by the week planner; anything else was put there deliberately.
 day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text)
 journal_entries(date date, thoughts text, gratitude text, gods_hand text, q_christ text, q_principles text, q_success text, reflection_completed_at timestamptz)
 prayer_logs(id, prayed_at timestamptz, context text, content text, felt_response text, tags text[])

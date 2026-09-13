@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Check } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchIdealDays, saveIdealDay, deleteTemplate, WEEKDAY_NAMES } from "../../lib/api";
+import { fetchIdealDays, saveIdealDay, deleteTemplate, fetchCategories, WEEKDAY_NAMES } from "../../lib/api";
+import DayRing from "../DayRing";
+import { colorFor, setCategoryColors } from "../../lib/categories";
+
+// An ideal day drawn the same way a real one is: same ring, same colours,
+// same window. That is the whole point of giving its blocks categories —
+// the intent and the record become the same kind of picture, so holding one
+// against the other needs no translation.
+function blocksToArcs(blocks) {
+  return (blocks ?? [])
+    .filter((b) => b.category && b.start && b.end)
+    .map((b) => ({
+      start_min: toMinutes(b.start),
+      end_min: toMinutes(b.end),
+      category: b.category,
+    }));
+}
+
+function toMinutes(hhmm) {
+  const [h, m] = String(hhmm ?? "").split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
+}
 
 // The standing intent, kept next to the record.
 //
@@ -19,6 +40,7 @@ export default function IdealDays() {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [error, setError] = useState(null);
 
   const reload = useCallback(async () => {
@@ -35,6 +57,16 @@ export default function IdealDays() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchCategories(user.id)
+      .then((cats) => {
+        setCategoryColors(cats);
+        setCategories(cats);
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   async function remove(day) {
     if (!window.confirm(`Delete "${day.name}"? Days it governs will fall back to your recent record.`)) return;
@@ -57,6 +89,7 @@ export default function IdealDays() {
       <DayEditor
         day={editing}
         userId={user.id}
+        categories={categories}
         onCancel={() => setEditing(null)}
         onSaved={async () => {
           setEditing(null);
@@ -77,30 +110,38 @@ export default function IdealDays() {
       {error && <div className="form-error">{error}</div>}
       {loading && <p className="empty">Loading…</p>}
 
-      {days.map((day) => (
-        <button
-          key={day.id}
-          className="card"
-          onClick={() => setEditing(day)}
-          style={{ textAlign: "left", width: "100%", background: "var(--surface)", cursor: "pointer" }}
-        >
-          <div className="row row--between" style={{ alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontWeight: 650, fontSize: 14.5 }}>{day.name}</span>
-            <span className="mono faint" style={{ fontSize: 10.5, flexShrink: 0 }}>
-              {(day.weekdays ?? []).length > 0
-                ? day.weekdays.map((w) => WEEKDAY_NAMES[w]).join(" ")
-                : "no weekday"}
-            </span>
-          </div>
-          <div className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>
-            {day.blocks.length} {day.blocks.length === 1 ? "block" : "blocks"}
-            {day.blocks.length > 0 && ` · ${day.blocks[0].start}–${day.blocks[day.blocks.length - 1].end}`}
-          </div>
-          {day.notes && (
-            <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>{day.notes}</div>
-          )}
-        </button>
-      ))}
+      <div className="ideal-day-grid">
+        {days.map((day) => {
+          const arcs = blocksToArcs(day.blocks);
+          return (
+            <button key={day.id} className="card ideal-day" onClick={() => setEditing(day)}>
+              <div className="row row--between" style={{ alignItems: "baseline", gap: 10 }}>
+                <span style={{ fontWeight: 650, fontSize: 14.5 }}>{day.name}</span>
+                <span className="mono faint" style={{ fontSize: 10.5, flexShrink: 0 }}>
+                  {(day.weekdays ?? []).length > 0 ? day.weekdays.map((w) => WEEKDAY_NAMES[w]).join(" ") : "no weekday"}
+                </span>
+              </div>
+
+              {arcs.length > 0 && (
+                <div style={{ display: "flex", justifyContent: "center", margin: "10px 0 8px" }}>
+                  <DayRing arcs={arcs} size={150} showLabels />
+                </div>
+              )}
+
+              <div className="ideal-day__blocks">
+                {day.blocks.map((b, i) => (
+                  <span key={i} className="ideal-day__chip" title={`${b.start}–${b.end}`}>
+                    <span className="ideal-day__dot" style={{ background: b.category ? colorFor(b.category) : "var(--line-strong)" }} />
+                    {b.title}
+                  </span>
+                ))}
+              </div>
+
+              {day.notes && <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45 }}>{day.notes}</div>}
+            </button>
+          );
+        })}
+      </div>
 
       {!loading && unclaimed.length > 0 && (
         <p className="faint" style={{ fontSize: 11.5, margin: "2px 0 0" }}>
@@ -121,7 +162,7 @@ export default function IdealDays() {
   );
 }
 
-function DayEditor({ day, userId, onCancel, onSaved, onDelete }) {
+function DayEditor({ day, userId, categories, onCancel, onSaved, onDelete }) {
   const [name, setName] = useState(day.name ?? "");
   const [notes, setNotes] = useState(day.notes ?? "");
   const [weekdays, setWeekdays] = useState(day.weekdays ?? []);
@@ -140,7 +181,7 @@ function DayEditor({ day, userId, onCancel, onSaved, onDelete }) {
   function addBlock() {
     const last = [...blocks].sort((a, b) => a.start.localeCompare(b.start)).at(-1);
     const start = last?.end || "06:00";
-    setBlocks((prev) => [...prev, { title: "", start, end: plusHour(start), tasks: [] }]);
+    setBlocks((prev) => [...prev, { title: "", category: "", start, end: plusHour(start), tasks: [] }]);
   }
 
   async function save() {
@@ -203,9 +244,26 @@ function DayEditor({ day, userId, onCancel, onSaved, onDelete }) {
         />
       </label>
 
+      {/* The live ring, so a change to a time is something you see rather
+          than something you have to picture. */}
+      {blocksToArcs(blocks).length > 0 && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 8px" }}>
+          <DayRing arcs={blocksToArcs(blocks)} size={190} showLabels />
+        </div>
+      )}
+
       {blocks.map((block, i) => (
         <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r)", padding: 11 }}>
           <div className="row" style={{ gap: 6, alignItems: "center" }}>
+            <span
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: 3,
+                flexShrink: 0,
+                background: block.category ? colorFor(block.category) : "var(--line-strong)",
+              }}
+            />
             <input
               className="input"
               value={block.title}
@@ -222,10 +280,24 @@ function DayEditor({ day, userId, onCancel, onSaved, onDelete }) {
               <Trash2 size={14} />
             </button>
           </div>
-          <div className="row" style={{ gap: 6, marginTop: 7, alignItems: "center" }}>
+          <div className="row" style={{ gap: 6, marginTop: 7, alignItems: "center", flexWrap: "wrap" }}>
             <input className="input" type="time" value={block.start} onChange={(e) => patchBlock(i, { start: e.target.value })} style={{ width: 118 }} />
             <span className="faint" style={{ fontSize: 12 }}>to</span>
             <input className="input" type="time" value={block.end} onChange={(e) => patchBlock(i, { end: e.target.value })} style={{ width: 118 }} />
+            <select
+              className="input"
+              value={block.category ?? ""}
+              onChange={(e) => patchBlock(i, { category: e.target.value })}
+              style={{ flex: 1, minWidth: 120 }}
+              title="Which category this block counts as — this is what colours it"
+            >
+              <option value="">No colour</option>
+              {(categories ?? []).map((c) => (
+                <option key={c.id ?? c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       ))}

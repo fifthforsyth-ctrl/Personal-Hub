@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { colorFor, familyFor, fmtMinutes, FAMILIES } from "../lib/categories";
 import {
   resolveRing,
@@ -29,13 +29,18 @@ export default function DayRing({
   className,
 }) {
   const segments = useMemo(() => resolveRing(arcs), [arcs]);
+  const [hovered, setHovered] = useState(null);
+
+  // The hole in the middle is the natural place to say what you are pointing
+  // at — no tooltip to chase, no layout to reflow. Below about this size
+  // there is no room for the words, and the native title has to do.
+  const canReadOut = size >= 100;
 
   const stroke = thickness ?? Math.max(6, Math.round(size * 0.19));
   const cx = size / 2;
   const cy = size / 2;
   const outerR = size / 2 - 1;
   const innerR = outerR - stroke;
-  const midR = (outerR + innerR) / 2;
 
   return (
     <svg
@@ -61,8 +66,17 @@ export default function DayRing({
       {segments.map((s) => {
         const d = arcPath(cx, cy, outerR, innerR, s.start_min, s.end_min);
         if (!d) return null;
+        const dimmed = hovered && hovered.start_min !== s.start_min;
         return (
-          <path key={`${s.category}-${s.start_min}`} d={d} fill={colorFor(s.category)}>
+          <path
+            key={`${s.category}-${s.start_min}`}
+            d={d}
+            fill={colorFor(s.category)}
+            opacity={dimmed ? 0.4 : 1}
+            style={{ transition: "opacity 120ms ease" }}
+            onMouseEnter={() => setHovered(s)}
+            onMouseLeave={() => setHovered((h) => (h === s ? null : h))}
+          >
             <title>
               {`${s.category} · ${fmtClock(s.start_min)}–${fmtClock(s.end_min)} · ${fmtMinutes(s.end_min - s.start_min)}`}
             </title>
@@ -90,11 +104,25 @@ export default function DayRing({
           );
         })}
 
+      {canReadOut && hovered && (
+        <g style={{ pointerEvents: "none" }}>
+          <text x={cx} y={cy - size * 0.045} textAnchor="middle" dominantBaseline="middle" className="ring-readout__what" style={{ fontSize: size * 0.055 }}>
+            {hovered.category.length > 16 ? `${hovered.category.slice(0, 15)}…` : hovered.category}
+          </text>
+          <text x={cx} y={cy + size * 0.035} textAnchor="middle" dominantBaseline="middle" className="ring-readout__when" style={{ fontSize: size * 0.045 }}>
+            {fmtClock(hovered.start_min)}–{fmtClock(hovered.end_min)}
+          </text>
+          <text x={cx} y={cy + size * 0.105} textAnchor="middle" dominantBaseline="middle" className="ring-readout__long" style={{ fontSize: size * 0.045 }}>
+            {fmtMinutes(hovered.end_min - hovered.start_min)}
+          </text>
+        </g>
+      )}
+
       {/* Only the hour marks are labelled. The window's own ends sit 22
           degrees apart across the gap, so labelling those too puts "10p" and
           "5a" on top of each other; the gap already says where the day
           starts and stops. */}
-      {showLabels && (
+      {showLabels && !(canReadOut && hovered) && (
         <>
           {TICK_MINUTES.map((m) => {
             const [x, y] = pointAt(cx, cy, innerR - size * 0.055, m);

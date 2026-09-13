@@ -896,6 +896,7 @@ export async function fetchIdealDays(userId) {
         weekdays: t.applies_to_weekdays ?? [],
         blocks: chunks.map((c) => ({
           title: c.title,
+          category: c.category ?? "",
           start: String(c.start_time ?? "").slice(0, 5),
           end: String(c.end_time ?? "").slice(0, 5),
           tasks: tasksByChunk.get(c.id) ?? [],
@@ -946,6 +947,7 @@ export async function saveIdealDay(userId, { id, name, notes, weekdays, blocks }
       .insert({
         template_id: templateId,
         title: block.title.trim(),
+        category: block.category?.trim() || null,
         start_time: block.start,
         end_time: block.end,
         position,
@@ -998,35 +1000,16 @@ export async function fetchDayRings(startDate, endDate) {
 // Week planning — commitments first, ideal days for the rest.
 // ---------------------------------------------------------------------------
 
-// A block promised to someone else. Written straight away, because the point
-// of entering it is to see the week arrange itself around it.
-export async function addCommitment(userId, { date, title, start, end }) {
-  const { data, error } = await supabase
-    .from("time_chunks")
-    .insert({
-      user_id: userId,
-      date,
-      title: title.trim(),
-      start_time: start,
-      end_time: end,
-      source: "commitment",
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
 export function proposeWeek({ weekStart, notes } = {}) {
   return callAssistant("propose_week", { week_start: weekStart, notes: notes || null });
 }
 
 // Commits a whole week at once.
 //
-// Only generated blocks are swept: a commitment is a promise to another
-// person and is never touched, and a block with tasks already hanging off it
-// belongs to a day that has started being lived. Everything else on these
-// dates is replaced by what was reviewed.
+// Only this planner's own previous output is swept. Anything you put on a
+// day yourself is a commitment by definition — you scheduled it — and a
+// block with tasks already hanging off it belongs to a day that has started
+// being lived. Neither is ever touched.
 export async function applyWeekPlan(userId, days) {
   const dates = days.map((d) => d.date);
 
@@ -1049,7 +1032,7 @@ export async function applyWeekPlan(userId, days) {
   }
 
   const sweep = (existing ?? [])
-    .filter((c) => c.source !== "commitment" && !withTasks.has(c.id))
+    .filter((c) => c.source === "plan" && !withTasks.has(c.id))
     .map((c) => c.id);
   for (let i = 0; i < sweep.length; i += 50) {
     const { error } = await supabase.from("time_chunks").delete().in("id", sweep.slice(i, i + 50));
@@ -1060,7 +1043,7 @@ export async function applyWeekPlan(userId, days) {
   for (const day of days) {
     for (const block of day.blocks ?? []) {
       if (!block.title?.trim() || !block.start || !block.end) continue;
-      if (block.source === "commitment") continue; // already on the day, untouched
+      if (block.source !== "plan") continue; // already on the day, untouched
       rows.push({
         user_id: userId,
         date: day.date,

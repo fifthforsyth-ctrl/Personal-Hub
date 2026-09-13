@@ -1,0 +1,16 @@
+-- Ideal days get colours, and the week planner reads the calendar instead of
+-- asking. (Applied via Supabase MCP; this file records the change.)
+--
+--   * template_chunks.category — the one field that makes a day legible at a
+--     glance. With it an ideal day draws as a ring in exactly the colours a
+--     real day draws in, so the intent can be held against the record
+--     without translation. Seeded blocks were backfilled by title.
+--
+--   * ideal_days() carries the category through.
+--
+--   * week_context: `commitments` (planner-entered blocks only) replaced by
+--     `scheduled` (everything on the day, whatever put it there, with its
+--     source). The old field made anything scheduled the ordinary way —
+--     on the day page, from a preset — invisible to the planner and liable
+--     to be planned straight over. A block with source 'plan' came from an
+--     earlier run and may be replaced; everything else is fixed.

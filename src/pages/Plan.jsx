@@ -5,6 +5,7 @@ import WeekView from "../components/plan/WeekView";
 import MonthView from "../components/plan/MonthView";
 import YearView from "../components/plan/YearView";
 import IdealDays from "../components/plan/IdealDays";
+import CategoryKey from "../components/CategoryKey";
 import {
   todayStr,
   addDays,
@@ -98,6 +99,10 @@ export default function Plan() {
       {view === "Month" && <MonthView monthDate={date} onPickDay={(d) => navigate(`/day/${d}`)} />}
       {view === "Year" && <YearView year={yearOf(date)} onPickMonth={pickMonth} />}
       {view === "Ideal" && <IdealDays />}
+
+      {/* Every view in this tab is coloured by category, so the key belongs
+          to the tab rather than to any one of them. */}
+      <CategoryKey />
     </div>
   );
 }
