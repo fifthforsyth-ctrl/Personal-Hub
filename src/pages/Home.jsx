@@ -8,6 +8,7 @@ import {
   fetchLifetimeByCategory,
   fetchDayArchive,
   fetchDayPlan,
+  fetchDayRings,
   fetchTimeChunks,
   fetchTasks,
 } from "../lib/api";
@@ -60,13 +61,14 @@ function DesktopHome({ userId }) {
   const [tasks, setTasks] = useState([]);
   const [askOpen, setAskOpen] = useState(false);
   const [active, setActive] = useState(null);
+  const [rings, setRings] = useState(new Map());
   const date = todayStr();
 
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
     (async () => {
-      const [tree, life, cats, archive, plan, ch, tk] = await Promise.all([
+      const [tree, life, cats, archive, plan, ch, tk, ringMap] = await Promise.all([
         fetchTree(userId).catch(() => ({ nodes: [], edges: [] })),
         fetchLifetimeByCategory().catch(() => []),
         fetchCategories(userId).catch(() => []),
@@ -74,6 +76,7 @@ function DesktopHome({ userId }) {
         fetchDayPlan(userId, date).catch(() => null),
         fetchTimeChunks(userId, date).catch(() => []),
         fetchTasks(userId, date).catch(() => []),
+        fetchDayRings(date, date).catch(() => new Map()),
       ]);
       if (cancelled) return;
       setCategoryColors(cats);
@@ -84,6 +87,7 @@ function DesktopHome({ userId }) {
       setDayPlan(plan);
       setChunks(ch);
       setTasks(tk);
+      setRings(ringMap);
     })();
     return () => {
       cancelled = true;
@@ -108,6 +112,7 @@ function DesktopHome({ userId }) {
 
   const lifetimeTotal = slices.reduce((s, d) => s + d.value, 0);
   const todayRows = today?.time_by_category ?? [];
+  const todayArcs = rings.get(date) ?? [];
 
   return (
     <div className="page">
@@ -201,7 +206,7 @@ function DesktopHome({ userId }) {
 
         {/* Today, as the same card object it is everywhere else. */}
         <div className="grid" style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr", alignItems: "start" }}>
-          <DayCard date={date} chunks={chunks} tasks={tasks} timeRows={todayRows} to={`/day/${date}`} banked={Boolean(dayPlan?.banked_at)} />
+          <DayCard date={date} chunks={chunks} tasks={tasks} timeRows={todayRows} ringArcs={todayArcs} to={`/day/${date}`} banked={Boolean(dayPlan?.banked_at)} />
           <TodayGlance archive={today} chunks={chunks} tasks={tasks} date={date} synopsis={dayPlan?.synopsis} />
         </div>
       </div>

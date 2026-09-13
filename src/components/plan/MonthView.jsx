@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchPlanSummary, fetchRangeTimeByDay } from "../../lib/api";
+import { fetchPlanSummary, fetchRangeTimeByDay, fetchDayRings } from "../../lib/api";
 import { MonthCell } from "../DayCard";
 import { monthGrid, startOfMonth, endOfMonth } from "../../lib/planDates";
 
@@ -14,6 +14,7 @@ export default function MonthView({ monthDate, onPickDay }) {
   const { user } = useAuth();
   const [summaryByDay, setSummaryByDay] = useState(new Map());
   const [timeByDay, setTimeByDay] = useState(new Map());
+  const [ringsByDay, setRingsByDay] = useState(new Map());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,11 +25,13 @@ export default function MonthView({ monthDate, onPickDay }) {
     Promise.all([
       fetchPlanSummary(start, end).catch(() => []),
       user?.id ? fetchRangeTimeByDay(user.id, start, end).catch(() => new Map()) : Promise.resolve(new Map()),
+      fetchDayRings(start, end).catch(() => new Map()),
     ])
-      .then(([rows, time]) => {
+      .then(([rows, time, rings]) => {
         if (cancelled) return;
         setSummaryByDay(new Map(rows.map((r) => [r.day, r])));
         setTimeByDay(time);
+        setRingsByDay(rings);
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
@@ -54,6 +57,7 @@ export default function MonthView({ monthDate, onPickDay }) {
               date={dateStr}
               summary={summaryByDay.get(dateStr)}
               timeRows={timeByDay.get(dateStr) ?? []}
+              ringArcs={ringsByDay.get(dateStr) ?? []}
               onClick={() => onPickDay(dateStr)}
             />
           ) : (

@@ -1146,3 +1146,41 @@ form.card + .card { margin-top: 14px; }
   background: var(--inset);
   color: var(--text);
 }
+
+/* Day ring — the clock face. The label sits inside the donut, so it takes
+   the muted text colour rather than fighting the arcs for attention. */
+.ring-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+/* The big ring and its legend sit side by side on a desk and stack on a
+   phone, where a 188px circle plus two columns of labels will not fit. */
+.day-ring-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+@media (max-width: 560px) {
+  .day-ring-row { gap: 14px; }
+}
+
+/* The week planner's closed state: a full-width card that reads as an
+   invitation rather than a button bar. */
+.week-planner__open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.week-planner__open:hover {
+  border-color: var(--accent-line);
+}

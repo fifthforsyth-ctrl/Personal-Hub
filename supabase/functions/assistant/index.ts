@@ -111,6 +111,96 @@ async function proposePlan(supabase: any, anthropic: Anthropic, tz: string, note
 }
 
 // ---------------------------------------------------------------------------
+// propose_week — the Sunday sitting
+// ---------------------------------------------------------------------------
+
+const WeekSchema = z.object({
+  strategy: z
+    .string()
+    .describe("Two or three sentences on the shape of this week and what it protects, citing real figures from the data."),
+  days: z
+    .array(
+      z.object({
+        date: z.string().describe('The day, "YYYY-MM-DD", copied from the input.'),
+        note: z.string().describe("One short clause on what this day is for. Can be empty."),
+        blocks: z
+          .array(
+            z.object({
+              title: z.string().describe("What the block is. Broad — the granular version gets planned on the day."),
+              start: z.string().describe('24-hour "HH:MM".'),
+              end: z.string().describe('24-hour "HH:MM".'),
+            })
+          )
+          .describe("The day in time order, 4 to 8 broad blocks."),
+      })
+    )
+    .describe("Exactly one entry per day given, in date order."),
+});
+
+const WEEK_SYSTEM = `You lay out a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary. This is the Sunday sitting: one pass over seven days, done before the week starts.
+
+You are given, for each day: the ideal day that claims that weekday, any commitments already promised, and any note left about it. You are also given the last fortnight of what actually happened.
+
+Rules:
+- Commitments are fixed. Reproduce every one at exactly its given title, start and end. Never move, rename, shorten or drop one. Build the rest of the day around them.
+- Where a day has an ideal day, that is the skeleton. Keep its fixed points exactly — anything named unavailable, reserved, rest or date is not yours to move — and depart from the rest only where a commitment collides with it or a note gives you a reason.
+- Where a day has no ideal day, build from what the recent record shows those weekdays usually look like.
+- Keep the blocks BROAD. "Film / Edit", "Study", "Exercise", "Dinner". This is the week at altitude; the detail gets planned on the morning of each day, by someone who knows more than you do about that day. Never invent tasks, subtasks, or specific errands.
+- Do not fill every waking minute. A week with no slack is a week that breaks on Tuesday.
+- The week must be livable end to end. If the commitments already make a day heavy, let the surrounding blocks give way rather than stacking on top of them.
+- Cite real numbers in the strategy — "you averaged 6h 10m of sleep last week", "Creative Mastery has had nothing for 12 days". Never invent a figure.
+- State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
+
+async function proposeWeek(supabase: any, anthropic: Anthropic, tz: string, weekStart: string, notes?: string | null) {
+  const { data: context, error } = await supabase.rpc("week_context", { p_start: weekStart, p_tz: tz });
+  if (error) throw new Error(`week_context: ${error.message}`);
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    system: WEEK_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content:
+          `Lay out the week of ${context.week_start} to ${context.week_end}.\n\n${JSON.stringify(context, null, 1)}` +
+          (notes?.trim()
+            ? `\n\nNotes they left about this week. These are FIXED FACTS and take priority over any pattern in the data above:\n${notes.trim()}`
+            : ""),
+      },
+    ],
+    output_config: { format: zodOutputFormat(WeekSchema) },
+  });
+
+  if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
+
+  // Only days that were actually asked about, and commitments re-attached
+  // from the record rather than trusted from the reply — a dropped or
+  // shifted commitment is the one failure that would cost a real promise.
+  const asked = new Map((context.days ?? []).map((d: any) => [d.date, d]));
+  const days = (response.parsed_output.days ?? [])
+    .filter((d) => asked.has(d.date))
+    .map((d) => {
+      const source = asked.get(d.date) as any;
+      const commitments = (source.commitments ?? []).map((c: any) => ({ ...c, source: "commitment" }));
+      const keys = new Set(commitments.map((c: any) => `${c.start}-${c.end}-${c.title}`));
+      const generated = (d.blocks ?? [])
+        .filter((b) => !keys.has(`${b.start}-${b.end}-${b.title}`))
+        .map((b) => ({ ...b, source: "plan" }));
+      return {
+        date: d.date,
+        weekday: source.weekday,
+        note: d.note,
+        ideal_day: source.ideal_day?.[0]?.name ?? null,
+        blocks: [...commitments, ...generated].sort((a, b) => String(a.start).localeCompare(String(b.start))),
+      };
+    });
+
+  return { strategy: response.parsed_output.strategy, week_start: context.week_start, days, usage: response.usage };
+}
+
+// ---------------------------------------------------------------------------
 // suggest_goal_links
 // ---------------------------------------------------------------------------
 
@@ -249,14 +339,15 @@ time_log_entries(id, category text, subcategory text, description text, started_
 win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text, note text, goal_node_id uuid)
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
   — status true means done. parent_task_id not null means it is a subtask.
-time_chunks(id, date date, title text, start_time time, end_time time, goal_node_id uuid)
+time_chunks(id, date date, title text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan')
+  — planned blocks. source 'commitment' means promised to someone else; 'plan' means generated by the week planner.
 day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text)
 journal_entries(date date, thoughts text, gratitude text, gods_hand text, q_christ text, q_principles text, q_success text, reflection_completed_at timestamptz)
 prayer_logs(id, prayed_at timestamptz, context text, content text, felt_response text, tags text[])
 spiritual_experiences(id, occurred_at timestamptz, kind text, what_came text, acted_on boolean, action_taken text)
 study_notes(id, title text, body text, studied_on date, source_ref text, ai_theme text, ai_summary text)
 nodes(id, title text, description text, is_completed boolean, is_focused boolean, last_activity_at timestamptz) and node_edges(child_id, parent_id) — the goal tree.
-user_categories(id, name text, color text, archived boolean)`;
+user_categories(id, name text, color text, family text, archived boolean)`;
 
 const CHART_SYSTEM = `You answer questions about a person's own life-tracking data by writing one PostgreSQL query and choosing how to plot the result.
 
@@ -419,6 +510,11 @@ Deno.serve(async (req) => {
         if (!question) return json({ error: "ask_chart needs a question." }, 400);
         if (question.length > 1000) return json({ error: "That question is too long." }, 400);
         return json(await askChart(supabase, anthropic, tz, question));
+      }
+      case "propose_week": {
+        const weekStart = String(body.week_start ?? "").trim();
+        if (!weekStart) return json({ error: "propose_week needs a week_start." }, 400);
+        return json(await proposeWeek(supabase, anthropic, tz, weekStart, body.notes));
       }
       case "suggest_goal_links": {
         const start = body.start ?? body.date;

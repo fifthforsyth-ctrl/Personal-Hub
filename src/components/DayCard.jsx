@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Archive } from "lucide-react";
 import { colorFor, fmtMinutes } from "../lib/categories";
+import DayRing from "./DayRing";
 import { parseDateStr, todayStr, fmtTime } from "../lib/planDates";
 
 // The repeated object. A day is a card everywhere in this app: full size on
@@ -27,7 +28,7 @@ export function timeStrip(rows, { thin = false, tall = false } = {}) {
 }
 
 // One day, tiled — the week grid and the home page's "today" preview.
-export function DayCard({ date, chunks = [], tasks = [], timeRows = [], banked = false, to, children }) {
+export function DayCard({ date, chunks = [], tasks = [], timeRows = [], ringArcs = null, banked = false, to, children }) {
   const d = parseDateStr(date);
   const isToday = date === todayStr();
   const top = tasks.filter((t) => !t.parent_task_id);
@@ -53,7 +54,13 @@ export function DayCard({ date, chunks = [], tasks = [], timeRows = [], banked =
       </div>
 
       <div className="day-card__body">
-        {timeRows.length > 0 && <div style={{ marginBottom: 8 }}>{timeStrip(timeRows, { thin: true })}</div>}
+        {ringArcs?.length > 0 ? (
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+            <DayRing arcs={ringArcs} size={68} />
+          </div>
+        ) : (
+          timeRows.length > 0 && <div style={{ marginBottom: 8 }}>{timeStrip(timeRows, { thin: true })}</div>
+        )}
 
         {chunks.slice(0, 4).map((c) => {
           const own = tasks.filter((t) => t.time_chunk_id === c.id && !t.parent_task_id);
@@ -106,7 +113,7 @@ export function DayCard({ date, chunks = [], tasks = [], timeRows = [], banked =
 // The same day, shrunk to a month cell. Everything that survives the shrink is
 // the part that reads at a glance: the number, how much was tracked, how much
 // got done.
-export function MonthCell({ date, summary, timeRows = [], onClick }) {
+export function MonthCell({ date, summary, timeRows = [], ringArcs = null, onClick }) {
   if (!date) return <div className="month-cell month-cell--blank" />;
 
   const d = parseDateStr(date);
@@ -129,7 +136,13 @@ export function MonthCell({ date, summary, timeRows = [], onClick }) {
         <span className="month-cell__num">{d.getDate()}</span>
         {summary?.banked && <Archive size={9} style={{ color: "var(--accent)", flexShrink: 0 }} />}
       </span>
-      {timeRows.length > 0 && timeStrip(timeRows, { thin: true })}
+      {ringArcs?.length > 0 ? (
+        <span style={{ display: "flex", justifyContent: "center", padding: "2px 0" }}>
+          <DayRing arcs={ringArcs} size={30} thickness={6} showTicks={false} />
+        </span>
+      ) : (
+        timeRows.length > 0 && timeStrip(timeRows, { thin: true })
+      )}
       <span className="spacer" />
       {tasks > 0 && (
         <span className="mono" style={{ fontSize: 9.5, color: done === tasks ? "var(--accent)" : "var(--text-3)" }}>

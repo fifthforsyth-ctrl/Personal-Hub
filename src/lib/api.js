@@ -975,6 +975,109 @@ export function idealDayFor(idealDays, dateStr) {
   return idealDays.find((day) => (day.weekdays ?? []).includes(dow)) ?? null;
 }
 
+// The day as a clock face. Returns date -> arcs in local minutes past
+// midnight, already split at the day boundary so a night's sleep paints the
+// end of one ring and the start of the next.
+export async function fetchDayRings(startDate, endDate) {
+  const { data, error } = await supabase.rpc("day_rings", {
+    p_start: startDate,
+    p_end: endDate ?? startDate,
+    p_tz: localZone(),
+  });
+  if (error) throw error;
+
+  const byDay = new Map();
+  for (const row of data ?? []) {
+    if (!byDay.has(row.day)) byDay.set(row.day, []);
+    byDay.get(row.day).push(row);
+  }
+  return byDay;
+}
+
+// ---------------------------------------------------------------------------
+// Week planning — commitments first, ideal days for the rest.
+// ---------------------------------------------------------------------------
+
+// A block promised to someone else. Written straight away, because the point
+// of entering it is to see the week arrange itself around it.
+export async function addCommitment(userId, { date, title, start, end }) {
+  const { data, error } = await supabase
+    .from("time_chunks")
+    .insert({
+      user_id: userId,
+      date,
+      title: title.trim(),
+      start_time: start,
+      end_time: end,
+      source: "commitment",
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export function proposeWeek({ weekStart, notes } = {}) {
+  return callAssistant("propose_week", { week_start: weekStart, notes: notes || null });
+}
+
+// Commits a whole week at once.
+//
+// Only generated blocks are swept: a commitment is a promise to another
+// person and is never touched, and a block with tasks already hanging off it
+// belongs to a day that has started being lived. Everything else on these
+// dates is replaced by what was reviewed.
+export async function applyWeekPlan(userId, days) {
+  const dates = days.map((d) => d.date);
+
+  const { data: existing, error: exErr } = await supabase
+    .from("time_chunks")
+    .select("id, date, source")
+    .eq("user_id", userId)
+    .in("date", dates);
+  if (exErr) throw exErr;
+
+  const chunkIds = (existing ?? []).map((c) => c.id);
+  let withTasks = new Set();
+  if (chunkIds.length > 0) {
+    const { data: tasks, error: tErr } = await supabase
+      .from("tasks")
+      .select("time_chunk_id")
+      .in("time_chunk_id", chunkIds);
+    if (tErr) throw tErr;
+    withTasks = new Set((tasks ?? []).map((t) => t.time_chunk_id));
+  }
+
+  const sweep = (existing ?? [])
+    .filter((c) => c.source !== "commitment" && !withTasks.has(c.id))
+    .map((c) => c.id);
+  for (let i = 0; i < sweep.length; i += 50) {
+    const { error } = await supabase.from("time_chunks").delete().in("id", sweep.slice(i, i + 50));
+    if (error) throw error;
+  }
+
+  const rows = [];
+  for (const day of days) {
+    for (const block of day.blocks ?? []) {
+      if (!block.title?.trim() || !block.start || !block.end) continue;
+      if (block.source === "commitment") continue; // already on the day, untouched
+      rows.push({
+        user_id: userId,
+        date: day.date,
+        title: block.title.trim(),
+        start_time: block.start,
+        end_time: block.end,
+        source: "plan",
+      });
+    }
+  }
+  for (let i = 0; i < rows.length; i += 100) {
+    const { error } = await supabase.from("time_chunks").insert(rows.slice(i, i + 100));
+    if (error) throw error;
+  }
+  return rows.length;
+}
+
 // ---------------------------------------------------------------------------
 // Categories — the tracker's vocabulary, owned by the user.
 // ---------------------------------------------------------------------------

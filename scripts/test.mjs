@@ -11,6 +11,7 @@
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
+import { resolveRing, ringCoverage, pointAt, arcPath, fmtClock } from "../src/lib/ring.js";
 
 let pass = 0;
 let fail = 0;
@@ -189,6 +190,75 @@ const orphanBright = computeMinuteBrightness(
 );
 ok("a cycle resolves instead of hanging", orphanBright.size === 2);
 
+
+
+// ---------------------------------------------------------------------------
+
+console.log("\nthe day ring");
+
+// Midnight at the top, noon at the bottom, morning down the right side.
+const [x0, y0] = pointAt(50, 50, 40, 0);
+ok("midnight is at the top", Math.abs(x0 - 50) < 1e-9 && Math.abs(y0 - 10) < 1e-9, `${x0},${y0}`);
+const [x12, y12] = pointAt(50, 50, 40, 720);
+ok("noon is at the bottom", Math.abs(x12 - 50) < 1e-9 && Math.abs(y12 - 90) < 1e-9, `${x12},${y12}`);
+const [x6] = pointAt(50, 50, 40, 360);
+ok("6am is on the right, so the clock runs forwards", x6 > 89, String(x6));
+const [x18] = pointAt(50, 50, 40, 1080);
+ok("6pm is on the left", x18 < 11, String(x18));
+
+// A short entry inside a long one is the truer description of those minutes.
+const overlapped = resolveRing(
+  [
+    { start_min: 480, end_min: 720, category: "Work" },
+    { start_min: 540, end_min: 570, category: "Exercise" },
+  ],
+  5
+);
+ok("an overlap resolves to three runs", overlapped.length === 3, JSON.stringify(overlapped));
+ok("the shorter entry wins the contested minutes", overlapped[1].category === "Exercise");
+ok("the longer one resumes after it", overlapped[2].category === "Work" && overlapped[2].end_min === 720);
+
+// Touching entries of the same kind must not become a barcode.
+const merged = resolveRing([
+  { start_min: 0, end_min: 60, category: "Sleep" },
+  { start_min: 60, end_min: 120, category: "Sleep" },
+]);
+ok("adjacent runs of one category merge", merged.length === 1 && merged[0].end_min === 120);
+
+// Gaps are real and must survive: an unaccounted hour is information.
+const gapped = resolveRing([
+  { start_min: 0, end_min: 60, category: "Sleep" },
+  { start_min: 180, end_min: 240, category: "Study" },
+]);
+ok("a gap is left unpainted", gapped.length === 2 && gapped[1].start_min === 180);
+ok("coverage reports the painted fraction", Math.abs(ringCoverage(gapped) - 120 / 1440) < 1e-9);
+
+// Two entries covering exactly the same span must not depend on row order.
+const tieA = resolveRing([
+  { start_min: 0, end_min: 400, category: "Sleep" },
+  { start_min: 0, end_min: 400, category: "Prep" },
+]);
+const tieB = resolveRing([
+  { start_min: 0, end_min: 400, category: "Prep" },
+  { start_min: 0, end_min: 400, category: "Sleep" },
+]);
+ok("an exact tie resolves the same way whichever order it arrives in",
+   tieA.length === 1 && tieB.length === 1 && tieA[0].category === tieB[0].category,
+   `${tieA[0]?.category} vs ${tieB[0]?.category}`);
+
+// An entry carrying only tags still colours the ring.
+const tagged = resolveRing([{ start_min: 0, end_min: 30, tags: ["Prep"] }]);
+ok("tags stand in when category is absent", tagged.length === 1 && tagged[0].category === "Prep");
+
+// Arcs over half the face need the large-arc flag or they draw inside out.
+const short = arcPath(50, 50, 40, 30, 0, 300);
+const long = arcPath(50, 50, 40, 30, 0, 900);
+ok("a short arc is not flagged large", short.includes("0 1"), short);
+ok("an arc past twelve hours is", long.includes("1 1"), long);
+ok("a whole-day arc refuses to be a path", arcPath(50, 50, 40, 30, 0, 1440) === null);
+
+ok("clock formatting reads as a clock", fmtClock(0) === "12:00am" && fmtClock(720) === "12:00pm" && fmtClock(1385) === "11:05pm",
+   `${fmtClock(0)} ${fmtClock(720)} ${fmtClock(1385)}`);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

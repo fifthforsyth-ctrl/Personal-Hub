@@ -21,6 +21,7 @@ import {
   fetchTasks,
   fetchGoalOptions,
   fetchCategories,
+  fetchDayRings,
   unbankDay,
 } from "../lib/api";
 import DayView from "../components/plan/DayView";
@@ -33,6 +34,7 @@ import CuratedCards from "../components/curator/CuratedCards";
 import BankedDayCard from "../components/day/BankedDayCard";
 import { MinutesView } from "../components/Capture";
 import { Legend } from "../components/charts";
+import DayRing, { RingLegend } from "../components/DayRing";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
 import { todayStr, addDays, fmtDayHeading, parseDateStr } from "../lib/planDates";
 import { toPlainText } from "../lib/markdown";
@@ -69,6 +71,7 @@ export default function Day() {
   const [chunks, setChunks] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [goalOptions, setGoalOptions] = useState([]);
+  const [ringArcs, setRingArcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState(0);
 
@@ -76,14 +79,16 @@ export default function Day() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [a, plan, ch, tk, cats] = await Promise.all([
+      const [a, plan, ch, tk, cats, rings] = await Promise.all([
         fetchDayArchive(date).catch(() => null),
         fetchDayPlan(user.id, date).catch(() => null),
         fetchTimeChunks(user.id, date).catch(() => []),
         fetchTasks(user.id, date).catch(() => []),
         fetchCategories(user.id).catch(() => []),
+        fetchDayRings(date, date).catch(() => new Map()),
       ]);
       setCategoryColors(cats);
+      setRingArcs(rings.get(date) ?? []);
       setDayPlan(plan);
       setArchive(a);
       setChunks(ch);
@@ -189,16 +194,21 @@ export default function Day() {
             <span className="card-title"><Clock size={14} />Where the day went</span>
             <span className="mono faint" style={{ fontSize: 11.5 }}>{fmtMinutes(totalMinutes)}</span>
           </div>
-          <div className="time-strip time-strip--tall">
+
+          {/* The ring answers WHEN, the strip beneath it answers how much.
+              Both, because they are different questions and the second one
+              is the one you compare across weeks. */}
+          <div className="day-ring-row">
+            <DayRing arcs={ringArcs} size={188} showLabels />
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <RingLegend arcs={ringArcs} />
+            </div>
+          </div>
+
+          <div className="time-strip time-strip--tall" style={{ marginTop: 14 }}>
             {timeRows.map((r) => (
               <i key={r.category} title={`${r.category} · ${fmtMinutes(r.minutes)}`} style={{ width: `${(Number(r.minutes) / totalMinutes) * 100}%`, background: colorFor(r.category) }} />
             ))}
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <Legend
-              items={timeRows.map((r) => ({ key: r.category, value: Number(r.minutes), color: colorFor(r.category) }))}
-              format={fmtMinutes}
-            />
           </div>
         </div>
       )}

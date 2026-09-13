@@ -1,0 +1,26 @@
+-- The day as a clock face, and planning a week at a sitting.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+--   * user_categories.family — twenty-five categories cannot each have a
+--     memorable colour, but seven families can, and a category takes a shade
+--     inside its family's hue. That is what makes a ring readable at a
+--     glance without anyone learning 25 swatches.
+--
+--   * time_chunks.source — 'manual' | 'commitment' | 'plan'. A commitment is
+--     a promise made to another person; a generated block is the planner's
+--     guess at the space around it. Re-planning a week has to be able to
+--     sweep the second without ever touching the first.
+--
+--   * day_rings(start, end, tz) — every tracked stretch as an arc in local
+--     minutes past midnight. Entries are SPLIT at midnight rather than filed
+--     under their start date: the longest arc of most days is sleep, sleep
+--     always crosses, and a night from 23:10 to 06:40 has to paint the end
+--     of one ring and the start of the next or both days read as though
+--     nobody went to bed.
+--
+--   * week_context(start, tz) — for each of seven days: the ideal day that
+--     claims that weekday, the commitments already promised on it, and the
+--     note left about it, plus a fortnight of what actually happened.
+--
+-- Colours were reassigned across the palette at the same time; that is data,
+-- and every one of them stays editable from the category editor.
