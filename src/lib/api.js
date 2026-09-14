@@ -1049,12 +1049,15 @@ export async function clearWeekPlan(weekStart) {
 }
 
 // `overrides` is a rebalance: amounts the person set by hand after looking
-// at a draft, which replace the targets for that one pass.
-export function proposeWeek({ weekStart, notes, overrides } = {}) {
+// at a draft, which replace the targets for that one pass. `only` narrows
+// the reply to a few dates — the budget is decided before any call, so the
+// week can be laid out in slices without the totals drifting.
+export function proposeWeek({ weekStart, notes, overrides, only } = {}) {
   return callAssistant("propose_week", {
     week_start: weekStart,
     notes: notes || null,
     overrides: overrides?.length ? overrides : null,
+    only: only?.length ? only : null,
   });
 }
 

@@ -18,6 +18,10 @@ import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Three days a request. Measured: seven at once ran 138-151 seconds against
+// a 150-second ceiling, which is no margin at all.
+const DAYS_PER_PASS = 3;
+
 // The Sunday sitting.
 //
 // It does not ask what you have on this week — it reads the calendar. Every
@@ -40,6 +44,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   const [targets, setTargets] = useState([]);
   const [categories, setCategories] = useState([]);
   const [cleared, setCleared] = useState(null);
+  const [progress, setProgress] = useState(null);
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -78,16 +83,41 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
     }
   }, [reload, user?.id]);
 
+  // Laid out a few days at a time. Seven days in one request runs past the
+  // 150 seconds Supabase allows an Edge Function and dies as a 504 having
+  // decided nothing; the budget is settled before any call, so slicing the
+  // days costs the weekly totals nothing.
   async function generate(overrides) {
     setLoading(true);
     setError(null);
     setCommitted(false);
+    setProgress({ done: 0, total: days.length });
+
+    const gathered = [];
+    let strategy = "";
+
     try {
-      setResult(await proposeWeek({ weekStart, notes, overrides }));
+      for (let i = 0; i < days.length; i += DAYS_PER_PASS) {
+        const slice = days.slice(i, i + DAYS_PER_PASS);
+        const data = await proposeWeek({ weekStart, notes, overrides, only: slice });
+        gathered.push(...(data.days ?? []));
+        if (!strategy && data.strategy) strategy = data.strategy;
+        setProgress({ done: gathered.length, total: days.length });
+      }
+      gathered.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      setResult({ strategy, week_start: weekStart, days: gathered });
     } catch (err) {
-      setError(err.message);
+      // Days already laid out are worth keeping; the rest can be filled by
+      // pressing again rather than starting the whole week over.
+      if (gathered.length > 0) {
+        gathered.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        setResult({ strategy, week_start: weekStart, days: gathered, partial: err.message });
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   }
 
@@ -244,7 +274,11 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
 
           <button className="btn btn--accent btn--block" onClick={() => generate()} disabled={loading}>
             <Sparkles size={15} />
-            {loading ? "Laying out the week…" : "Lay out the week"}
+            {loading
+              ? progress?.done > 0
+                ? `Laid out ${progress.done} of ${progress.total} days…`
+                : "Laying out the week…"
+              : "Lay out the week"}
           </button>
 
           {planned > 0 && (
@@ -259,6 +293,13 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
       {result && (
         <>
           <p className="card-note" style={{ margin: "0 0 14px" }}>{result.strategy}</p>
+
+          {result.partial && (
+            <div className="form-error" style={{ margin: "0 0 12px" }}>
+              Stopped after {result.days.length} of {days.length} days — {result.partial} What's below is still worth
+              committing; press Again for the rest.
+            </div>
+          )}
 
           {targets.length > 0 && !committed && (
             <TargetDials targets={targets} days={result.days} onRebalance={generate} busy={loading} />

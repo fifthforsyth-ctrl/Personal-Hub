@@ -1,0 +1,14 @@
+-- Notes on an Edge Function change, recorded here with the others.
+--
+-- Precomputing the budget removed the arithmetic from the week planner but
+-- not the bulk: laying out seven days still ran 138-151 seconds against a
+-- 150-second ceiling and kept dying at it. Two things, together:
+--
+--   * The week is now laid out three days to a request. Because the budget
+--     is settled BEFORE any call, splitting the days costs the weekly totals
+--     nothing — each request sees the whole week's budget and returns blocks
+--     only for its own slice. The client walks the three passes and shows
+--     how far it has got, keeping whatever succeeded if a later pass fails.
+--   * Thinking is capped at 4,000 tokens instead of adaptive. With the
+--     budget already decided there is nothing left to search, and an
+--     open-ended think was what pushed the request past the wall.

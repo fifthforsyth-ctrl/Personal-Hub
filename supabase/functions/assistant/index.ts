@@ -137,10 +137,10 @@ const WeekSchema = z.object({
           .describe("The day in time order, 4 to 8 broad blocks."),
       })
     )
-    .describe("Exactly one entry per day given, in date order."),
+    .describe("Exactly one entry per requested date, in date order."),
 });
 
-const WEEK_SYSTEM = `You lay out a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary. This is the Sunday sitting: one pass over seven days, done before the week starts.
+const WEEK_SYSTEM = `You lay out days of a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary. This is the Sunday sitting: planning done before the week starts.
 
 You are given three different kinds of thing, and the order between them is the whole job.
 
@@ -149,6 +149,8 @@ You are given three different kinds of thing, and the order between them is the 
 3. The ideal day for each weekday, and the last fortnight of what actually happened.
 
 You are also given a BUDGET: how many minutes of each target each day is to contain. That has already been worked out from the fixed blocks and the totals, and it is not yours to redo. Do not recompute it, do not redistribute it between days, and do not check its arithmetic. Your job is to lay each day out — what order the blocks go in, what they are called, where the meals and the slack fall — honouring the minutes you are given to within fifteen.
+
+The budget covers the whole week so you can see the shape of it, but you return blocks ONLY for the dates you are asked for. Return one entry per requested date and no others.
 
 Seat the scheduled blocks first because they cannot move. Then place each budgeted amount. Meals, free time, buffers and wind-downs fill what is left over, never the reverse.
 
@@ -164,6 +166,7 @@ Rules:
 - The week must be livable end to end. If what is already scheduled makes a day heavy, let the surrounding blocks give way rather than stacking on top of them.
 - The notes are the only source for things that are not on the calendar yet. Where a note names something without a time, place it where the day has room and say so in the strategy.
 - Cite real numbers in the strategy — a target's last_week_minutes against its weekly_minutes, "Creative Mastery has had nothing for 12 days". Never invent a figure.
+- Work briskly. The budget has decided the hard part; you are arranging it, not solving it.
 - State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
 
 // ---------------------------------------------------------------------------
@@ -302,18 +305,30 @@ function buildBudget(context: any, overrides?: Array<{ label: string; weekly_min
   return { days, shortfalls, byLabel };
 }
 
+// Laid out a few days at a time.
+//
+// Precomputing the budget removed the arithmetic but not the bulk: seven
+// days of layout still ran past the 150-second wall. Because the budget is
+// decided BEFORE any call, the days can be split across several requests
+// without the weekly totals drifting — each request is handed the whole
+// week's budget for context and asked to lay out only its own slice.
 async function proposeWeek(
   supabase: any,
   anthropic: Anthropic,
   tz: string,
   weekStart: string,
   notes?: string | null,
-  overrides?: Array<{ label: string; weekly_minutes: number }> | null
+  overrides?: Array<{ label: string; weekly_minutes: number }> | null,
+  only?: string[] | null
 ) {
   const { data: context, error } = await supabase.rpc("week_context", { p_start: weekStart, p_tz: tz });
   if (error) throw new Error(`week_context: ${error.message}`);
 
   const budget = buildBudget(context, overrides);
+
+  const wanted = new Set((only ?? []).filter(Boolean));
+  const slice = wanted.size ? (context.days ?? []).filter((d: any) => wanted.has(d.date)) : context.days ?? [];
+  if (slice.length === 0) return { strategy: "", week_start: context.week_start, days: [] };
 
   // The budget lines the model reads. One per day, plain, with the category
   // each amount is to be written under so it cannot guess wrong.
@@ -339,18 +354,19 @@ async function proposeWeek(
 
   const response = await anthropic.messages.parse({
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: 8000,
     system: WEEK_SYSTEM,
-    thinking: { type: "adaptive" },
+    // Capped rather than adaptive. With the budget already decided there is
+    // nothing left to search, and an open-ended think is what was pushing
+    // this past the wall.
+    thinking: { type: "enabled", budget_tokens: 4000 },
     messages: [
       {
         role: "user",
         content:
-          `Lay out the week of ${context.week_start} to ${context.week_end}.\n\nBUDGET — already computed, lay these out rather than deriving them:\n${budgetText}${shortfallText}\n\n${JSON.stringify(
-            context,
-            null,
-            1
-          )}` +
+          `Lay out the week of ${context.week_start} to ${context.week_end}.\n\nBUDGET — already computed, lay these out rather than deriving them:\n${budgetText}${shortfallText}\n\nRETURN BLOCKS ONLY FOR THESE DATES, one entry each, nothing else: ${slice
+            .map((d: any) => d.date)
+            .join(", ")}\n\n${JSON.stringify({ ...context, days: slice }, null, 1)}` +
           (notes?.trim()
             ? `\n\nNotes they left about this week. These are FIXED FACTS and take priority over any pattern in the data above:\n${notes.trim()}`
             : "") +
@@ -373,7 +389,7 @@ async function proposeWeek(
   // — a silently dropped or shifted commitment is the one failure that would
   // cost a real promise. Blocks the planner itself wrote last time are not
   // re-attached; they are exactly what this run is allowed to replace.
-  const asked = new Map((context.days ?? []).map((d: any) => [d.date, d]));
+  const asked = new Map(slice.map((d: any) => [d.date, d]));
   const days = (response.parsed_output.days ?? [])
     .filter((d) => asked.has(d.date))
     .map((d) => {
@@ -720,7 +736,9 @@ Deno.serve(async (req) => {
       case "propose_week": {
         const weekStart = String(body.week_start ?? "").trim();
         if (!weekStart) return json({ error: "propose_week needs a week_start." }, 400);
-        return json(await proposeWeek(supabase, anthropic, tz, weekStart, body.notes, body.overrides));
+        return json(
+          await proposeWeek(supabase, anthropic, tz, weekStart, body.notes, body.overrides, body.only)
+        );
       }
       case "suggest_goal_links": {
         const start = body.start ?? body.date;
