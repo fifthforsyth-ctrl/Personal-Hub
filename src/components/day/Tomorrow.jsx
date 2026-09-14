@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Sparkles, Check, RefreshCw, ChevronDown, ChevronRight, Lock, CalendarCheck, Pencil } from "lucide-react";
-import { proposePlans, applyProposedPlan, setDayNotes, fetchDayPlan, fetchIdealDays, idealDayFor } from "../../lib/api";
+import {
+  proposePlans,
+  applyProposedPlan,
+  setDayNotes,
+  fetchDayPlan,
+  fetchIdealDays,
+  idealDayFor,
+  fetchTimeChunks,
+} from "../../lib/api";
 import { addDays, fmtDayHeading, fmtTime } from "../../lib/planDates";
 import PlanEditor from "./PlanEditor";
 
@@ -24,6 +32,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
   const [openPlan, setOpenPlan] = useState(0);
   const [drafting, setDrafting] = useState(null); // index of the plan being edited
   const [ideal, setIdeal] = useState(null);
+  const [committed, setCommitted] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +48,11 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
     // has to depart from it.
     fetchIdealDays(userId)
       .then((days) => !cancelled && setIdeal(idealDayFor(days, tomorrow)))
+      .catch(() => {});
+    // What the week planner already committed to tomorrow. When there is
+    // one, the day plan follows it rather than re-deciding the day.
+    fetchTimeChunks(userId, tomorrow)
+      .then((chunks) => !cancelled && setCommitted(chunks ?? []))
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -101,13 +115,21 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
         </p>
       )}
 
-      {ideal && drafting === null && (
+      {drafting === null && (committed.length > 0 || ideal) && (
         <p className="faint row" style={{ fontSize: 11.5, gap: 5, margin: "0 0 10px", alignItems: "flex-start" }}>
           <CalendarCheck size={12} style={{ flexShrink: 0, marginTop: 2 }} />
-          <span>
-            Built on <strong style={{ fontWeight: 650 }}>{ideal.name}</strong> — {ideal.blocks.length} blocks, yours to
-            change under Plan → Ideal days.
-          </span>
+          {committed.length > 0 ? (
+            <span>
+              Following <strong style={{ fontWeight: 650 }}>this week's plan</strong> for {fmtDayHeading(tomorrow)} —{" "}
+              {committed.length} blocks. It keeps that shape unless your notes below say otherwise, so the week's totals
+              hold.
+            </span>
+          ) : (
+            <span>
+              Nothing planned for tomorrow yet, so it builds from{" "}
+              <strong style={{ fontWeight: 650 }}>{ideal.name}</strong> — yours to change under Plan → Ideal days.
+            </span>
+          )}
         </p>
       )}
 
@@ -122,7 +144,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
             setNotesSaved(false);
           }}
           onBlur={saveNotes}
-          placeholder="Zone conference at 10. Sister missionary transfer in the afternoon. Low energy — keep the morning light."
+          placeholder="Zone conference at 10 — move the morning block. Low energy, keep it light. Otherwise leave the week's shape alone."
           style={{ minHeight: 76 }}
         />
       </label>
@@ -133,6 +155,8 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
             ? notesSaved
               ? "Saved to tomorrow."
               : "Unsaved — it'll be saved when you generate."
+            : committed.length > 0
+            ? "This is the only thing that can move the week's plan for tomorrow."
             : "Read alongside your last two weeks."}
         </span>
         {!result && (

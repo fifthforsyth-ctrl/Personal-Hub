@@ -1,0 +1,17 @@
+-- The daily planner could not see the week it was supposed to be serving.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- plan_context sent the ideal day, the recent record and the usual block
+-- shapes, but never the blocks the week planner had already committed to
+-- tomorrow. So the evening plan re-derived the day from scratch every time
+-- and had no way to follow a week laid out on Sunday, however carefully —
+-- and since the week was built to hit weekly totals, a day that quietly
+-- reshaped itself put those totals out.
+--
+--   * planned_tomorrow — every block on tomorrow with its title, category,
+--     times and source, so a hand-scheduled commitment is distinguishable
+--     from the planner's own output.
+--   * weekly_targets for the week tomorrow falls in, so the day can see what
+--     the totals it is serving actually are.
+--   * notes saying plainly that planned_tomorrow is the answer where it
+--     exists, and that the ideal day and the record are the fallback.
