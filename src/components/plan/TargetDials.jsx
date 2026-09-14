@@ -213,7 +213,7 @@ export function plannedByTarget(targets, days) {
   for (const day of days ?? []) {
     for (const block of day.blocks ?? []) {
       if (!block.category) continue;
-      const minutes = toMinutes(block.end) - toMinutes(block.start);
+      const minutes = spanMinutes(block.start, block.end);
       if (minutes <= 0) continue;
       for (const t of targets) {
         if ((t.categories ?? []).includes(block.category)) totals[t.id] += minutes;
@@ -226,4 +226,13 @@ export function plannedByTarget(targets, days) {
 function toMinutes(hhmm) {
   const [h, m] = String(hhmm ?? "").split(":").map(Number);
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
+}
+
+// A block that ends before it starts has crossed midnight, which is how
+// sleep is written — 22:00 to 06:00 is eight hours, not minus sixteen.
+function spanMinutes(start, end) {
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  if (!start || !end) return 0;
+  return e > s ? e - s : 1440 - s + e;
 }

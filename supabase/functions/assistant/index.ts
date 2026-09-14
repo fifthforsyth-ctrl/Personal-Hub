@@ -148,16 +148,16 @@ You are given three different kinds of thing, and the order between them is the 
 2. The targets. What the week is FOR — an amount of something, with no time attached, which is exactly why it loses to everything that has one unless you place it deliberately.
 3. The ideal day for each weekday, and the last fortnight of what actually happened.
 
-Seat the scheduled blocks first because they cannot move. Then seat the targets, in the order given, before anything discretionary. Meals, free time, buffers and wind-downs are what give way to a target — never the reverse. Only once every target is met do you fill the remainder from the ideal day.
+You are also given a BUDGET: how many minutes of each target each day is to contain. That has already been worked out from the fixed blocks and the totals, and it is not yours to redo. Do not recompute it, do not redistribute it between days, and do not check its arithmetic. Your job is to lay each day out — what order the blocks go in, what they are called, where the meals and the slack fall — honouring the minutes you are given to within fifteen.
 
-If a target genuinely cannot fit — the week does not contain enough waking hours for all of them alongside what is already promised — say so plainly in the strategy, name which target fell short and by how much, and get as close as the week allows. Do not silently drop one, and do not pretend a day holds more than it does.
+Seat the scheduled blocks first because they cannot move. Then place each budgeted amount. Meals, free time, buffers and wind-downs fill what is left over, never the reverse.
 
 Rules:
 - Everything already scheduled is fixed, EXCEPT blocks whose source is "plan" — those came from an earlier run of this planner and you may replace them freely. Anything else was put on the calendar deliberately. Reproduce each one at exactly its given title, start and end. Never move, rename, shorten or drop one. Build the rest of the day around them.
 - Where a day has an ideal day, that is the skeleton. Keep its fixed points exactly — anything named unavailable, reserved, rest or date is not yours to move — and depart from the rest only where something already scheduled collides with it or a note gives you a reason.
 - Where a day has no ideal day, build from what the recent record shows those weekdays usually look like.
-- A target with period "day" must appear on every one of the seven days, not once with the total lumped in. A target with period "week" is a total across the week and may be distributed however the days allow.
-- Check your own arithmetic before you answer: add up the minutes you allotted to each target across the seven days and compare them to weekly_minutes. State both figures in the strategy for the largest target.
+- A budgeted amount of 0 for a day means that day gets none of it. A day marked rest gets no work at all.
+- A block marked overnight in the budget (sleep) is written with its end time EARLIER than its start — 22:00 to 06:00 — because it crosses midnight. Write it that way rather than splitting it in two.
 - Every block must carry a category copied exactly from the "categories" list. Where a block exists to serve a target, use the category that target names — that is the only way the week can be totalled against it.
 - Keep the blocks BROAD. "Film / Edit", "Study", "Exercise", "Dinner". This is the week at altitude; the detail gets planned on the morning of each day, by someone who knows more than you do about that day. Never invent tasks, subtasks, or specific errands.
 - Do not fill every waking minute. A week with no slack is a week that breaks on Tuesday.
@@ -165,6 +165,136 @@ Rules:
 - The notes are the only source for things that are not on the calendar yet. Where a note names something without a time, place it where the day has room and say so in the strategy.
 - Cite real numbers in the strategy — a target's last_week_minutes against its weekly_minutes, "Creative Mastery has had nothing for 12 days". Never invent a figure.
 - State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
+
+// ---------------------------------------------------------------------------
+// The week's budget, worked out here rather than by the model.
+//
+// Asking a language model to fit sixty hours of work, seven of study and
+// seven of exercise around a set of fixed blocks is asking it to SEARCH, and
+// it will: the pass crept from forty seconds to a hundred and fifty and then
+// died at Supabase's wall having decided nothing. The arithmetic is
+// arithmetic — a few lines of it — and once it is done the model has only
+// the job it is actually good at, which is laying a day out in a sensible
+// order and naming the blocks.
+// ---------------------------------------------------------------------------
+
+const WINDOW_START = 5 * 60; // the waking day, matching the ring
+const WINDOW_END = 22 * 60;
+const WINDOW = WINDOW_END - WINDOW_START;
+
+function toMin(hhmm: string) {
+  const [h, m] = String(hhmm ?? "").split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
+}
+
+// A block ending before it starts has crossed midnight, which is how sleep
+// is written.
+function spanMinutes(start: string, end: string) {
+  const s = toMin(start);
+  const e = toMin(end);
+  return e > s ? e - s : 1440 - s + e;
+}
+
+function windowOverlap(start: string, end: string) {
+  const s = toMin(start);
+  const rawEnd = toMin(end);
+  const e = rawEnd > s ? rawEnd : 1440;
+  return Math.max(0, Math.min(e, WINDOW_END) - Math.max(s, WINDOW_START));
+}
+
+function isRestDay(day: any) {
+  const blocks = day?.ideal_day?.[0]?.blocks ?? [];
+  return blocks.some((b: any) => /rest/i.test(b.title ?? "") && spanMinutes(b.start, b.end) >= 600);
+}
+
+function buildBudget(context: any, overrides?: Array<{ label: string; weekly_minutes: number }> | null) {
+  const ov = new Map((overrides ?? []).map((o) => [o.label, o.weekly_minutes]));
+
+  const targets = (context.targets ?? []).map((t: any) => ({
+    label: t.label,
+    category: (t.categories ?? [])[0] ?? null,
+    period: t.period,
+    weekly: Number(ov.get(t.label) ?? t.weekly_minutes) || 0,
+    // Sleep is the one target that lives outside the waking window, so it
+    // neither competes for the day's free minutes nor is limited by them.
+    nightly: (t.categories ?? []).some((c: string) => /sleep/i.test(c)),
+  }));
+
+  const days = (context.days ?? []).map((d: any) => {
+    const busy = (d.scheduled ?? []).reduce((sum: number, b: any) => sum + windowOverlap(b.start, b.end), 0);
+    return {
+      date: d.date,
+      weekday: d.weekday,
+      rest: isRestDay(d),
+      fixed_minutes: busy,
+      free: Math.max(0, WINDOW - busy),
+      allocate: {} as Record<string, number>,
+    };
+  });
+
+  // Nightly first (it costs the day nothing), then per-day quotas, then the
+  // weekly totals into whatever is left. Order matters: a sixty-hour target
+  // taken first would eat the hour of study before study was ever asked for.
+  const ordered = [
+    ...targets.filter((t) => t.nightly),
+    ...targets.filter((t) => !t.nightly && t.period === "day"),
+    ...targets.filter((t) => !t.nightly && t.period !== "day"),
+  ];
+
+  const shortfalls: Array<{ label: string; minutes: number }> = [];
+
+  for (const t of ordered) {
+    if (t.weekly <= 0) continue;
+
+    if (t.nightly) {
+      const per = Math.round(t.weekly / days.length);
+      for (const d of days) d.allocate[t.label] = per;
+      continue;
+    }
+
+    if (t.period === "day") {
+      const per = Math.round(t.weekly / days.length);
+      let missed = 0;
+      for (const d of days) {
+        const give = d.rest ? 0 : Math.min(per, d.free);
+        if (give > 0) {
+          d.allocate[t.label] = give;
+          d.free -= give;
+        }
+        missed += per - give;
+      }
+      if (missed > 0) shortfalls.push({ label: t.label, minutes: missed });
+      continue;
+    }
+
+    const pool = days.filter((d) => !d.rest && d.free > 0);
+    const totalFree = pool.reduce((sum, d) => sum + d.free, 0);
+    let left = t.weekly;
+    for (const d of pool) {
+      if (left <= 0) break;
+      const share = Math.min(d.free, left, Math.round((d.free / totalFree) * t.weekly));
+      if (share > 0) {
+        d.allocate[t.label] = (d.allocate[t.label] ?? 0) + share;
+        d.free -= share;
+        left -= share;
+      }
+    }
+    // Rounding leaves a few minutes over; give them to whoever still has room.
+    for (const d of pool) {
+      if (left <= 0) break;
+      const add = Math.min(left, d.free);
+      if (add > 0) {
+        d.allocate[t.label] = (d.allocate[t.label] ?? 0) + add;
+        d.free -= add;
+        left -= add;
+      }
+    }
+    if (left > 0) shortfalls.push({ label: t.label, minutes: left });
+  }
+
+  const byLabel = new Map(targets.map((t: any) => [t.label, t]));
+  return { days, shortfalls, byLabel };
+}
 
 async function proposeWeek(
   supabase: any,
@@ -177,6 +307,30 @@ async function proposeWeek(
   const { data: context, error } = await supabase.rpc("week_context", { p_start: weekStart, p_tz: tz });
   if (error) throw new Error(`week_context: ${error.message}`);
 
+  const budget = buildBudget(context, overrides);
+
+  // The budget lines the model reads. One per day, plain, with the category
+  // each amount is to be written under so it cannot guess wrong.
+  const budgetText = budget.days
+    .map((d) => {
+      const parts = Object.entries(d.allocate)
+        .filter(([, mins]) => (mins as number) > 0)
+        .map(([label, mins]) => {
+          const t = budget.byLabel.get(label) as any;
+          return `${label} ${mins}m${t?.nightly ? " (overnight)" : ""}${t?.category ? ` [category: ${t.category}]` : ""}`;
+        });
+      return `${d.date} ${d.weekday}${d.rest ? " — REST DAY, no work" : ""}: ${
+        parts.length ? parts.join(", ") : "nothing budgeted"
+      }. ${d.fixed_minutes}m already fixed, ${d.free}m left over for meals and slack.`;
+    })
+    .join("\n");
+
+  const shortfallText = budget.shortfalls.length
+    ? `\n\nThese did not fit in the week and the budget is short by this much. Say so plainly in the strategy, naming the target and the shortfall:\n${budget.shortfalls
+        .map((sf) => `- ${sf.label}: short ${sf.minutes} minutes`)
+        .join("\n")}`
+    : "";
+
   const response = await anthropic.messages.parse({
     model: MODEL,
     max_tokens: 16000,
@@ -186,7 +340,11 @@ async function proposeWeek(
       {
         role: "user",
         content:
-          `Lay out the week of ${context.week_start} to ${context.week_end}.\n\n${JSON.stringify(context, null, 1)}` +
+          `Lay out the week of ${context.week_start} to ${context.week_end}.\n\nBUDGET — already computed, lay these out rather than deriving them:\n${budgetText}${shortfallText}\n\n${JSON.stringify(
+            context,
+            null,
+            1
+          )}` +
           (notes?.trim()
             ? `\n\nNotes they left about this week. These are FIXED FACTS and take priority over any pattern in the data above:\n${notes.trim()}`
             : "") +
@@ -195,9 +353,7 @@ async function proposeWeek(
           // the targets rather than sitting alongside them, and the whole
           // point of the pass is that they come out exactly.
           (overrides?.length
-            ? `\n\nThey have adjusted the amounts by hand after seeing a first draft. For THIS pass these replace the weekly_minutes on the matching targets and are not negotiable — hit each one to within fifteen minutes across the week, and take the time from whatever else the day holds:\n${overrides
-                .map((o) => `- ${o.label}: ${(o.weekly_minutes / 60).toFixed(2)} hours across the week`)
-                .join("\n")}`
+            ? "\n\nNote: the budget above already reflects amounts they adjusted by hand after seeing a first draft, so it differs from the weekly_minutes on the targets. The budget is what to build."
             : ""),
       },
     ],
@@ -382,7 +538,7 @@ win_losses(id, occurred_at timestamptz, kind text 'win'|'loss', habit_label text
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int)
   — status true means done. parent_task_id not null means it is a subtask.
 time_chunks(id, date date, title text, category text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan')
-  — planned blocks. source 'plan' means generated by the week planner; anything else was put there deliberately.
+  — planned blocks. source 'plan' means generated by the week planner; anything else was put there deliberately. A block whose end_time is earlier than its start_time crosses midnight.
 weekly_targets(id, label text, categories text[], minutes int, period text 'week'|'day', active boolean)
   — standing quotas the week is planned around. minutes is per period; categories names which tracked categories count toward it.
 day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text)

@@ -199,7 +199,10 @@ function addHour(hhmm) {
 }
 
 function spanLabel(start, end) {
-  const mins = toMinutes(end) - toMinutes(start);
+  // Crossing midnight is a real span, not a negative one.
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  const mins = e > s ? e - s : s === e ? 0 : 1440 - s + e;
   if (mins <= 0) return "—";
   const h = Math.floor(mins / 60);
   const m = mins % 60;

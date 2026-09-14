@@ -1,0 +1,24 @@
+-- Notes on a change that lives in the Edge Function, kept here because it is
+-- the reason the week planner stopped timing out.
+--
+-- Asking the model to fit 60h of work, 7h of study and 7h of exercise around
+-- a set of fixed blocks was asking it to SEARCH. The pass crept from forty
+-- seconds to 141s, 138s, 150s and then died at Supabase's 150-second wall
+-- having decided nothing — and the prompt was literally telling it to "check
+-- your own arithmetic", which is the tell that the wrong party was doing it.
+--
+-- The budget is now computed in TypeScript before the call: free minutes per
+-- day after the fixed blocks, nightly targets first (they cost the waking
+-- day nothing), then per-day quotas, then weekly totals spread across the
+-- non-rest days in proportion to what is left. The model receives a per-day
+-- allocation and lays it out. Anything that genuinely does not fit comes
+-- back as a named shortfall rather than silently vanishing.
+--
+-- Against the real week of 2026-09-14 this lands Film / Edit on exactly
+-- 60.00h and reports Study and Exercise an hour short each, because a full
+-- rest Sunday and a 1h-a-day target cannot both be true.
+--
+-- Also: a Sleep target (8h a day). Sleep is the one target outside the 5am
+-- to 10pm window, so it neither competes for the day's free minutes nor is
+-- capped by them, and its block is written crossing midnight — end time
+-- earlier than start — rather than split in two.
