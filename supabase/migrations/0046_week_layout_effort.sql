@@ -1,0 +1,13 @@
+-- Notes on an Edge Function change, recorded with the others.
+--
+-- A rebalance looked like it did nothing, and the reason was upstream of the
+-- rebalance. At low effort the layout drifted BELOW the budget it was given
+-- — asked for 60h of work across the week, it wrote about 56h30m. Raising
+-- the dial to 60h then produced an override identical to the stored target,
+-- so the budget was byte-for-byte the same and the same short week came
+-- back. Nothing had been asked to change.
+--
+--   * effort medium rather than low for the week layout. Three days a pass
+--     leaves the room: the whole week came back in forty seconds.
+--   * a rule saying the blocks written for one target on one day must ADD UP
+--     to that day's budgeted minutes, and to add them up before answering.

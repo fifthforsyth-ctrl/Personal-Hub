@@ -45,6 +45,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   const [categories, setCategories] = useState([]);
   const [cleared, setCleared] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [askedFor, setAskedFor] = useState(null);
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -88,6 +89,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   // decided nothing; the budget is settled before any call, so slicing the
   // days costs the weekly totals nothing.
   async function generate(overrides) {
+    setAskedFor(overrides?.length ? Object.fromEntries(overrides.map((o) => [o.label, o.weekly_minutes])) : null);
     setLoading(true);
     setError(null);
     setCommitted(false);
@@ -302,7 +304,13 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
           )}
 
           {targets.length > 0 && !committed && (
-            <TargetDials targets={targets} days={result.days} onRebalance={generate} busy={loading} />
+            <TargetDials
+              targets={targets}
+              days={result.days}
+              goals={askedFor}
+              onRebalance={generate}
+              busy={loading}
+            />
           )}
 
           {committed ? (

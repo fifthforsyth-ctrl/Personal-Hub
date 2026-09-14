@@ -4,15 +4,14 @@ import { colorFor, fmtMinutes } from "../../lib/categories";
 
 // What the draft actually contains, against what was asked for.
 //
-// A week is a zero-sum object — that is the entire fact the dials exist to
-// make visible. "Not enough study" is never a statement about study alone;
-// it is a statement that study should have some of what something else is
-// currently holding. So raising one dial lowers the largest of the others by
-// the same amount, and says so out loud. You are not setting numbers in
-// isolation, you are moving time from one place to another.
+// A week is a zero-sum object, which is the whole reason these exist. But
+// WHICH thing gives way is a judgement, not a calculation — an earlier
+// version picked the largest dial automatically and quietly took an hour off
+// study to pay for work. So the choice is yours: pick where the time comes
+// from, then move the dial you care about and watch the other one fall.
 //
 // Nothing here reshuffles blocks. Moving a dial changes what you are ASKING
-// for; the planner is then run again with those amounts as hard constraints,
+// for; the planner is then run again with those amounts as the budget,
 // because rearranging seven days around a new split is exactly the work it
 // is for.
 
@@ -22,7 +21,7 @@ const STEP = 30; // minutes per press — smaller than this and rebalancing is a
 // these targets can actually be spent in.
 const WAKING_MINUTES = 17 * 60 * 7;
 
-export default function TargetDials({ targets, days, onRebalance, busy }) {
+export default function TargetDials({ targets, days, goals, onRebalance, busy }) {
   const planned = useMemo(() => plannedByTarget(targets, days), [targets, days]);
   // Every change is computed from the previous value rather than from what
   // this render happened to close over. Pressing + twice quickly used to
@@ -30,6 +29,12 @@ export default function TargetDials({ targets, days, onRebalance, busy }) {
   // the second simply overwrote the first.
   const [amounts, setAmounts] = useState(null);
   useEffect(() => setAmounts(null), [days]);
+
+  // Where a raise takes its time from. Nothing by default: adding without
+  // subtracting is a legitimate thing to ask for, and the budget will say if
+  // it does not fit.
+  const [donorId, setDonorId] = useState("");
+  const donor = targets.find((t) => t.id === donorId) ?? null;
 
   // Untouched, the dials show what the DRAFT holds. Once you start moving
   // them they show what you are asking for — because that is the number the
@@ -55,20 +60,28 @@ export default function TargetDials({ targets, days, onRebalance, busy }) {
     [targets, current, draft]
   );
 
-  // Each dial moves alone. An earlier version took the time out of whichever
-  // other dial was largest, which sounds helpful and is not: raising work by
-  // three and a half hours silently took an hour off study, and study is the
-  // thing most worth protecting. It also was not necessary. The week's
-  // largest target takes whatever the days have left after the per-day
-  // quotas are seated, so raising study already squeezes work without any
-  // bookkeeping here — and if what you ask for does not fit, the budget says
-  // which target fell short and by how much rather than choosing a victim.
+  // Raising a dial takes from whichever one you nominated, and lowering it
+  // gives back to the same place, so a press and its opposite cancel. With
+  // no donor chosen the dial simply moves and the budget reports whatever no
+  // longer fits.
   function adjust(targetId, delta) {
     setAmounts((prev) => {
       const base = { ...(prev ?? draft) };
-      const next = Math.max(0, (base[targetId] ?? 0) + delta);
-      if (next === base[targetId]) return prev;
-      base[targetId] = next;
+      const paired = donor && donor.id !== targetId ? donor.id : null;
+
+      // Never take more than the donor has, and never drive a dial below
+      // zero — a press that cannot happen in full does not happen at all,
+      // which keeps the two sides equal.
+      const room = paired
+        ? delta > 0
+          ? Math.min(delta, base[paired] ?? 0)
+          : Math.min(-delta, base[targetId] ?? 0)
+        : Math.abs(delta);
+      const moved = delta > 0 ? room : -room;
+      if (moved === 0) return prev;
+
+      base[targetId] = Math.max(0, (base[targetId] ?? 0) + moved);
+      if (paired) base[paired] = Math.max(0, (base[paired] ?? 0) - moved);
       return base;
     });
   }
@@ -91,11 +104,30 @@ export default function TargetDials({ targets, days, onRebalance, busy }) {
             label={t.label}
             color={t.categories?.[0] ? colorFor(t.categories[0]) : "var(--accent)"}
             amount={current[t.id] ?? 0}
-            target={Number(t.weekly_minutes) || 0}
+            target={goals?.[t.label] ?? (Number(t.weekly_minutes) || 0)}
             changed={(current[t.id] ?? 0) !== (draft[t.id] ?? 0)}
             onAdjust={(delta) => adjust(t.id, delta)}
           />
         ))}
+      </div>
+
+      {/* Which dial pays for a raise. A judgement, so it is asked rather
+          than guessed — the version that guessed took the hour off study. */}
+      <div className="row" style={{ gap: 7, justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+        <span className="faint" style={{ fontSize: 11.5 }}>Take the time from</span>
+        <select
+          className="input"
+          value={donorId}
+          onChange={(e) => setDonorId(e.target.value)}
+          style={{ width: "auto", minWidth: 120, fontSize: 12 }}
+        >
+          <option value="">nothing — just add it</option>
+          {targets.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label} ({fmtMinutes(current[t.id] ?? 0)})
+            </option>
+          ))}
+        </select>
       </div>
 
       {moves.length > 0 && (
@@ -139,7 +171,8 @@ export default function TargetDials({ targets, days, onRebalance, busy }) {
 
       {!touched && (
         <p className="faint" style={{ fontSize: 11.5, margin: "4px 0 0", textAlign: "center" }}>
-          Press − or + to change what the week should hold, then rebalance.
+          Press − or + to change what the week should hold, then rebalance. Pick where the time comes from and
+          the other dial moves with it.
         </p>
       )}
     </div>

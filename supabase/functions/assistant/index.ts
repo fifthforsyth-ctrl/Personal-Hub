@@ -159,6 +159,7 @@ Rules:
 - Where a day has an ideal day, that is the skeleton. Keep its fixed points exactly — anything named unavailable, reserved, rest or date is not yours to move — and depart from the rest only where something already scheduled collides with it or a note gives you a reason.
 - Where a day has no ideal day, build from what the recent record shows those weekdays usually look like.
 - A budgeted amount of 0 for a day means that day gets none of it. A day marked rest gets no work at all.
+- The blocks you write for one target on one day must ADD UP to that day's budgeted minutes. If the budget says Film / Edit 639m, the Film / Edit blocks on that day total 639 minutes — as one block or as several, but summing to that. Add them up before you answer. Falling short is the single most common way this goes wrong, and it is invisible to you and obvious to them.
 - A block marked overnight in the budget (sleep) is written with its end time EARLIER than its start — 22:00 to 06:00 — because it crosses midnight. Write it that way rather than splitting it in two.
 - Every block must carry a category copied exactly from the "categories" list. Where a block exists to serve a target, use the category that target names — that is the only way the week can be totalled against it.
 - Keep the blocks BROAD. "Film / Edit", "Study", "Exercise", "Dinner". This is the week at altitude; the detail gets planned on the morning of each day, by someone who knows more than you do about that day. Never invent tasks, subtasks, or specific errands.
@@ -376,11 +377,12 @@ async function proposeWeek(
             : ""),
       },
     ],
-    // Low effort on purpose. This model controls thinking through effort
-    // rather than a token budget, and with the allocation already decided
-    // there is nothing here to search — the model is arranging a day, not
-    // solving one. An open-ended think is what pushed this past the wall.
-    output_config: { format: zodOutputFormat(WeekSchema), effort: "low" },
+    // Effort is how this model's thinking is controlled, and an open-ended
+    // think is what pushed this past the wall. Medium rather than low: at
+    // low the layout drifted below the budget it was given, which made a
+    // rebalance look like it had done nothing. Three days a pass leaves
+    // room for it — the whole week came back in forty seconds.
+    output_config: { format: zodOutputFormat(WeekSchema), effort: "medium" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
