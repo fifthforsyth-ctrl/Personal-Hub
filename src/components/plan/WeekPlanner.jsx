@@ -18,9 +18,16 @@ import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// Three days a request. Measured: seven at once ran 138-151 seconds against
-// a 150-second ceiling, which is no margin at all.
-const DAYS_PER_PASS = 3;
+// Two days a request, and one day if that fails.
+//
+// The time a pass takes is not stable. Twelve identically-sized three-day
+// passes came back in 14, 18, 27, 28, 29, 42, 47, 67, 69, 70, 99 and 150
+// seconds — a tenfold spread on the same work, against a 150-second wall.
+// Tuning the average is the wrong answer to that; what matters is surviving
+// a bad draw. So the slices are small enough that the usual pass is quick,
+// and a slice that fails is retried a day at a time rather than costing the
+// rest of the week.
+const DAYS_PER_PASS = 2;
 
 // The Sunday sitting.
 //
@@ -88,12 +95,32 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
   // 150 seconds Supabase allows an Edge Function and dies as a 504 having
   // decided nothing; the budget is settled before any call, so slicing the
   // days costs the weekly totals nothing.
+  // A slice that fails is split and retried day by day. A pass is slow at
+  // random rather than because of anything about the days inside it, so the
+  // second attempt on half the work usually lands — and a day that fails
+  // even alone is the only day lost.
+  async function layOut(slice, overrides) {
+    try {
+      return await proposeWeek({ weekStart, notes, overrides, only: slice });
+    } catch (err) {
+      if (slice.length === 1) throw err;
+      setProgress((p) => (p ? { ...p, retrying: true } : p));
+      const out = { days: [], strategy: "" };
+      for (const day of slice) {
+        const one = await layOut([day], overrides);
+        out.days.push(...(one.days ?? []));
+        if (!out.strategy && one.strategy) out.strategy = one.strategy;
+      }
+      return out;
+    }
+  }
+
   async function generate(overrides) {
     setAskedFor(overrides?.length ? Object.fromEntries(overrides.map((o) => [o.label, o.weekly_minutes])) : null);
     setLoading(true);
     setError(null);
     setCommitted(false);
-    setProgress({ done: 0, total: days.length });
+    setProgress({ done: 0, total: days.length, retrying: false });
 
     const gathered = [];
     let strategy = "";
@@ -101,10 +128,10 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
     try {
       for (let i = 0; i < days.length; i += DAYS_PER_PASS) {
         const slice = days.slice(i, i + DAYS_PER_PASS);
-        const data = await proposeWeek({ weekStart, notes, overrides, only: slice });
+        const data = await layOut(slice, overrides);
         gathered.push(...(data.days ?? []));
         if (!strategy && data.strategy) strategy = data.strategy;
-        setProgress({ done: gathered.length, total: days.length });
+        setProgress((p) => ({ done: gathered.length, total: days.length, retrying: p?.retrying ?? false }));
       }
       gathered.sort((a, b) => String(a.date).localeCompare(String(b.date)));
       setResult({ strategy, week_start: weekStart, days: gathered });
@@ -278,7 +305,7 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
             <Sparkles size={15} />
             {loading
               ? progress?.done > 0
-                ? `Laid out ${progress.done} of ${progress.total} days…`
+                ? `Laid out ${progress.done} of ${progress.total} days${progress.retrying ? " — retrying a slow one" : ""}…`
                 : "Laying out the week…"
               : "Lay out the week"}
           </button>
