@@ -1,0 +1,17 @@
+-- Free time gets its own category and its own dial.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- It had been sharing "Other" with Unavailable and the Sunday rest block,
+-- which would have made a free-time dial read twenty hours the moment a rest
+-- day existed. Now:
+--
+--   * user_categories gains "Free time" (grey, Other family)
+--   * the ideal days' Free time / Free / errands / Free / prep blocks move
+--     onto it, leaving Unavailable and Rest day as Other
+--   * a weekly target of an hour a day, seated before the work total the way
+--     every other per-day quota is
+--
+-- With it in play the budget still lands exactly — Film / Edit 60.00h,
+-- Study 6.00h, Exercise 6.00h, Free time 6.00h, Sleep 56.00h, no shortfall —
+-- but the weekdays are down to about 140 minutes for meals and Saturday to
+-- 81. The week is genuinely close to full at these numbers.

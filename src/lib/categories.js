@@ -66,6 +66,7 @@ export const CATEGORY_FAMILY = {
   Reflect: "Upkeep",
   Drive: "Upkeep",
   Waste: "Lost",
+  "Free time": "Other",
   Other: "Other",
 };
 
@@ -91,6 +92,7 @@ export const CATEGORY_COLOR = {
   Temple: "#6b21a8",
   "Spiritual meetings": "#d8b4fe",
   Waste: "#7f1d1d",
+  "Free time": "#a1a1aa",
   Other: "#71717a",
 };
 
