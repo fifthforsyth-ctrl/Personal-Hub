@@ -78,7 +78,9 @@ export default function PlanEditor({ plan, date, onCommit, onBack, busy }) {
 
       <div style={{ fontWeight: 650, fontSize: 15 }}>{plan.name}</div>
       <p className="card-note" style={{ margin: "4px 0 14px" }}>
-        Change anything before it becomes {fmtDayHeading(date)}. Nothing is saved until you commit.
+        Change anything before it becomes {fmtDayHeading(date)}. Nothing is saved until you commit, and committing
+        replaces whatever the week planner roughed in for that day — your own blocks, and anything you have already
+        started working on, stay put.
       </p>
 
       {blocks.map((block, i) => (

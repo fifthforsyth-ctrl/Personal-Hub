@@ -1174,13 +1174,48 @@ export async function updateCategory(categoryId, fields) {
 }
 
 // Turns one accepted proposal into real blocks and tasks on a date.
+// Committing a day's plan REPLACES the rough shape the week planner put on
+// that day, rather than stacking on top of it. This only inserted before,
+// which meant planning tomorrow in detail left the day holding two versions
+// of itself — the week's broad blocks and the day's, overlapping.
+//
+// Only the week planner's own output is swept, and only where no tasks hang
+// off it. Anything you scheduled yourself stays, as it does everywhere else.
 export async function applyProposedPlan(userId, dateStr, plan) {
+  const { data: existing, error: exErr } = await supabase
+    .from("time_chunks")
+    .select("id, source")
+    .eq("user_id", userId)
+    .eq("date", dateStr);
+  if (exErr) throw exErr;
+
+  const generated = (existing ?? []).filter((c) => c.source === "plan").map((c) => c.id);
+  let withTasks = new Set();
+  if (generated.length > 0) {
+    const { data: tasks, error: tErr } = await supabase
+      .from("tasks")
+      .select("time_chunk_id")
+      .in("time_chunk_id", generated);
+    if (tErr) throw tErr;
+    withTasks = new Set((tasks ?? []).map((t) => t.time_chunk_id));
+  }
+
+  const sweep = generated.filter((id) => !withTasks.has(id));
+  if (sweep.length > 0) {
+    const { error } = await supabase.from("time_chunks").delete().in("id", sweep);
+    if (error) throw error;
+  }
+
   for (const block of plan.blocks ?? []) {
     const chunk = await createTimeChunk(userId, {
       date: dateStr,
       start_time: block.start,
       end_time: block.end,
       title: block.title,
+      // Marked as planned, not manual: a block put here by a generator
+      // should stay sweepable by the next one. The tasks underneath are
+      // what protect it once you have started working the day.
+      source: "plan",
     });
     for (const [position, title] of (block.tasks ?? []).entries()) {
       await createTask(userId, { date: dateStr, time_chunk_id: chunk.id, title, position });
