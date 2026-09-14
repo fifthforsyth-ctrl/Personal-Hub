@@ -6,7 +6,12 @@
 -- fixed thinking budget, then raised effort to medium and left the ceiling
 -- where it was. Medium-effort reasoning took the room the JSON needed.
 --
--- 24,000 now. Three days of blocks is about a thousand tokens, so the
--- headroom costs nothing when it goes unused — and the prompt also asks for
--- a three-sentence strategy and one-clause notes, since long prose in those
--- two fields is the only part of the reply that can grow without limit.
+-- 16,000 now, which is the highest this can go without switching to a
+-- stream: past that the SDK refuses the request outright on the grounds it
+-- might run over ten minutes. 24,000 was tried and rejected for exactly
+-- that. If the reply ever truncates again the lever is fewer days per pass,
+-- not more tokens.
+--
+-- The prompt also asks for a three-sentence strategy and one-clause notes,
+-- since long prose in those two fields is the only part of the reply that
+-- can grow without limit.

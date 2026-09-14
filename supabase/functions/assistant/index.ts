@@ -358,9 +358,11 @@ async function proposeWeek(
     model: MODEL,
     // Thinking is drawn from this same ceiling, so it has to cover the
     // reasoning AND the JSON. At 8,000 with medium effort the structured
-    // output was getting cut off mid-string; three days of blocks is only
-    // about a thousand tokens, so the room costs nothing when unused.
-    max_tokens: 24000,
+    // output was getting cut off mid-string. 16,000 is as high as this can
+    // go without a stream: past that the SDK refuses the request outright,
+    // on the grounds that it might run over ten minutes. If it ever truncates
+    // again the answer is fewer days per pass, not more tokens.
+    max_tokens: 16000,
     system: WEEK_SYSTEM,
     thinking: { type: "adaptive" },
     messages: [
