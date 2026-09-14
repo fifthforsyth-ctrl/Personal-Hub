@@ -1,0 +1,18 @@
+-- "An hour of study a day" never meant eight hours across eight days.
+-- (Applied via Supabase MCP; this file records the change.)
+--
+-- weekly_minutes multiplied a per-day target by seven regardless of whether
+-- the week contained a rest day, which manufactured a shortfall out of
+-- nothing: six hours of study got reported as an hour short of a seven-hour
+-- goal that was never the goal. It now counts only the days no rest day
+-- claims, and reports days_counted so the figure can be read.
+--
+-- Sleep is the exception and stays at seven. A rest day is a day you do not
+-- work; it is not a day you do not sleep.
+--
+-- The matching half lives in the Edge Function's buildBudget, which divides
+-- a per-day target by the eligible days rather than by seven.
+--
+-- Against the real week of 2026-09-14 this now lands exactly, with nothing
+-- short: Film / Edit 60.00h, Study 6.00h over six days, Exercise 6.00h over
+-- six days, Sleep 56.00h over seven nights, Sunday rest.
