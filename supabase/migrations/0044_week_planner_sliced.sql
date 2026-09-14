@@ -9,6 +9,8 @@
 --     nothing — each request sees the whole week's budget and returns blocks
 --     only for its own slice. The client walks the three passes and shows
 --     how far it has got, keeping whatever succeeded if a later pass fails.
---   * Thinking is capped at 4,000 tokens instead of adaptive. With the
---     budget already decided there is nothing left to search, and an
---     open-ended think was what pushed the request past the wall.
+--   * Thinking runs at low effort. With the budget already decided there is
+--     nothing left to search, and an open-ended think was what pushed the
+--     request past the wall. (A fixed token budget was tried first and
+--     refused: this model controls thinking through output_config.effort,
+--     not thinking.budget_tokens.)

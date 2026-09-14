@@ -356,10 +356,7 @@ async function proposeWeek(
     model: MODEL,
     max_tokens: 8000,
     system: WEEK_SYSTEM,
-    // Capped rather than adaptive. With the budget already decided there is
-    // nothing left to search, and an open-ended think is what was pushing
-    // this past the wall.
-    thinking: { type: "enabled", budget_tokens: 4000 },
+    thinking: { type: "adaptive" },
     messages: [
       {
         role: "user",
@@ -379,7 +376,11 @@ async function proposeWeek(
             : ""),
       },
     ],
-    output_config: { format: zodOutputFormat(WeekSchema) },
+    // Low effort on purpose. This model controls thinking through effort
+    // rather than a token budget, and with the allocation already decided
+    // there is nothing here to search — the model is arranging a day, not
+    // solving one. An open-ended think is what pushed this past the wall.
+    output_config: { format: zodOutputFormat(WeekSchema), effort: "low" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
