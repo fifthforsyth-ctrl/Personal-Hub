@@ -1,0 +1,12 @@
+-- Notes on an Edge Function change, recorded with the others.
+--
+-- "Unterminated string in JSON at position 1461" — the reply was cut off
+-- mid-sentence. max_tokens covers the thinking AND the structured output
+-- from one pool, and I had dropped it to 8,000 while experimenting with a
+-- fixed thinking budget, then raised effort to medium and left the ceiling
+-- where it was. Medium-effort reasoning took the room the JSON needed.
+--
+-- 24,000 now. Three days of blocks is about a thousand tokens, so the
+-- headroom costs nothing when it goes unused — and the prompt also asks for
+-- a three-sentence strategy and one-clause notes, since long prose in those
+-- two fields is the only part of the reply that can grow without limit.

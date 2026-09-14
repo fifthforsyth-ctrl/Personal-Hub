@@ -167,6 +167,7 @@ Rules:
 - The week must be livable end to end. If what is already scheduled makes a day heavy, let the surrounding blocks give way rather than stacking on top of them.
 - The notes are the only source for things that are not on the calendar yet. Where a note names something without a time, place it where the day has room and say so in the strategy.
 - Cite real numbers in the strategy — a target's last_week_minutes against its weekly_minutes, "Creative Mastery has had nothing for 12 days". Never invent a figure.
+- Keep the strategy to three sentences. Keep every note to one short clause. Long prose here is the one thing that can overrun the reply.
 - Work briskly. The budget has decided the hard part; you are arranging it, not solving it.
 - State things plainly. No praise, no exhortation, no scripture quoted back at them.`;
 
@@ -355,7 +356,11 @@ async function proposeWeek(
 
   const response = await anthropic.messages.parse({
     model: MODEL,
-    max_tokens: 8000,
+    // Thinking is drawn from this same ceiling, so it has to cover the
+    // reasoning AND the JSON. At 8,000 with medium effort the structured
+    // output was getting cut off mid-string; three days of blocks is only
+    // about a thousand tokens, so the room costs nothing when unused.
+    max_tokens: 24000,
     system: WEEK_SYSTEM,
     thinking: { type: "adaptive" },
     messages: [
