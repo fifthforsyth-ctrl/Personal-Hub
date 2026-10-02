@@ -1841,3 +1841,223 @@ export async function setCategoryWork(categoryId, isWork) {
   const { error } = await supabase.from("user_categories").update({ is_work: isWork }).eq("id", categoryId);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Money.
+//
+// The bank connection itself is never touched from here: connecting, syncing
+// and disconnecting all go through the `bank` edge function, which is the
+// only thing that can reach the stored access key. Everything below reads and
+// writes your own rows under ordinary RLS.
+// ---------------------------------------------------------------------------
+
+async function callBank(action, payload = {}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You need to be signed in.");
+
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/bank`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabase.supabaseKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+
+  const body = await response.json().catch(() => ({ error: "The bank sync returned something unreadable." }));
+  if (!response.ok || body.error) throw new Error(body.error ?? `Bank sync failed (${response.status}).`);
+  return body;
+}
+
+// The setup token goes straight to the edge function and is spent there. It
+// is never written anywhere on this side.
+export const connectBank = (setupToken) => callBank("claim", { setup_token: setupToken });
+export const syncBank = () => callBank("sync");
+export const disconnectBank = () => callBank("disconnect");
+
+export async function fetchMoneyOverview(monthDate) {
+  const { data, error } = await supabase.rpc("money_overview", { p_month: monthDate, p_tz: localZone() });
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchPurchaseInbox(limit = 25) {
+  const { data, error } = await supabase.rpc("purchase_inbox", { p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function classifyPurchase(id, { budgetId, kind, isBusiness, businessCategory, note, remember = true }) {
+  const { error } = await supabase.rpc("classify_purchase", {
+    p_id: id,
+    p_budget_id: budgetId || null,
+    p_kind: kind || null,
+    p_is_business: Boolean(isBusiness),
+    p_business_category: businessCategory || null,
+    p_note: note || null,
+    p_remember: remember,
+  });
+  if (error) throw error;
+}
+
+// Put a transaction back in the question queue — for an answer you want to
+// change.
+export async function reopenTransaction(id) {
+  const { error } = await supabase
+    .from("bank_transactions")
+    .update({ reviewed_at: null, suggested_budget_id: null, suggested_kind: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function setTransfer(id, isTransfer) {
+  const { error } = await supabase.from("bank_transactions").update({ is_transfer: isTransfer }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchTransactions(userId, { start, end, scope = "all", limit = 200 } = {}) {
+  let q = supabase
+    .from("bank_transactions")
+    .select("*, account:bank_accounts(name, nickname, kind), budget:budgets!bank_transactions_budget_id_fkey(name, color), receipts(id)")
+    .eq("user_id", userId)
+    .order("posted_at", { ascending: false })
+    .limit(limit);
+  if (start) q = q.gte("posted_at", new Date(`${start}T00:00:00`).toISOString());
+  if (end) q = q.lt("posted_at", new Date(`${end}T00:00:00`).toISOString());
+  if (scope === "business") q = q.eq("is_business", true);
+  if (scope === "personal") q = q.eq("is_business", false);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// A cash or card-elsewhere expense that will never arrive from the bank.
+export async function addManualExpense(userId, { date, amount, description, isBusiness, businessCategory, budgetId, kind, note }) {
+  const value = Math.abs(Number(amount));
+  if (!value) throw new Error("Enter an amount.");
+  const { data, error } = await supabase
+    .from("bank_transactions")
+    .insert({
+      user_id: userId,
+      source: "manual",
+      posted_at: new Date(`${date}T12:00:00`).toISOString(),
+      amount: -value,
+      description: description?.trim() || "Cash expense",
+      is_business: Boolean(isBusiness),
+      business_category: isBusiness ? businessCategory || null : null,
+      budget_id: budgetId || null,
+      purchase_kind: kind || null,
+      note: note || null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchBudgets(userId) {
+  const { data, error } = await supabase
+    .from("budgets")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("archived", false)
+    .order("position")
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function saveBudget(userId, budget) {
+  const row = {
+    user_id: userId,
+    name: budget.name.trim(),
+    color: budget.color,
+    monthly_limit: budget.limit === "" || budget.limit == null ? null : Number(budget.limit),
+    kind: budget.kind ?? "personal",
+  };
+  const q = budget.id
+    ? supabase.from("budgets").update(row).eq("id", budget.id)
+    : supabase.from("budgets").insert(row);
+  const { error } = await q;
+  if (error) throw error;
+}
+
+// Archived rather than deleted, so last month's spending still knows where it
+// went.
+export async function archiveBudget(id) {
+  const { error } = await supabase.from("budgets").update({ archived: true }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setAccountKind(accountId, kind) {
+  const { error } = await supabase.rpc("set_account_kind", { p_account_id: accountId, p_kind: kind });
+  if (error) throw error;
+}
+
+export async function renameAccount(accountId, nickname) {
+  const { error } = await supabase
+    .from("bank_accounts")
+    .update({ nickname: nickname?.trim() || null })
+    .eq("id", accountId);
+  if (error) throw error;
+}
+
+// Receipts. Private bucket, so the row holds the object path and the app signs
+// a short-lived link each time it needs to show one.
+export async function uploadReceipt(userId, transactionId, file) {
+  const ext = (file.name?.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+  const path = `${userId}/${transactionId ?? "loose"}/${Date.now()}.${ext}`;
+
+  const { error: upError } = await supabase.storage.from("receipts").upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (upError) throw upError;
+
+  const { data, error } = await supabase
+    .from("receipts")
+    .insert({
+      user_id: userId,
+      transaction_id: transactionId ?? null,
+      storage_path: path,
+      file_name: file.name ?? null,
+      mime_type: file.type ?? null,
+      size_bytes: file.size ?? null,
+    })
+    .select("*")
+    .single();
+  if (error) {
+    // Don't leave an orphaned file behind a row that never got written.
+    await supabase.storage.from("receipts").remove([path]).catch(() => {});
+    throw error;
+  }
+  return data;
+}
+
+export async function fetchReceipts(userId, { transactionId } = {}) {
+  let q = supabase
+    .from("receipts")
+    .select("*, txn:bank_transactions(description, amount, posted_at, business_category)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (transactionId) q = q.eq("transaction_id", transactionId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function receiptLink(path, seconds = 600) {
+  const { data, error } = await supabase.storage.from("receipts").createSignedUrl(path, seconds);
+  if (error) throw error;
+  return data?.signedUrl ?? null;
+}
+
+export async function deleteReceipt(receipt) {
+  await supabase.storage.from("receipts").remove([receipt.storage_path]).catch(() => {});
+  const { error } = await supabase.from("receipts").delete().eq("id", receipt.id);
+  if (error) throw error;
+}

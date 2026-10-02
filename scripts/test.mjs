@@ -10,6 +10,7 @@
 
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
+import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus } from "../src/lib/money.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
 import {
   resolveRing,
@@ -302,6 +303,31 @@ ok("the window draws as an arc, not a degenerate circle", typeof windowPath(50, 
 
 ok("clock formatting reads as a clock", fmtClock(0) === "12:00am" && fmtClock(720) === "12:00pm" && fmtClock(1385) === "11:05pm",
    `${fmtClock(0)} ${fmtClock(720)} ${fmtClock(1385)}`);
+
+console.log("\nmoney");
+
+ok("spending shows positive", spentOf(-6.45) === 6.45);
+ok("a deposit is not spending", spentOf(1800) === 0);
+ok("money formats with cents", fmtMoney(1234.5) === "$1,234.50");
+ok("money can round", fmtMoney(1234.5, { round: true }) === "$1,235");
+ok("nonsense isn't formatted as $NaN", fmtMoney("abc") === "—");
+
+ok("processor prefix and city go", merchantTitle("CARD PURCHASE 09/30 SQ *BLUE BOTTLE COF 1234 DENVER CO") === "Blue Bottle Cof",
+   merchantTitle("CARD PURCHASE 09/30 SQ *BLUE BOTTLE COF 1234 DENVER CO"));
+ok("order ids go", merchantTitle("AMAZON.COM*AB1CD2EF3 AMZN.COM/BILL WA") === "Amazon.com", merchantTitle("AMAZON.COM*AB1CD2EF3 AMZN.COM/BILL WA"));
+ok("an unparseable description survives", merchantTitle("*** ") !== "");
+
+ok("month progress mid-month", Math.abs(monthProgress(new Date(2026, 8, 15)) - 0.5) < 0.001);
+ok("month progress last day is 1", monthProgress(new Date(2026, 8, 30)) === 1);
+
+ok("$300 of $400 on the 28th is fine", budgetStatus({ spent: 300, limit: 400 }, 28 / 30).state === "fine");
+ok("$300 of $400 on the 9th is ahead", budgetStatus({ spent: 300, limit: 400 }, 9 / 30).state === "ahead");
+ok("$380 of $400 is close", budgetStatus({ spent: 380, limit: 400 }, 0.95).state === "close");
+ok("$410 of $400 is over", budgetStatus({ spent: 410, limit: 400 }, 0.5).state === "over");
+ok("over reports a negative remainder", budgetStatus({ spent: 410, limit: 400 }, 0.5).remaining === -10);
+ok("a quarter gone on the 2nd is still fine", budgetStatus({ spent: 112, limit: 400 }, 2 / 31).state === "fine");
+ok("most of it gone on the 2nd is ahead", budgetStatus({ spent: 97, limit: 120 }, 2 / 31).state === "ahead");
+ok("no limit is untracked, not divided by zero", budgetStatus({ spent: 50, limit: null }, 0.5).state === "untracked");
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

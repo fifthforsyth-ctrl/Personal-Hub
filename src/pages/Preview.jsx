@@ -6,6 +6,10 @@ import { KindFilter, KindChip } from "../components/study/KindChip";
 import NoteReader from "../components/study/NoteReader";
 import { DayCard } from "../components/DayCard";
 import ReportCard from "../components/work/ReportCard";
+import { Question as PurchaseQuestionCard } from "../components/money/PurchaseQuestion";
+import { AccountCards } from "../components/money/Accounts";
+import MoneyBudgets from "../components/money/Budgets";
+import MoneyBusiness from "../components/money/Business";
 import { reportToText } from "../lib/workReport";
 import { NOTE_KINDS } from "../lib/noteKinds";
 
@@ -142,6 +146,48 @@ const WORK = {
   tomorrow: [{ title: "Finish payment retries" }, { title: "Start the reporting screen" }],
 };
 
+const MONEY = {
+  month: "2026-10-01",
+  connection: { status: "connected", last_synced_at: new Date().toISOString(), last_error: null },
+  accounts: [
+    { id: "a1", name: "TOTAL CHECKING", nickname: "Personal", kind: "personal", balance: 2410.55, available: 2398.1, as_of: new Date().toISOString() },
+    { id: "a2", name: "CHASE BUSINESS COMPLETE CHK", nickname: null, kind: "business", balance: 8120.0, available: 8120.0, as_of: new Date().toISOString() },
+  ],
+  inbox: { count: 3, total: 62.4 },
+  budgets: [
+    { id: "b1", name: "Groceries", color: "#46c98b", limit: 400, kind: "personal", spent: 112.3, count: 4 },
+    { id: "b2", name: "Eating out", color: "#ef5b3f", limit: 120, kind: "personal", spent: 96.5, count: 7 },
+    { id: "b3", name: "Gas", color: "#e8b13a", limit: 150, kind: "personal", spent: 168.2, count: 3 },
+    { id: "b4", name: "Software", color: "#56a8e0", limit: 200, kind: "business", spent: 49.99, count: 1 },
+  ],
+  unsorted_this_month: 62.4,
+  spent_this_month: 377,
+  income_this_month: 1800,
+  business: {
+    month_total: 312.4,
+    year_total: 4180.75,
+    missing_receipts: 3,
+    by_category: [
+      { category: "Software & subscriptions", total: 1640.2, count: 18 },
+      { category: "Equipment", total: 1290, count: 2 },
+      { category: "Phone & internet", total: 760.55, count: 9 },
+      { category: "Meals (business)", total: 490, count: 11 },
+    ],
+  },
+};
+
+const MONEY_TXN = {
+  id: "t1",
+  posted_at: new Date(Date.now() - 86400000).toISOString(),
+  amount: -6.45,
+  description: "CARD PURCHASE 09/30 SQ *BLUE BOTTLE COF 1234 DENVER CO",
+  account_name: "Personal",
+  is_business: false,
+  suggested_kind: "Eating out",
+  suggested_budget_id: "b2",
+  receipts: 0,
+};
+
 export default function Preview() {
   const [kind, setKind] = useState(null);
   const counts = new Map(NOTE_KINDS.map((k) => [k.key, CARDS.filter((c) => c.note_kind === k.key).length]));
@@ -160,6 +206,23 @@ export default function Preview() {
         </div>
 
         <div className="stack" style={{ gap: 30 }}>
+          <Section label="Money · the two accounts" note="Balances from the overnight sync, each marked personal or business.">
+            <AccountCards overview={MONEY} onChanged={async () => {}} />
+          </Section>
+
+          <Section label="Money · the question after a purchase" note="Pre-filled from what you said about the same place last time.">
+            <div className="card card--accent">
+              <PurchaseQuestionCard txn={MONEY_TXN} budgets={MONEY.budgets} userId="preview" onDone={async () => {}} onSkip={() => {}} />
+            </div>
+          </Section>
+
+          <Section label="Money · budgets and business" note="The marker on each bar is today's place in the month.">
+            <div className="grid grid--halves" style={{ alignItems: "start" }}>
+              <MoneyBudgets overview={MONEY} isCurrentMonth onChanged={async () => {}} />
+              <MoneyBusiness overview={MONEY} onChanged={async () => {}} />
+            </div>
+          </Section>
+
           <Section label="Work · the card you screenshot" note="Fixed width, own background, hours and date up top.">
             <ReportCard work={WORK} />
           </Section>

@@ -11,6 +11,7 @@ import {
   BookOpen,
   GraduationCap,
   Briefcase,
+  Wallet,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { todayStr } from "../lib/planDates";
@@ -24,8 +25,9 @@ export const NAV = [
   { to: "/plan", label: "Plan", Icon: CalendarRange },
   { to: "/study", label: "Study", Icon: GraduationCap },
   { to: "/work", label: "Work", Icon: Briefcase },
+  { to: "/money", label: "Money", Icon: Wallet },
   // desk: reachable everywhere, but dropped from a narrow phone's tab bar
-  // rather than squeezing seven labels into 375px.
+  // rather than squeezing eight labels into 375px.
   { to: "/tree", label: "Goals", Icon: GitBranch, desk: true },
   { to: "/reflect", label: "Reflect", Icon: BarChart3, desk: true },
 ];

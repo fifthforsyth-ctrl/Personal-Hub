@@ -18,6 +18,7 @@ import PyramidWheel from "../components/tree/PyramidWheel";
 import { Donut, Legend } from "../components/charts";
 import AskClaude from "../components/AskClaude";
 import CuratedCards from "../components/curator/CuratedCards";
+import PurchaseQuestion from "../components/money/PurchaseQuestion";
 import Capture from "../components/Capture";
 import { DayCard } from "../components/DayCard";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
@@ -45,6 +46,8 @@ function MobileHome({ userId }) {
       </div>
       <div className="stack">
         <CuratedCards slot="home" title="For today" compact />
+        {/* Shows nothing at all when there's nothing to ask. */}
+        <PurchaseQuestion compact />
         <Capture userId={userId} />
       </div>
     </div>
@@ -203,6 +206,8 @@ function DesktopHome({ userId }) {
         </div>
 
         <CuratedCards slot="home" title="For today" />
+
+        <PurchaseQuestion />
 
         {/* Today, as the same card object it is everywhere else. */}
         <div className="grid" style={{ gridTemplateColumns: "minmax(200px, 240px) 1fr", alignItems: "start" }}>
