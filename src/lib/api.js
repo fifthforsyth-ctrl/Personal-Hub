@@ -1883,8 +1883,10 @@ export async function fetchMoneyOverview(monthDate) {
   return data;
 }
 
-export async function fetchPurchaseInbox(limit = 25) {
-  const { data, error } = await supabase.rpc("purchase_inbox", { p_limit: limit });
+// By default only what you've bought since about a week before connecting —
+// the 90-day backfill is history, not a to-do list. includeHistory opens it.
+export async function fetchPurchaseInbox(limit = 25, includeHistory = false) {
+  const { data, error } = await supabase.rpc("purchase_inbox", { p_limit: limit, p_include_history: includeHistory });
   if (error) throw error;
   return data ?? [];
 }

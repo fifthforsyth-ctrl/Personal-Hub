@@ -15,7 +15,7 @@ import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle }
 // A guess never counts against a budget until you press Save: the money stays
 // in "unsorted" and the budget page says so, rather than a wrong pre-fill
 // quietly making a month look better or worse than it was.
-export default function PurchaseQuestion({ compact = false, onAnswered }) {
+export default function PurchaseQuestion({ compact = false, includeHistory = false, title = "What was this?", onAnswered }) {
   const { user } = useAuth();
   const [queue, setQueue] = useState([]);
   const [budgets, setBudgets] = useState([]);
@@ -25,14 +25,14 @@ export default function PurchaseQuestion({ compact = false, onAnswered }) {
   const load = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [q, b] = await Promise.all([fetchPurchaseInbox(40), fetchBudgets(user.id)]);
+      const [q, b] = await Promise.all([fetchPurchaseInbox(includeHistory ? 200 : 40, includeHistory), fetchBudgets(user.id)]);
       setQueue(q);
       setBudgets(b);
       setIndex(0);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, includeHistory]);
 
   useEffect(() => {
     load();
@@ -60,7 +60,7 @@ export default function PurchaseQuestion({ compact = false, onAnswered }) {
   return (
     <div className="card card--accent">
       <div className="card-head">
-        <span className="card-title"><Receipt size={14} />What was this?</span>
+        <span className="card-title"><Receipt size={14} />{title}</span>
         <span className="mono faint" style={{ fontSize: 11 }}>
           {remaining === 1 ? "last one" : `${remaining} to sort · ${fmtMoney(total, { round: true })}`}
         </span>

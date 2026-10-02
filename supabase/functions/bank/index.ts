@@ -28,7 +28,9 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
-const FIRST_SYNC_DAYS = 90;
+// SimpleFIN caps a request at 90 days and reports asking for exactly 90 as
+// having exceeded it, so the first sync asks for a day less.
+const FIRST_SYNC_DAYS = 89;
 // Each sync re-reads the last ten days: banks restate and late-post, and
 // ingest is idempotent, so the overlap costs nothing and misses nothing.
 const OVERLAP_DAYS = 10;

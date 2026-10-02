@@ -173,9 +173,20 @@ function AccountCard({ account, onChanged }) {
         )}
       </div>
 
-      <div className="stat-value">{fmtMoney(account.balance)}</div>
+      {/* Available leads, because it's what you can actually spend: Chase
+          counts a pending paycheck in it the same day, while the posted
+          balance waits until the deposit clears. Showing posted in big type
+          made a just-arrived paycheck look missing. */}
+      <div className="stat-value">{fmtMoney(account.available ?? account.balance)}</div>
       {account.available != null && Number(account.available) !== Number(account.balance) && (
-        <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>{fmtMoney(account.available)} available</div>
+        <div className="faint" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.5 }}>
+          available · {fmtMoney(account.balance)} posted
+          <span style={{ color: Number(account.available) > Number(account.balance) ? "var(--good)" : "var(--text-2)" }}>
+            {" · "}
+            {Number(account.available) > Number(account.balance) ? "+" : "−"}
+            {fmtMoney(Math.abs(Number(account.available) - Number(account.balance)))} pending
+          </span>
+        </div>
       )}
 
       <div className="row row--between" style={{ marginTop: 10, gap: 8 }}>

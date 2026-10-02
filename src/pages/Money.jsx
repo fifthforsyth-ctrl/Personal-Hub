@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Wallet } from "lucide-react";
+import { ChevronLeft, ChevronRight, Wallet, History } from "lucide-react";
 import { fetchMoneyOverview } from "../lib/api";
 import { ConnectBank, AccountCards } from "../components/money/Accounts";
 import PurchaseQuestion from "../components/money/PurchaseQuestion";
@@ -26,6 +26,7 @@ export default function Money() {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [sortingHistory, setSortingHistory] = useState(false);
 
   const key = monthKey(month);
   const now = new Date();
@@ -81,6 +82,31 @@ export default function Money() {
           {connected ? <AccountCards overview={overview} onChanged={load} /> : <ConnectBank onConnected={load} />}
 
           {isCurrentMonth && <PurchaseQuestion onAnswered={load} />}
+
+          {/* The 90-day backfill. Offered, never pushed: sorting it is only
+              worth doing because every answer teaches the app that store. */}
+          {isCurrentMonth && Number(overview?.inbox?.history_count) > 0 && (
+            sortingHistory ? (
+              <PurchaseQuestion includeHistory title="Older purchases" onAnswered={load} />
+            ) : (
+              <button
+                className="card row"
+                onClick={() => setSortingHistory(true)}
+                style={{ gap: 10, width: "100%", textAlign: "left", color: "inherit", cursor: "pointer" }}
+              >
+                <History size={15} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 13.5 }}>
+                    {overview.inbox.history_count} older purchases from before you connected
+                  </span>
+                  <span className="faint" style={{ fontSize: 11.5 }}>
+                    {fmtMoney(overview.inbox.history_total, { round: true })} · not asked about. Sorting some of them teaches the app your regular stores.
+                  </span>
+                </span>
+                <span className="btn" style={{ flexShrink: 0 }}>Sort them</span>
+              </button>
+            )
+          )}
 
           <div className="grid grid--halves" style={{ alignItems: "start" }}>
             <Budgets overview={overview} isCurrentMonth={isCurrentMonth} onChanged={load} />
