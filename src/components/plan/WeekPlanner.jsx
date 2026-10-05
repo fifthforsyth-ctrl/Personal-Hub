@@ -13,6 +13,7 @@ import {
 } from "../../lib/api";
 import { setCategoryColors, colorFor } from "../../lib/categories";
 import WeekTargets from "./WeekTargets";
+import StandingBlocks from "./StandingBlocks";
 import TargetDials from "./TargetDials";
 import { weekDays, parseDateStr, fmtTime } from "../../lib/planDates";
 
@@ -275,6 +276,10 @@ export default function WeekPlanner({ anchorDate, onCommitted }) {
           <p className="faint" style={{ fontSize: 11.5, margin: "9px 0 0" }}>
             Anything you've already put on a day stays exactly where it is. Add more from the day itself.
           </p>
+
+          <div style={{ marginTop: 16 }}>
+            <StandingBlocks userId={user?.id} categories={categories} onChanged={reload} />
+          </div>
 
           <div style={{ marginTop: 16 }}>
             <WeekTargets userId={user?.id} targets={targets} categories={categories} onChanged={reload} />

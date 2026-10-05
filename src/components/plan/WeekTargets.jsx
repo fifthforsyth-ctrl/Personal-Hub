@@ -17,6 +17,7 @@ import { colorFor, fmtMinutes } from "../../lib/categories";
 export default function WeekTargets({ userId, targets, categories, onChanged }) {
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState(null);
+  const active = new Set((categories ?? []).map((c) => c.name));
 
   async function save(draft) {
     try {
@@ -50,6 +51,11 @@ export default function WeekTargets({ userId, targets, categories, onChanged }) 
         const had = Number(t.last_week_minutes) || 0;
         const pct = want > 0 ? Math.min(1, had / want) : 0;
         const hue = t.categories?.[0] ? colorFor(t.categories[0]) : "var(--accent)";
+        // A category archived or renamed after the target was set. The
+        // planner is only offered current categories, so a target that
+        // names only gone ones gets blocks that count toward nothing — the
+        // hours silently vanish from the projection.
+        const gone = (t.categories ?? []).filter((c) => !active.has(c));
 
         if (editing?.id === t.id) {
           return <TargetForm key={t.id} draft={editing} categories={categories} onChange={setEditing} onSave={save} onCancel={() => setEditing(null)} onDelete={() => remove(t.id)} />;
@@ -74,6 +80,12 @@ export default function WeekTargets({ userId, targets, categories, onChanged }) 
             <span className="week-target__bar">
               <i style={{ width: `${pct * 100}%`, background: hue }} />
             </span>
+            {gone.length > 0 && (
+              <span style={{ display: "block", fontSize: 11, marginTop: 5, color: "var(--accent)" }}>
+                Counts {gone.join(", ")}, which {gone.length === 1 ? "is" : "are"} archived — the planner can't
+                use {gone.length === 1 ? "it" : "them"}, so none of this target's hours will be planned. Tap to pick a current category.
+              </span>
+            )}
           </button>
         );
       })}
@@ -136,6 +148,30 @@ function TargetForm({ draft, categories, onChange, onSave, onCancel, onDelete })
         Which tracked categories count toward it
       </div>
       <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+        {draft.categories
+          .filter((name) => !(categories ?? []).some((c) => c.name === name))
+          .map((name) => (
+            <button
+              key={name}
+              onClick={() => toggleCategory(name)}
+              title="Archived — tap to remove"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                border: "1px dashed var(--accent-line)",
+                background: "transparent",
+                color: "var(--text-3)",
+                borderRadius: "var(--r-sm)",
+                padding: "4px 8px",
+                fontSize: 11.5,
+                textDecoration: "line-through",
+              }}
+            >
+              {name}
+              <X size={10} />
+            </button>
+          ))}
         {(categories ?? []).map((c) => {
           const on = draft.categories.includes(c.name);
           return (

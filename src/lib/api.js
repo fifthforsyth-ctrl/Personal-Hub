@@ -1040,6 +1040,39 @@ export async function deleteWeeklyTarget(id) {
   if (error) throw error;
 }
 
+// Standing blocks — the same time every week, stamped onto each matching
+// date eight weeks ahead as an ordinary commitment.
+export async function fetchStandingBlocks() {
+  const { data, error } = await supabase
+    .from("standing_blocks")
+    .select("*")
+    .eq("active", true)
+    .order("weekday", { ascending: true })
+    .order("start_time", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addStandingBlock(userId, { weekday, title, category, start, end }) {
+  const { error } = await supabase.from("standing_blocks").insert({
+    user_id: userId,
+    weekday: Number(weekday),
+    title: title.trim(),
+    category: category || null,
+    start_time: start,
+    end_time: end,
+  });
+  if (error) throw error;
+  const { error: stampError } = await supabase.rpc("stamp_my_standing_blocks");
+  if (stampError) throw stampError;
+}
+
+// Takes the future occurrences with it; past ones are history.
+export async function removeStandingBlock(id) {
+  const { error } = await supabase.rpc("remove_standing_block", { p_id: id });
+  if (error) throw error;
+}
+
 // Throws away a week's proposal so it can be asked for again. Only the
 // planner's own blocks go — never one you scheduled, never one with tasks.
 export async function clearWeekPlan(weekStart) {

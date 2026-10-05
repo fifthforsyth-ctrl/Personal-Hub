@@ -8,6 +8,7 @@ import { DayCard } from "../components/DayCard";
 import ReportCard from "../components/work/ReportCard";
 import { Question as PurchaseQuestionCard } from "../components/money/PurchaseQuestion";
 import { AccountCards } from "../components/money/Accounts";
+import WeekTargets from "../components/plan/WeekTargets";
 import MoneyBudgets from "../components/money/Budgets";
 import MoneyBusiness from "../components/money/Business";
 import { reportToText } from "../lib/workReport";
@@ -188,6 +189,18 @@ const MONEY_TXN = {
   receipts: 0,
 };
 
+const PLAN_CATEGORIES = [
+  { id: "c1", name: "Forsyth Media LLC", color: "#f97316" },
+  { id: "c2", name: "Client work (Parker)", color: "#332e52" },
+  { id: "c3", name: "Study", color: "#8b5cf6" },
+];
+
+const PLAN_TARGETS = [
+  { id: "t1", label: "Forsyth Media", categories: ["Forsyth Media LLC", "Client work (Parker)"], minutes: 3600, period: "week", weekly_minutes: 3600, last_week_minutes: 2400 },
+  { id: "t2", label: "Old target", categories: ["Working for Parker"], minutes: 600, period: "week", weekly_minutes: 600, last_week_minutes: 0 },
+  { id: "t3", label: "Study", categories: ["Study"], minutes: 60, period: "day", weekly_minutes: 360, last_week_minutes: 300 },
+];
+
 export default function Preview() {
   const [kind, setKind] = useState(null);
   const counts = new Map(NOTE_KINDS.map((k) => [k.key, CARDS.filter((c) => c.note_kind === k.key).length]));
@@ -206,6 +219,12 @@ export default function Preview() {
         </div>
 
         <div className="stack" style={{ gap: 30 }}>
+          <Section label="Plan · what the week is for" note="A target that only counts archived categories is flagged, since the planner can't place its hours.">
+            <div className="card">
+              <WeekTargets userId="preview" targets={PLAN_TARGETS} categories={PLAN_CATEGORIES} onChanged={async () => {}} />
+            </div>
+          </Section>
+
           <Section label="Money · the two accounts" note="Balances from the overnight sync, each marked personal or business.">
             <AccountCards overview={MONEY} onChanged={async () => {}} />
           </Section>
