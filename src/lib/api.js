@@ -1935,6 +1935,17 @@ export async function fetchTransactions(userId, { start, end, scope = "all", lim
   return data ?? [];
 }
 
+// Charges the bank hasn't posted yet. Shown, never asked about — the
+// question waits for the posted version, which can arrive under a new id.
+export async function fetchPendingTransactions() {
+  const { data, error } = await supabase
+    .from("bank_pending")
+    .select("id, transacted_at, amount, description, account:bank_accounts(name, nickname, kind)")
+    .order("transacted_at", { ascending: false, nullsFirst: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // A cash or card-elsewhere expense that will never arrive from the bank.
 export async function addManualExpense(userId, { date, amount, description, isBusiness, businessCategory, budgetId, kind, note }) {
   const value = Math.abs(Number(amount));

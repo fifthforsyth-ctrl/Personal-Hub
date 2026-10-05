@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { List, Paperclip, ArrowLeftRight, Undo2, Briefcase } from "lucide-react";
+import { List, Paperclip, ArrowLeftRight, Undo2, Briefcase, Clock } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchTransactions, reopenTransaction, setTransfer } from "../../lib/api";
+import { fetchTransactions, fetchPendingTransactions, reopenTransaction, setTransfer } from "../../lib/api";
 import { fmtMoney, merchantTitle } from "../../lib/money";
 
 // Everything that came through this month, with a way to take back any
@@ -88,6 +88,53 @@ export default function Transactions({ start, end, onChanged }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// What Chase has authorised but not posted — a Saturday purchase sits here
+// until Monday. Visible so it doesn't look missed; the question about it
+// comes once it posts. `version` changes after each sync so the list follows.
+// The same wording ingest uses to spot transfers between your own accounts.
+const looksLikeTransfer = (d) => /^(online transfer (to|from)|payment to chase card|chase credit crd autopay|online payment .* to chase)/i.test(d ?? "");
+
+export function Pending({ version }) {
+  const [rows, setRows] = useState([]);
+
+  useEffect(() => {
+    fetchPendingTransactions().then(setRows).catch(() => setRows([]));
+  }, [version]);
+
+  if (rows.length === 0) return null;
+  const out = rows.filter((t) => t.amount < 0 && !looksLikeTransfer(t.description)).reduce((sum, t) => sum - Number(t.amount), 0);
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="card-title"><Clock size={14} />Pending</span>
+        <span className="faint" style={{ fontSize: 12 }}>{fmtMoney(out)} out · asked about once Chase posts them</span>
+      </div>
+      <div className="list">
+        {rows.map((t) => {
+          const isOut = t.amount < 0;
+          return (
+            <div key={t.id} className="list-row" style={{ opacity: looksLikeTransfer(t.description) ? 0.55 : 1 }}>
+              <span className="mono faint" style={{ fontSize: 11, width: 44, flexShrink: 0 }}>
+                {t.transacted_at ? new Date(t.transacted_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="truncate" style={{ display: "block", fontSize: 13 }}>{merchantTitle(t.description)}</span>
+                {t.account && (
+                  <span className="faint" style={{ fontSize: 11 }}>{t.account.nickname ?? t.account.name}</span>
+                )}
+              </span>
+              <span className="mono" style={{ fontSize: 13, flexShrink: 0, color: isOut ? "var(--text-2)" : "var(--good)" }}>
+                {isOut ? "" : "+"}{fmtMoney(Math.abs(t.amount))}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

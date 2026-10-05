@@ -104,7 +104,9 @@ async function syncUser(db: any, userId: string, { manual = false } = {}) {
     : Date.now() - FIRST_SYNC_DAYS * 86400_000;
 
   const { base, header } = authorise(accessUrl);
-  const res = await fetch(`${base}/accounts?start-date=${Math.floor(since / 1000)}`, {
+  // pending=1 is opt-in in the protocol; without it a Saturday purchase is
+  // invisible until Chase posts it on Monday.
+  const res = await fetch(`${base}/accounts?pending=1&start-date=${Math.floor(since / 1000)}`, {
     headers: { Authorization: header, Accept: "application/json" },
   });
 

@@ -140,11 +140,15 @@ export function AccountCards({ overview, onChanged }) {
   );
 }
 
+// A day and a half: SimpleFIN refreshes from the bank about daily.
+const STALE_MS = 36 * 3600 * 1000;
+
 function AccountCard({ account, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState(account.nickname ?? "");
   const isBiz = account.kind === "business";
   const label = account.nickname || account.name;
+  const stale = account.as_of && Date.now() - Date.parse(account.as_of) > STALE_MS;
 
   return (
     <div className="stat" style={{ borderColor: isBiz ? "var(--accent-line)" : "var(--line)" }}>
@@ -190,8 +194,16 @@ function AccountCard({ account, onChanged }) {
       )}
 
       <div className="row row--between" style={{ marginTop: 10, gap: 8 }}>
-        <span className="stat-foot" style={{ marginTop: 0 }}>
+        {/* SimpleFIN only knows what it last fetched from Chase. When that's
+            old, syncing more often changes nothing — say so, so a missing
+            purchase isn't blamed on the app. */}
+        <span
+          className="stat-foot"
+          style={{ marginTop: 0, color: stale ? "var(--accent)" : undefined }}
+          title={stale ? "SimpleFIN hasn't fetched from Chase since then. Check the Chase connection at SimpleFIN Bridge." : undefined}
+        >
           {account.as_of ? `as of ${new Date(account.as_of).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+          {stale && " · Chase not refreshed"}
         </span>
         {/* Decides the default for everything in this account. Correctable
             here because the name-based guess on first sync can be wrong. */}

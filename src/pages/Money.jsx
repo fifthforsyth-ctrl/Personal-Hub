@@ -5,7 +5,7 @@ import { ConnectBank, AccountCards } from "../components/money/Accounts";
 import PurchaseQuestion from "../components/money/PurchaseQuestion";
 import Budgets from "../components/money/Budgets";
 import Business from "../components/money/Business";
-import Transactions from "../components/money/Transactions";
+import Transactions, { Pending } from "../components/money/Transactions";
 import { fmtMoney } from "../lib/money";
 
 function monthKey(d) {
@@ -83,6 +83,8 @@ export default function Money() {
 
           {isCurrentMonth && <PurchaseQuestion onAnswered={load} />}
 
+          {isCurrentMonth && <Pending version={overview?.connection?.last_synced_at} />}
+
           {/* The 90-day backfill. Offered, never pushed: sorting it is only
               worth doing because every answer teaches the app that store. */}
           {isCurrentMonth && Number(overview?.inbox?.history_count) > 0 && (
@@ -97,7 +99,7 @@ export default function Money() {
                 <History size={15} style={{ color: "var(--text-3)", flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontSize: 13.5 }}>
-                    {overview.inbox.history_count} older purchases from before you connected
+                    {overview.inbox.history_count} older purchases not asked about
                   </span>
                   <span className="faint" style={{ fontSize: 11.5 }}>
                     {fmtMoney(overview.inbox.history_total, { round: true })} · not asked about. Sorting some of them teaches the app your regular stores.
