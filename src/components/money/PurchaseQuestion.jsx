@@ -339,16 +339,32 @@ function Chip({ active, color, onClick, children }) {
   );
 }
 
-// The small version for the home page: nothing to ask, nothing shown.
-export function MoneyNudge({ count, total }) {
-  if (!count) return null;
+// The small version for Today: one line that says how many purchases are
+// waiting and takes you to Money, or nothing at all when there are none. A
+// failed load also shows nothing; it's a nudge, not a page, and Money says
+// what went wrong if you go there.
+export function PurchaseNudge() {
+  const [waiting, setWaiting] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchPurchaseInbox(40).then(
+      (q) => live && setWaiting({ count: q.length, total: q.reduce((s, t) => s + spentOf(t.amount), 0) }),
+      () => {}
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (!waiting?.count) return null;
   return (
     <Link to="/money" className="card row" style={{ gap: 10, textDecoration: "none", color: "inherit" }}>
-      <Wallet size={16} style={{ color: "var(--accent)" }} />
+      <Wallet size={16} style={{ color: "var(--text-2)" }} />
       <span style={{ flex: 1, fontSize: 13.5 }}>
-        {count} {count === 1 ? "purchase" : "purchases"} to sort · {fmtMoney(total, { round: true })}
+        {waiting.count} {waiting.count === 1 ? "purchase" : "purchases"} to sort · {fmtMoney(waiting.total, { round: true })}
       </span>
-      <ChevronRight size={15} style={{ color: "var(--text-3)" }} />
+      <ChevronRight size={15} style={{ color: "var(--text-2)" }} />
     </Link>
   );
 }
