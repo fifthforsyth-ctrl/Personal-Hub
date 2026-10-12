@@ -55,9 +55,6 @@ const KIND_LABEL = {
   warning: "Warning",
   insight: "Insight",
 };
-// A prompting waits on something you do; a tender mercy is just noticed, so
-// it's never "still open".
-const ASKS_FOR_ACTION = new Set(["prompting", "impression", "warning"]);
 
 async function loadDay(userId, date) {
   const [archive, dayPlan, chunks, tasks, cats, rings] = await Promise.all([
@@ -396,7 +393,7 @@ function WrittenToday({ experiences, prayers, notes, isToday }) {
               </div>
               <div style={{ fontSize: 13.5, fontWeight: 550, marginTop: 5 }}>{e.what_came}</div>
               {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 3 }}>Acted: {e.action_taken}</div>}
-              {!e.acted_on && ASKS_FOR_ACTION.has(e.kind) && <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>Still open</div>}
+              {!e.acted_on && <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>Still open</div>}
             </div>
           ))}
         </Group>
