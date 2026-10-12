@@ -3,14 +3,11 @@ import { Link } from "react-router-dom";
 import { Sprout, Link2 } from "lucide-react";
 import { fetchGoalCredit } from "../lib/api";
 import { intensityColor } from "../lib/nodeStyle";
+import { fmtMinutes } from "../lib/categories";
 
+// A goal that got no time reads as a dash, not "0m".
 function fmtHours(minutes) {
-  const m = Number(minutes) || 0;
-  if (m < 1) return "—";
-  if (m < 60) return `${Math.round(m)}m`;
-  const h = Math.floor(m / 60);
-  const rem = Math.round(m % 60);
-  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+  return (Number(minutes) || 0) < 1 ? "—" : fmtMinutes(minutes);
 }
 
 // "I can see how each task and each minute I spent benefited specific goals

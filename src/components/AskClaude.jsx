@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Sparkles, CornerDownLeft, X, RotateCcw } from "lucide-react";
 import { askChart } from "../lib/api";
 import { LineChart, ColumnChart, RankedBars, Donut, Legend } from "./charts";
-import { colorFor } from "../lib/categories";
+import { colorFor, fmtMinutes } from "../lib/categories";
 
 // "Ask Claude to map my data on a chart" — the open-ended question the fixed
 // rollups on /reflect can't answer. You type it in your own words; the
@@ -17,14 +17,6 @@ const EXAMPLES = [
   "Which habits do I lose most often?",
   "What hours of the day do I actually study?",
 ];
-
-function fmtHours(minutes) {
-  const m = Number(minutes) || 0;
-  if (m < 60) return `${Math.round(m)}m`;
-  const h = Math.floor(m / 60);
-  const rem = Math.round(m % 60);
-  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
-}
 
 function formatterFor(unit) {
   switch (unit) {

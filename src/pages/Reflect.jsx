@@ -7,7 +7,7 @@ import {
 } from "../lib/api";
 import { intensityColor } from "../lib/nodeStyle";
 import { RankedBars } from "../components/charts";
-import { colorFor } from "../lib/categories";
+import { colorFor, fmtMinutes } from "../lib/categories";
 import { todayStr, addDays, parseDateStr } from "../lib/planDates";
 
 const RANGES = [
@@ -24,14 +24,6 @@ const BAR_COLOR = "#c0743b";
 const BAR_COLOR_STRONG = "#d8933b";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function fmtHours(minutes) {
-  const m = Number(minutes) || 0;
-  if (m < 60) return `${Math.round(m)}m`;
-  const h = Math.floor(m / 60);
-  const rem = Math.round(m % 60);
-  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
-}
 
 // Phase 1 — Reflection. The 10,000-foot view over everything the Data layer
 // has collected: where the time actually went, which habits are holding,
@@ -132,8 +124,8 @@ function Summary({ totals, categories, habits, rangeLabel, days }) {
     if (mins > 0) {
       const perDay = totals.days_logged > 0 ? mins / totals.days_logged : 0;
       parts.push(
-        `You logged ${fmtHours(mins)} across ${totals.days_logged} ${totals.days_logged === 1 ? "day" : "days"} this past ${rangeLabel}` +
-          (perDay > 0 ? `, averaging ${fmtHours(perDay)} on the days you tracked.` : ".")
+        `You logged ${fmtMinutes(mins)} across ${totals.days_logged} ${totals.days_logged === 1 ? "day" : "days"} this past ${rangeLabel}` +
+          (perDay > 0 ? `, averaging ${fmtMinutes(perDay)} on the days you tracked.` : ".")
       );
       // Categories can run concurrently — driving logged inside a block of
       // service, say — so the daily average can exceed the clock. Saying so
@@ -146,7 +138,7 @@ function Summary({ totals, categories, habits, rangeLabel, days }) {
     if (categories.length > 0) {
       const top = categories[0];
       const share = mins > 0 ? Math.round((Number(top.total_minutes) / mins) * 100) : 0;
-      parts.push(`Most of it went to ${top.category} — ${fmtHours(top.total_minutes)}, about ${share}% of everything tracked.`);
+      parts.push(`Most of it went to ${top.category} — ${fmtMinutes(top.total_minutes)}, about ${share}% of everything tracked.`);
     }
 
     if (totals.tasks_planned > 0) {
@@ -186,7 +178,7 @@ function Summary({ totals, categories, habits, rangeLabel, days }) {
 // plot of four values would.
 function StatTiles({ totals }) {
   const tiles = [
-    { label: "Time logged", value: fmtHours(totals.logged_minutes) },
+    { label: "Time logged", value: fmtMinutes(totals.logged_minutes) },
     { label: "Days tracked", value: String(totals.days_logged) },
     {
       label: "Tasks done",
@@ -249,7 +241,7 @@ function CategoryChart({ rows }) {
                 .map((sub) => (
                   <span key={`${g.category}-${sub.name}`} className="chip" style={{ fontSize: 10.5 }}>
                     <span className="dot" style={{ background: colorFor(g.category), width: 6, height: 6 }} />
-                    {sub.name} · {fmtHours(sub.minutes)}
+                    {sub.name} · {fmtMinutes(sub.minutes)}
                   </span>
                 ))
             )}
@@ -327,7 +319,7 @@ function Heatmap({ rows }) {
               {row.map((mins, hour) => (
                 <div
                   key={hour}
-                  title={mins > 0 ? `${WEEKDAYS[dow]} ${hour}:00 — ${fmtHours(mins)}` : `${WEEKDAYS[dow]} ${hour}:00 — nothing logged`}
+                  title={mins > 0 ? `${WEEKDAYS[dow]} ${hour}:00 — ${fmtMinutes(mins)}` : `${WEEKDAYS[dow]} ${hour}:00 — nothing logged`}
                   style={{
                     aspectRatio: "1",
                     borderRadius: 2,
@@ -350,7 +342,7 @@ function Heatmap({ rows }) {
             border: "1px solid var(--line)",
           }}
         />
-        <span>{fmtHours(max).toUpperCase()}</span>
+        <span>{fmtMinutes(max).toUpperCase()}</span>
       </div>
     </div>
   );

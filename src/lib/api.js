@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
+import { todayStr } from "./planDates";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -51,11 +52,6 @@ export async function createEdge(childId, parentId, weight) {
 
 export async function setFocused(nodeId, isFocused) {
   const { error } = await supabase.from("nodes").update({ is_focused: isFocused }).eq("id", nodeId);
-  if (error) throw error;
-}
-
-export async function recordCompletion(nodeId, kind) {
-  const { error } = await supabase.rpc("record_completion", { p_node_id: nodeId, p_kind: kind });
   if (error) throw error;
 }
 
@@ -140,17 +136,6 @@ export async function stopTimeEntry(entryId) {
     .from("time_log_entries")
     .update({ ended_at: new Date().toISOString() })
     .eq("id", entryId)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-// Manual (non-timer) entry — logging time after the fact.
-export async function createTimeEntry(userId, fields) {
-  const { data, error } = await supabase
-    .from("time_log_entries")
-    .insert({ user_id: userId, ...fields })
     .select()
     .single();
   if (error) throw error;
@@ -345,9 +330,10 @@ export async function deleteTask(taskId) {
 // Moves incomplete past tasks onto today (unscheduled), bumping
 // rollover_count — call once when the Plan page lands on "today". Tasks
 // past the rollover cap stop moving and become stalled instead; see
-// fetchStalledTasks.
+// fetchStalledTasks. "Today" is the phone's date: the database clock is
+// UTC, which is already tomorrow on a Mountain-time evening.
 export async function rolloverIncompleteTasks() {
-  const { data, error } = await supabase.rpc("rollover_incomplete_tasks");
+  const { data, error } = await supabase.rpc("rollover_incomplete_tasks", { p_today: todayStr() });
   if (error) throw error;
   return data; // number of tasks rolled
 }
@@ -356,7 +342,7 @@ export async function rolloverIncompleteTasks() {
 // (do it, reschedule it, or admit it isn't happening) rather than another
 // silent move to tomorrow.
 export async function fetchStalledTasks() {
-  const { data, error } = await supabase.rpc("stalled_tasks");
+  const { data, error } = await supabase.rpc("stalled_tasks", { p_today: todayStr() });
   if (error) throw error;
   return data ?? [];
 }
@@ -377,28 +363,6 @@ export async function fetchTemplates(userId, kind) {
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
-}
-
-// Full contents of one preset, for previewing before applying / editing.
-export async function fetchTemplateDetail(templateId) {
-  const { data: chunks, error: cErr } = await supabase
-    .from("template_chunks")
-    .select("*")
-    .eq("template_id", templateId)
-    .order("position", { ascending: true });
-  if (cErr) throw cErr;
-
-  const chunkIds = (chunks ?? []).map((c) => c.id);
-  if (chunkIds.length === 0) return { chunks: [], tasks: [] };
-
-  const { data: tasks, error: tErr } = await supabase
-    .from("template_tasks")
-    .select("*")
-    .in("template_chunk_id", chunkIds)
-    .order("position", { ascending: true });
-  if (tErr) throw tErr;
-
-  return { chunks: chunks ?? [], tasks: tasks ?? [] };
 }
 
 // Creates a single-block preset ("chunk" kind) plus its tasks in one go.
@@ -608,11 +572,6 @@ export async function fetchStudyNotes(userId, { limit = 50 } = {}) {
   return data ?? [];
 }
 
-export async function deleteStudyNote(noteId) {
-  const { error } = await supabase.from("study_notes").delete().eq("id", noteId);
-  if (error) throw error;
-}
-
 export async function fetchOnThisDay() {
   const { data, error } = await supabase.rpc("on_this_day", { p_tz: localZone() });
   if (error) throw error;
@@ -663,14 +622,6 @@ export async function fetchDayArchive(dateStr) {
   const { data, error } = await supabase.rpc("day_archive", { p_date: dateStr, p_tz: localZone() });
   if (error) throw error;
   return data;
-}
-
-// Days that have anything on them, newest first — so paging back through
-// the record skips empty dates instead of stepping over them one at a time.
-export async function fetchArchiveDays(limit = 120) {
-  const { data, error } = await supabase.rpc("archive_days", { p_limit: limit, p_tz: localZone() });
-  if (error) throw error;
-  return data ?? [];
 }
 
 // Writes only the answers it is given. The evening has changed its questions
@@ -729,7 +680,7 @@ export async function fetchMappableSources(userId) {
 
   const counts = new Map();
   const bump = (kind, value) => {
-    const key = `${kind} ${value}`;
+    const key = `${kind}\u0000${value}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   };
   for (const e of entries ?? []) {
@@ -740,7 +691,7 @@ export async function fetchMappableSources(userId) {
 
   return [...counts.entries()]
     .map(([key, count]) => {
-      const [source_kind, source_value] = key.split(" ");
+      const [source_kind, source_value] = key.split("\u0000");
       return { source_kind, source_value, count };
     })
     .sort((a, b) => b.count - a.count);
@@ -923,31 +874,24 @@ export async function fetchGoalLedger(nodeId, startDate, endDate) {
 
 export const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export async function fetchIdealDays(userId) {
-  const templates = await fetchTemplates(userId, "day");
-  return Promise.all(
-    templates.map(async (t) => {
-      const { chunks, tasks } = await fetchTemplateDetail(t.id);
-      const tasksByChunk = new Map();
-      for (const task of tasks) {
-        if (!tasksByChunk.has(task.template_chunk_id)) tasksByChunk.set(task.template_chunk_id, []);
-        tasksByChunk.get(task.template_chunk_id).push(task.title);
-      }
-      return {
-        id: t.id,
-        name: t.name,
-        notes: t.notes ?? "",
-        weekdays: t.applies_to_weekdays ?? [],
-        blocks: chunks.map((c) => ({
-          title: c.title,
-          category: c.category ?? "",
-          start: String(c.start_time ?? "").slice(0, 5),
-          end: String(c.end_time ?? "").slice(0, 5),
-          tasks: tasksByChunk.get(c.id) ?? [],
-        })),
-      };
-    })
-  );
+// One round trip: ideal_days() returns every day template with its blocks
+// and their tasks, already in the shape the planner edits.
+export async function fetchIdealDays() {
+  const { data, error } = await supabase.rpc("ideal_days");
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    notes: d.notes ?? "",
+    weekdays: d.weekdays ?? [],
+    blocks: (d.blocks ?? []).map((b) => ({
+      title: b.title,
+      category: b.category ?? "",
+      start: b.start ?? "",
+      end: b.end ?? "",
+      tasks: b.tasks ?? [],
+    })),
+  }));
 }
 
 // Saves a whole ideal day at once. The blocks are replaced rather than
@@ -1343,7 +1287,6 @@ export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {
   return data ?? [];
 }
 
-
 // ---------------------------------------------------------------------------
 // Phase 5 — the Day Card and the desktop home.
 // ---------------------------------------------------------------------------
@@ -1364,18 +1307,6 @@ export async function setDayNotes(userId, dateStr, notes) {
     .from("day_plans")
     .upsert({ user_id: userId, date: dateStr, notes: notes || null }, { onConflict: "user_id,date" });
   if (error) throw error;
-}
-
-// One call for everything the whole-day view shows, so opening a day is a
-// single round trip rather than nine.
-export async function fetchDayEverything(userId, dateStr) {
-  const [archive, plan, chunks, tasks] = await Promise.all([
-    fetchDayArchive(dateStr),
-    fetchDayPlan(userId, dateStr),
-    fetchTimeChunks(userId, dateStr),
-    fetchTasks(userId, dateStr),
-  ]);
-  return { archive: archive ?? {}, plan, chunks, tasks };
 }
 
 // A week of day cards needs every block and task in the range at once —
@@ -1524,7 +1455,8 @@ export async function createNote(userId, fields = {}) {
     parent_note_id: fields.parentId ?? null,
     source_kind: fields.sourceKind ?? "other",
     source_ref: fields.sourceRef ?? null,
-    studied_on: fields.studiedOn ?? new Date().toISOString().slice(0, 10),
+    // The phone's date: UTC is already tomorrow on a Mountain-time evening.
+    studied_on: fields.studiedOn ?? todayStr(),
     tags: fields.tags ?? [],
     position: fields.position ?? 0,
   };
@@ -1631,14 +1563,6 @@ export async function fetchNotesToResurface(limit = 3) {
 export async function markNoteSurfaced(noteId) {
   const { error } = await supabase.rpc("mark_note_surfaced", { p_note_id: noteId });
   if (error) throw error;
-}
-
-// The note of the day. Deterministic per date server-side, so it doesn't
-// change under you when you reload or pick up your phone.
-export async function fetchNoteOfTheDay(dateStr) {
-  const { data, error } = await supabase.rpc("note_of_the_day", { p_date: dateStr });
-  if (error) throw error;
-  return (data ?? [])[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
