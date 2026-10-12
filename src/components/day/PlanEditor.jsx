@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2, ChevronLeft, Check } from "lucide-react";
 import { fmtDayHeading } from "../../lib/planDates";
+import "../../styles/plan.css";
 
 // A proposed plan is a draft, not a decree.
 //
@@ -71,9 +72,9 @@ export default function PlanEditor({ plan, date, onCommit, onBack, busy }) {
 
   return (
     <div>
-      <button className="btn-link" onClick={onBack} style={{ marginBottom: 10 }}>
+      <button className="btn-link" onClick={onBack} style={{ marginBottom: 10, minHeight: 36 }} disabled={busy}>
         <ChevronLeft size={13} />
-        Back to the three
+        Back to the three plans
       </button>
 
       <div style={{ fontWeight: 650, fontSize: 15 }}>{plan.name}</div>
@@ -84,73 +85,68 @@ export default function PlanEditor({ plan, date, onCommit, onBack, busy }) {
       </p>
 
       {blocks.map((block, i) => (
-        <div
-          key={i}
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: "var(--r)",
-            padding: 11,
-            marginBottom: 8,
-          }}
-        >
-          <div className="row" style={{ gap: 6, alignItems: "center" }}>
+        <div key={i} className="plan-draft-block">
+          <div className="plan-draft-block__top">
             <input
               className="input"
               value={block.title}
               placeholder="What this block is"
+              aria-label="Block name"
               onChange={(e) => patchBlock(i, { title: e.target.value })}
-              style={{ flex: 1, minWidth: 0, fontWeight: 570 }}
             />
             <button
               className="btn-icon"
               onClick={() => removeBlock(i)}
+              aria-label={`Remove ${block.title ? `“${block.title}”` : "this block"}`}
               title="Remove this block"
-              style={{ flexShrink: 0, color: "var(--text-3)" }}
             >
-              <Trash2 size={14} />
+              <Trash2 size={15} />
             </button>
           </div>
 
-          <div className="row" style={{ gap: 6, marginTop: 7, alignItems: "center" }}>
+          <div className="plan-draft-block__times">
             <input
-              className="input"
+              className="input time-input"
               type="time"
               value={block.start}
+              aria-label="Starts"
               onChange={(e) => patchBlock(i, { start: e.target.value })}
-              style={{ width: 118 }}
             />
             <span className="faint" style={{ fontSize: 12 }}>to</span>
             <input
-              className="input"
+              className="input time-input"
               type="time"
               value={block.end}
+              aria-label="Ends"
               onChange={(e) => patchBlock(i, { end: e.target.value })}
-              style={{ width: 118 }}
             />
-            <span className="mono faint" style={{ fontSize: 10.5, marginLeft: "auto" }}>
-              {spanLabel(block.start, block.end)}
-            </span>
+            <span className="plan-draft-block__span">{spanLabel(block.start, block.end)}</span>
           </div>
 
           {block.tasks.map((task, k) => (
-            <div key={k} className="row" style={{ gap: 6, marginTop: 6, alignItems: "center" }}>
-              <span className="faint" style={{ fontSize: 12, flexShrink: 0 }}>○</span>
+            <div key={k} className="plan-draft-task">
+              <span className="faint" style={{ fontSize: 12, flexShrink: 0 }} aria-hidden="true">○</span>
               <input
                 className="input"
                 value={task}
                 placeholder="Task"
+                aria-label="Task"
                 onChange={(e) => patchTask(i, k, e.target.value)}
-                style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}
               />
-              <button className="btn-icon" onClick={() => removeTask(i, k)} title="Remove task" style={{ flexShrink: 0, color: "var(--text-3)" }}>
-                <Trash2 size={12} />
+              <button
+                className="btn-icon"
+                onClick={() => removeTask(i, k)}
+                aria-label={`Remove ${task ? `“${task}”` : "this task"}`}
+                title="Remove task"
+              >
+                <Trash2 size={13} />
               </button>
             </div>
           ))}
 
-          <button className="btn-link" onClick={() => addTask(i)} style={{ marginTop: 7, fontSize: 11.5 }}>
-            <Plus size={11} />
-            Task
+          <button className="btn-link" onClick={() => addTask(i)} style={{ marginTop: 4, minHeight: 36 }}>
+            <Plus size={12} />
+            Add a task
           </button>
         </div>
       ))}
@@ -164,7 +160,7 @@ export default function PlanEditor({ plan, date, onCommit, onBack, busy }) {
         <span className="faint" style={{ fontSize: 11.5 }}>
           {usable.length} {usable.length === 1 ? "block" : "blocks"} · {hours.toFixed(1)}h planned
           {overlaps > 0 && (
-            <span style={{ color: "var(--warn, var(--accent))" }}>
+            <span style={{ color: "var(--accent-text)" }}>
               {" "}
               · {overlaps} {overlaps === 1 ? "overlap" : "overlaps"}
             </span>
