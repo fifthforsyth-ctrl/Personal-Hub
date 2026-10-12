@@ -100,7 +100,8 @@ function DesktopHome({ userId }) {
     <div className="page">
       <div className="page-head">
         <div>
-          <div className="eyebrow">{fmtDayHeading(date)}</div>
+          {/* The nav calls this page Big picture; the heading is its motto. */}
+          <div className="eyebrow">Big picture · {fmtDayHeading(date)}</div>
           <h1 className="page-title" style={{ marginTop: 3 }}>One day at a time</h1>
           <p className="page-sub">
             {!data
@@ -120,7 +121,7 @@ function DesktopHome({ userId }) {
               }}
             />
           )}
-          <Link to={`/day/${date}`} className="btn">
+          <Link to={`/day/${date}`} className="btn btn--on-page">
             Full day
             <ArrowRight size={14} />
           </Link>

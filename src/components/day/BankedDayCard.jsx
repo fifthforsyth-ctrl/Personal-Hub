@@ -268,7 +268,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
                   <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
                 </div>
                 <div className="prose prose--sm" style={{ marginTop: 5 }}>{p.content}</div>
-                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>Felt: {p.felt_response}</div>}
+                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>What came: {p.felt_response}</div>}
               </div>
             ))}
           </Written>

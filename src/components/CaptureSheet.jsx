@@ -191,7 +191,9 @@ function LogNow({ kind, userId, onDone }) {
             ))}
           </div>
         )}
-        <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : "")}>
+        {/* A loss closes quietly, but still on a button you can see: the sheet
+            is the page's colour, so the plain grey would vanish into it. */}
+        <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : " btn--on-page")}>
           {label.trim() ? "Save" : "Done"}
         </button>
       </form>
@@ -230,7 +232,7 @@ function ThoughtCapture({ userId, onDone }) {
     onDone();
     toast.show(
       <span className="toast-split">
-        <span>Saved to your board.</span>
+        <span>Saved to your Board.</span>
         <button
           type="button"
           className="toast__action"
@@ -248,9 +250,9 @@ function ThoughtCapture({ userId, onDone }) {
           deleteNote(note.id).then(
             () => {
               announceChange();
-              toast.show("Taken off your board");
+              toast.show("Taken off your Board");
             },
-            (err) => toast.error(err, "Couldn't take it back. It's still on your board.")
+            (err) => toast.error(err, "Couldn't take it back. It's still on your Board.")
           ),
       }
     );
@@ -269,7 +271,7 @@ function ThoughtCapture({ userId, onDone }) {
       />
       {error && <div className="form-error">{error}</div>}
       <button type="submit" className="btn btn--accent btn--lg" disabled={busy || !text.trim()}>
-        {busy ? "Saving…" : "Save to board"}
+        {busy ? "Saving…" : "Save to Board"}
       </button>
     </form>
   );

@@ -148,7 +148,7 @@ export default function Day() {
           {/* A banked day's card carries its own "Banked". */}
           {!banked && reflectionDone && <span className="chip chip--accent">Reflected</span>}
           {!isToday && (
-            <button className="btn" onClick={() => navigate(`/day/${todayStr()}`)}>
+            <button className="btn btn--on-page" onClick={() => navigate(`/day/${todayStr()}`)}>
               <CalendarDays size={14} />
               Today
             </button>
@@ -366,10 +366,13 @@ function GoalLinks({ date, isToday, onApplied }) {
 // button away the rest of the week.
 function PlanTomorrow({ userId, date, reflectionDone }) {
   const dow = parseDateStr(date).getDay();
-  const [open, setOpen] = useState(dow === 0 || dow === 6);
-  if (open) return <Tomorrow userId={userId} date={date} reflectionDone={reflectionDone} />;
+  const weekend = dow === 0 || dow === 6;
+  const [open, setOpen] = useState(weekend);
+  // A weekday tap already said "plan tomorrow", so the card opens at the
+  // notes box instead of offering a second button that says the same.
+  if (open) return <Tomorrow userId={userId} date={date} reflectionDone={reflectionDone} startOpen={!weekend} />;
   return (
-    <button type="button" className="btn btn--block" onClick={() => setOpen(true)}>
+    <button type="button" className="btn btn--block btn--on-page" onClick={() => setOpen(true)}>
       <CalendarPlus size={15} />
       Plan tomorrow
     </button>
@@ -408,7 +411,7 @@ function WrittenToday({ experiences, prayers, notes, isToday }) {
                 <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
               </div>
               <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{p.content}</div>
-              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 2 }}>Felt: {p.felt_response}</div>}
+              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 2 }}>What came: {p.felt_response}</div>}
             </div>
           ))}
         </Group>

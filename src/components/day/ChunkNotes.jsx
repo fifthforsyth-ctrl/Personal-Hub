@@ -124,9 +124,10 @@ export default function ChunkNotes({ chunk, date }) {
     }
   }
 
+  // 36px tall so a thumb finds it, without making the block's card taller.
   if (!open) {
     return (
-      <button className="btn-link" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
+      <button className="btn-link" style={{ minHeight: 36, marginBottom: -10 }} onClick={() => setOpen(true)}>
         <NotebookPen size={12} />
         {saved ? "Notes from this block" : "Add notes"}
       </button>

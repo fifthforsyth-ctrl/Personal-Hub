@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   HelpCircle,
   MessageSquare,
+  CalendarDays,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -214,7 +215,10 @@ export default function Work() {
             </span>
           )}
           {!isToday && (
-            <button className="btn" onClick={() => setDate(todayStr())}>Today</button>
+            <button className="btn btn--on-page" onClick={() => setDate(todayStr())}>
+              <CalendarDays size={14} />
+              Today
+            </button>
           )}
         </div>
       </div>
