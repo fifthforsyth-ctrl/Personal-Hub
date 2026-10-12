@@ -26,7 +26,9 @@
 
   --text: #121212;
   --text-2: #6f6d69;
-  --text-3: #a5a29c;
+  /* The faintest grey still reads on white (3.8:1); anything meant to be
+     read at small sizes uses --text-2. */
+  --text-3: #85827c;
 
   /* Ink: the primary button, the capture ＋, the selected thing. Orange is
      never a button colour; it's the highlight. */
@@ -39,8 +41,12 @@
   --accent-soft: rgba(242, 106, 27, 0.1);
   --accent-line: rgba(242, 106, 27, 0.35);
   --on-accent: #ffffff;
+  /* Orange as text: the highlight colour fails as small text on white, so
+     words that must be orange use this darker cut of it (5.2:1). */
+  --accent-text: #b84a08;
 
   --good: #1f9d63;
+  --good-text: #178a55;
   --danger: #d63b30;
   --danger-soft: rgba(214, 59, 48, 0.08);
 
@@ -156,7 +162,7 @@ button { cursor: pointer; touch-action: manipulation; }
   transition: background 0.14s, color 0.14s;
 }
 
-.side-link:hover { background: rgba(20, 18, 14, 0.04); color: var(--text); }
+@media (hover: hover) { .side-link:hover { background: rgba(20, 18, 14, 0.04); color: var(--text); } }
 
 .side-link.active {
   background: var(--card);
@@ -390,7 +396,7 @@ button { cursor: pointer; touch-action: manipulation; }
   white-space: nowrap;
 }
 
-.btn:hover { background: #e8e6e2; }
+@media (hover: hover) { .btn:hover { background: #e8e6e2; } }
 .btn:disabled { opacity: 0.45; cursor: default; }
 
 /* The primary button is ink, not orange — the reference's black pill. The
@@ -402,13 +408,17 @@ button { cursor: pointer; touch-action: manipulation; }
   font-weight: 650;
 }
 
-.btn--accent:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+@media (hover: hover) { .btn--accent:hover { background: var(--ink-hover); border-color: var(--ink-hover); } }
 
 .btn--danger { background: transparent; border-color: rgba(214, 59, 48, 0.4); color: var(--danger); }
-.btn--danger:hover { background: var(--danger-soft); }
+@media (hover: hover) { .btn--danger:hover { background: var(--danger-soft); } }
 
 .btn--ghost { background: transparent; border-color: transparent; color: var(--text-2); }
-.btn--ghost:hover { background: var(--inset); color: var(--text); }
+@media (hover: hover) { .btn--ghost:hover { background: var(--inset); color: var(--text); } }
+
+.btn--sm { padding: 7px 13px; font-size: 12.5px; gap: 5px; }
+.btn--danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+@media (hover: hover) { .btn--danger-solid:hover { background: #b02a20; border-color: #b02a20; } }
 
 .btn--lg { padding: 15px 20px; font-size: 15px; border-radius: var(--r-pill); width: 100%; }
 .btn--block { width: 100%; }
@@ -417,24 +427,24 @@ button { cursor: pointer; touch-action: manipulation; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-3);
+  color: var(--text-2);
   flex-shrink: 0;
   transition: color 0.14s, background 0.14s;
 }
 
-.btn-icon:hover { color: var(--text); background: var(--inset); }
+@media (hover: hover) { .btn-icon:hover { color: var(--text); background: var(--inset); } }
 .btn-icon--bordered { border-color: var(--line); background: var(--card); color: var(--text); }
 
 .btn-link {
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--text-2);
   font-size: 12.5px;
   font-weight: 600;
   display: inline-flex;
@@ -442,7 +452,10 @@ button { cursor: pointer; touch-action: manipulation; }
   gap: 5px;
 }
 
-.btn-link:hover { color: var(--accent-hot); }
+@media (hover: hover) { .btn-link:hover { color: var(--text); } }
+.btn-link--accent { color: var(--accent-text); }
+.btn-link--danger { color: var(--danger); }
+@media (hover: hover) { .btn-link--danger:hover { color: #b02a20; } }
 
 /* Segmented control — the reference's red active pill. */
 .seg {
@@ -469,7 +482,7 @@ button { cursor: pointer; touch-action: manipulation; }
   transition: background 0.14s, color 0.14s;
 }
 
-.seg-btn:hover { color: var(--text); }
+@media (hover: hover) { .seg-btn:hover { color: var(--text); } }
 .seg-btn.active { background: var(--card); color: var(--text); font-weight: 650; box-shadow: var(--shadow); }
 
 .fab {
@@ -579,7 +592,7 @@ button { cursor: pointer; touch-action: manipulation; }
   transition: border-color 0.14s, background 0.14s, transform 0.14s;
 }
 
-a.day-card:hover, button.day-card:hover { background: var(--card-hover); border-color: var(--line-strong); }
+@media (hover: hover) { a.day-card:hover, button.day-card:hover { background: var(--card-hover); border-color: var(--line-strong); } }
 
 .day-card--today { border-color: var(--accent-line); }
 .day-card--empty { background: var(--surface); }
@@ -684,7 +697,7 @@ a.day-card:hover, button.day-card:hover { background: var(--card-hover); border-
   transition: border-color 0.14s, background 0.14s;
 }
 
-.month-cell:hover { background: var(--card-hover); border-color: var(--line-strong); }
+@media (hover: hover) { .month-cell:hover { background: var(--card-hover); border-color: var(--line-strong); } }
 .month-cell--today { border-color: var(--accent); }
 .month-cell--blank { border: none; background: transparent; pointer-events: none; }
 
@@ -920,7 +933,7 @@ form.card + .card { margin-top: 14px; }
   transition: background 0.14s;
 }
 
-.btn-primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+@media (hover: hover) { .btn-primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); } }
 .btn-primary:disabled { opacity: 0.45; cursor: default; }
 
 .btn-secondary {
@@ -940,7 +953,7 @@ form.card + .card { margin-top: 14px; }
   flex: 1;
 }
 
-.btn-secondary:hover { background: var(--inset); }
+@media (hover: hover) { .btn-secondary:hover { background: var(--inset); } }
 
 .btn-danger {
   background: transparent;
@@ -954,7 +967,7 @@ form.card + .card { margin-top: 14px; }
   letter-spacing: 0;
 }
 
-.btn-danger:hover { background: var(--danger-soft); }
+@media (hover: hover) { .btn-danger:hover { background: var(--danger-soft); } }
 
 
 .field label {
@@ -1047,7 +1060,7 @@ form.card + .card { margin-top: 14px; }
 .auth-card .brand-mark h1 { font-size: 20px; margin: 0; color: var(--text); }
 
 .auth-switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-2); }
-.auth-switch a, a:not([class]) { color: var(--accent-hot); text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
+.auth-switch a, a:not([class]) { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 
 /* The goal tree owns its whole viewport rather than sitting in a page. */
 .tree-canvas-wrap { position: relative; height: 100%; width: 100%; }
@@ -1144,8 +1157,10 @@ form.card + .card { margin-top: 14px; }
   margin-bottom: 14px;
   cursor: pointer;
 }
-.week-planner__open:hover {
-  border-color: var(--accent-line);
+@media (hover: hover) {
+  .week-planner__open:hover {
+    border-color: var(--accent-line);
+  }
 }
 
 /* The ring owns the middle of a month cell. min-height:0 is what lets a
@@ -1225,7 +1240,7 @@ form.card + .card { margin-top: 14px; }
   background: var(--surface);
   cursor: pointer;
 }
-.ideal-day:hover { border-color: var(--accent-line); }
+@media (hover: hover) { .ideal-day:hover { border-color: var(--accent-line); } }
 .ideal-day__blocks {
   display: flex;
   flex-wrap: wrap;
@@ -1258,7 +1273,7 @@ form.card + .card { margin-top: 14px; }
   color: inherit;
   cursor: pointer;
 }
-.week-target:hover { background: var(--inset); }
+@media (hover: hover) { .week-target:hover { background: var(--inset); } }
 .week-target__bar {
   display: block;
   height: 4px;
@@ -1331,9 +1346,11 @@ form.card + .card { margin-top: 14px; }
   background: transparent;
   color: var(--text-2);
 }
-.dial__controls button:hover {
-  border-color: var(--accent);
-  color: var(--text);
+@media (hover: hover) {
+  .dial__controls button:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
 }
 
 /* ===========================================================================
@@ -1424,7 +1441,8 @@ form.card + .card { margin-top: 14px; }
   width: 100%;
 }
 .more-link svg { color: var(--text-3); }
-.more-link:hover, .more-link.active { background: var(--card); box-shadow: var(--shadow); }
+.more-link.active { background: var(--card); box-shadow: var(--shadow); }
+@media (hover: hover) { .more-link:hover { background: var(--card); box-shadow: var(--shadow); } }
 .more-link.active svg { color: var(--accent); }
 
 .capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -1463,7 +1481,8 @@ form.card + .card { margin-top: 14px; }
 .logged-banner--win { background: var(--accent-soft); color: var(--accent-hot); animation: win-pop 0.35s ease-out; }
 
 .chip--tap { cursor: pointer; padding: 7px 12px; font-size: 12.5px; color: var(--text); }
-.chip--tap:hover, .chip--tap:active { border-color: var(--accent-line); background: var(--accent-soft); }
+.chip--tap:active { border-color: var(--accent-line); background: var(--accent-soft); }
+@media (hover: hover) { .chip--tap:hover { border-color: var(--accent-line); background: var(--accent-soft); } }
 
 /* --- Today ---------------------------------------------------------------- */
 
@@ -1513,7 +1532,7 @@ form.card + .card { margin-top: 14px; }
   align-items: center;
   gap: 4px;
 }
-.loss-link:hover { color: var(--text-2); }
+@media (hover: hover) { .loss-link:hover { color: var(--text-2); } }
 
 .win-name { margin-top: 14px; animation: fade-in 0.2s ease-out; }
 
@@ -1649,3 +1668,88 @@ form.card + .card { margin-top: 14px; }
 @media (max-width: 380px) {
   .week-strip__dot { width: 36px; height: 36px; font-size: 11.5px; }
 }
+
+/* ===========================================================================
+   Shared feedback: focus, toasts, confirm, load errors
+   =========================================================================== */
+
+/* A keyboard focus you can see; mouse and touch clicks don't show it. */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Toasts sit above the phone's tab bar, centred; on a desk, bottom centre. */
+.toast-region {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 80;
+  padding: 0 16px;
+}
+@media (max-width: 900px) {
+  .toast-region { bottom: calc(var(--tabs-h) + 12px); }
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 480px;
+  padding: 11px 12px 11px 18px;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 13.5px;
+  font-weight: 520;
+  box-shadow: var(--shadow-lift);
+  animation: toast-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.toast--error { background: #3a1512; }
+.toast__message { flex: 1; min-width: 0; padding: 3px 0; }
+.toast__action {
+  flex-shrink: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffb27f;
+  font: inherit;
+  font-weight: 650;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  min-height: 34px;
+}
+@keyframes toast-in { from { transform: translateY(10px); opacity: 0; } }
+
+.confirm-sheet { max-width: 400px; background: var(--card); }
+.confirm-sheet__title { font-size: 17px; font-weight: 650; margin: 2px 0 6px; line-height: 1.35; }
+.confirm-sheet__body { color: var(--text-2); font-size: 14px; line-height: 1.55; margin: 0 0 4px; }
+.confirm-sheet__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+@media (max-width: 900px) {
+  .confirm-sheet__actions .btn { flex: 1; padding-top: 13px; padding-bottom: 13px; }
+}
+
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.load-error__why { color: var(--text-2); }
+.load-error--stale { background: var(--inset); color: var(--text-2); }
+.load-error .btn { background: var(--card); border-color: var(--line); }

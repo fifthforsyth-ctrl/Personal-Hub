@@ -502,6 +502,12 @@ export async function updateExperience(userId, experienceId, fields) {
   return data;
 }
 
+export async function deleteExperience(experienceId) {
+  await supabase.from("scripture_refs").delete().eq("entity_type", "experience").eq("entity_id", experienceId);
+  const { error } = await supabase.from("spiritual_experiences").delete().eq("id", experienceId);
+  if (error) throw error;
+}
+
 // Closing the loop: what you actually did, and what came of it.
 export async function closeExperienceLoop(userId, experienceId, { actionTaken, followUpNotes }) {
   return updateExperience(userId, experienceId, {
@@ -550,7 +556,7 @@ export async function createStudyNote(userId, { title, body, sourceKind, sourceR
       body,
       source_kind: sourceKind || "other",
       source_ref: sourceRef || null,
-      studied_on: studiedOn || undefined,
+      studied_on: studiedOn || todayStr(),
       linked_goal_id: linkedGoalId || null,
       tags: tags ?? [],
     })
@@ -746,32 +752,41 @@ export async function fetchGoalCredit(startDate, endDate) {
 // Anthropic key stays server-side — nothing here ever sees it.
 // ---------------------------------------------------------------------------
 
-async function callAssistant(action, payload = {}) {
+// Every edge function is called the same way: as you, with your session's
+// token, and with its errors turned into a sentence. A 504 comes back as the
+// gateway's own HTML rather than our JSON — it means the function ran past
+// Supabase's 150-second ceiling, so say that instead of "unreadable".
+async function callFunction(name, payload, what) {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
   if (!token) throw new Error("You need to be signed in.");
 
-  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/assistant`, {
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/${name}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       apikey: supabase.supabaseKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ action, tz: localZone(), ...payload }),
+    body: JSON.stringify(payload),
   });
 
-  // A 504 comes back as the gateway's own HTML, not our JSON — it means the
-  // function ran past Supabase's 150-second ceiling. Say that, rather than
-  // "something unreadable", because the fix is a smaller batch.
   const body = await response.json().catch(() => ({
     error:
       response.status === 504
         ? "That took longer than the 150 seconds the server allows. Try a smaller stretch."
-        : "The assistant returned something unreadable.",
+        : `${what} returned something unreadable.`,
   }));
-  if (!response.ok) throw new Error(body.error ?? `Assistant failed (${response.status}).`);
+  if (!response.ok || body?.error) {
+    const err = new Error(body?.error ?? `${what} failed (${response.status}).`);
+    err.status = response.status;
+    throw err;
+  }
   return body;
+}
+
+function callAssistant(action, payload = {}) {
+  return callFunction("assistant", { action, tz: localZone(), ...payload }, "The assistant");
 }
 
 // `notes` is whatever you typed into "anything I should know about
@@ -1675,24 +1690,8 @@ export async function fetchDailySelection(dateStr) {
 // The fallback path. The midnight job normally has this done before you look;
 // this is what runs when it didn't, and it authenticates as you rather than
 // as the scheduler.
-export async function runCurator(dateStr) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token;
-  if (!token) throw new Error("You need to be signed in.");
-
-  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/curator`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: supabase.supabaseKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ tz: localZone(), date: dateStr ?? null }),
-  });
-
-  const body = await response.json().catch(() => ({ error: "The curator returned something unreadable." }));
-  if (!response.ok) throw new Error(body.error ?? `The curator failed (${response.status}).`);
-  return body;
+export function runCurator(dateStr) {
+  return callFunction("curator", { tz: localZone(), date: dateStr ?? null }, "The curator");
 }
 
 export async function scoreSelectionItem(itemId, score, feedback) {
@@ -1732,24 +1731,8 @@ export async function fetchUnminedSources(limit = 25) {
 
 // Proposals only. Nothing is written until you accept a snippet, and the
 // source isn't marked mined until you've been through it.
-export async function mineSource(noteId) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token;
-  if (!token) throw new Error("You need to be signed in.");
-
-  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/miner`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: supabase.supabaseKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ note_id: noteId }),
-  });
-
-  const body = await response.json().catch(() => ({ error: "The miner returned something unreadable." }));
-  if (!response.ok) throw new Error(body.error ?? `Mining failed (${response.status}).`);
-  return body;
+export function mineSource(noteId) {
+  return callFunction("miner", { note_id: noteId }, "The miner");
 }
 
 // An accepted snippet becomes a card AND a highlight on the source, which is
@@ -1872,24 +1855,8 @@ export async function setCategoryWork(categoryId, isWork) {
 // writes your own rows under ordinary RLS.
 // ---------------------------------------------------------------------------
 
-async function callBank(action, payload = {}) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token;
-  if (!token) throw new Error("You need to be signed in.");
-
-  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/bank`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: supabase.supabaseKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ action, ...payload }),
-  });
-
-  const body = await response.json().catch(() => ({ error: "The bank sync returned something unreadable." }));
-  if (!response.ok || body.error) throw new Error(body.error ?? `Bank sync failed (${response.status}).`);
-  return body;
+function callBank(action, payload = {}) {
+  return callFunction("bank", { action, ...payload }, "The bank sync");
 }
 
 // The setup token goes straight to the edge function and is spent there. It

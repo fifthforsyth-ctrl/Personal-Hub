@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { syncProfileTimezone } from "../lib/api";
 import { Sidebar, TopBar, BottomTabs } from "./NavBar";
 import { CaptureProvider } from "./CaptureSheet";
+import { FeedbackProvider } from "./ui/Feedback";
 import ErrorBoundary from "./ErrorBoundary";
 
 // Both navigations are always mounted; CSS decides which one is real at this
@@ -23,20 +24,24 @@ export default function ProtectedRoute() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
 
+  // Feedback (toasts, undo, confirm) wraps everything, the capture sheet
+  // included, so a win logged from the sheet can offer its own Undo.
   return (
-    <CaptureProvider>
-      <div className="shell">
-        <Sidebar />
-        <TopBar />
-        <main className="main">
-          <ErrorBoundary resetKey={location.pathname}>
-            <Suspense fallback={<p className="empty page">Loading…</p>}>
-              <Outlet />
-            </Suspense>
-          </ErrorBoundary>
-        </main>
-        <BottomTabs />
-      </div>
-    </CaptureProvider>
+    <FeedbackProvider>
+      <CaptureProvider>
+        <div className="shell">
+          <Sidebar />
+          <TopBar />
+          <main className="main">
+            <ErrorBoundary resetKey={location.pathname}>
+              <Suspense fallback={<p className="empty page">Loading…</p>}>
+                <Outlet />
+              </Suspense>
+            </ErrorBoundary>
+          </main>
+          <BottomTabs />
+        </div>
+      </CaptureProvider>
+    </FeedbackProvider>
   );
 }
