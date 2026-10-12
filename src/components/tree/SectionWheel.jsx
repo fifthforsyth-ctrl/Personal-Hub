@@ -1,374 +1,358 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { computeWheel, ringRadii, roundedWedgePath, labelArcPath, radialLabelTransform, MIN_LABEL_ANGLE, CENTER_RADIUS, RING_THICKNESS } from "../../lib/wheel";
-import { getWedgeVisual, FOCUS_COLOR } from "../../lib/nodeStyle";
+import { computeWheel, wedgeOutline, layoutLabels, ringRadii, CENTER_RADIUS } from "../../lib/wheel";
+import { getWedgeVisual, FOCUS_COLOR, HOVER_COLOR } from "../../lib/nodeStyle";
+import WedgeLabel from "./WedgeLabel";
+import "../../styles/goals.css";
 
 const MAX_SCALE = 2.6;
-const SWIPE_PX_THRESHOLD = 45; // drag distance to commit to the next/prev sibling
-const TAP_MOVE_THRESHOLD = 6; // below this, a pointer-up counts as a tap, not a swipe
-const DRAG_TO_RAD = 0.0055; // live rotation preview while dragging (radians per px)
-const MAX_PREVIEW_RAD = (48 * Math.PI) / 180;
-
-// Small, self-contained duplicates of PyramidWheel's label-fitting helpers —
-// mobile wedges are fewer and bigger on screen than desktop's, but the same
-// "does the curved text actually fit" question applies, so the math is kept
-// identical on purpose. Not shared as an import so this component (and its
-// gesture logic, which is the part that's actually new) stays decoupled
-// from the desktop pan/zoom component while it's still being tuned.
-const MIN_FONT = 11;
-const MAX_FONT = 22;
-const BASE_FONT = 16;
-const REFERENCE_ARC = 200;
-function fontSizeFor(arcLength) {
-  const raw = BASE_FONT * Math.sqrt(arcLength / REFERENCE_ARC);
-  return Math.min(MAX_FONT, Math.max(MIN_FONT, raw));
-}
-function wrapTitle(title, maxCharsPerLine, maxLines) {
-  const width = Math.max(3, Math.floor(maxCharsPerLine));
-  const words = title.split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= width) {
-      current = candidate;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-      if (lines.length >= maxLines) break;
-    }
-  }
-  if (current && lines.length < maxLines) lines.push(current);
-  if (lines.length > maxLines) lines.length = maxLines;
-  const consumed = lines.join(" ").length;
-  const truncated = consumed < title.replace(/\s+/g, " ").length;
-  if (lines.length === 0) {
-    lines.push(title.slice(0, width - 1) + (title.length > width ? "…" : ""));
-  } else if (truncated) {
-    const last = lines[lines.length - 1].replace(/\s+$/, "").slice(0, Math.max(1, width - 1));
-    lines[lines.length - 1] = last + "…";
-  }
-  return lines;
-}
+const MIN_FACING_SPAN = (34 * Math.PI) / 180; // narrowest the section facing up is ever drawn
+const HUB_HIDDEN = 0.75; // share of the center disc kept below the bottom edge
+const TOP_ROOM = 26; // wheel units above the outermost ring, for its titles
+const SIDE_PAD = 8; // px kept clear at each side
+const SWIPE_PX = 45; // a swipe this long turns one section even if it doesn't drag halfway
+const TAP_SLOP = 6; // below this, a press is a tap, not a swipe
+const TURN_MS = 320;
 
 function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
-// The mobile counterpart to PyramidWheel: instead of a pan/zoomable full
-// circle, the wheel's center (pivot) sits pinned to the bottom-center of its
-// container, so only the upper half (or so) is visible — like a dial. A
-// horizontal swipe rotates that dial, bringing a different sibling to face
-// straight up — the whole tree from the current center down is drawn every
-// time (not just the active sibling), so neighbors are genuinely visible
-// mid-rotation, the same "goals rotating around a shared center" visual
-// everywhere this component is used.
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// The phone's wheel: instead of a pan/zoomable full circle, the wheel's
+// center sits at the bottom of the screen, so only its upper half shows —
+// like a dial. A swipe (or ‹ ›) turns the dial to bring the next section
+// up. The whole tree from the current center out is always drawn, so the
+// neighbors are really there at the sides, turning around the same center.
 //
-// "The current center" defaults to the true top (the root, or the invisible
-// hub over several root goals) — whatever rotates around it is the set of
-// top-level sections. `centerOverrideId`, if given (see Pyramid.jsx's
-// "center the wheel here"), moves the center to that specific node instead
-// — the exact same rotation mechanic then plays out one level deeper,
-// swiping through THAT node's own children, with `onExitOverride` wired to
-// a back control to return to the top. This is the escape valve for a
-// section with too many/too-wide children to read comfortably as part of
-// the full multi-section wheel: narrow the center down to it, and its own
-// children get the same full-width treatment top-level sections normally
-// get.
-export default function SectionWheel({ nodes, edges, brightnessById, onSelectNode, onActiveSectionChange, centerOverrideId = null, onExitOverride, height = "100%" }) {
+// The section facing up is drawn narrower than its share of the circle so
+// it can be drawn tall: a quarter of a wheel is much wider than it is high,
+// and drawn to fit a phone's width it would use half the screen's height.
+// Narrowed to what the screen's shape allows, it fills the height, and its
+// rings and titles come out about twice the size. Turning hands that room
+// on to the next section as it comes up.
+//
+// "The current center" is the hub over the top-level goals (or a lone
+// top-level goal). `centerOverrideId` (the panel's "Center the wheel here")
+// moves it to one goal, and the same dial turns through that goal's own
+// sub-goals instead.
+export default function SectionWheel({ nodes, edges, brightnessById, onSelectNode, onActiveSectionChange, centerOverrideId = null, selectedId = null }) {
+  const uid = useId().replace(/:/g, "");
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const titleById = useMemo(() => new Map(nodes.map((n) => [n.id, n.title])), [nodes]);
 
   const overridden = Boolean(centerOverrideId && nodeById.has(centerOverrideId));
   const centerId = overridden ? centerOverrideId : null;
+  const base = useMemo(() => computeWheel(nodes, edges, centerId), [nodes, edges, centerId]);
 
-  const wheel = useMemo(() => computeWheel(nodes, edges, centerId), [nodes, edges, centerId]);
+  // What turns: the goals placed straight around the center — the top-level
+  // goals under the hub, or the sub-goals of whichever goal sits in the
+  // middle (a chosen one, or a lone top-level goal).
+  const pivotId = useMemo(() => {
+    if (centerId) return centerId;
+    if (base.hasVirtualHub) return null;
+    for (const [id, pos] of base.layout) if (pos.ringIndex === 0) return id;
+    return null;
+  }, [base, centerId]);
 
-  // Whatever rotates around the current center: the multiple roots
-  // themselves when centered on the true top, or the center's own direct
-  // children once narrowed down to a specific node.
   const sections = useMemo(() => {
-    const entries = [...wheel.layout.entries()].filter(([, pos]) => (centerId === null ? pos.parentId === null : pos.parentId === centerId));
+    const entries = [...base.layout.entries()].filter(([id, pos]) => (pos.parentId ?? null) === pivotId && id !== pivotId);
     entries.sort((a, b) => a[1].angleStart - b[1].angleStart);
-    return entries.map(([id, pos]) => ({ id, mid: (pos.angleStart + pos.angleEnd) / 2, span: pos.angleEnd - pos.angleStart }));
-  }, [wheel.layout, centerId]);
+    return entries.map(([id, pos]) => ({ id, span: pos.angleEnd - pos.angleStart }));
+  }, [base.layout, pivotId]);
 
+  // How far out each section's goals reach, so a shallow one can be drawn bigger.
+  const deepestRing = useMemo(() => {
+    const deepest = new Map();
+    for (const [id, pos] of base.layout) {
+      let cur = id;
+      let at = pos;
+      while (at && (at.parentId ?? null) !== pivotId) {
+        cur = at.parentId;
+        at = cur ? base.layout.get(cur) : null;
+      }
+      if (at && cur !== pivotId) deepest.set(cur, Math.max(deepest.get(cur) ?? 0, pos.ringIndex));
+    }
+    return deepest;
+  }, [base.layout, pivotId]);
+
+  const count = sections.length;
   const [activeIndex, setActiveIndex] = useState(0);
-  const [dragRad, setDragRad] = useState(0);
+  // The position drawn: activeIndex at rest, fractional while turning or dragging.
+  const [turn, setTurn] = useState(0);
+  const turnRef = useRef(0);
+  turnRef.current = turn;
   const [dragging, setDragging] = useState(false);
+  const animRef = useRef(0);
 
-  // A different center means a different set of siblings entirely — an old
-  // index from the previous set wouldn't mean anything here.
+  const animateTo = useCallback((target) => {
+    cancelAnimationFrame(animRef.current);
+    const from = turnRef.current;
+    if (from === target) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setTurn(target);
+      return;
+    }
+    const startedAt = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - startedAt) / TURN_MS);
+      setTurn(from + (target - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) animRef.current = requestAnimationFrame(tick);
+    };
+    animRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  useEffect(() => () => cancelAnimationFrame(animRef.current), []);
+
+  const goTo = useCallback(
+    (index) => {
+      const next = clamp(index, 0, Math.max(0, count - 1));
+      setActiveIndex(next);
+      animateTo(next);
+    },
+    [count, animateTo]
+  );
+
+  // A different center means a different set of sections entirely.
   useEffect(() => {
+    cancelAnimationFrame(animRef.current);
     setActiveIndex(0);
+    setTurn(0);
   }, [centerId]);
 
-  // If the tree changes shape (goal added/removed) and the current index no
-  // longer lines up, clamp back onto something valid rather than pointing
-  // at nothing.
+  // If a goal is added or removed and the index no longer points at
+  // anything, settle on the last section.
   useEffect(() => {
-    if (activeIndex > sections.length - 1) setActiveIndex(Math.max(0, sections.length - 1));
-  }, [sections.length, activeIndex]);
+    if (count > 0 && activeIndex > count - 1) goTo(count - 1);
+  }, [count, activeIndex, goTo]);
 
   useEffect(() => {
-    const active = sections[activeIndex];
-    onActiveSectionChange?.(active?.id ?? null);
+    onActiveSectionChange?.(sections[activeIndex]?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections, activeIndex]);
 
   const wrapRef = useRef(null);
-  const [size, setSize] = useState({ w: 320, h: 320 });
+  const [size, setSize] = useState({ w: 360, h: 420 });
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height: h } = entry.contentRect;
-      setSize({ w: width, h: h });
-    });
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(([entry]) => setSize({ w: entry.contentRect.width, h: entry.contentRect.height }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const totalRadius = CENTER_RADIUS + wheel.maxRing * RING_THICKNESS + 40;
+  // One frame of the dial: how big, how narrow the facing section is, the
+  // layout with that narrowing, and how far to turn it.
+  const frame = useMemo(() => {
+    const at = clamp(turn, 0, Math.max(0, count - 1));
+    const lo = Math.floor(at);
+    const hi = Math.min(count - 1, lo + 1);
+    const frac = at - lo;
+    const ringOf = (i) => deepestRing.get(sections[i]?.id) ?? base.maxRing;
+    const outer = count > 0 ? lerp(ringRadii(ringOf(lo)).outer, ringRadii(Math.max(0, ringOf(hi))).outer, frac) : ringRadii(base.maxRing).outer;
 
-  // Bounded by the widest of the currently-rotating siblings — a center
-  // with many children (each a narrow slice) can zoom in a lot; one with
-  // just 1-2 children (each a wide slice, up to a full 180°) can't zoom as
-  // far without its own label running off the side, since a wide slice's
-  // label sits at its slice's midpoint, which is out toward the horizontal
-  // edge for anything approaching half the circle. That's exactly the
-  // signal for when narrowing down to a deeper center is worth it — its
-  // own (typically narrower) children get to use the width its parent's
-  // wide slice couldn't.
-  const maxSectionSpan = sections.length > 0 ? Math.max(...sections.map((s) => s.span)) : Math.PI * 2;
-  const halfSpan = Math.min(maxSectionSpan, Math.PI) / 2;
-  const horizontalReach = totalRadius * Math.sin(halfSpan);
-  const scale = Math.min(MAX_SCALE, size.w / (2 * horizontalReach) || 0.001, size.h / totalRadius || 0.001);
-
-  const wedgeInfo = useMemo(() => {
-    const info = new Map();
-    for (const [id, pos] of wheel.layout.entries()) {
-      const node = nodeById.get(id);
-      if (!node) continue;
-      const { inner, outer } = ringRadii(pos.ringIndex);
-      const angleSpan = pos.angleEnd - pos.angleStart;
-      const midRadius = (inner + outer) / 2;
-      const arcLength = angleSpan * midRadius;
-      const fontSize = fontSizeFor(arcLength);
-      const avgCharWidth = fontSize * 0.58;
-      const estCurvedWidth = node.title.length * avgCharWidth;
-      const useCurved = angleSpan >= MIN_LABEL_ANGLE * 2.5 && arcLength >= estCurvedWidth;
-      info.set(id, { ringIndex: pos.ringIndex, inner, outer, midRadius, useCurved });
+    const usableW = Math.max(40, size.w - SIDE_PAD * 2);
+    let scale = Math.min(MAX_SCALE, size.h / (outer + TOP_ROOM - HUB_HIDDEN * CENTER_RADIUS));
+    const natural = sections[lo]?.span ?? Math.PI * 2;
+    let span = natural;
+    if (count <= 1) {
+      // Nothing to turn to, so the whole upper half has to fit across.
+      scale = Math.min(scale, usableW / (2 * outer));
+    } else {
+      // The widest the facing section can be at that size and still fit across.
+      const fits = 2 * Math.asin(Math.min(1, usableW / (2 * outer * scale)));
+      if (fits < natural) {
+        span = Math.max(fits, MIN_FACING_SPAN);
+        if (span > fits) scale = usableW / (2 * outer * Math.sin(span / 2));
+      }
     }
-    return info;
-  }, [wheel.layout, nodeById]);
 
-  const dragStateRef = useRef({ startX: 0, moved: false });
+    // Weight that gives the facing section `span`, shared out between the
+    // two sections while the dial is between them.
+    let layout = base.layout;
+    if (count > 1 && span < natural - 1e-6) {
+      const total = sections.reduce((sum, s) => sum + s.span, 0);
+      const full = (span * (count - 1)) / (total - span);
+      const weights = new Map([[sections[lo].id, lerp(full, 1, frac)]]);
+      if (hi !== lo) weights.set(sections[hi].id, lerp(1, full, frac));
+      layout = computeWheel(nodes, edges, centerId, null, weights).layout;
+    }
 
-  function handlePointerDown(e) {
-    if (sections.length <= 1) return;
-    dragStateRef.current = { startX: e.clientX, moved: false };
-    setDragging(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
+    const midOf = (i) => {
+      const pos = layout.get(sections[i]?.id);
+      return pos ? (pos.angleStart + pos.angleEnd) / 2 : 0;
+    };
+    const facing = count > 0 ? lerp(midOf(lo), midOf(hi), frac) : 0;
+    return { layout, scale, rotation: -facing };
+  }, [turn, count, sections, deepestRing, base, size, nodes, edges, centerId]);
+
+  const labels = useMemo(
+    () => layoutLabels(frame.layout, titleById, frame.scale, { flipOffset: frame.rotation }),
+    [frame, titleById]
+  );
+
+  // Swipes. The dial follows the finger, about half the screen's width per
+  // section, and settles on the nearest one when it lets go.
+  const drag = useRef(null);
+  const suppressTap = useRef(false);
+
+  function onPointerDown(e) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    suppressTap.current = false;
+    if (count <= 1) return;
+    cancelAnimationFrame(animRef.current);
+    drag.current = { pointerId: e.pointerId, x0: e.clientX, from: turnRef.current, moved: false };
   }
 
-  function handlePointerMove(e) {
-    if (!dragging) return;
-    const dx = e.clientX - dragStateRef.current.startX;
-    if (Math.abs(dx) > TAP_MOVE_THRESHOLD) dragStateRef.current.moved = true;
-    setDragRad(clamp(-dx * DRAG_TO_RAD, -MAX_PREVIEW_RAD, MAX_PREVIEW_RAD));
+  function onPointerMove(e) {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.x0;
+    if (!d.moved && Math.abs(dx) < TAP_SLOP) return;
+    if (!d.moved) {
+      d.moved = true;
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      setDragging(true);
+    }
+    let next = d.from - dx / Math.max(120, size.w * 0.55);
+    // Past either end it gives a little, and resists.
+    if (next < 0) next *= 0.3;
+    if (next > count - 1) next = count - 1 + (next - (count - 1)) * 0.3;
+    setTurn(next);
   }
 
-  function endDrag(e) {
-    if (!dragging) return;
-    const dx = e.clientX - dragStateRef.current.startX;
+  function endDrag(e, cancelled = false) {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    drag.current = null;
+    if (!d.moved) {
+      // A tap: if the dial was still turning, finish the turn.
+      if (turnRef.current !== activeIndex) animateTo(activeIndex);
+      return;
+    }
+    suppressTap.current = true;
     setDragging(false);
-    setDragRad(0);
-    if (Math.abs(dx) > SWIPE_PX_THRESHOLD) {
-      setActiveIndex((i) => clamp(i + (dx < 0 ? 1 : -1), 0, sections.length - 1));
-    }
-  }
-
-  function step(delta) {
-    setActiveIndex((i) => clamp(i + delta, 0, sections.length - 1));
+    const start = Math.round(d.from);
+    let target = Math.round(clamp(turnRef.current, 0, count - 1));
+    const dx = e.clientX - d.x0;
+    if (!cancelled && target === start && Math.abs(dx) > SWIPE_PX) target = start + (dx < 0 ? 1 : -1);
+    goTo(target);
   }
 
   function handleWedgeTap(id) {
-    if (dragStateRef.current.moved) return;
+    if (suppressTap.current) return;
     onSelectNode?.(id);
   }
 
-  const baseRotationRad = -(sections[activeIndex]?.mid ?? 0);
-  const rotationDeg = ((baseRotationRad + dragRad) * 180) / Math.PI;
-  const activeTitle = sections.length > 0 ? nodeById.get(sections[activeIndex]?.id)?.title ?? "" : nodeById.get(centerId)?.title ?? "";
+  const active = sections[activeIndex];
+  const activeTitle = active ? titleById.get(active.id) ?? "" : titleById.get(centerId) ?? "";
+  const pivotTop = size.h + HUB_HIDDEN * CENTER_RADIUS * frame.scale;
+  const rotationDeg = (frame.rotation * 180) / Math.PI;
+
+  const rim = (id, stroke, width) => {
+    const pos = frame.layout.get(id);
+    if (!pos) return null;
+    return (
+      <path
+        key={`${id}-${stroke}`}
+        d={wedgeOutline(pos.ringIndex, pos.angleStart, pos.angleEnd).d}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={width}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        style={{ pointerEvents: "none" }}
+      />
+    );
+  };
+
+  const reach = ringRadii(base.maxRing).outer + TOP_ROOM;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "2px 4px 10px", flexShrink: 0 }}>
-        {overridden && (
-          <button onClick={() => onExitOverride?.()} title="Back to sections" style={{ ...sectionNavBtnStyle, width: "auto", borderRadius: 14, padding: "0 10px" }}>
-            <ChevronLeft size={14} />
+    <div className="section-wheel">
+      <div className="section-wheel__switcher">
+        {count > 1 && (
+          <button
+            type="button"
+            className="btn-icon btn-icon--bordered section-wheel__step"
+            onClick={() => goTo(activeIndex - 1)}
+            disabled={activeIndex === 0}
+            aria-label="Previous section"
+            title="Previous section"
+          >
+            <ChevronLeft size={18} />
           </button>
         )}
-        {sections.length > 1 ? (
-          <>
-            <button onClick={() => step(-1)} disabled={activeIndex === 0} style={sectionNavBtnStyle}>
-              <ChevronLeft size={16} />
-            </button>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, minWidth: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 800, textAlign: "center", padding: "0 4px" }}>{activeTitle}</span>
-              <div style={{ display: "flex", gap: 4 }}>
-                {sections.map((s, i) => (
-                  <span
-                    key={s.id}
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: "50%",
-                      background: i === activeIndex ? "var(--accent-strong)" : "var(--border-strong)",
-                      transition: "background 0.15s",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            <button onClick={() => step(1)} disabled={activeIndex === sections.length - 1} style={sectionNavBtnStyle}>
-              <ChevronRight size={16} />
-            </button>
-          </>
-        ) : (
-          <span style={{ fontSize: 13, fontWeight: 800, textAlign: "center", padding: "0 4px" }}>{activeTitle}</span>
+        <div className="section-wheel__now">
+          <span className="section-wheel__title">{activeTitle}</span>
+          {count > 1 && (
+            <span className="section-wheel__dots" aria-hidden="true">
+              {sections.map((s, i) => (
+                <span key={s.id} className={i === activeIndex ? "on" : ""} />
+              ))}
+            </span>
+          )}
+        </div>
+        {count > 1 && (
+          <button
+            type="button"
+            className="btn-icon btn-icon--bordered section-wheel__step"
+            onClick={() => goTo(activeIndex + 1)}
+            disabled={activeIndex === count - 1}
+            aria-label="Next section"
+            title="Next section"
+          >
+            <ChevronRight size={18} />
+          </button>
         )}
       </div>
 
       <div
         ref={wrapRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", touchAction: "none", cursor: sections.length > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
+        className="section-wheel__dial"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => endDrag(e)}
+        onPointerCancel={(e) => endDrag(e, true)}
+        style={{ cursor: count > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
       >
         <div
           style={{
             position: "absolute",
             left: "50%",
-            top: "100%",
-            width: totalRadius * 2,
-            height: totalRadius * 2,
-            transform: `translate(-50%, -50%) rotate(${rotationDeg}deg) scale(${scale})`,
+            top: pivotTop,
+            width: reach * 2,
+            height: reach * 2,
+            transform: `translate(-50%, -50%) rotate(${rotationDeg}deg) scale(${frame.scale})`,
             transformOrigin: "50% 50%",
-            transition: dragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           }}
         >
-          <svg width={totalRadius * 2} height={totalRadius * 2} viewBox={`${-totalRadius} ${-totalRadius} ${totalRadius * 2} ${totalRadius * 2}`}>
-            {wheel.hasVirtualHub && <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" />}
+          <svg width={reach * 2} height={reach * 2} viewBox={`${-reach} ${-reach} ${reach * 2} ${reach * 2}`} style={{ display: "block", overflow: "visible" }}>
+            {base.hasVirtualHub && !centerId && <circle r={CENTER_RADIUS} fill="var(--surface)" stroke="#ffffff" strokeWidth={2.5} />}
 
-            {[...wheel.layout.entries()].map(([id, pos]) => {
+            {[...frame.layout.entries()].map(([id, pos]) => {
               const node = nodeById.get(id);
-              const v = wedgeInfo.get(id);
-              if (!node || !v) return null;
-              const brightness = brightnessById?.get(id) ?? 0;
-              const visual = getWedgeVisual(v.ringIndex, brightness);
-              const angleSpan = pos.angleEnd - pos.angleStart;
-              const isFullCircle = angleSpan >= Math.PI * 2 - 0.001;
-              const showLabel = angleSpan >= MIN_LABEL_ANGLE;
-              const fontSize = fontSizeFor(angleSpan * v.midRadius);
-              const lineHeight = fontSize * 1.15;
-
+              if (!node) return null;
+              const visual = getWedgeVisual(pos.ringIndex, brightnessById?.get(id) ?? 0);
+              const shape = wedgeOutline(pos.ringIndex, pos.angleStart, pos.angleEnd);
               return (
-                <g key={id} onClick={() => handleWedgeTap(id)} style={{ cursor: "pointer" }}>
-                  {isFullCircle ? (
-                    <circle r={v.outer} fill={visual.fill} stroke={visual.stroke} strokeWidth={visual.strokeWidth} strokeLinejoin="round" filter={visual.glowFilter !== "none" ? visual.glowFilter : undefined} />
-                  ) : (
-                    <path d={roundedWedgePath(v.inner, v.outer, pos.angleStart, pos.angleEnd)} fill={visual.fill} stroke={visual.stroke} strokeWidth={visual.strokeWidth} strokeLinejoin="round" strokeLinecap="round" filter={visual.glowFilter !== "none" ? visual.glowFilter : undefined} />
-                  )}
-                  {node.is_focused && (
-                    isFullCircle ? (
-                      <circle r={v.outer} fill="none" stroke={FOCUS_COLOR} strokeWidth={3} strokeLinejoin="round" />
-                    ) : (
-                      <path d={roundedWedgePath(v.inner, v.outer, pos.angleStart, pos.angleEnd)} fill="none" stroke={FOCUS_COLOR} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
-                    )
-                  )}
-                  {showLabel &&
-                    (v.useCurved ? (
-                      <MobileCurvedLabel id={id} node={node} inner={v.inner} outer={v.outer} pos={pos} fontSize={fontSize} lineHeight={lineHeight} color={visual.labelColor} rotationRad={baseRotationRad + dragRad} />
-                    ) : (
-                      <MobileRadialLabel node={node} inner={v.inner} outer={v.outer} pos={pos} fontSize={fontSize} lineHeight={lineHeight} color={visual.labelColor} rotationRad={baseRotationRad + dragRad} />
-                    ))}
+                <g key={id} className="wheel-wedge" onClick={() => handleWedgeTap(id)}>
+                  <title>{node.title}</title>
+                  <path d={shape.d} fillRule={shape.fillRule} fill={visual.fill} stroke={visual.stroke} strokeWidth={visual.strokeWidth} strokeLinejoin="round" strokeLinecap="round" />
+                  {/* The center disc sits mostly below the edge; its title is in the header. */}
+                  {pos.ringIndex > 0 && <WedgeLabel id={`${uid}-${id}`} label={labels.get(id)} color={visual.labelColor} />}
                 </g>
               );
             })}
+
+            {[...frame.layout.keys()].filter((id) => nodeById.get(id)?.is_focused).map((id) => rim(id, FOCUS_COLOR, 3))}
+            {selectedId && rim(selectedId, HOVER_COLOR, 3.5)}
           </svg>
         </div>
       </div>
     </div>
-  );
-}
-
-const sectionNavBtnStyle = {
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid var(--border)",
-  borderRadius: "50%",
-  width: 28,
-  height: 28,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "inherit",
-  flexShrink: 0,
-};
-
-function MobileCurvedLabel({ id, node, inner, outer, pos, fontSize, lineHeight, color, rotationRad }) {
-  const avgCharWidth = fontSize * 0.58;
-  const arcLength = (pos.angleEnd - pos.angleStart) * ((inner + outer) / 2);
-  const maxCharsPerLine = Math.max(4, Math.floor((arcLength - 20) / avgCharWidth));
-  const maxLines = Math.max(1, Math.min(3, Math.floor((outer - inner) / lineHeight)));
-  const lines = wrapTitle(node.title, maxCharsPerLine, maxLines);
-  const midRadius = (inner + outer) / 2;
-
-  return (
-    <>
-      {lines.map((line, i) => {
-        const offset = (i - (lines.length - 1) / 2) * lineHeight;
-        const radius = midRadius + offset;
-        const pathId = `mobile-wedge-arc-${id}-${i}`;
-        return (
-          <g key={i}>
-            <path id={pathId} d={labelArcPath(radius, pos.angleStart, pos.angleEnd, rotationRad)} fill="none" />
-            <text fontSize={fontSize} fontWeight={700} fill={color} style={{ pointerEvents: "none" }}>
-              <textPath href={`#${pathId}`} startOffset="50%" textAnchor="middle">
-                {line}
-              </textPath>
-            </text>
-          </g>
-        );
-      })}
-    </>
-  );
-}
-
-function MobileRadialLabel({ node, inner, outer, pos, fontSize, lineHeight, color, rotationRad }) {
-  const avgCharWidth = fontSize * 0.58;
-  const available = outer - inner - 16;
-  const maxCharsPerLine = Math.max(3, Math.floor(available / avgCharWidth));
-  const lines = wrapTitle(node.title, maxCharsPerLine, 2);
-  const label = radialLabelTransform(inner, outer, pos.angleStart, pos.angleEnd, rotationRad);
-  const screenAngle = (pos.angleStart + pos.angleEnd) / 2 - Math.PI / 2;
-  const tangentX = -Math.sin(screenAngle);
-  const tangentY = Math.cos(screenAngle);
-
-  return (
-    <>
-      {lines.map((line, i) => {
-        const offset = (i - (lines.length - 1) / 2) * lineHeight;
-        const x = label.x + tangentX * offset;
-        const y = label.y + tangentY * offset;
-        return (
-          <text key={i} x={x} y={y} transform={`rotate(${label.rotateDeg}, ${x}, ${y})`} textAnchor="middle" dominantBaseline="middle" fontSize={fontSize} fontWeight={700} fill={color} style={{ pointerEvents: "none" }}>
-            {line}
-          </text>
-        );
-      })}
-    </>
   );
 }

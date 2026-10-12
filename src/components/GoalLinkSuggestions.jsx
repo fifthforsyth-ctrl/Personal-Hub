@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, Check, ArrowRight, X, Link2, Pencil } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Sparkles, Check, ArrowRight, Link2, Pencil } from "lucide-react";
 import { suggestGoalLinks, applyGoalLinks, fetchLinkStats, fetchGoalPaths } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { useLoad } from "../lib/useLoad";
+import { friendlyError } from "../lib/errors";
+import { useToast } from "./ui/Feedback";
+import LoadError from "./ui/LoadError";
 import GoalPicker from "./GoalPicker";
 import { fmtMinutes } from "../lib/categories";
-import { addDays } from "../lib/planDates";
+import { addDays, parseDateStr, todayStr } from "../lib/planDates";
+import { fmtShortDate } from "../lib/dates";
+import "../styles/goals.css";
 
 // A page small enough that one request finishes well inside the Edge
 // Function's 150-second wall clock. Measured: 25 entries take 23-34s, so 30
@@ -20,89 +26,130 @@ const HARD_CAP_PAGES = 40;
 // selected and still get written; it is the DOM that gives up, not the data.
 const RENDER_CHUNK = 60;
 
-const CONFIDENCE_COLOR = {
-  high: "var(--accent)",
-  medium: "var(--text-2)",
-  low: "var(--text-3)",
-};
+const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+// How the card names its day. The Day page shows any date, and "Link
+// today's 8 entries" under last Tuesday's heading read as if it would touch
+// today. Within the past week it's the weekday; further back, the date.
+function dayWords(date) {
+  const today = todayStr();
+  const near = { [today]: "today", [addDays(today, -1)]: "yesterday", [addDays(today, 1)]: "tomorrow" }[date];
+  if (near) return { name: near, on: near, own: `${near}'s` };
+  const recent = date < today && date >= addDays(today, -6);
+  const name = recent ? parseDateStr(date).toLocaleDateString(undefined, { weekday: "long" }) : fmtShortDate(date);
+  return { name, on: `on ${name}`, own: recent ? `${name}'s` : null };
+}
+
+// "Link yesterday's 8 entries", "Link the 8 entries from Oct 2".
+function linkLabel(day, n) {
+  const what = n == null ? "entries" : n === 1 ? "entry" : `${n.toLocaleString()} entries`;
+  return day.own ? `Link ${day.own} ${what}` : `Link the ${what} from ${day.name}`;
+}
+
+// The goal first, then (fainter, and cut first when space runs out) where
+// it sits on the wheel.
+function GoalName({ path }) {
+  const parts = path.split(" › ");
+  const trail = parts.slice(0, -1).join(" › ");
+  return (
+    <span className="suggest-row__target">
+      <span className="truncate suggest-row__leaf">{parts[parts.length - 1]}</span>
+      {trail && <span className="truncate suggest-row__trail">{trail}</span>}
+    </span>
+  );
+}
 
 // "Be as fluid as I can throughout the day, then have AI put the brass tacks
 // on everything."
 //
-// Category mapping is coarse by nature — every Serve entry lands in the same
+// Category links are coarse by nature — every Serve entry lands in the same
 // place. The descriptions are where the meaning is: "Serve zone making app"
 // and "Help sister Shumway" are both Serve and feed different branches. This
 // reads what was actually written and proposes a link per entry.
 //
 // Nothing is written until accepted, and low-confidence rows are left
-// unchecked by default — a wrong link is worse than none, because it makes
-// the fruits view quietly lie.
+// unticked by default — a wrong link is worse than none, because it makes
+// "what today fed" quietly lie.
 //
 // Every proposal is editable. The model is reading a four-word description
-// and guessing; when it guesses wrong the fix has to be one click away, or
-// you end up accepting links you don't believe to avoid the friction.
+// and guessing; when it guesses wrong the fix has to be one tap away, or you
+// end up accepting links you don't believe to avoid the friction.
 export default function GoalLinkSuggestions({ date, onApplied }) {
   const { user } = useAuth();
-  const [goals, setGoals] = useState([]);
+  const toast = useToast();
   const [editing, setEditing] = useState(null); // entry_id whose goal is being changed
   const [result, setResult] = useState(null);
   const [chosen, setChosen] = useState(new Set());
   const [loading, setLoading] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState(0);
   const [error, setError] = useState(null);
-  const [dayStats, setDayStats] = useState(null);
-  const [backlog, setBacklog] = useState(null);
   const [progress, setProgress] = useState(null);
   const [shown, setShown] = useState(RENDER_CHUNK);
   const stopRef = useRef(false);
+  // Bumped by every run and every change of day. A run that finds another
+  // number has been overtaken — the Day page moved on while it was reading
+  // — and drops what it read rather than show one day's suggestions under
+  // another day's heading.
+  const runRef = useRef(0);
+  // The run a read or a link is in flight for, so a second tap is ignored.
+  const busyRef = useRef(null);
 
   // The backlog window is generous on purpose, and the button says how many
   // entries it is about to read before anything is spent on them.
   const backlogStart = addDays(date, -30);
+  const day = dayWords(date);
 
-  const loadStats = useCallback(async () => {
-    try {
-      const [d, b] = await Promise.all([fetchLinkStats(date, date), fetchLinkStats(backlogStart, addDays(date, -1))]);
-      setDayStats(d);
-      setBacklog(b);
-    } catch {
-      /* counts are a nicety; the buttons still work without them */
-    }
-  }, [date, backlogStart]);
+  const stats = useLoad(
+    () => Promise.all([fetchLinkStats(date, date), fetchLinkStats(backlogStart, addDays(date, -1))]),
+    [date]
+  );
+  const [dayStats, backlog] = stats.data ?? [];
+
+  // Loaded once and held: the picker has to open instantly, and the goals
+  // don't change while you're reviewing a day.
+  const goals = useLoad(() => (user?.id ? fetchGoalPaths(user.id) : []), [user?.id]);
 
   useEffect(() => {
     setResult(null);
-    setApplied(0);
-    loadStats();
-  }, [loadStats]);
-
-  // Loaded once and held: the picker has to open instantly, and the tree
-  // doesn't change while you're reviewing a day.
-  useEffect(() => {
-    if (user?.id) fetchGoalPaths(user.id).then(setGoals).catch(() => {});
-  }, [user?.id]);
+    setEditing(null);
+    setError(null);
+    setLoading(false);
+    setStopping(false);
+    setApplying(false);
+    setProgress(null);
+    const runs = runRef;
+    return () => {
+      runs.current++;
+    };
+  }, [date]);
 
   // Walked a page at a time. A single 120-entry request needs more than the
   // 150 seconds Supabase gives an Edge Function and dies as a 504 having
   // decided nothing, so the loop lives here where it can show progress and
   // keep whatever it has already gathered if a later page fails.
   async function run({ start, end, onlyUnlinked = false }) {
+    if (busyRef.current === runRef.current) return;
+    const mine = ++runRef.current;
+    const current = () => runRef.current === mine;
+    busyRef.current = mine;
     setLoading(true);
+    setStopping(false);
     setError(null);
-    setApplied(0);
     setShown(RENDER_CHUNK);
     stopRef.current = false;
-    setProgress({ done: 0, total: null, pages: 0 });
+    setProgress({ done: 0, total: null });
 
     const gathered = [];
     let offset = 0;
     let matching = null;
     let remaining = 0;
+    let failure = null;
 
     try {
       for (let page = 0; page < HARD_CAP_PAGES; page++) {
         const data = await suggestGoalLinks({ start, end, onlyUnlinked, limit: BATCH, offset });
+        if (!current()) return;
         gathered.push(...(data.links ?? []));
         matching = data.matching ?? matching;
         // An older server that doesn't report this would read as 0 and stop
@@ -110,25 +157,36 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
         // up" mean "catch up thirty". Unknown means keep going.
         remaining = data.remaining_after ?? null;
         offset += BATCH;
-        setProgress({ done: gathered.length, total: matching, pages: page + 1 });
+        setProgress({ done: gathered.length, total: matching });
         if (remaining === 0 || (data.links ?? []).length === 0) break;
         if (stopRef.current) break;
       }
-      setResult({ links: gathered, remaining: remaining ?? 0, matching, stopped: stopRef.current });
-      // Pre-check what the model is confident about; leave the rest to you.
-      setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
     } catch (err) {
-      // A page failing shouldn't throw away the pages that worked.
-      if (gathered.length > 0) {
-        setResult({ links: gathered, remaining: remaining ?? 0, matching, partial: err.message });
-        setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
-      } else {
-        setError(err.message);
-      }
-    } finally {
-      setLoading(false);
-      setProgress(null);
+      if (!current()) return;
+      failure = err;
     }
+
+    busyRef.current = null;
+    setLoading(false);
+    setProgress(null);
+    // A page failing shouldn't throw away the pages that worked.
+    if (failure && gathered.length === 0) {
+      setError(friendlyError(failure, "Couldn't read the entries. Try again."));
+      return;
+    }
+    setResult({
+      links: gathered,
+      remaining: remaining ?? 0,
+      stopped: stopRef.current && !failure,
+      partial: failure ? friendlyError(failure, "The rest didn't come back.") : null,
+    });
+    // Pre-tick what the model is confident about; leave the rest to you.
+    setChosen(new Set(gathered.filter((l) => l.confidence !== "low").map((l) => l.entry_id)));
+  }
+
+  function stop() {
+    stopRef.current = true;
+    setStopping(true);
   }
 
   function toggle(id) {
@@ -145,280 +203,239 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
   function setGoal(entryId, goalId, goalPath) {
     setResult((r) => ({
       ...r,
-      links: r.links.map((l) =>
-        l.entry_id === entryId ? { ...l, goal_id: goalId, goal_path: goalPath, edited: true } : l
-      ),
+      links: r.links.map((l) => (l.entry_id === entryId ? { ...l, goal_id: goalId, goal_path: goalPath, edited: true } : l)),
     }));
     setChosen((prev) => new Set(prev).add(entryId));
     setEditing(null);
   }
 
+  // A long read is minutes of work, so throwing it away can be taken back.
+  function discard() {
+    const mine = runRef.current;
+    const kept = { result, chosen, shown };
+    setResult(null);
+    setEditing(null);
+    toast.show("Suggestions discarded", {
+      actionLabel: "Undo",
+      onAction: () => {
+        if (runRef.current !== mine) return;
+        setResult(kept.result);
+        setChosen(kept.chosen);
+        setShown(kept.shown);
+      },
+    });
+  }
+
   async function apply() {
     const links = result.links.filter((l) => chosen.has(l.entry_id));
-    if (links.length === 0) return;
+    if (links.length === 0 || busyRef.current === runRef.current) return;
+    const mine = runRef.current;
+    busyRef.current = mine;
     setApplying(true);
     try {
       await applyGoalLinks(links);
-      setApplied(links.length);
-      setResult(null);
-      await loadStats();
-      await onApplied?.();
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setApplying(false);
+      toast.error(err, "Couldn't link those entries. Try again.");
+      if (runRef.current === mine) {
+        busyRef.current = null;
+        setApplying(false);
+      }
+      return;
     }
+    toast.show(`Linked ${plural(links.length, "entry", "entries")}`);
+    if (runRef.current === mine) {
+      busyRef.current = null;
+      setApplying(false);
+      setResult(null);
+      stats.reload();
+    }
+    await onApplied?.();
   }
 
+  const nothingLogged = dayStats?.total === 0;
+  const changed = result ? result.links.filter((l) => l.changed).length : 0;
+
   return (
-    <div className="card">
+    <div className="card goal-suggest">
       <div className="card-head">
-        <span className="card-title"><Link2 size={14} />Link minutes to goals</span>
+        <span className="card-title">
+          <Link2 size={14} />
+          Goal links
+        </span>
       </div>
 
       {!result && !loading && (
         <>
-          <p className="card-note" style={{ margin: "0 0 12px" }}>
-            {applied > 0 ? (
-              <>Linked {applied} {applied === 1 ? "entry" : "entries"}.</>
-            ) : (
-              <>
-                Read every description from this day and work out which goal each stretch of time actually fed.
-                {dayStats?.total > 0 && (
-                  <>
-                    {" "}
-                    <span className="faint">
-                      {dayStats.total} {dayStats.total === 1 ? "entry" : "entries"} today
-                      {dayStats.unread > 0 ? `, ${dayStats.unread} not yet read` : ", all of them already read"}
-                      {dayStats.serves_none > 0 && `, ${dayStats.serves_none} read and left serving nothing`}.
-                    </span>
-                  </>
-                )}
-              </>
+          <p className="card-note goal-suggest__intro">
+            Reads every description from this day and works out which goal each stretch of time fed. Nothing changes until you
+            link it.
+            {dayStats?.total > 0 && (
+              <span className="faint">
+                {" "}
+                {plural(dayStats.total, "entry", "entries")}
+                {dayStats.unread > 0 ? `, ${dayStats.unread} not read yet` : ", all read already"}
+                {dayStats.serves_none > 0 && `, ${dayStats.serves_none} ${dayStats.serves_none === 1 ? "doesn't" : "don't"} feed a goal`}.
+              </span>
             )}
           </p>
 
-          <button
-            onClick={() => run({ start: date, end: date })}
-            disabled={dayStats?.total === 0}
-            className="btn-primary"
-            style={{ width: "100%", margin: 0, minHeight: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-          >
+          {stats.error && <LoadError what="this day's counts" error={stats.error} onRetry={stats.reload} stale={Boolean(stats.data)} className="goal-suggest__error" />}
+          {error && (
+            <div className="form-error goal-suggest__error" role="alert">
+              {error}
+            </div>
+          )}
+
+          <button type="button" onClick={() => run({ start: date, end: date })} disabled={nothingLogged} className="btn btn--accent btn--block goal-suggest__go">
             <Sparkles size={15} />
-            {dayStats?.total > 0 ? `Link today's ${dayStats.total} entries` : "Nothing logged today"}
+            {nothingLogged ? `Nothing logged ${day.on}` : linkLabel(day, dayStats?.total)}
           </button>
 
           {backlog?.unread > 0 && (
             <button
+              type="button"
               onClick={() => run({ start: backlogStart, end: addDays(date, -1), onlyUnlinked: true })}
-              className="btn-secondary"
-              style={{ width: "100%", marginTop: 8 }}
+              className="btn btn--block goal-suggest__catch-up"
             >
-              Catch up {backlog.unread} unread from earlier days
+              Catch up {plural(backlog.unread, "unread entry", "unread entries")} from earlier days
             </button>
           )}
 
-          {/* An entry the model read and left serving nothing has no goal,
+          {/* An entry the model read and found feeds no goal has no link,
               which looks exactly like an entry nobody has touched. Saying so
               is the difference between "caught up" and "still 106 to go". */}
           {backlog?.unread === 0 && backlog?.total > 0 && (
-            <p className="faint" style={{ fontSize: 11.5, margin: "10px 0 0", textAlign: "center" }}>
-              Earlier days are caught up — {backlog.linked} linked
-              {backlog.serves_none > 0 && `, ${backlog.serves_none} read and serving nothing`}.
+            <p className="goal-suggest__caught-up">
+              Earlier days are caught up: {backlog.linked} linked
+              {backlog.serves_none > 0 && `, ${backlog.serves_none} ${backlog.serves_none === 1 ? "doesn't" : "don't"} feed a goal`}.
             </p>
           )}
         </>
       )}
 
       {loading && (
-        <div style={{ padding: "14px 0" }}>
-          <p className="empty" style={{ margin: 0 }}>
-            {progress?.done > 0
-              ? `Read ${progress.done}${progress.total ? ` of ${progress.total}` : ""}…`
-              : "Reading…"}
-          </p>
+        <div className="goal-suggest__reading" aria-live="polite">
+          <p className="empty">{progress?.done > 0 ? `Read ${progress.done}${progress.total ? ` of ${progress.total}` : ""}…` : "Reading…"}</p>
           {progress?.total > 0 && (
-            <div style={{ height: 5, background: "var(--inset)", borderRadius: 3, overflow: "hidden", margin: "9px 0 10px" }}>
-              <div
-                style={{
-                  width: `${Math.min(100, (progress.done / progress.total) * 100)}%`,
-                  height: "100%",
-                  background: "var(--accent)",
-                  borderRadius: 3,
-                  transition: "width 300ms ease",
-                }}
-              />
+            <div className="goal-suggest__bar">
+              <div style={{ width: `${Math.min(100, (progress.done / progress.total) * 100)}%` }} />
             </div>
           )}
-          <p className="faint" style={{ fontSize: 11.5, margin: 0, textAlign: "center" }}>
-            A few minutes for a long backlog. Leave this open.
-          </p>
-          <button
-            className="btn-link"
-            style={{ margin: "8px auto 0", display: "block" }}
-            onClick={() => {
-              stopRef.current = true;
-            }}
-          >
-            Stop and review what's read
+          <p className="goal-suggest__hint">A few minutes for a long backlog. Leave this open.</p>
+          <button type="button" className="btn-link goal-suggest__stop" onClick={stop} disabled={stopping}>
+            {stopping ? "Stopping after this batch…" : "Stop and review what's read"}
           </button>
         </div>
       )}
 
-      {error && <div className="form-error" style={{ margin: "10px 0 0" }}>{error}</div>}
-
       {result && result.links.length === 0 && (
-        <p className="empty">Nothing to link on this day.</p>
+        <div className="goal-suggest__empty">
+          <p className="empty">Nothing to link.</p>
+          <button type="button" className="btn btn--sm" onClick={() => setResult(null)}>
+            Done
+          </button>
+        </div>
       )}
 
       {result && result.links.length > 0 && (
         <>
           {result.partial && (
-            <div className="form-error" style={{ margin: "0 0 10px" }}>
-              Stopped early — {result.partial} The {result.links.length} already read are below and still worth
-              accepting.
+            <div className="form-error goal-suggest__error" role="alert">
+              Stopped early. {result.partial} The {result.links.length} already read are below and still worth linking.
             </div>
           )}
+          {goals.error && <LoadError what="your goals" error={goals.error} onRetry={goals.reload} stale={Boolean(goals.data)} className="goal-suggest__error" />}
 
-          <p className="faint" style={{ fontSize: 11.5, margin: "-4px 0 10px" }}>
-            {result.links.filter((l) => l.changed).length} of {result.links.length} would change. Tap a row to include or
-            exclude it, or press the goal underneath to change it. Low-confidence guesses start off, and "serves none" is
-            a real answer — driving and meals usually do.
-            {result.stopped && " Stopped early, at your ask."}
-            {result.remaining > 0 && ` ${result.remaining} more are waiting — accept these, then press again.`}
+          <p className="goal-suggest__how">
+            {changed} of {result.links.length} would change. Tap a row to include it or leave it out, or tap the goal under it to
+            pick another. Low-confidence guesses start unticked, and “No goal” is a real answer — driving and meals usually feed
+            none.
+            {result.stopped && " Stopped early, as you asked."}
+            {result.remaining > 0 && ` ${result.remaining} more are waiting — link these, then catch up again.`}
           </p>
 
           {/* A backlog of three hundred is not read row by row. These are how
               you actually work through one: take the confident ones wholesale,
               then scan for the handful that look wrong. */}
-          <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-            <button className="btn-link" onClick={() => setChosen(new Set(result.links.map((l) => l.entry_id)))}>
-              All
+          <div className="goal-suggest__bulk">
+            <button type="button" className="btn-link" onClick={() => setChosen(new Set(result.links.map((l) => l.entry_id)))}>
+              Select all
             </button>
-            <button className="btn-link" onClick={() => setChosen(new Set())}>
-              None
+            <button type="button" className="btn-link" onClick={() => setChosen(new Set())}>
+              Select none
             </button>
             <button
+              type="button"
               className="btn-link"
               onClick={() => setChosen(new Set(result.links.filter((l) => l.confidence === "high").map((l) => l.entry_id)))}
             >
-              High confidence only
+              Only high confidence
             </button>
-            <span className="mono faint" style={{ fontSize: 10.5, marginLeft: "auto" }}>
-              {chosen.size} selected
-            </span>
+            <span className="goal-suggest__count">{chosen.size} selected</span>
           </div>
 
           {result.links.slice(0, shown).map((link) => {
             const on = chosen.has(link.entry_id);
-            const entry = result.entries?.find?.((e) => e.id === link.entry_id);
+            const what = link.what ?? "Entry";
             return (
-              <div
-                key={link.entry_id}
-                style={{
-                  background: on ? "var(--inset)" : "transparent",
-                  border: `1px solid ${on ? "var(--accent-line)" : "var(--line)"}`,
-                  borderRadius: "var(--r)",
-                  padding: "10px 12px",
-                  marginBottom: 6,
-                }}
-              >
-                <button
-                  onClick={() => toggle(link.entry_id)}
-                  className="row"
-                  style={{ gap: 9, width: "100%", background: "none", border: "none", padding: 0, color: "inherit", textAlign: "left" }}
-                >
-                  <span
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: 5,
-                      border: `1px solid ${on ? "var(--accent)" : "var(--line-strong)"}`,
-                      background: on ? "var(--accent)" : "transparent",
-                      display: "grid",
-                      placeItems: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {on && <Check size={11} color="var(--on-accent)" />}
+              <div key={link.entry_id} className={`suggest-row ${on ? "is-on" : ""}`}>
+                <button type="button" role="checkbox" aria-checked={on} onClick={() => toggle(link.entry_id)} className="suggest-row__toggle">
+                  <span className="suggest-row__box" aria-hidden="true">
+                    {on && <Check size={11} strokeWidth={3} />}
                   </span>
-                  <span className="truncate" style={{ flex: 1, fontSize: 13, fontWeight: 570 }}>
-                    {link.what ?? entry?.what ?? "Entry"}
-                  </span>
-                  {link.minutes > 0 && <span className="mono faint" style={{ fontSize: 10.5, flexShrink: 0 }}>{fmtMinutes(link.minutes)}</span>}
-                  <span
-                    className="mono"
-                    style={{
-                      fontSize: 9.5,
-                      color: link.edited ? "var(--accent)" : CONFIDENCE_COLOR[link.confidence],
-                      textTransform: "uppercase",
-                      flexShrink: 0,
-                    }}
-                  >
+                  <span className="truncate suggest-row__what">{what}</span>
+                  {link.minutes > 0 && <span className="suggest-row__mins">{fmtMinutes(link.minutes)}</span>}
+                  <span className={`suggest-row__sure suggest-row__sure--${link.edited ? "yours" : link.confidence}`}>
                     {link.edited ? "yours" : link.confidence}
                   </span>
                 </button>
 
                 {/* The proposed goal is its own control, not a label. */}
                 <button
+                  type="button"
                   onClick={() => setEditing(link.entry_id)}
-                  className="row"
+                  className="suggest-row__goal"
                   title="Change which goal this fed"
-                  style={{
-                    gap: 6,
-                    marginTop: 7,
-                    marginLeft: 25,
-                    width: "calc(100% - 25px)",
-                    background: "transparent",
-                    border: "1px solid var(--line)",
-                    borderRadius: "var(--r-sm)",
-                    padding: "6px 9px",
-                    color: "inherit",
-                    textAlign: "left",
-                  }}
+                  aria-label={`Change which goal “${what}” fed: now ${link.goal_path ?? "no goal"}`}
                 >
-                  <ArrowRight size={11} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-                  <span className="truncate" style={{ flex: 1, fontSize: 11.5, color: link.goal_path ? "var(--accent)" : "var(--text-3)" }}>
-                    {link.goal_path ?? "No goal — serves none"}
-                  </span>
-                  <Pencil size={11} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+                  <ArrowRight size={11} aria-hidden="true" />
+                  {link.goal_path ? <GoalName path={link.goal_path} /> : <span className="suggest-row__target suggest-row__none">No goal</span>}
+                  <Pencil size={11} aria-hidden="true" />
                 </button>
 
                 {link.changed && link.current_goal && (
-                  <div className="faint" style={{ fontSize: 10.5, marginTop: 5, marginLeft: 25, lineHeight: 1.45 }}>
+                  <div className="suggest-row__note">
                     was {link.current_goal}
-                    {link.current_source === "mapping" ? " (category default)" : ""}
+                    {link.current_source === "mapping" ? " (set by its category)" : ""}
                   </div>
                 )}
 
-                {link.why && !link.edited && (
-                  <div className="faint" style={{ fontSize: 11, marginTop: 5, marginLeft: 25, lineHeight: 1.45 }}>{link.why}</div>
-                )}
+                {link.why && !link.edited && <div className="suggest-row__note">{link.why}</div>}
               </div>
             );
           })}
 
           {result.links.length > shown && (
-            <button className="btn-secondary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setShown((n) => n + RENDER_CHUNK)}>
+            <button type="button" className="btn btn--block goal-suggest__more" onClick={() => setShown((n) => n + RENDER_CHUNK)}>
               Show {Math.min(RENDER_CHUNK, result.links.length - shown)} more of {result.links.length - shown}
             </button>
           )}
 
           {editing && (
             <GoalPicker
-              goals={goals}
+              goals={goals.data ?? []}
               value={result.links.find((l) => l.entry_id === editing)?.goal_id ?? null}
               onPick={(goalId, goalPath) => setGoal(editing, goalId, goalPath)}
               onClose={() => setEditing(null)}
             />
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={() => setResult(null)} className="btn-secondary">
-              <X size={13} />
+          <div className="goal-suggest__actions">
+            <button type="button" onClick={discard} disabled={applying} className="btn">
+              Discard
             </button>
-            <button onClick={apply} disabled={applying || chosen.size === 0} className="btn-primary" style={{ width: "auto", flex: 1, margin: 0 }}>
-              {applying ? "Linking…" : `Link ${chosen.size} ${chosen.size === 1 ? "entry" : "entries"}`}
+            <button type="button" onClick={apply} disabled={applying || chosen.size === 0} className="btn btn--accent goal-suggest__link">
+              {applying ? "Linking…" : `Link ${plural(chosen.size, "entry", "entries")}`}
             </button>
           </div>
         </>
