@@ -576,7 +576,8 @@ journal_entries(date date, thoughts text, gratitude text, gods_hand text, q_savi
 daily_walk(date date, verse_ref text, verse_text text, prompt text)
   — the verse and prompt on the morning's Walk with God card.
 prayer_logs(id, prayed_at timestamptz, context text, content text, felt_response text, tags text[])
-spiritual_experiences(id, occurred_at timestamptz, kind text, what_came text, acted_on boolean, action_taken text)
+spiritual_experiences(id, occurred_at timestamptz, kind text 'prompting'|'impression'|'answer'|'tender_mercy'|'comfort'|'warning'|'insight', what_came text, acted_on boolean, action_taken text, follow_up_notes text)
+  — promptings, tender mercies and the like. acted_on true means the entry is closed, not that something was done: one closed with action_taken and follow_up_notes both empty was marked "nothing to do". Count a prompting as followed only when action_taken is filled in.
 study_notes(id, title text, body text, studied_on date, source_ref text, ai_theme text, ai_summary text)
 nodes(id, title text, description text, is_completed boolean, is_focused boolean, last_activity_at timestamptz) and node_edges(child_id, parent_id) — the goal tree.
 user_categories(id, name text, color text, family text, archived boolean)
