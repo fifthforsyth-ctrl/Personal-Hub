@@ -108,12 +108,13 @@ export async function startTimeEntry(userId, { categories, description, subcateg
   return data;
 }
 
-// A stretch of time logged after the fact — ends now, started `minutes` ago.
-export async function logPastTimeEntry(userId, { categories, description, minutes }) {
+// A stretch of time logged after the fact. With no `startedAt` it ends now
+// and started `minutes` ago; with one (a past day's page) it starts there.
+export async function logPastTimeEntry(userId, { categories, description, minutes, startedAt }) {
   const tags = (categories ?? []).filter(Boolean);
   if (tags.length === 0) throw new Error("Pick at least one category.");
-  const ended = new Date();
-  const started = new Date(ended.getTime() - minutes * 60000);
+  const started = startedAt ? new Date(startedAt) : new Date(Date.now() - minutes * 60000);
+  const ended = new Date(started.getTime() + minutes * 60000);
 
   const { data, error } = await supabase
     .from("time_log_entries")
@@ -189,17 +190,21 @@ export async function fetchTimeEntriesForDate(userId, dateStr) {
     .select("*")
     .eq("user_id", userId)
     .gte("started_at", start.toISOString())
-    .lt("started_at", end.toISOString());
+    .lt("started_at", end.toISOString())
+    .order("started_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function logWinLoss(userId, { kind, habitLabel, goalNodeId, note }) {
-  const { data, error } = await supabase
-    .from("win_losses")
-    .insert({ user_id: userId, kind, habit_label: habitLabel, goal_node_id: goalNodeId || null, note: note || null })
-    .select()
-    .single();
+// A tap made on the phone carries its own id and time, so a tap that waited
+// offline lands on the day it was made, and sending it twice can't make two
+// rows: the second insert hits the same id and is reported as a duplicate
+// (code 23505), which the outbox treats as already saved.
+export async function logWinLoss(userId, { kind, habitLabel, goalNodeId, note, id, occurredAt }) {
+  const row = { user_id: userId, kind, habit_label: habitLabel, goal_node_id: goalNodeId || null, note: note || null };
+  if (id) row.id = id;
+  if (occurredAt) row.occurred_at = occurredAt;
+  const { data, error } = await supabase.from("win_losses").insert(row).select().single();
   if (error) throw error;
   return data;
 }
@@ -1398,6 +1403,17 @@ export async function bankDay(userId, dateStr, synopsis) {
   if (error) throw error;
 }
 
+// A day banked while the assistant was down has no synopsis; this fills it in
+// later without touching when the day was banked.
+export async function saveDaySynopsis(userId, dateStr, synopsis) {
+  const { error } = await supabase
+    .from("day_plans")
+    .update({ synopsis: synopsis || null })
+    .eq("user_id", userId)
+    .eq("date", dateStr);
+  if (error) throw error;
+}
+
 // Reopening a banked day keeps the synopsis — you're editing the day, not
 // throwing away what was written about it.
 export async function unbankDay(userId, dateStr) {
@@ -1705,11 +1721,13 @@ export async function scoreSelectionItem(itemId, score, feedback) {
 
 // The device's own clock is the only place the zone is actually known, so the
 // app writes it whenever it loads — that's what the midnight job reads.
+// Best effort: a miss (no signal) just waits for the next load, so it's
+// logged rather than shown.
 export async function syncProfileTimezone(userId) {
   const tz = localZone();
   await supabase.from("profiles").update({ timezone: tz }).eq("id", userId).then(
-    () => {},
-    () => {}
+    ({ error }) => error && console.warn(error),
+    (err) => console.warn(err)
   );
 }
 

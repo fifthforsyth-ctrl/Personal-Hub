@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
+import { friendlyError } from "../../lib/errors";
 
 // The evening's four cards.
 //
@@ -24,6 +25,8 @@ const FALLBACK = {
   savior: "Where did you feel closest to the Savior today, and where do you want to be closer tomorrow?",
   learn: "What did today teach you that you want to carry into tomorrow?",
 };
+
+const KEYS = ["godsHand", "qSavior", "qLearn", "thoughts"];
 
 function cardsFor(journal) {
   return [
@@ -90,35 +93,96 @@ function toState(journal) {
   };
 }
 
+const same = (a, b) => KEYS.every((k) => (a[k] ?? "") === (b[k] ?? ""));
+
+// What you type goes to the phone first and stays there until the Hub has it,
+// so a dropped signal, a closed app or a failed save never costs you a word.
+function draftKey(userId, date) {
+  return `hub.reflection-draft.${userId}.${date}`;
+}
+
+function readDraft(userId, date) {
+  try {
+    return JSON.parse(localStorage.getItem(draftKey(userId, date)) ?? "null");
+  } catch (err) {
+    console.warn(err);
+    return null;
+  }
+}
+
+function writeDraft(userId, date, answers) {
+  try {
+    localStorage.setItem(draftKey(userId, date), JSON.stringify({ answers, at: Date.now() }));
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+function clearDraft(userId, date) {
+  try {
+    localStorage.removeItem(draftKey(userId, date));
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+// A draft only wins over the saved answers when it was written after them
+// (an older draft from this phone mustn't undo what you saved elsewhere).
+function startingAnswers(userId, date, journal) {
+  const saved = toState(journal);
+  const draft = readDraft(userId, date);
+  const savedAt = journal?.updated_at ? Date.parse(journal.updated_at) : 0;
+  if (draft?.answers && draft.at > savedAt) return { ...saved, ...draft.answers };
+  if (draft) clearDraft(userId, date);
+  return saved;
+}
+
 // `moments` are the times you noted God's hand during the day (from the
 // Walk with God card), shown under the first question so tonight's answer
 // can start from them.
+//
+// Mount this only once the day has loaded, keyed by the date: what it starts
+// from is then the saved answers (or a newer draft), and nothing that arrives
+// later can wipe what's being typed.
 export default function ReflectionFlow({ userId, date, journal, moments = [], onSaved }) {
-  const [answers, setAnswers] = useState(() => toState(journal));
+  const [answers, setAnswers] = useState(() => startingAnswers(userId, date, journal));
   const [questions, setQuestions] = useState(null);
   const [step, setStep] = useState(0);
   const [running, setRunning] = useState(false);
   const [preparing, setPreparing] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  // What the database holds, as far as this page knows: only answers that
+  // differ from it are sent, so an untouched empty box never blanks a saved one.
+  const saved = useRef(toState(journal));
+  const latest = useRef(answers);
+  latest.current = answers;
+  const queue = useRef(Promise.resolve(true));
 
   useEffect(() => {
-    setAnswers(toState(journal));
-  }, [journal, date]);
+    if (same(answers, saved.current)) clearDraft(userId, date);
+    else writeDraft(userId, date, answers);
+  }, [answers, userId, date]);
 
+  // Words left on this phone by a save that didn't go through are sent as
+  // soon as the evening opens again.
   useEffect(() => {
-    setRunning(false);
-    setStep(0);
-    setQuestions(null);
-  }, [date]);
+    if (!same(latest.current, saved.current)) save();
+    // Once, on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const completed = Boolean(journal?.reflection_completed_at);
   const written = answeredCards(journal);
   const cards = cardsFor({ ...(journal ?? {}), ...(questions ?? {}) });
+  const allEmpty = KEYS.every((k) => !(answers[k] ?? "").trim());
 
   async function start() {
     setStep(0);
-    setError(null);
+    setNotice(null);
     // Tonight's questions are written the first time you start. If they
     // already exist on the row, they're kept: the question you were asked is
     // part of the record.
@@ -128,7 +192,8 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         const q = await generateReflectionQuestions(date);
         setQuestions({ gods_hand_nudge: q.gods_hand_nudge, q_savior_prompt: q.savior_question, q_learn_prompt: q.learn_question });
       } catch (err) {
-        setError(`Couldn't write tonight's questions (${err.message}). Using general ones instead.`);
+        console.warn(err);
+        setNotice("Couldn't write tonight's questions, so these are general ones.");
       } finally {
         setPreparing(false);
       }
@@ -136,19 +201,43 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     setRunning(true);
   }
 
-  async function save({ finish = false } = {}) {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
+  // Saves run one after another, each sending whatever has changed by the
+  // time it starts, so a slow save can never land after a newer one.
+  function save({ finish = false } = {}) {
+    const run = queue.current.then(() => sendChanges(finish));
+    queue.current = run;
+    return run;
+  }
+
+  async function sendChanges(finish) {
+    const changed = {};
+    for (const k of KEYS) if (latest.current[k] !== saved.current[k]) changed[k] = latest.current[k];
+    if (!finish && Object.keys(changed).length === 0) return true;
+    setSaving(true);
     try {
-      await saveJournalEntry(userId, date, { ...answers, completed: finish });
-      if (finish) setRunning(false);
-      await onSaved?.();
+      await saveJournalEntry(userId, date, { ...changed, completed: finish });
+      saved.current = { ...saved.current, ...changed };
+      if (same(latest.current, saved.current)) clearDraft(userId, date);
+      setError(null);
+      return true;
     } catch (err) {
-      setError(err.message);
+      setError(`${friendlyError(err, "Couldn't save that.")} What you wrote is kept on this phone.`);
+      return false;
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
+  }
+
+  // Leaving the cards (Finish, or Save & close) is the one time the page
+  // around this reloads; Next only saves.
+  async function close({ finish }) {
+    if (closing) return;
+    setClosing(true);
+    const ok = await save({ finish });
+    setClosing(false);
+    if (!ok) return;
+    setRunning(false);
+    await onSaved?.();
   }
 
   // --- not started ---------------------------------------------------------
@@ -185,6 +274,11 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
             </button>
           </>
         )}
+        {!same(answers, saved.current) && (
+          <p className="muted" style={{ fontSize: 12.5, margin: "10px 0 0" }}>
+            Some of what you wrote is only on this phone so far. It's waiting for you when you continue.
+          </p>
+        )}
         {error && <div className="form-error" style={{ marginTop: 12 }}>{error}</div>}
       </div>
     );
@@ -198,28 +292,35 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     <div className="card card--accent reflection-card">
       <div className="card-head">
         <span className="card-title"><PenLine size={14} />Reflection</span>
-        <span className="mono faint" style={{ fontSize: 11.5 }}>{step + 1} / {cards.length}</span>
+        <span className="mono faint" style={{ fontSize: 11.5 }}>
+          {saving ? "Saving… · " : ""}
+          {step + 1} / {cards.length}
+        </span>
       </div>
 
       {/* Steps rather than a bar: you can see how many are left and jump
           back to one you want to change. */}
-      <div className="row" style={{ gap: 4, marginBottom: 18 }}>
+      <div className="reflection-steps">
         {cards.map((c, i) => (
           <button
             key={c.key}
-            onClick={() => setStep(i)}
-            title={c.label}
-            style={{
-              flex: 1,
-              height: 4,
-              borderRadius: 999,
-              border: "none",
-              padding: 0,
-              background: i === step ? "var(--accent)" : (answers[c.key] ?? "").trim() ? "var(--accent-line)" : "var(--inset)",
+            type="button"
+            onClick={() => {
+              if (i !== step) save();
+              setStep(i);
             }}
+            title={c.label}
+            aria-label={`${c.label}${i === step ? " (this card)" : ""}`}
+            aria-current={i === step ? "step" : undefined}
+            className={
+              "reflection-step" +
+              (i === step ? " reflection-step--here" : (answers[c.key] ?? "").trim() ? " reflection-step--done" : "")
+            }
           />
         ))}
       </div>
+
+      {notice && <p className="reflection-nudge" style={{ marginTop: 0 }}>{notice}</p>}
 
       <div className="eyebrow" style={{ marginBottom: 6 }}>{card.label}</div>
       <p className="question">{card.question}</p>
@@ -240,25 +341,40 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         value={answers[card.key]}
         onChange={(e) => setAnswers((a) => ({ ...a, [card.key]: e.target.value }))}
         placeholder={card.placeholder}
+        aria-label={card.question}
         style={{ minHeight: 148, fontFamily: "var(--font-serif)", fontSize: 15 }}
         autoFocus
       />
 
-      {error && <div className="form-error" style={{ marginTop: 12 }}>{error}</div>}
+      {error && (
+        <div className="form-error row row--between" style={{ marginTop: 12, gap: 10, flexWrap: "wrap" }}>
+          <span>{error}</span>
+          <button type="button" className="btn btn--sm" onClick={() => save()} disabled={saving}>
+            Try again
+          </button>
+        </div>
+      )}
 
       <div className="row row--between" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-        <button className="btn btn--ghost" onClick={() => { save(); setRunning(false); }} disabled={busy}>
+        <button className="btn btn--ghost" onClick={() => close({ finish: false })} disabled={closing}>
           Save &amp; close
         </button>
         <div className="row" style={{ gap: 8 }}>
-          <button className="btn" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
+          <button
+            className="btn"
+            onClick={() => {
+              save();
+              setStep((s) => Math.max(0, s - 1));
+            }}
+            disabled={step === 0}
+          >
             <ChevronLeft size={14} />
             Back
           </button>
           {isLast ? (
-            <button className="btn btn--accent" onClick={() => save({ finish: true })} disabled={busy}>
+            <button className="btn btn--accent" onClick={() => close({ finish: !allEmpty })} disabled={closing}>
               <Check size={15} />
-              {busy ? "Saving…" : "Finish reflection"}
+              {closing ? "Saving…" : allEmpty ? "Finish without writing" : "Finish reflection"}
             </button>
           ) : (
             <button
@@ -267,7 +383,6 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
                 save();
                 setStep((s) => s + 1);
               }}
-              disabled={busy}
             >
               Next
               <ChevronRight size={14} />

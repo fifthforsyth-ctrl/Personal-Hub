@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import { saveChunkNotes, fetchChunkHighlights, createCardFromChunk, fetchNotes } from "../../lib/api";
 import { resolveHighlights, splitParagraphs, segmentsFor, selectionInfo, findInSource } from "../../lib/noteText";
 import { NOTE_KINDS, kindOf } from "../../lib/noteKinds";
+import { friendlyError } from "../../lib/errors";
 
 // Meeting notes, kept where the meeting was.
 //
@@ -24,14 +25,18 @@ export default function ChunkNotes({ chunk, date }) {
   const [barPos, setBarPos] = useState(null);
   const [kindMenu, setKindMenu] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
   const bodyRef = useRef(null);
 
+  // Highlights and kept cards only decorate the notes, so the notes still
+  // show without them.
   const reload = useCallback(async () => {
     if (!user?.id) return;
-    const [h, all] = await Promise.all([
-      fetchChunkHighlights(user.id, [chunk.id]).catch(() => []),
-      fetchNotes(user.id).catch(() => []),
-    ]);
+    const quietly = (err) => {
+      console.warn(err);
+      return [];
+    };
+    const [h, all] = await Promise.all([fetchChunkHighlights(user.id, [chunk.id]).catch(quietly), fetchNotes(user.id).catch(quietly)]);
     setHighlights(h);
     setCards(all.filter((n) => n.origin_chunk_id === chunk.id));
   }, [user?.id, chunk.id]);
@@ -81,20 +86,25 @@ export default function ChunkNotes({ chunk, date }) {
   }
 
   async function save() {
+    if (busy) return;
     setBusy(true);
+    setError(null);
     try {
       await saveChunkNotes(chunk.id, notes);
       setSaved(notes);
       setEditing(false);
       await reload();
+    } catch (err) {
+      setError(friendlyError(err, "Couldn't save the notes. Try again."));
     } finally {
       setBusy(false);
     }
   }
 
   async function makeCard(kind) {
-    if (!selection) return;
+    if (!selection || busy) return;
     setBusy(true);
+    setError(null);
     try {
       await createCardFromChunk(user.id, {
         chunkId: chunk.id,
@@ -107,6 +117,8 @@ export default function ChunkNotes({ chunk, date }) {
       });
       clearSelection();
       await reload();
+    } catch (err) {
+      setError(friendlyError(err, "Couldn't keep that as a card. Try again."));
     } finally {
       setBusy(false);
     }
@@ -128,11 +140,28 @@ export default function ChunkNotes({ chunk, date }) {
           <ChevronDown size={12} />
           Notes
         </button>
-        <button className="btn-link" onClick={() => (editing ? save() : setEditing(true))} disabled={busy}>
-          {editing ? <Check size={12} /> : <NotebookPen size={12} />}
-          {editing ? "Done" : saved ? "Edit" : "Write"}
-        </button>
+        <span className="row" style={{ gap: 14 }}>
+          {editing && (
+            <button
+              className="btn-link"
+              onClick={() => {
+                setNotes(saved);
+                setEditing(false);
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          )}
+          <button className="btn-link" onClick={() => (editing ? save() : setEditing(true))} disabled={busy}>
+            {editing ? <Check size={12} /> : <NotebookPen size={12} />}
+            {editing ? (busy ? "Saving…" : "Save notes") : saved ? "Edit" : "Write"}
+          </button>
+        </span>
       </div>
+
+      {error && <div className="form-error" style={{ marginBottom: 10 }}>{error}</div>}
 
       {editing ? (
         <textarea
@@ -195,10 +224,17 @@ export default function ChunkNotes({ chunk, date }) {
                 <StickyNote size={13} />
                 Keep this
               </button>
-              <button className="btn btn--accent" style={{ padding: "6px 6px" }} onClick={() => setKindMenu((v) => !v)} title="Keep it as a particular kind">
+              <button
+                className="btn btn--accent"
+                style={{ padding: "6px 6px" }}
+                onClick={() => setKindMenu((v) => !v)}
+                aria-label="Keep it as a particular kind"
+                title="Keep it as a particular kind"
+                aria-expanded={kindMenu}
+              >
                 <ChevronDown size={13} />
               </button>
-              <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={clearSelection}>
+              <button className="btn-icon" onClick={clearSelection} aria-label="Cancel" title="Cancel">
                 <X size={14} />
               </button>
 
@@ -233,7 +269,7 @@ export default function ChunkNotes({ chunk, date }) {
             </div>
           )}
 
-          <p className="faint" style={{ fontSize: 11, marginTop: 4 }}>
+          <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
             Select any line to keep it as a card. The card points back here, so the full notes are always one press away.
           </p>
         </div>
