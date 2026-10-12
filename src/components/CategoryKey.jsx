@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Palette, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchCategories } from "../lib/api";
 import { FAMILIES, familyFor, colorFor, setCategoryColors } from "../lib/categories";
+import { useLoad } from "../lib/useLoad";
+import LoadError from "./ui/LoadError";
 
 // What the colours on every ring in this tab actually mean.
 //
@@ -13,20 +15,19 @@ import { FAMILIES, familyFor, colorFor, setCategoryColors } from "../lib/categor
 // nobody anything.
 export default function CategoryKey({ defaultOpen = true }) {
   const { user } = useAuth();
-  const [categories, setCategories] = useState([]);
   const [open, setOpen] = useState(defaultOpen);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    fetchCategories(user.id)
-      .then((cats) => {
-        setCategoryColors(cats);
-        setCategories(cats);
-      })
-      .catch(() => {});
+  const { data: categories, error, reload } = useLoad(async () => {
+    if (!user?.id) return [];
+    const cats = await fetchCategories(user.id);
+    setCategoryColors(cats);
+    return cats;
   }, [user?.id]);
 
-  if (categories.length === 0) return null;
+  if (error && !categories) {
+    return <LoadError what="the colour key" error={error} onRetry={reload} className="category-key__error" />;
+  }
+  if (!categories || categories.length === 0) return null;
 
   const groups = FAMILIES.map((f) => ({
     ...f,
@@ -38,7 +39,8 @@ export default function CategoryKey({ defaultOpen = true }) {
       <button
         onClick={() => setOpen((v) => !v)}
         className="row"
-        style={{ gap: 7, width: "100%", background: "none", border: "none", color: "inherit", padding: 0, textAlign: "left" }}
+        aria-expanded={open}
+        style={{ gap: 7, width: "100%", minHeight: 36, background: "none", border: "none", color: "inherit", padding: 0, textAlign: "left" }}
       >
         {open ? <ChevronDown size={14} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} style={{ flexShrink: 0 }} />}
         <span className="card-title" style={{ margin: 0 }}><Palette size={14} />Colour key</span>

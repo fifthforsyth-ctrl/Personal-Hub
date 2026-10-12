@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { Repeat, Plus, Trash2, Check, X } from "lucide-react";
+import { useState } from "react";
+import { Repeat, Plus } from "lucide-react";
 import { fetchStandingBlocks, addStandingBlock, removeStandingBlock } from "../../lib/api";
 import { colorFor } from "../../lib/categories";
-import { fmtTime } from "../../lib/planDates";
+import { fmtTimeRange } from "../../lib/planDates";
+import { useLoad } from "../../lib/useLoad";
+import { useToast, useConfirm } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -12,113 +15,133 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 // already on the calendar. Moving or deleting one week's copy leaves the
 // rest alone.
 export default function StandingBlocks({ userId, categories, onChanged }) {
-  const [blocks, setBlocks] = useState([]);
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { data: blocks, error, reload } = useLoad(() => fetchStandingBlocks(), []);
   const [draft, setDraft] = useState(null);
-  const [error, setError] = useState(null);
-
-  const load = useCallback(async () => {
-    setBlocks(await fetchStandingBlocks().catch(() => []));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [saving, setSaving] = useState(false);
+  const [stopping, setStopping] = useState(null);
 
   async function save() {
+    if (saving) return;
+    if (draft.start === draft.end) return toast.show("It can't start and end at the same time.");
+    setSaving(true);
     try {
       await addStandingBlock(userId, draft);
       setDraft(null);
-      setError(null);
-      await load();
+      await reload();
       await onChanged?.();
     } catch (err) {
-      setError(err.message);
+      toast.error(err, "Couldn't add the standing block.");
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function remove(id) {
+  // Stopping takes every upcoming copy off the calendar at once, so it asks.
+  async function stop(b) {
+    if (stopping) return;
+    const yes = await confirm({
+      title: `Stop “${b.title}” on ${DAYS[b.weekday]}s?`,
+      body: "Its upcoming copies come off the calendar. Past ones stay as they were.",
+      confirmLabel: "Stop it",
+    });
+    if (!yes) return;
+    setStopping(b.id);
     try {
-      await removeStandingBlock(id);
-      await load();
+      await removeStandingBlock(b.id);
+      await reload();
       await onChanged?.();
+      toast.show(`Stopped “${b.title}”`);
     } catch (err) {
-      setError(err.message);
+      toast.error(err, "Couldn't stop that standing block.");
+    } finally {
+      setStopping(null);
     }
   }
 
   return (
     <>
-      <div className="section-label" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+      <div className="section-label" style={{ marginBottom: 8 }}>
         <Repeat size={12} />
         Every week
       </div>
 
-      {blocks.map((b) => (
-        <div key={b.id} className="row" style={{ gap: 7, alignItems: "center", padding: "3px 0" }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: b.category ? colorFor(b.category) : "var(--line)", flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, fontWeight: 570 }}>{b.title}</span>
-          <span className="mono faint" style={{ fontSize: 10.5 }}>
-            {DAYS[b.weekday]}s · {fmtTime(b.start_time)}–{fmtTime(b.end_time)}
+      {error && !blocks && <LoadError what="your standing blocks" error={error} onRetry={reload} />}
+
+      {(blocks ?? []).map((b) => (
+        <div key={b.id} className="standing-row">
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: b.category ? colorFor(b.category) : "var(--line-strong)", flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 570 }}>{b.title}</span>{" "}
+            <span className="mono faint" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>
+              {DAYS[b.weekday]}s · {fmtTimeRange(b.start_time, b.end_time)}
+            </span>
           </span>
           <button
-            className="btn-link"
-            style={{ marginLeft: "auto", color: "var(--text-3)" }}
-            onClick={() => remove(b.id)}
-            title="Stop — removes the upcoming ones, keeps the past"
+            className="btn btn--sm btn--ghost"
+            onClick={() => stop(b)}
+            disabled={stopping === b.id}
+            title="Stop — takes off the upcoming ones, keeps the past"
           >
-            <Trash2 size={12} />
+            {stopping === b.id ? "Stopping…" : "Stop"}
           </button>
         </div>
       ))}
 
       {draft ? (
-        <div style={{ border: "1px solid var(--accent-line)", borderRadius: "var(--r)", padding: 11, marginTop: 6 }}>
+        <div className="plan-inline-form">
           <input
             className="input"
             value={draft.title}
             placeholder="What happens every week"
+            aria-label="What happens every week"
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             style={{ width: "100%", fontWeight: 570 }}
             autoFocus
           />
-          <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <select className="input" value={draft.weekday} onChange={(e) => setDraft({ ...draft, weekday: e.target.value })} style={{ width: "auto" }}>
+          <div className="standing-form__row">
+            <select className="input" value={draft.weekday} aria-label="Day" onChange={(e) => setDraft({ ...draft, weekday: e.target.value })}>
               {DAYS.map((d, i) => (
                 <option key={d} value={i}>{d}s</option>
               ))}
             </select>
-            <input className="input" type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} style={{ width: "auto" }} />
-            <span className="faint" style={{ fontSize: 12 }}>to</span>
-            <input className="input" type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} style={{ width: "auto" }} />
-            <select className="input" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} style={{ width: "auto" }}>
+            <select className="input" value={draft.category} aria-label="Category" onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
               <option value="">No category</option>
               {(categories ?? []).map((c) => (
                 <option key={c.id ?? c.name} value={c.name}>{c.name}</option>
               ))}
             </select>
           </div>
-          <div className="row" style={{ gap: 8, marginTop: 11 }}>
-            <button className="btn btn--accent" onClick={save} disabled={!draft.title.trim() || !draft.start || !draft.end}>
-              <Check size={14} />
-              Save
+          <div className="standing-form__row">
+            <label className="standing-form__time">
+              <span className="faint">From</span>
+              <input className="input time-input" type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} />
+            </label>
+            <label className="standing-form__time">
+              <span className="faint">to</span>
+              <input className="input time-input" type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} />
+            </label>
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 12 }}>
+            <button className="btn btn--accent" onClick={save} disabled={saving || !draft.title.trim() || !draft.start || !draft.end}>
+              {saving ? "Saving…" : "Save"}
             </button>
-            <button className="btn-secondary" onClick={() => setDraft(null)} style={{ flex: "0 0 auto", width: "auto" }}>
-              <X size={13} />
+            <button className="btn" onClick={() => setDraft(null)} disabled={saving}>
+              Cancel
             </button>
           </div>
         </div>
       ) : (
         <button
           className="btn-link"
-          style={{ marginTop: 6, fontSize: 11.5 }}
+          style={{ marginTop: 6, minHeight: 32 }}
           onClick={() => setDraft({ title: "", weekday: 6, start: "09:00", end: "10:00", category: "" })}
         >
-          <Plus size={11} />
-          Standing block
+          <Plus size={12} />
+          Add a standing block
         </button>
       )}
-
-      {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
     </>
   );
 }

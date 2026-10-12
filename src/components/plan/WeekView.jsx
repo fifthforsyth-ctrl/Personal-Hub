@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { fetchRangePlan, fetchRangeTimeByDay, fetchPlanSummary, fetchDayRings } from "../../lib/api";
+import { useLoad } from "../../lib/useLoad";
+import LoadError from "../ui/LoadError";
 import { DayCard } from "../DayCard";
 import WeekPlanner from "./WeekPlanner";
 import { weekDays } from "../../lib/planDates";
@@ -9,58 +10,43 @@ import { weekDays } from "../../lib/planDates";
 // Same object as the one on the day page, at a smaller scale — the ring and
 // the blocks are what survive the shrink, because "what shape was this week"
 // is a question about when things happened, not how long they took.
-export default function WeekView({ anchorDate }) {
+export default function WeekView({ anchorDate, onBusyChange }) {
   const { user } = useAuth();
   const days = weekDays(anchorDate);
-  const [chunks, setChunks] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [timeByDay, setTimeByDay] = useState(new Map());
-  const [summaryByDay, setSummaryByDay] = useState(new Map());
-  const [ringsByDay, setRingsByDay] = useState(new Map());
-  const [loading, setLoading] = useState(true);
-
   const start = days[0];
   const end = days[6];
 
-  const reload = useCallback(async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    try {
-      const [plan, time, summary, rings] = await Promise.all([
-        fetchRangePlan(user.id, start, end).catch(() => ({ chunks: [], tasks: [] })),
-        fetchRangeTimeByDay(user.id, start, end).catch(() => new Map()),
-        fetchPlanSummary(start, end).catch(() => []),
-        fetchDayRings(start, end).catch(() => new Map()),
-      ]);
-      setChunks(plan.chunks);
-      setTasks(plan.tasks);
-      setTimeByDay(time);
-      setSummaryByDay(new Map(summary.map((r) => [r.day, r])));
-      setRingsByDay(rings);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, start, end]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const { data, error, reload } = useLoad(async () => {
+    if (!user?.id) return null;
+    const [plan, time, summary, rings] = await Promise.all([
+      fetchRangePlan(user.id, start, end),
+      fetchRangeTimeByDay(user.id, start, end),
+      fetchPlanSummary(start, end),
+      fetchDayRings(start, end),
+    ]);
+    return { plan, time, summary: new Map(summary.map((r) => [r.day, r])), rings };
+  }, [user?.id, start]);
 
   return (
     <>
-      <WeekPlanner anchorDate={anchorDate} onCommitted={reload} />
+      <WeekPlanner anchorDate={anchorDate} onCommitted={reload} onBusyChange={onBusyChange} />
 
-      <div className="week-grid" style={{ opacity: loading ? 0.55 : 1, transition: "opacity 0.2s" }}>
+      {error && !data && <LoadError what="this week" error={error} onRetry={reload} className="plan-gap" />}
+      {error && data && <LoadError stale error={error} onRetry={reload} className="plan-gap" />}
+
+      <div className="week-grid" style={{ opacity: data ? 1 : 0.55, transition: "opacity 0.2s" }}>
         {days.map((date) => (
           <DayCard
             key={date}
             date={date}
             to={`/day/${date}`}
-            chunks={chunks.filter((c) => c.date === date)}
-            tasks={tasks.filter((t) => t.date === date)}
-            timeRows={timeByDay.get(date) ?? []}
-            ringArcs={ringsByDay.get(date) ?? []}
-            banked={Boolean(summaryByDay.get(date)?.banked)}
+            pending={!data}
+            chunks={(data?.plan.chunks ?? []).filter((c) => c.date === date)}
+            tasks={(data?.plan.tasks ?? []).filter((t) => t.date === date)}
+            timeRows={data?.time.get(date) ?? []}
+            ringArcs={data?.rings.get(date) ?? []}
+            tracked={data?.summary.get(date)?.logged_minutes ?? 0}
+            banked={Boolean(data?.summary.get(date)?.banked)}
           />
         ))}
       </div>

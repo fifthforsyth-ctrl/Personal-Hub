@@ -97,7 +97,7 @@ export default function DayRing({
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke="var(--bg)"
+              stroke="var(--card)"
               strokeWidth={m === 720 ? 1.5 : 0.9}
               opacity={m === 720 ? 0.85 : 0.5}
             />
