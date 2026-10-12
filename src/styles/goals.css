@@ -335,6 +335,9 @@
 
 /* --- The goal form -------------------------------------------------------- */
 
+/* White, so the inset fields inside it show as fields. */
+.sheet.goal-form { background: var(--card); max-width: 480px; }
+
 .goal-form__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .goal-form__head h3 { margin: 0; font-size: 18px; }
 

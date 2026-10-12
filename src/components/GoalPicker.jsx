@@ -90,7 +90,10 @@ export default function GoalPicker({
       const pick = options[cursor];
       if (pick) onPick(pick.id, pick.id ? pick.path : null);
     } else if (e.key === "Escape") {
+      // Only the picker closes: the sheet or form under it listens for
+      // Escape on the window too.
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   }
