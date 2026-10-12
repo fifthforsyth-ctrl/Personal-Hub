@@ -524,7 +524,7 @@ button { cursor: pointer; touch-action: manipulation; }
   white-space: nowrap;
 }
 
-.chip--accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-hot); }
+.chip--accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
@@ -623,7 +623,8 @@ button { cursor: pointer; touch-action: manipulation; }
   color: var(--text-3);
 }
 
-.day-card--today .day-card__dow { color: var(--accent); }
+/* Orange words use the darker cut so they read at this size (see --accent-text). */
+.day-card--today .day-card__dow { color: var(--accent-text); }
 
 .day-card__num {
   font-size: 19px;
@@ -717,7 +718,7 @@ button { cursor: pointer; touch-action: manipulation; }
   color: var(--text-2);
 }
 
-.month-cell--today .month-cell__num { color: var(--accent); font-weight: 700; }
+.month-cell--today .month-cell__num { color: var(--accent-text); font-weight: 700; }
 
 /* ---------------------------------------------------------------------------
    Lists
@@ -1576,6 +1577,8 @@ form.card + .card { margin-top: 14px; }
   font-size: 12.5px;
 }
 .minutes-legend--wide { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+/* "6h 30m" stays on one line; a long category name truncates instead. */
+.minutes-legend .mono { white-space: nowrap; flex-shrink: 0; }
 
 .running-row {
   display: flex;
