@@ -16,11 +16,11 @@ export default defineConfig({
       // stale bundle for days on a home-screen app that is never really
       // closed. Claim the page and activate immediately instead.
       workbox: { clientsClaim: true, skipWaiting: true },
-      includeAssets: ["apple-touch-icon.png"],
+      includeAssets: ["apple-touch-icon.png", "favicon.png"],
       manifest: {
         name: "Personal Hub",
         short_name: "Personal Hub",
-        description: "Life archival, tracking, and personal vision centered on Christlike discipleship.",
+        description: "Wins, minutes and your walk with God, day by day.",
         theme_color: "#f2f1ee",
         background_color: "#f2f1ee",
         display: "standalone",
@@ -28,7 +28,7 @@ export default defineConfig({
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
     }),
