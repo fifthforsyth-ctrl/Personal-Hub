@@ -116,10 +116,13 @@ async function mineAndKeep(supabase: any, anthropic: Anthropic, userId: string |
         if (keepError) throw new Error(`keep_snippet: ${keepError.message}`);
       }
 
-      await supabase
+      // If the stamp doesn't land, the note is mined again tomorrow, so say
+      // so in the run's results rather than reporting a clean pass.
+      const { error: stampError } = await supabase
         .from("study_notes")
         .update({ mined_at: new Date().toISOString(), mined_count: mined.snippets.length })
         .eq("id", source.id);
+      if (stampError) throw new Error(`marking it mined: ${stampError.message}`);
 
       done.push({ source: source.title, kept: mined.snippets.length, dropped: mined.dropped });
     } catch (err) {
@@ -240,7 +243,7 @@ async function anthropicMine(anthropic: Anthropic, note: any) {
       const at = findQuote(note.body, s.quote);
       return at ? { ...s, quote: note.body.slice(at.start, at.end), start_offset: at.start, end_offset: at.end } : null;
     })
-    .filter(Boolean);
+    .filter((s): s is NonNullable<typeof s> => s !== null);
 
   return {
     note_id: note.id,
