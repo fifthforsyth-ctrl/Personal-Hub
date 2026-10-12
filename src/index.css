@@ -495,23 +495,6 @@ button { cursor: pointer; touch-action: manipulation; }
 @media (hover: hover) { .seg-btn:hover { color: var(--text); } }
 .seg-btn.active { background: var(--card); color: var(--text); font-weight: 650; box-shadow: var(--shadow); }
 
-.fab {
-  position: fixed;
-  right: 22px;
-  /* Clears the tab bar on a phone; sits on the page edge where there isn't one. */
-  bottom: 24px;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  border: none;
-  background: var(--ink);
-  color: var(--on-ink);
-  display: grid;
-  place-items: center;
-  box-shadow: var(--shadow-lift);
-  z-index: 30;
-}
-
 /* ---------------------------------------------------------------------------
    Chips & pills
    --------------------------------------------------------------------------- */
@@ -689,7 +672,6 @@ button { cursor: pointer; touch-action: manipulation; }
 
 @media (max-width: 900px) {
   .week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fab { bottom: calc(var(--tabs-h) + 14px); }
 }
 
 .month-grid {
