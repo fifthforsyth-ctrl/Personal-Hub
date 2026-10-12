@@ -2,13 +2,28 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Sprout, Link2 } from "lucide-react";
 import { fetchGoalCredit } from "../lib/api";
+import { useLoad } from "../lib/useLoad";
+import LoadError from "./ui/LoadError";
 import { intensityColor } from "../lib/nodeStyle";
 import { fmtMinutes } from "../lib/categories";
+import "../styles/goals.css";
 
 // A goal that got no time reads as a dash, not "0m".
 function fmtHours(minutes) {
   return (Number(minutes) || 0) < 1 ? "—" : fmtMinutes(minutes);
 }
+
+const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// A goal's share of the busiest one, on the same light ramp as the Year view
+// and the Charts heatmap.
+const shade = (share) => intensityColor(share);
+const LEGEND_STEPS = [0.1, 0.4, 0.7, 1].map(shade);
+
+// The Day page remounts this card after every change on it, so the last
+// answer for each range is kept and shown while the next one loads, rather
+// than the card blinking out and back.
+const lastAnswer = new Map();
 
 // "I can see how each task and each minute I spent benefited specific goals
 // on my goal tree."
@@ -19,128 +34,106 @@ function fmtHours(minutes) {
 // root shows the sum of everything beneath it while each row still reports
 // what landed on it directly.
 export default function GoalFruits({ startDate, endDate, title = "The fruits" }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(new Set());
-
+  const range = `${startDate}|${endDate}`;
+  const { data, error, reload } = useLoad(() => fetchGoalCredit(startDate, endDate), [startDate, endDate]);
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchGoalCredit(startDate, endDate)
-      .then((r) => !cancelled && setRows(r))
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [startDate, endDate]);
+    if (data) lastAnswer.set(range, data);
+  }, [range, data]);
+  const rows = data ?? lastAnswer.get(range);
 
-  const { roots, byDepth } = useMemo(() => {
-    const sorted = [...rows].sort((a, b) => Number(b.total_minutes) - Number(a.total_minutes));
+  const { roots, branches, maxTotal } = useMemo(() => {
+    const sorted = [...(rows ?? [])].sort((a, b) => Number(b.total_minutes) - Number(a.total_minutes));
     return {
       roots: sorted.filter((r) => r.depth === 0),
-      byDepth: sorted,
+      branches: sorted.filter((r) => r.depth > 0),
+      maxTotal: Math.max(1, ...sorted.map((r) => Number(r.total_minutes) || 0)),
     };
   }, [rows]);
 
-  const maxTotal = Math.max(...rows.map((r) => Number(r.total_minutes) || 0), 1);
-
-  if (loading) return null;
-
-  if (rows.length === 0) {
-    return (
-      <div className="card">
-        <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Sprout size={12} />
-          {title}
-        </div>
-        <p className="placeholder-note" style={{ fontSize: 13, margin: "0 0 10px" }}>
-          Nothing here traces to a goal yet. Entries connect to your tree through what you track — set that up once and
-          this fills in for every day you've already logged.
-        </p>
-        <Link to="/links" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 700 }}>
-          <Link2 size={13} />
-          Set up what feeds what
-        </Link>
-      </div>
-    );
-  }
+  // Nothing to show yet: the first load stays quiet, a failed one says so.
+  if (!rows && !error) return null;
 
   return (
-    <div className="card">
-      <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <Sprout size={12} />
-        {title}
+    <div className="card goal-fruits">
+      <div className="card-head">
+        <span className="card-title">
+          <Sprout size={14} />
+          {title}
+        </span>
+        {roots.length > 0 && (
+          <span className="ramp-legend" aria-hidden="true">
+            Less
+            {LEGEND_STEPS.map((c) => (
+              <i key={c} style={{ background: c }} />
+            ))}
+            More
+          </span>
+        )}
       </div>
 
+      {error && <LoadError what="what fed your goals" error={error} onRetry={reload} stale={Boolean(rows)} className="goal-fruits__error" />}
+
+      {rows?.length === 0 && (
+        <>
+          <p className="card-note">
+            Nothing here traces to a goal yet. Entries link to your goals through what you track — set that up once and this fills
+            in for every day you've already logged.
+          </p>
+          <Link to="/links" className="btn-link btn-link--accent goal-fruits__setup">
+            <Link2 size={13} />
+            Set up goal links
+          </Link>
+        </>
+      )}
+
       {roots.map((root) => {
-        const isOpen = expanded.has(root.node_id);
-        const children = byDepth.filter((r) => r.depth > 0 && r.total_minutes > 0);
+        const minutes = Number(root.total_minutes) || 0;
         return (
-          <div key={root.node_id} style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 5 }}>
-              <span style={{ fontWeight: 700, fontSize: 14, fontFamily: "var(--font-display)", minWidth: 0 }}>{root.title}</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)", flexShrink: 0 }}>
-                {fmtHours(root.total_minutes)}
-                {root.total_tasks > 0 ? ` · ${root.total_tasks} done` : ""}
-                {root.total_wins > 0 ? ` · ${root.total_wins}W` : ""}
+          <div key={root.node_id} className="goal-fruits__root">
+            <div className="goal-fruits__line">
+              <span className="goal-fruits__name">{root.title}</span>
+              <span className="goal-fruits__meta">
+                {fmtHours(minutes)}
+                {root.total_tasks > 0 && ` · ${count(root.total_tasks, "task done", "tasks done")}`}
+                {root.total_wins > 0 && ` · ${count(root.total_wins, "win", "wins")}`}
               </span>
             </div>
-            <div style={{ height: 9, background: "var(--bg-inset)", borderRadius: 5, overflow: "hidden" }}>
-              <div
-                style={{
-                  width: `${(Number(root.total_minutes) / maxTotal) * 100}%`,
-                  height: "100%",
-                  background: intensityColor(0.55 + (Number(root.total_minutes) / maxTotal) * 0.45),
-                  borderRadius: 5,
-                }}
-              />
+            <div className="goal-fruits__track">
+              <div style={{ width: `${(minutes / maxTotal) * 100}%`, background: shade(minutes / maxTotal) }} />
             </div>
           </div>
         );
       })}
 
-      <Detail rows={byDepth.filter((r) => r.depth > 0)} maxTotal={maxTotal} />
+      <Detail rows={branches} maxTotal={maxTotal} />
     </div>
   );
 }
 
 // The branches and leaves under the pillars, ranked. Collapsed by default —
 // the pillars answer "what did today serve", this answers "through what".
+// Flush left on purpose: indenting by depth in a list sorted by minutes made
+// a goal look like it sat under whichever row happened to rank above it.
 function Detail({ rows, maxTotal }) {
   const [open, setOpen] = useState(false);
   if (rows.length === 0) return null;
   const shown = open ? rows : rows.slice(0, 5);
 
   return (
-    <div style={{ marginTop: 4, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-      <div style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-        Through
-      </div>
+    <div className="goal-fruits__detail">
+      <div className="goal-fruits__through">Through these goals</div>
       {shown.map((r) => (
-        <div key={r.node_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-          <span
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: intensityColor(0.4 + (Number(r.total_minutes) / maxTotal) * 0.6),
-              flexShrink: 0,
-              marginLeft: Math.min(r.depth - 1, 3) * 10,
-            }}
-          />
-          <span style={{ flex: 1, fontSize: 12.5, minWidth: 0, color: "var(--text-muted)" }}>{r.title}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>
+        <div key={r.node_id} className="goal-fruits__row">
+          <span className="goal-fruits__dot" style={{ background: shade((Number(r.total_minutes) || 0) / maxTotal) }} />
+          <span className="goal-fruits__row-name">{r.title}</span>
+          <span className="goal-fruits__row-meta">
             {fmtHours(r.total_minutes)}
-            {r.total_wins > 0 ? ` · ${r.total_wins}W` : ""}
+            {r.total_wins > 0 && ` · ${count(r.total_wins, "win", "wins")}`}
           </span>
         </div>
       ))}
       {rows.length > 5 && (
-        <button
-          onClick={() => setOpen((v) => !v)}
-          style={{ background: "none", border: "none", color: "var(--accent-strong)", fontSize: 11.5, fontWeight: 700, padding: "8px 0 0" }}
-        >
+        <button type="button" className="btn-link goal-fruits__more" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
           {open ? "Show fewer" : `Show all ${rows.length}`}
         </button>
       )}
