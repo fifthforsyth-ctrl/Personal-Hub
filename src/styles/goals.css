@@ -1,0 +1,630 @@
+/* ===========================================================================
+   Goals: the goal wheel and its panel and form, the goal picker, the goal
+   links page, the day's link suggestions and "what today fed".
+   =========================================================================== */
+
+/* --- The goal wheel page ------------------------------------------------- */
+
+/* The wheel owns the space under its header; the page itself never scrolls. */
+.goals-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.goals-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 18px 24px 10px;
+}
+
+.goals-bar__title {
+  order: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.goals-bar__h {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0;
+  min-width: 0;
+}
+
+.goals-bar__view { order: 2; display: flex; align-items: center; gap: 10px; }
+.goals-bar__actions { order: 3; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.goals-bar .btn--sm { min-height: 36px; }
+
+.goals-bright {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* On the page, not a card: a white pill so it reads as a control. */
+.goals-bright .input {
+  width: auto;
+  min-height: 36px;
+  padding: 7px 12px;
+  background: var(--card);
+  border-color: var(--line);
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.goals-error { margin: 0 24px 10px; }
+
+.goals-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.goals-canvas__note {
+  position: absolute;
+  top: 40%;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+.goals-canvas__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.goals-canvas__empty .empty { max-width: 380px; }
+
+.goals-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 8px 24px 14px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.goals-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+
+.goals-legend__focus {
+  width: 16px;
+  height: 11px;
+  border-radius: 3px;
+  border: 2px solid var(--accent);
+  background: var(--card);
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .goals-bar { padding: 10px 16px 4px; gap: 8px; }
+  .goals-bar__h { font-size: 19px; }
+  .goals-bar__actions { order: 2; }
+  .goals-bar__view { order: 3; flex-basis: 100%; justify-content: space-between; }
+  /* 16px stops iOS zooming the page when the list opens. */
+  .goals-bright .input { font-size: 16px; padding: 5px 12px; }
+  .goals-error { margin: 0 16px 8px; }
+  .goals-legend { padding: 4px 16px 8px; font-size: 11.5px; gap: 2px 14px; }
+  .goals-wide-only { display: none; }
+}
+
+/* --- The wheels ------------------------------------------------------------ */
+
+.wheel-pan {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wheel-wedge { cursor: pointer; }
+
+.wheel-label {
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font);
+  font-weight: 700;
+}
+
+.wheel-controls {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wheel-controls .btn-icon,
+.wheel-controls__fit { box-shadow: var(--shadow); }
+.wheel-controls__fit { min-height: 36px; background: var(--card); border-color: var(--line); }
+
+/* The phone's dial. */
+.section-wheel { display: flex; flex-direction: column; height: 100%; }
+
+.section-wheel__switcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 16px 6px;
+  flex-shrink: 0;
+}
+
+.section-wheel__step { width: 40px; height: 40px; }
+.section-wheel__step:disabled { opacity: 0.35; }
+
+.section-wheel__now {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.section-wheel__title {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-wheel__dots { display: flex; gap: 5px; }
+
+.section-wheel__dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition: background 0.15s;
+}
+
+.section-wheel__dots span.on { background: var(--ink); }
+
+.section-wheel__dial {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --- The goal panel ------------------------------------------------------- */
+
+.goal-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 360px;
+  max-width: calc(100% - 24px);
+  z-index: 20;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 18px 22px;
+  background: var(--card);
+  border: 1px solid rgba(20, 18, 14, 0.05);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lift);
+}
+
+.goal-panel__head { display: flex; align-items: flex-start; gap: 12px; }
+.goal-panel__head .btn-icon { margin: -6px -8px 0 0; }
+
+.goal-panel__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1.5px solid;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.goal-panel__names { flex: 1; min-width: 0; }
+.goal-panel__eyebrow { font-size: 12px; font-weight: 550; color: var(--text-2); }
+
+.goal-panel__title {
+  margin: 2px 0 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.goal-panel__path { margin-top: 4px; font-size: 12px; line-height: 1.4; color: var(--text-3); }
+.goal-panel__desc { margin: 12px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+
+.goal-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.goal-panel__facts { margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
+.goal-panel__check { margin-top: 16px; }
+.goal-panel__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.goal-panel__actions .btn { min-height: 38px; }
+
+@media (max-width: 900px) {
+  .goal-panel { top: 4px; left: 8px; right: 8px; bottom: 8px; width: auto; max-width: none; }
+  .goal-panel__actions .btn { min-height: 40px; }
+}
+
+/* The check-in: one ink button, or the amount / note and its button. */
+.goal-check { display: flex; flex-direction: column; gap: 8px; }
+.goal-check__main { width: 100%; min-height: 46px; font-size: 14px; }
+.goal-check__row { display: flex; gap: 8px; }
+.goal-check__row .input { flex: 1 1 auto; min-width: 0; }
+.goal-check__row .btn { flex-shrink: 0; min-height: 44px; padding-left: 20px; padding-right: 20px; }
+.goal-check__count { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.goal-check--done {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 5px 6px 5px 14px;
+  border-radius: var(--r);
+  background: rgba(31, 157, 99, 0.09);
+}
+
+.goal-check__done {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--good-text);
+}
+
+.goal-check--done .btn { min-height: 36px; background: var(--card); border-color: var(--line); }
+
+@media (max-width: 900px) {
+  .goal-check .input { font-size: 16px; }
+}
+
+/* What a goal has been fed, under the panel's actions. */
+.goal-ledger { margin-top: 18px; }
+
+.goal-ledger__label {
+  padding-top: 14px;
+  margin-bottom: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.goal-ledger__sublabel { margin-bottom: 4px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.goal-ledger__note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.goal-ledger__more { padding: 10px 0 0; }
+
+/* --- The goal form -------------------------------------------------------- */
+
+.goal-form__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.goal-form__head h3 { margin: 0; font-size: 18px; }
+
+.goal-form__parent {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  background: var(--inset);
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.goal-form__change { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+
+.goal-form__methods { display: flex; gap: 8px; }
+
+.goal-form__method {
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.goal-form__method.is-active { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.goal-form__blurb { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.goal-form__more { padding: 12px 0; font-size: 13px; }
+.goal-form__date-row { flex-wrap: wrap; }
+.goal-form__inline { display: inline-flex; align-items: center; gap: 8px; }
+.goal-form__date { width: auto; margin-left: auto; padding: 7px 10px; }
+.goal-form__problem { margin: 12px 0 0; font-size: 13px; color: var(--danger); }
+.goal-form__actions { align-items: center; }
+
+@media (hover: hover) {
+  .goal-form__method:not(.is-active):hover { border-color: var(--line-strong); color: var(--text); }
+  .goal-form__parent:hover { border-color: var(--line-strong); }
+}
+
+@media (max-width: 520px) {
+  .goal-form__actions { gap: 8px; }
+  .goal-form__actions .btn { padding-left: 15px; padding-right: 15px; }
+}
+
+/* --- The goal picker ------------------------------------------------------- */
+
+.goal-picker {
+  display: flex;
+  flex-direction: column;
+  max-width: 560px;
+  max-height: 72vh;
+  padding: 0;
+}
+
+/* Arrow-key hints mean nothing without a keyboard. */
+@media (hover: none) {
+  .goal-picker__keys { display: none; }
+}
+
+/* --- Goal links (/links) -------------------------------------------------- */
+
+.goal-links__back { min-height: 36px; margin-bottom: 6px; }
+.goal-links__banner-title { margin-bottom: 6px; }
+.goal-links__banner-text { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text-2); }
+
+.link-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.link-row:last-child { border-bottom: none; padding-bottom: 2px; }
+
+.link-row__top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.link-row__name { min-width: 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.link-row__tag { padding: 2px 8px; font-size: 11px; }
+
+.link-row__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* The goal it feeds is the control: tap to pick another. */
+.link-row__goal {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 13px;
+  background: var(--inset);
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+}
+
+.link-row__goal:disabled { opacity: 0.6; cursor: default; }
+.link-row__target { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.link-row__leaf { font-weight: 600; }
+.link-row__trail { font-size: 11.5px; color: var(--text-3); }
+.link-row__none { color: var(--text-3); }
+.link-row__change { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+
+.link-row__ask { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.link-row__ask > span { flex: 1; min-width: 0; }
+.link-row__ask .btn { min-height: 36px; }
+
+@media (hover: hover) {
+  .link-row__goal:not(:disabled):hover { border-color: var(--line-strong); }
+}
+
+@media (max-width: 900px) {
+  .link-row__ask .btn { min-height: 40px; padding-left: 16px; padding-right: 16px; }
+}
+
+/* --- A day's link suggestions (Day page) ---------------------------------- */
+
+.goal-suggest__intro { margin: 0 0 12px; }
+.goal-suggest__error { margin: 0 0 10px; }
+.goal-suggest__go { min-height: 48px; }
+.goal-suggest__catch-up { margin-top: 8px; }
+
+.goal-suggest__caught-up {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.goal-suggest__reading { padding-top: 4px; }
+.goal-suggest__reading .empty { text-align: center; }
+
+.goal-suggest__bar {
+  height: 5px;
+  margin: 9px 0 10px;
+  border-radius: 3px;
+  background: var(--inset);
+  overflow: hidden;
+}
+
+.goal-suggest__bar > div { height: 100%; border-radius: 3px; background: var(--ink); transition: width 300ms ease; }
+.goal-suggest__hint { margin: 0; font-size: 11.5px; color: var(--text-3); text-align: center; }
+.goal-suggest__stop { display: flex; min-height: 40px; margin: 4px auto 0; padding: 0 8px; }
+.goal-suggest__stop:disabled { cursor: default; }
+
+.goal-suggest__empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.goal-suggest__how { margin: 0 0 6px; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+
+.goal-suggest__bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; margin-bottom: 6px; }
+.goal-suggest__bulk .btn-link { min-height: 36px; }
+.goal-suggest__count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+.suggest-row {
+  margin-bottom: 6px;
+  padding: 2px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+}
+
+.suggest-row.is-on { background: var(--inset); border-color: var(--line-strong); }
+
+.suggest-row__toggle {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+}
+
+.suggest-row__box {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--on-ink);
+}
+
+.suggest-row.is-on .suggest-row__box { background: var(--ink); border-color: var(--ink); }
+.suggest-row__what { flex: 1; font-size: 13.5px; font-weight: 570; }
+.suggest-row__mins { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+.suggest-row__sure {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.suggest-row__sure--high,
+.suggest-row__sure--yours { color: var(--text); font-weight: 600; }
+.suggest-row__sure--low { color: var(--text-3); }
+
+.suggest-row__goal {
+  width: calc(100% - 27px);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 27px;
+  padding: 7px 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+
+.suggest-row__goal svg { flex-shrink: 0; color: var(--text-3); }
+.suggest-row__target { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.suggest-row__leaf { flex: 0 1 auto; font-weight: 600; }
+.suggest-row__trail { flex: 1 1 0; color: var(--text-3); }
+.suggest-row__none { color: var(--text-3); }
+.suggest-row__note { margin: 5px 0 0 27px; font-size: 11px; line-height: 1.45; color: var(--text-3); }
+
+.goal-suggest__more { margin-bottom: 8px; }
+.goal-suggest__actions { display: flex; gap: 8px; margin-top: 10px; }
+.goal-suggest__link { flex: 1; }
+
+@media (hover: hover) {
+  .suggest-row__goal:hover { border-color: var(--line-strong); }
+}
+
+/* --- What a day fed (Day page) -------------------------------------------- */
+
+.goal-fruits__error { margin-bottom: 12px; }
+.goal-fruits__setup { min-height: 36px; margin-top: 4px; }
+.goal-fruits__root { margin-bottom: 14px; }
+
+.goal-fruits__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin-bottom: 6px;
+}
+
+.goal-fruits__name { min-width: 0; font-size: 14px; font-weight: 650; }
+.goal-fruits__meta { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+
+.goal-fruits__track { height: 9px; border-radius: 5px; background: var(--inset); overflow: hidden; }
+.goal-fruits__track > div { height: 100%; border-radius: 5px; }
+
+.goal-fruits__detail { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.goal-fruits__through { margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.goal-fruits__row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.goal-fruits__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.goal-fruits__row-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text-2); }
+.goal-fruits__row-meta { flex-shrink: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+.goal-fruits__more { min-height: 36px; }
+
+/* "Less ▪▪▪▪ More": what the shades mean. */
+.ramp-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.ramp-legend i { display: block; width: 10px; height: 10px; border-radius: 3px; }
+.ramp-legend i:first-of-type { margin-left: 3px; }
+.ramp-legend i:last-of-type { margin-right: 3px; }

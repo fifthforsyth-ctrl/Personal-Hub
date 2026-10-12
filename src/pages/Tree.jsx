@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, GitBranch, ChevronLeft, Maximize2, Layers, Link2 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Plus, ChevronLeft, Search, Link2, Maximize2, Layers } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -8,7 +8,9 @@ import {
   updateNode,
   deleteNode,
   createEdge,
+  moveNode,
   recordProgress,
+  undoCheckin,
   recordNote,
   setFocused,
   repeatNode,
@@ -16,301 +18,382 @@ import {
 } from "../lib/api";
 import { computeAllBrightness, computeMinuteBrightness, brightnessTier } from "../lib/heat";
 import { todayStr, addDays } from "../lib/planDates";
-import { computeWheel } from "../lib/wheel";
+import { computeWheel, firstParents, goalPaths, subtreeIds } from "../lib/wheel";
+import { useLoad } from "../lib/useLoad";
 import useIsMobile from "../lib/useIsMobile";
+import { useToast, useConfirm } from "../components/ui/Feedback";
+import LoadError from "../components/ui/LoadError";
 import PyramidWheel from "../components/tree/PyramidWheel";
 import SectionWheel from "../components/tree/SectionWheel";
 import WedgeDetailPanel from "../components/tree/WedgeDetailPanel";
 import NodeForm from "../components/tree/NodeForm";
+import GoalPicker from "../components/GoalPicker";
+import "../styles/goals.css";
 
-// What "bright" means on the wheel. Recency answers "is this still being
-// tended"; the others answer "where did the time actually go", which is a
-// different question and the one you ask at the end of a day.
-const LIT_MODES = [
-  { key: "today", label: "Today", days: 1 },
-  { key: "7", label: "7 days", days: 7 },
-  { key: "30", label: "30 days", days: 30 },
-  { key: "recency", label: "Recency", days: 30 },
+// What "bright" means on the wheel. Last touched answers "is this still
+// being tended", and it's where the wheel starts. The others light goals by
+// the minutes linked to them, which is a different question — where the
+// time went — and only a glance at it, never a target.
+const BRIGHTNESS = [
+  { key: "recency", label: "Last touched", days: 30, hint: "Deeper colour = checked in, logged or noted more recently" },
+  { key: "today", label: "Today", days: 1, hint: "Deeper colour = more time linked to it today" },
+  { key: "7", label: "7 days", days: 7, hint: "Deeper colour = more time linked to it in the last 7 days" },
+  { key: "30", label: "30 days", days: 30, hint: "Deeper colour = more time linked to it in the last 30 days" },
 ];
+
+// The goal panel's width plus its margins, which the wheel keeps clear of on
+// wider screens.
+const PANEL_ROOM = 384;
+
+const NO_ROWS = [];
+const NO_TREE = { nodes: NO_ROWS, edges: NO_ROWS };
 
 // The meaning layer — Identity/Character down through Life Themes, Goals,
 // Sub-goals, to daily actions at the leaves. Same ring-wheel visualization
 // as Symposium's goal tree; this one is private to you alone, and every
 // entry the rest of the app logs (time, wins/losses, prayers) can trace
-// back to a node here.
+// back to a goal here.
 export default function Tree() {
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const isMobile = useIsMobile();
 
-  const [nodes, setNodes] = useState([]);
-  const [edges, setEdges] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingNode, setEditingNode] = useState(null);
-  const [presetParent, setPresetParent] = useState(null);
+  const tree = useLoad(() => (user?.id ? fetchTree(user.id) : Promise.resolve(NO_TREE)), [user?.id]);
+  const nodes = tree.data?.nodes ?? NO_ROWS;
+  const edges = tree.data?.edges ?? NO_ROWS;
+
+  const [form, setForm] = useState(null); // { node } to edit, { parentId } to add
+  const [findOpen, setFindOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [centerNodeId, setCenterNodeId] = useState(null); // null = full wheel from the real root(s)
-  const isMobile = useIsMobile();
   const [mobileFullView, setMobileFullView] = useState(false);
   const [mobileCenterOverrideId, setMobileCenterOverrideId] = useState(null);
   const usingSectionWheel = isMobile && !mobileFullView;
-  const [litKey, setLitKey] = useState("7");
-  const [minutesById, setMinutesById] = useState(new Map());
+  const [litKey, setLitKey] = useState("recency");
 
-  const lit = LIT_MODES.find((m) => m.key === litKey) ?? LIT_MODES[1];
+  const lit = BRIGHTNESS.find((m) => m.key === litKey) ?? BRIGHTNESS[0];
   const rangeEnd = todayStr();
   const rangeStart = addDays(rangeEnd, -(lit.days - 1));
+  const byMinutes = lit.key !== "recency";
 
-  const reload = useCallback(async () => {
-    if (!user?.id) return;
-    const { nodes: n, edges: e } = await fetchTree(user.id);
-    setNodes(n);
-    setEdges(e);
-    setLoading(false);
-    refreshProfile?.();
-  }, [user?.id, refreshProfile]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  // Rolled-up minutes for the window, which both the wheel's lighting and
-  // the selected goal's ledger are read against.
-  useEffect(() => {
-    let cancelled = false;
-    fetchGoalCredit(rangeStart, rangeEnd)
-      .then((rows) => {
-        if (cancelled) return;
-        setMinutesById(new Map(rows.map((r) => [r.node_id, Number(r.total_minutes) || 0])));
-      })
-      .catch(() => !cancelled && setMinutesById(new Map()));
-    return () => {
-      cancelled = true;
-    };
-  }, [rangeStart, rangeEnd, nodes.length]);
+  // Rolled-up minutes for the window, only fetched while the wheel is lit by them.
+  const credit = useLoad(() => (byMinutes ? fetchGoalCredit(rangeStart, rangeEnd) : Promise.resolve(NO_ROWS)), [byMinutes, rangeStart, rangeEnd]);
+  const minutesById = useMemo(() => new Map((credit.data ?? NO_ROWS).map((r) => [r.node_id, Number(r.total_minutes) || 0])), [credit.data]);
 
   // The panel's "Active / Ticking along / Gone quiet" line is about tending,
   // not volume, so it keeps reading recency however the wheel is lit.
   const recencyById = useMemo(() => computeAllBrightness(nodes, edges), [nodes, edges]);
   const brightnessById = useMemo(
-    () => (litKey === "recency" ? recencyById : computeMinuteBrightness(nodes, edges, minutesById)),
-    [litKey, recencyById, nodes, edges, minutesById]
+    () => (byMinutes ? computeMinuteBrightness(nodes, edges, minutesById) : recencyById),
+    [byMinutes, recencyById, nodes, edges, minutesById]
   );
   const wheel = useMemo(() => computeWheel(nodes, edges, centerNodeId), [nodes, edges, centerNodeId]);
+  const parentOf = useMemo(() => firstParents(edges), [edges]);
+  const paths = useMemo(() => goalPaths(nodes, edges), [nodes, edges]);
+  const pathById = useMemo(() => new Map(paths.map((p) => [p.id, p.path])), [paths]);
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
-  const childrenByParent = useMemo(() => {
-    const map = new Map();
-    for (const e of edges) {
-      if (!map.has(e.parent_id)) map.set(e.parent_id, []);
-      map.get(e.parent_id).push(e.child_id);
-    }
-    return map;
-  }, [edges]);
+  const childCountOf = useCallback((id) => edges.filter((e) => e.parent_id === id).length, [edges]);
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
 
-  async function withReload(fn) {
+  // Every write goes through here: one toast if it fails, a quiet refresh if
+  // it works. Resolves to whether it worked, so a control knows whether to
+  // clear what was typed.
+  async function write(fn, failure) {
     try {
       await fn();
-      await reload();
     } catch (err) {
-      alert(err.message);
+      toast.error(err, failure);
+      return false;
     }
+    await tree.reload();
+    return true;
   }
 
-  const handleLogProgress = (node, amount) => withReload(() => recordProgress(node.id, amount));
-  const handleAddNote = (node, text) => withReload(() => recordNote(user.id, node.id, text));
-  const handleRepeat = (node) => withReload(() => repeatNode(node.id, null));
-  const handleToggleFocus = (node) => withReload(() => setFocused(node.id, !node.is_focused));
-
-  function handleEdit(node) {
-    setPresetParent(null);
-    setEditingNode(node);
-    setFormOpen(true);
+  async function handleUndo(node) {
+    if (await write(() => undoCheckin(node.id), "Couldn't undo that check-in.")) toast.show("Check-in undone");
   }
 
-  function handleAddChild(node) {
-    setEditingNode(null);
-    setPresetParent(node);
-    setFormOpen(true);
+  async function handleLogProgress(node, amount) {
+    const ok = await write(() => recordProgress(node.id, amount), node.tracking_method === "counter" ? "Couldn't log that." : "Couldn't check in.");
+    if (ok) {
+      toast.show(node.tracking_method === "counter" ? `Logged ${amount} on “${node.title}”` : `Checked in on “${node.title}”`, {
+        actionLabel: "Undo",
+        onAction: () => handleUndo(node),
+      });
+    }
+    return ok;
+  }
+
+  async function handleAddNote(node, text) {
+    const ok = await write(() => recordNote(user.id, node.id, text), "Couldn't add that note.");
+    if (ok) toast.show("Note added");
+    return ok;
+  }
+
+  async function handleRepeat(node) {
+    if (await write(() => repeatNode(node.id, null), "Couldn't start the next cycle.")) toast.show(`Cycle ${(node.cycle_count || 0) + 2} started`);
+  }
+
+  async function handleToggleFocus(node) {
+    const next = !node.is_focused;
+    tree.mutate((d) => d && { ...d, nodes: d.nodes.map((n) => (n.id === node.id ? { ...n, is_focused: next } : n)) });
+    if (!(await write(() => setFocused(node.id, next), "Couldn't change Focus."))) tree.reload();
   }
 
   function handleRecenter(node) {
     setSelectedNodeId(null);
-    if (usingSectionWheel) {
-      setMobileCenterOverrideId(node.id);
-    } else {
-      setCenterNodeId(node.id);
-    }
+    if (usingSectionWheel) setMobileCenterOverrideId(node.id);
+    else setCenterNodeId(node.id);
   }
 
-  async function handleFormSave(payload) {
+  // Find a goal: open its panel, and make sure the wheel is showing the part
+  // of the tree it's in.
+  function handleFound(id) {
+    setFindOpen(false);
+    if (!id) return;
+    const center = usingSectionWheel ? mobileCenterOverrideId : centerNodeId;
+    if (center && !subtreeIds(edges, center).has(id)) {
+      setCenterNodeId(null);
+      setMobileCenterOverrideId(null);
+    }
+    setSelectedNodeId(id);
+  }
+
+  async function handleFormSave(payload, parentId) {
+    const editing = form?.node ?? null;
     try {
-      if (editingNode) {
-        await updateNode(editingNode.id, payload);
+      if (editing) {
+        await updateNode(editing.id, payload);
+        await moveNode(editing.id, parentOf.get(editing.id) ?? null, parentId);
       } else {
-        const newNode = await createNode(user.id, payload);
-        if (presetParent) {
-          await createEdge(newNode.id, presetParent.id, null);
+        const created = await createNode(user.id, payload);
+        setSelectedNodeId(created.id);
+        if (parentId) {
+          try {
+            await createEdge(created.id, parentId, null);
+          } catch (err) {
+            // The goal exists now, so saving again from this form would
+            // make a second one. Close it and say how to finish the move.
+            setForm(null);
+            toast.error(err, `Added “${payload.title}” at the top level. Edit it to move it under its goal.`);
+            await tree.reload();
+            return;
+          }
         }
       }
-      setFormOpen(false);
-      setEditingNode(null);
-      setPresetParent(null);
-      await reload();
     } catch (err) {
-      alert(err.message);
+      toast.error(err, "Couldn't save that goal.");
+      return;
     }
+    setForm(null);
+    toast.show(editing ? "Goal saved" : `Added “${payload.title}”`);
+    await tree.reload();
   }
 
-  async function handleDelete(node) {
+  // Deleting can't be undone, so it asks first and says exactly what
+  // happens to what's under the goal and what's linked to it. `onConfirmed`
+  // lets the form say "Deleting…" only once you've said yes.
+  async function handleDelete(node, onConfirmed) {
+    const kids = childCountOf(node.id);
+    const parentTitle = nodeById.get(parentOf.get(node.id))?.title ?? null;
+    const subGoals = `${kids} sub-goal${kids === 1 ? "" : "s"}`;
+    let body;
+    if (parentTitle) {
+      body = kids > 0 ? `Its ${subGoals} and anything linked to it move up to “${parentTitle}”.` : `Anything linked to it moves up to “${parentTitle}”.`;
+    } else {
+      body = kids > 0 ? `Its ${subGoals} become top-level goals, and time linked to it is unlinked.` : "Time linked to it is unlinked.";
+    }
+    body += " Its own check-ins and notes are deleted.";
+    if (!(await confirm({ title: `Delete “${node.title}”?`, body, confirmLabel: "Delete goal" }))) return;
+
+    onConfirmed?.();
     try {
       await deleteNode(node.id);
     } catch (err) {
-      alert(err.message);
+      toast.error(err, "Couldn't delete that goal.");
       return;
     }
     if (centerNodeId === node.id) setCenterNodeId(null);
     if (mobileCenterOverrideId === node.id) setMobileCenterOverrideId(null);
     setSelectedNodeId(null);
-    setFormOpen(false);
-    setEditingNode(null);
-    await reload();
+    setForm(null);
+    toast.show(`Deleted “${node.title}”`);
+    await tree.reload();
+    if (byMinutes) credit.reload();
   }
 
-  const centerNode = centerNodeId ? nodes.find((n) => n.id === centerNodeId) : null;
+  const centeredId = usingSectionWheel ? mobileCenterOverrideId : centerNodeId;
+  const centeredNode = centeredId ? nodeById.get(centeredId) ?? null : null;
+  const hasGoals = nodes.length > 0;
+
+  const formNode = form?.node ?? null;
+  const formParentId = formNode ? parentOf.get(formNode.id) ?? null : form?.parentId ?? null;
+  const parentChoices = useMemo(() => {
+    if (!formNode) return paths;
+    const blocked = subtreeIds(edges, formNode.id);
+    return paths.filter((p) => !blocked.has(p.id));
+  }, [paths, edges, formNode]);
 
   return (
-    <div className="tree-canvas-wrap">
-      <div className="tree-header-chip">
-        <GitBranch size={16} />
-        <span style={{ fontWeight: 700, fontSize: 14 }}>{centerNode ? centerNode.title : "Goal Tree"}</span>
-        <Link to="/links" title="What feeds what" style={{ display: "flex", alignItems: "center", color: "var(--text-muted)", marginLeft: 2 }}>
-          <Link2 size={13} />
-        </Link>
-        {centerNode && (
-          <button
-            onClick={() => setCenterNodeId(null)}
-            title="Back to full wheel"
-            style={{ background: "none", border: "none", color: "var(--accent-strong)", display: "flex", alignItems: "center", gap: 2, marginLeft: 4 }}
-          >
-            <ChevronLeft size={14} />
-            All goals
+    <div className="goals-page">
+      <header className="goals-bar">
+        <div className="goals-bar__title">
+          {centeredNode ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => (usingSectionWheel ? setMobileCenterOverrideId(null) : setCenterNodeId(null))}
+                title="Back to the whole wheel"
+              >
+                <ChevronLeft size={15} />
+                All goals
+              </button>
+              <h1 className="goals-bar__h truncate">{centeredNode.title}</h1>
+            </>
+          ) : (
+            <h1 className="goals-bar__h">Goal wheel</h1>
+          )}
+        </div>
+
+        <div className="goals-bar__actions">
+          {hasGoals && (
+            <button type="button" className="btn btn--sm" onClick={() => setFindOpen(true)} aria-label="Find a goal" title="Find a goal">
+              <Search size={15} />
+              <span className="goals-wide-only">Find a goal</span>
+            </button>
+          )}
+          <Link to="/links" className="btn btn--sm" aria-label="Goal links" title="Goal links: which goal each category feeds">
+            <Link2 size={15} />
+            <span className="goals-wide-only">Goal links</span>
+          </Link>
+          <button type="button" className="btn btn--sm btn--accent" onClick={() => setForm({ parentId: null })}>
+            <Plus size={15} />
+            New goal
           </button>
+        </div>
+
+        {hasGoals && (
+          <div className="goals-bar__view">
+            <label className="goals-bright">
+              <span>Brightness</span>
+              <select className="input" value={litKey} onChange={(e) => setLitKey(e.target.value)}>
+                {BRIGHTNESS.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {isMobile && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => {
+                  setMobileFullView((v) => !v);
+                  setMobileCenterOverrideId(null);
+                  setCenterNodeId(null);
+                }}
+              >
+                {mobileFullView ? <Layers size={15} /> : <Maximize2 size={15} />}
+                {mobileFullView ? "Sections" : "Full wheel"}
+              </button>
+            )}
+          </div>
+        )}
+      </header>
+
+      {tree.error && <LoadError what="your goals" error={tree.error} onRetry={tree.reload} stale={hasGoals} className="goals-error" />}
+      {byMinutes && credit.error && <LoadError what="the minutes" error={credit.error} onRetry={credit.reload} className="goals-error" />}
+
+      <div className="goals-canvas">
+        {tree.loading && <p className="empty goals-canvas__note">Loading your goals…</p>}
+
+        {!tree.loading && !tree.error && !hasGoals && (
+          <div className="goals-canvas__empty">
+            <p className="empty">No goals yet. Start with who you're trying to become, then break it down toward what that looks like today.</p>
+            <button type="button" className="btn btn--accent" onClick={() => setForm({ parentId: null })}>
+              <Plus size={15} />
+              Add your first goal
+            </button>
+          </div>
+        )}
+
+        {hasGoals && usingSectionWheel && (
+          <SectionWheel
+            nodes={nodes}
+            edges={edges}
+            brightnessById={brightnessById}
+            onSelectNode={setSelectedNodeId}
+            centerOverrideId={mobileCenterOverrideId}
+            selectedId={selectedNodeId}
+          />
+        )}
+
+        {hasGoals && !usingSectionWheel && (
+          <PyramidWheel
+            nodes={nodes}
+            edges={edges}
+            wheel={wheel}
+            brightnessById={brightnessById}
+            centerNodeId={centerNodeId}
+            onSelectNode={setSelectedNodeId}
+            selectedId={selectedNodeId}
+            reserveRight={selectedNode ? PANEL_ROOM : 0}
+            controls
+          />
+        )}
+
+        {selectedNode && (
+          <WedgeDetailPanel
+            node={selectedNode}
+            tier={brightnessTier(recencyById.get(selectedNode.id) ?? 0)}
+            ringIndex={wheel.layout.get(selectedNode.id)?.ringIndex ?? 1}
+            hasChildren={childCountOf(selectedNode.id) > 0}
+            childCount={childCountOf(selectedNode.id)}
+            parentPath={parentOf.has(selectedNode.id) ? pathById.get(parentOf.get(selectedNode.id)) ?? null : null}
+            onClose={() => setSelectedNodeId(null)}
+            onLogProgress={handleLogProgress}
+            onUndo={handleUndo}
+            onAddNote={handleAddNote}
+            onToggleFocus={handleToggleFocus}
+            onEdit={(node) => setForm({ node })}
+            onAddChild={(node) => setForm({ parentId: node.id })}
+            onRepeat={handleRepeat}
+            onRecenter={handleRecenter}
+            ledgerStart={rangeStart}
+            ledgerEnd={rangeEnd}
+            windowLabel={lit.key === "today" ? "today" : `last ${lit.days} days`}
+          />
         )}
       </div>
 
-      {nodes.length > 0 && (
-        <div className="tree-lit-chip">
-          <span className="tree-lit-chip__label">Lit by</span>
-          {LIT_MODES.map((m) => (
-            <button
-              key={m.key}
-              className={m.key === litKey ? "active" : ""}
-              onClick={() => setLitKey(m.key)}
-              title={m.key === "recency" ? "How recently each goal was tended" : `Minutes logged over the last ${m.label.toLowerCase()}`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+      {hasGoals && (
+        <footer className="goals-legend">
+          <span className="goals-legend__item">
+            <span className="goals-legend__focus" aria-hidden="true" />
+            Orange outline = focus goal
+          </span>
+          <span className="goals-legend__item">{lit.hint}</span>
+        </footer>
       )}
 
-      {isMobile && nodes.length > 0 && (
-        <button
-          onClick={() => {
-            setMobileFullView((v) => !v);
-            setMobileCenterOverrideId(null);
-          }}
-          title={mobileFullView ? "Back to sections" : "Reveal the entire wheel"}
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            zIndex: 10,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "7px 10px",
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--text)",
-          }}
-        >
-          {mobileFullView ? <Layers size={14} /> : <Maximize2 size={14} />}
-          {mobileFullView ? "Sections" : "Full wheel"}
-        </button>
+      {findOpen && (
+        <GoalPicker goals={paths} value={selectedNodeId} allowNone={false} placeholder="Find a goal…" onPick={handleFound} onClose={() => setFindOpen(false)} />
       )}
 
-      {!loading && nodes.length === 0 && (
-        <div style={{ position: "absolute", top: "40%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center", zIndex: 10, padding: "0 24px" }}>
-          <p className="placeholder-note">
-            No goals yet. Start with who you're trying to become, then break it down toward what that looks like today.
-          </p>
-        </div>
-      )}
-
-      {nodes.length > 0 && usingSectionWheel && (
-        <SectionWheel
-          nodes={nodes}
-          edges={edges}
-          brightnessById={brightnessById}
-          onSelectNode={setSelectedNodeId}
-          centerOverrideId={mobileCenterOverrideId}
-          onExitOverride={() => setMobileCenterOverrideId(null)}
-        />
-      )}
-
-      {nodes.length > 0 && !usingSectionWheel && (
-        <PyramidWheel nodes={nodes} edges={edges} wheel={wheel} brightnessById={brightnessById} centerNodeId={centerNodeId} onSelectNode={setSelectedNodeId} />
-      )}
-
-      {selectedNode && (
-        <WedgeDetailPanel
-          node={selectedNode}
-          tier={brightnessTier(recencyById.get(selectedNode.id) ?? 0)}
-          ringIndex={wheel.layout.get(selectedNode.id)?.ringIndex ?? 0}
-          hasChildren={(childrenByParent.get(selectedNode.id) ?? []).length > 0}
-          childCount={(childrenByParent.get(selectedNode.id) ?? []).length}
-          onClose={() => setSelectedNodeId(null)}
-          onLogProgress={handleLogProgress}
-          onAddNote={handleAddNote}
-          onToggleFocus={handleToggleFocus}
-          onEdit={handleEdit}
-          onAddChild={handleAddChild}
-          onRepeat={handleRepeat}
-          onRecenter={handleRecenter}
-          ledgerStart={rangeStart}
-          ledgerEnd={rangeEnd}
-          windowLabel={lit.key === "today" ? "today" : `last ${lit.days} days`}
-        />
-      )}
-
-      <button
-        className="fab"
-        onClick={() => {
-          setEditingNode(null);
-          setPresetParent(null);
-          setFormOpen(true);
-        }}
-        title="Add a goal"
-      >
-        <Plus size={22} />
-      </button>
-
-      {formOpen && (
+      {form && (
         <NodeForm
-          node={editingNode}
-          presetParent={presetParent}
+          node={formNode}
+          parentId={formParentId}
+          goals={parentChoices}
+          pathById={pathById}
           onSave={handleFormSave}
           onDelete={handleDelete}
-          onClose={() => {
-            setFormOpen(false);
-            setEditingNode(null);
-            setPresetParent(null);
-          }}
+          onClose={() => setForm(null)}
         />
       )}
     </div>

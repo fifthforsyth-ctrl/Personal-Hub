@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Clock, CheckSquare, Trophy } from "lucide-react";
+import { useMemo, useState } from "react";
 import { fetchGoalLedger } from "../../lib/api";
 import { fmtMinutes } from "../../lib/categories";
+import { fmtShortDate } from "../../lib/dates";
+import { useLoad } from "../../lib/useLoad";
+import LoadError from "../ui/LoadError";
 
 // The record a goal keeps of what has actually been spent on it.
 //
@@ -12,22 +14,8 @@ import { fmtMinutes } from "../../lib/categories";
 // sentence as "this smaller goal fed this larger one", written from the
 // larger one's side.
 export default function GoalLedger({ nodeId, start, end, windowLabel }) {
-  const [rows, setRows] = useState(null);
-  const [error, setError] = useState(null);
+  const { data: rows, error, reload } = useLoad(() => fetchGoalLedger(nodeId, start, end), [nodeId, start, end]);
   const [showAll, setShowAll] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRows(null);
-    setError(null);
-    setShowAll(false);
-    fetchGoalLedger(nodeId, start, end)
-      .then((r) => !cancelled && setRows(r))
-      .catch((e) => !cancelled && setError(e.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [nodeId, start, end]);
 
   const summary = useMemo(() => {
     if (!rows) return null;
@@ -56,21 +44,29 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
     };
   }, [rows]);
 
-  if (error) {
-    return <p style={noteStyle}>Couldn't read this goal's record: {error}</p>;
+  if (error && !summary) {
+    return (
+      <div className="goal-ledger">
+        <SectionLabel>Time &amp; tasks · {windowLabel}</SectionLabel>
+        <LoadError what="this goal's record" error={error} onRetry={reload} />
+      </div>
+    );
   }
   if (!summary) {
-    return <p style={noteStyle}>Reading the record…</p>;
+    return (
+      <div className="goal-ledger">
+        <SectionLabel>Time &amp; tasks · {windowLabel}</SectionLabel>
+        <p className="goal-ledger__note">Reading the record…</p>
+      </div>
+    );
   }
 
   const nothing = summary.time.length === 0 && summary.tasks.length === 0 && summary.wins.length === 0;
   if (nothing) {
     return (
-      <div style={{ marginTop: 18 }}>
+      <div className="goal-ledger">
         <SectionLabel>Time &amp; tasks · {windowLabel}</SectionLabel>
-        <p style={noteStyle}>
-          Nothing has landed here in this window — not on this goal, and not on anything beneath it.
-        </p>
+        <p className="goal-ledger__note">Nothing has landed here in this window — not on this goal, and not on anything beneath it.</p>
       </div>
     );
   }
@@ -78,7 +74,7 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
   const shown = showAll ? summary.time : summary.time.slice(0, 12);
 
   return (
-    <div style={{ marginTop: 18 }}>
+    <div className="goal-ledger">
       <SectionLabel>Time &amp; tasks · {windowLabel}</SectionLabel>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
@@ -88,23 +84,10 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
         </span>
       </div>
 
-      <div style={{ display: "flex", gap: 14, marginBottom: 14, fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-        <span style={statStyle}>
-          <Clock size={12} />
-          {summary.time.length}
-        </span>
-        {summary.tasks.length > 0 && (
-          <span style={statStyle}>
-            <CheckSquare size={12} />
-            {summary.tasks.length} done
-          </span>
-        )}
-        {summary.wins.length > 0 && (
-          <span style={statStyle}>
-            <Trophy size={12} />
-            {summary.wins.length}
-          </span>
-        )}
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14, fontSize: 12, color: "var(--text-muted)" }}>
+        <span>{plural(summary.time.length, "entry", "entries")}</span>
+        {summary.tasks.length > 0 && <span>{plural(summary.tasks.length, "task", "tasks")} done</span>}
+        {summary.wins.length > 0 && <span>{plural(summary.wins.length, "win", "wins")}</span>}
       </div>
 
       {summary.through.length > 0 && (
@@ -132,14 +115,14 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
                   {fmtMinutes(r.minutes)}
                 </span>
               </div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-faint)", marginTop: 1 }}>
-                {r.occurred}
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 1 }}>
+                {fmtShortDate(r.occurred)}
                 {!r.is_direct && ` · ${r.through_title}`}
               </div>
             </div>
           ))}
           {summary.time.length > shown.length && (
-            <button onClick={() => setShowAll(true)} style={linkBtnStyle}>
+            <button type="button" className="btn-link goal-ledger__more" onClick={() => setShowAll(true)}>
               Show all {summary.time.length}
             </button>
           )}
@@ -152,7 +135,7 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
           {summary.tasks.slice(0, 10).map((r) => (
             <div key={r.item_id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12.5 }}>
               <span style={{ minWidth: 0 }}>{r.what}</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-faint)", flexShrink: 0 }}>{r.occurred}</span>
+              <span style={{ fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>{fmtShortDate(r.occurred)}</span>
             </div>
           ))}
         </div>
@@ -162,39 +145,13 @@ export default function GoalLedger({ nodeId, start, end, windowLabel }) {
 }
 
 function SectionLabel({ children }) {
-  return (
-    <div
-      style={{
-        fontSize: 10.5,
-        fontFamily: "var(--font-mono)",
-        color: "var(--text-faint)",
-        textTransform: "uppercase",
-        letterSpacing: "0.07em",
-        marginBottom: 8,
-        paddingTop: 14,
-        borderTop: "1px solid var(--border)",
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="goal-ledger__label">{children}</div>;
 }
 
 function SubLabel({ children }) {
-  return (
-    <div style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
-      {children}
-    </div>
-  );
+  return <div className="goal-ledger__sublabel">{children}</div>;
 }
 
-const noteStyle = { fontSize: 12.5, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.5 };
-const statStyle = { display: "inline-flex", alignItems: "center", gap: 4 };
-const linkBtnStyle = {
-  background: "none",
-  border: "none",
-  color: "var(--accent-strong)",
-  fontSize: 11.5,
-  fontWeight: 700,
-  padding: "8px 0 0",
-};
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
