@@ -1,5 +1,3 @@
-import { Fragment } from "react";
-
 // Renderer for the Obsidian-flavored markdown in the vault.
 //
 // Hand-rolled rather than pulled from a library for two reasons: the syntax
@@ -135,6 +133,8 @@ function renderInline(text, keyPrefix = "i", marks = null) {
     const hlBody = m[16];
 
     if (hlId !== undefined) {
+      // A passage you marked is the one place the reader uses orange. One
+      // made into a note is underlined too, and opens that note's card below.
       const mark = marks?.get(hlId);
       out.push(
         <mark
@@ -143,9 +143,9 @@ function renderInline(text, keyPrefix = "i", marks = null) {
           onClick={mark?.onClick}
           title={mark?.title}
           style={{
-            background: mark ? `${mark.color}26` : "var(--accent-soft)",
+            background: "var(--accent-soft)",
             color: "inherit",
-            borderBottom: `2px solid ${mark ? mark.color : "var(--accent)"}`,
+            borderBottom: mark?.linked ? "2px solid var(--accent)" : "none",
             borderRadius: 2,
             padding: "1px 0",
             cursor: mark?.onClick ? "pointer" : "text",
@@ -161,7 +161,7 @@ function renderInline(text, keyPrefix = "i", marks = null) {
       // than printing the raw link syntax in the middle of the prose.
       const file = embed.split("|")[0].split("/").pop();
       out.push(
-        <span key={key} className="md-embed" title={`In your vault: ${embed.split("|")[0]}`}>
+        <span key={key} style={embedStyle} title={`In your vault: ${embed.split("|")[0]}`}>
           {IMAGE_FILE.test(file) ? "Picture" : "Embedded note"} · {file}
         </span>
       );
@@ -468,11 +468,18 @@ export function cardFace(note, max = 180) {
   const title = niceTitle(note);
   const source = note?.essence || note?.excerpt || note?.body_preview || note?.body || "";
   const text = previewText(source, max);
+  if (!squash(text)) return { title: null, text: title };
+  return { title: titleRepeats(title, text) ? null : title, text };
+}
+
+// Whether a title says nothing the text under it doesn't: it's the text's
+// own first words (cut short or not), or a placeholder. False when there's
+// no text, since then the title is all there is.
+export function titleRepeats(title, text) {
   const t = squash(title);
   const x = squash(text);
-  const repeats = !x || t.startsWith("untitled") || x.startsWith(t) || t.startsWith(x);
-  if (!x) return { title: null, text: title };
-  return { title: repeats ? null : title, text };
+  if (!x) return false;
+  return !t || t.startsWith("untitled") || x.startsWith(t) || t.startsWith(x);
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +490,16 @@ const hrStyle = { border: "none", borderTop: "1px solid var(--border)", margin: 
 // A vault reference, not a link (the note it names may not be in the hub), so
 // it reads as text with a dotted underline rather than as an orange link.
 const wikiStyle = { borderBottom: "1px dotted var(--text-3)", cursor: "help", overflowWrap: "anywhere" };
+const embedStyle = {
+  display: "inline-block",
+  padding: "1px 8px",
+  borderRadius: 999,
+  background: "var(--inset)",
+  color: "var(--text-2)",
+  fontFamily: "var(--font)",
+  fontSize: 12,
+  overflowWrap: "anywhere",
+};
 const markStyle = { background: "rgba(224, 165, 69, 0.22)", color: "var(--text)", padding: "0 2px", borderRadius: 2 };
 const codeStyle = {
   fontFamily: "var(--font-mono)",

@@ -1553,18 +1553,22 @@ export async function deleteNote(noteId) {
   // Stop here rather than delete: the database would drop the children to the
   // top level and lose where they came from.
   if (moveError) throw moveError;
+  // Its verse references go with it, or the Scripture tab keeps counting a
+  // note that no longer exists.
+  const { error: refsError } = await supabase.from("scripture_refs").delete().eq("entity_type", "study_note").eq("entity_id", noteId);
+  if (refsError) throw refsError;
   const { error } = await supabase.from("study_notes").delete().eq("id", noteId);
   if (error) throw error;
 }
 
-export async function fetchHighlights(userId, noteIds) {
-  if (!noteIds?.length) return [];
-  const { data, error } = await supabase
-    .from("note_highlights")
-    .select("*")
-    .eq("user_id", userId)
-    .in("note_id", noteIds)
-    .order("start_offset", { ascending: true });
+// Every highlight on the shelf, or only those on the notes named. The whole
+// shelf is asked for by owner rather than as a list of ids: five hundred ids
+// in the address is longer than some proxies will pass.
+export async function fetchHighlights(userId, noteIds = null) {
+  if (Array.isArray(noteIds) && noteIds.length === 0) return [];
+  let query = supabase.from("note_highlights").select("*").eq("user_id", userId).not("note_id", "is", null);
+  if (noteIds) query = query.in("note_id", noteIds);
+  const { data, error } = await query.order("start_offset", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
@@ -1612,6 +1616,24 @@ export async function createSubNoteFromHighlight(userId, { noteId, quotedText, s
     childNoteId: child.id,
   });
   return { child, highlight };
+}
+
+// A highlight you marked earlier, made into a note of its own now: the note
+// is written first, then the highlight is pointed at it, so a failure leaves
+// at worst a note without a mark rather than a mark pointing at nothing.
+export async function promoteHighlight(userId, highlight, { title, sourceRef, position, noteKind }) {
+  const child = await createNote(userId, {
+    title: title || highlight.quoted_text.slice(0, 70),
+    body: "",
+    excerpt: highlight.quoted_text,
+    parentId: highlight.note_id,
+    sourceRef,
+    noteKind,
+    position: position ?? 0,
+  });
+  const { error } = await supabase.from("note_highlights").update({ child_note_id: child.id }).eq("id", highlight.id);
+  if (error) throw error;
+  return child;
 }
 
 export async function fetchNotesToResurface(limit = 3) {
