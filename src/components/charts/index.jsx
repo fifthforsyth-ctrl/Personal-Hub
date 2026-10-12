@@ -218,7 +218,7 @@ export function LineChart({
   const H = height;
   const pad = { top: 14, right: 14, bottom: 26, left: 46 };
 
-  const { xs, yMax, yMin, paths, ticks } = useMemo(() => {
+  const { xs, paths, ticks } = useMemo(() => {
     const allX = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
     const allY = series.flatMap((s) => s.points.map((p) => p.y));
     let hi = Math.max(...allY, 0);
@@ -246,7 +246,7 @@ export function LineChart({
       return { v, y: yAt(v) };
     });
 
-    return { xs: allX, yMax: hi, yMin: lo, paths: built, ticks: t, xAt, yAt };
+    return { xs: allX, paths: built, ticks: t };
   }, [series, H]);
 
   const xAt = paths[0]?.xAt;
