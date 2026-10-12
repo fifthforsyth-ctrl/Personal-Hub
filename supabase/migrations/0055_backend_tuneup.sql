@@ -345,6 +345,12 @@ revoke execute on function public.bump_node_activity() from authenticated;
 revoke execute on function public.link_time_entry_to_goal() from authenticated;
 revoke execute on function public.link_win_loss_to_goal() from authenticated;
 
+-- PUBLIC's default can only be taken away for every schema at once (a
+-- per-schema rule can add privileges, not remove global ones), so a function
+-- postgres creates anywhere now needs its own grant. Signed-in access to new
+-- functions in public still comes from Supabase's own default for
+-- authenticated: a function meant only for the server needs an explicit
+-- revoke from authenticated.
 alter default privileges for role postgres in schema public revoke execute on functions from anon;
 alter default privileges for role postgres revoke execute on functions from public;
 
