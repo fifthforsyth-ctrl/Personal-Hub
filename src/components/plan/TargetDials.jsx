@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, RotateCcw, Scale } from "lucide-react";
+import { Minus, Plus, Scale } from "lucide-react";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 
 // What the draft actually contains, against what was asked for.
@@ -102,7 +102,7 @@ export default function TargetDials({ targets, days, goals, onRebalance, busy })
           <Dial
             key={t.id}
             label={t.label}
-            color={t.categories?.[0] ? colorFor(t.categories[0]) : "var(--accent)"}
+            color={t.categories?.[0] ? colorFor(t.categories[0]) : "var(--text-3)"}
             amount={current[t.id] ?? 0}
             target={goals?.[t.label] ?? (Number(t.weekly_minutes) || 0)}
             changed={(current[t.id] ?? 0) !== (draft[t.id] ?? 0)}
@@ -136,7 +136,7 @@ export default function TargetDials({ targets, days, goals, onRebalance, busy })
             <span key={m.label}>
               {i > 0 && <span className="faint"> · </span>}
               {m.label}{" "}
-              <strong style={{ fontWeight: 650, color: m.delta > 0 ? "var(--accent)" : "var(--text-3)" }}>
+              <strong style={{ fontWeight: 650, color: m.delta > 0 ? "var(--accent-text)" : "var(--text-2)" }}>
                 {m.delta > 0 ? "+" : "−"}
                 {fmtMinutes(Math.abs(m.delta))}
               </strong>
@@ -147,8 +147,8 @@ export default function TargetDials({ targets, days, goals, onRebalance, busy })
 
       {touched && (
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="btn-secondary" onClick={reset} disabled={busy} style={{ flex: "0 0 auto", width: "auto" }}>
-            <RotateCcw size={13} />
+          <button className="btn" onClick={reset} disabled={busy}>
+            Reset
           </button>
           <button
             className="btn btn--accent"
@@ -163,7 +163,7 @@ export default function TargetDials({ targets, days, goals, onRebalance, busy })
 
       <p
         className="faint"
-        style={{ fontSize: 11.5, margin: "10px 0 0", textAlign: "center", color: overbooked ? "var(--accent)" : undefined }}
+        style={{ fontSize: 11.5, margin: "10px 0 0", textAlign: "center", color: overbooked ? "var(--accent-text)" : undefined }}
       >
         {fmtMinutes(asked)} of the week's {fmtMinutes(WAKING_MINUTES)} waking hours asked for
         {overbooked ? " — more than the days hold once meals and travel come out." : ", the rest is meals, travel and slack."}
@@ -224,7 +224,7 @@ function Dial({ label, color, amount, target, changed, onAdjust }) {
             <path
               d={arc(0, Math.min(1, fraction - 1))}
               fill="none"
-              stroke="var(--bg)"
+              stroke="var(--card)"
               strokeWidth={3}
               strokeLinecap="round"
               opacity={0.7}
@@ -232,7 +232,7 @@ function Dial({ label, color, amount, target, changed, onAdjust }) {
           )}
         </svg>
         <div className="dial__centre">
-          <span className="dial__planned" style={{ color: changed ? "var(--accent)" : "var(--text)" }}>
+          <span className="dial__planned" style={{ color: changed ? "var(--accent-text)" : "var(--text)" }}>
             {fmtMinutes(amount)}
           </span>
           {/* Not the category colour: Sleep's is nearly black by design, and
@@ -247,11 +247,11 @@ function Dial({ label, color, amount, target, changed, onAdjust }) {
       <div className="dial__name">{label}</div>
 
       <div className="dial__controls">
-        <button onClick={() => onAdjust(-STEP)} title={`30 minutes less`}>
-          <Minus size={12} />
+        <button onClick={() => onAdjust(-STEP)} title="30 minutes less" aria-label={`30 minutes less for ${label}`}>
+          <Minus size={13} />
         </button>
-        <button onClick={() => onAdjust(STEP)} title={`30 minutes more`}>
-          <Plus size={12} />
+        <button onClick={() => onAdjust(STEP)} title="30 minutes more" aria-label={`30 minutes more for ${label}`}>
+          <Plus size={13} />
         </button>
       </div>
     </div>

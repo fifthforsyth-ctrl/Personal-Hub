@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { intensityColor } from "../../lib/nodeStyle";
 
 // Hand-rolled SVG charts. No library: the app needs three forms, all of them
 // small, and a charting dependency would cost more bytes than the whole
@@ -410,6 +411,24 @@ export function Legend({ items, format, activeKey, onHover }) {
           {format && <span className="mono faint">{format(it.value)}</span>}
         </button>
       ))}
+    </div>
+  );
+}
+
+// What a shaded grid's shading means: the same ramp the squares use, from
+// empty to full. "More" is a fuller hour or day, not a better one.
+export function IntensityLegend({ note }) {
+  return (
+    <div className="intensity-legend">
+      <span>Less</span>
+      <span className="intensity-legend__swatches" aria-hidden="true">
+        <i style={{ background: "var(--inset)" }} />
+        {[0.25, 0.5, 0.75, 1].map((t) => (
+          <i key={t} style={{ background: intensityColor(t) }} />
+        ))}
+      </span>
+      <span>More</span>
+      {note && <span className="intensity-legend__note">{note}</span>}
     </div>
   );
 }

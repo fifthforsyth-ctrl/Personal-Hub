@@ -654,14 +654,18 @@ button { cursor: pointer; touch-action: manipulation; }
   margin-bottom: 5px;
 }
 
-.chunk--done { border-left-color: var(--accent); }
+.chunk--done { border-left-color: var(--good); }
 
+/* Two lines before it gives up, so "Hansen cut — rough assembly" reads. */
 .chunk__title {
   font-size: 12px;
   font-weight: 570;
+  line-height: 1.3;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .chunk__time { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-3); }
@@ -686,6 +690,8 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .month-cell {
   aspect-ratio: 1;
+  min-width: 0;
+  overflow: hidden;
   border-radius: var(--r);
   border: 1px solid var(--line);
   background: var(--surface);
@@ -1179,7 +1185,7 @@ form.card + .card { margin-top: 14px; }
    as a fraction of the viewBox, so the words stay in proportion whether the
    ring is a month cell or the big one on the day page. */
 .ring-readout__what {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font);
   font-weight: 650;
   fill: var(--text);
 }
@@ -1234,13 +1240,22 @@ form.card + .card { margin-top: 14px; }
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
+/* A card that is a button still reads top-down: name first, nothing
+   centred vertically when a neighbour in the row is taller. */
 .ideal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
   text-align: left;
   width: 100%;
   background: var(--surface);
+  color: inherit;
+  font: inherit;
   cursor: pointer;
 }
-@media (hover: hover) { .ideal-day:hover { border-color: var(--accent-line); } }
+@media (hover: hover) { .ideal-day:hover { border-color: var(--line-strong); } }
 .ideal-day__blocks {
   display: flex;
   flex-wrap: wrap;
@@ -1339,8 +1354,8 @@ form.card + .card { margin-top: 14px; }
 .dial__controls button {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 22px;
+  width: 40px;
+  height: 34px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: transparent;
@@ -1348,7 +1363,7 @@ form.card + .card { margin-top: 14px; }
 }
 @media (hover: hover) {
   .dial__controls button:hover {
-    border-color: var(--accent);
+    border-color: var(--line-strong);
     color: var(--text);
   }
 }

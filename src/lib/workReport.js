@@ -54,7 +54,7 @@ export function buildReport(work) {
     asides,
     tomorrow: work?.tomorrow ?? [],
     hasAnything:
-      done.length + open.length + extras.length + blocked.length + questions.length + (work?.tomorrow?.length ?? 0) > 0 ||
+      done.length + open.length + extras.length + blocked.length + questions.length + asides.length + (work?.tomorrow?.length ?? 0) > 0 ||
       Number(work?.minutes) > 0,
   };
 }

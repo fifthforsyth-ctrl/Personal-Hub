@@ -291,8 +291,24 @@ export async function createTimeChunk(userId, fields) {
   return data;
 }
 
+// Moving or renaming a block keeps its tasks and its notes, which deleting
+// and re-adding it never did. Returns the saved row.
+export async function updateTimeChunk(chunkId, fields) {
+  const { data, error } = await supabase.from("time_chunks").update(fields).eq("id", chunkId).select().single();
+  if (error) throw error;
+  return data;
+}
+
 export async function deleteTimeChunk(chunkId) {
   const { error } = await supabase.from("time_chunks").delete().eq("id", chunkId);
+  if (error) throw error;
+}
+
+// Several blocks in one round trip (replacing a day with a preset). Their
+// tasks stay on the day, unscheduled.
+export async function deleteTimeChunks(chunkIds) {
+  if (chunkIds.length === 0) return;
+  const { error } = await supabase.from("time_chunks").delete().in("id", chunkIds);
   if (error) throw error;
 }
 
@@ -324,6 +340,13 @@ export async function toggleTask(taskId, done) {
 
 export async function deleteTask(taskId) {
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+  if (error) throw error;
+}
+
+// Takes back what a preset just put on the day.
+export async function deleteTasks(taskIds) {
+  if (taskIds.length === 0) return;
+  const { error } = await supabase.from("tasks").delete().in("id", taskIds);
   if (error) throw error;
 }
 
