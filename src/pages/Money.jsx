@@ -181,6 +181,7 @@ export default function Money() {
             start={key}
             end={nextKey}
             title={isCurrentMonth ? "This month's transactions" : `${monthName(key)}'s transactions`}
+            when={isCurrentMonth ? "this month yet" : `in ${monthName(key)}`}
             version={version}
             hidden={hidden}
             onOpen={setOpenTxn}

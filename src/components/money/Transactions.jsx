@@ -10,7 +10,11 @@ import { useReloadOn, shortDate } from "./shared";
 // Everything that came through the month. Tap any row to change what it was:
 // the budget, business or not, a note, or that it wasn't a purchase at all.
 // Nothing here is final, and nothing changes on a single tap.
-export default function Transactions({ start, end, title, version, hidden, onOpen }) {
+// `when` finishes the empty line: "this month yet", or "in September" for a
+// month that's over.
+const NONE = { all: "Nothing came through", personal: "No personal transactions", business: "No business transactions" };
+
+export default function Transactions({ start, end, title, when = "this month yet", version, hidden, onOpen }) {
   const { user } = useAuth();
   const [scope, setScope] = useState("all");
   const { data, error, loading, reload } = useLoad(
@@ -45,7 +49,7 @@ export default function Transactions({ start, end, title, version, hidden, onOpe
       {loading ? (
         <p className="card-note">Loading…</p>
       ) : rows.length === 0 ? (
-        !error && <p className="card-note">Nothing here for this month yet.</p>
+        !error && <p className="card-note">{NONE[scope]} {when}.</p>
       ) : (
         <div className="list">
           {rows.map((t) => (
