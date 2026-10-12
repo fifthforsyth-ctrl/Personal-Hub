@@ -1,50 +1,66 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchPlanSummary } from "../../lib/api";
+import { useLoad } from "../../lib/useLoad";
 import { weekDays, parseDateStr } from "../../lib/planDates";
+import { isEvening } from "./dayParts";
+import { useBackOnline } from "./useBackOnline";
 
 // This week as a row of seven circles: dark once a day is banked, orange for
-// today, outlined for a day that went by without being banked, and pale for
-// the days still ahead. Tapping a past day opens it (or its reflection, if it
-// was never banked), so catching up on a missed evening is one tap.
+// today, a dashed ring for a day that went by without being banked, and pale
+// for the days still ahead. Tapping a past day opens it (or its reflection,
+// if it was never banked), so catching up on a missed evening is one tap.
+// Today's circle opens the evening once it's evening.
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
 export default function WeekStrip({ date }) {
-  const [banked, setBanked] = useState(() => new Set());
   const days = weekDays(date);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchPlanSummary(days[0], days[6])
-      .then((rows) => !cancelled && setBanked(new Set(rows.filter((r) => r.banked).map((r) => String(r.day).slice(0, 10)))))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // days is derived from date.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  const { data, error, reload } = useLoad(() => fetchPlanSummary(days[0], days[6]), [date]);
+  useBackOnline(reload, Boolean(error));
+  // Until the week has loaded (or if it can't), past days stay neutral
+  // rather than all looking unbanked.
+  const banked = data ? new Set(data.filter((r) => r.banked).map((r) => String(r.day).slice(0, 10))) : null;
+  const evening = isEvening();
+  const anyPast = banked && days.some((d) => d < date);
+  const anyOpen = banked && days.some((d) => d < date && !banked.has(d));
 
   return (
-    <div className="week-strip">
-      {days.map((d, i) => {
-        const state = d === date ? "today" : banked.has(d) ? "banked" : d < date ? "missed" : "ahead";
-        const num = parseDateStr(d).getDate();
-        const href = state === "today" ? "/evening" : state === "banked" ? `/day/${d}` : state === "missed" ? `/evening/${d}` : null;
-        const dot = <span className={`week-strip__dot week-strip__dot--${state}`}>{num}</span>;
-        return (
-          <div key={d} className="week-strip__day">
-            <span className="week-strip__dow">{DOW[i]}</span>
-            {href ? (
-              <Link to={href} aria-label={d}>
-                {dot}
-              </Link>
-            ) : (
-              dot
-            )}
-          </div>
-        );
-      })}
+    <div className="week-strip-wrap">
+      <div className="week-strip">
+        {days.map((d, i) => {
+          const state = d === date ? "today" : d > date ? "ahead" : !banked ? "past" : banked.has(d) ? "banked" : "open";
+          const day = parseDateStr(d);
+          const href =
+            state === "today" ? (evening ? "/evening" : null) : state === "banked" ? `/day/${d}` : state === "open" || state === "past" ? `/evening/${d}` : null;
+          const name = day.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+          const label = {
+            today: evening ? `${name}, today. Open the evening` : `${name}, today`,
+            banked: `${name}, banked`,
+            open: `${name}, not banked yet`,
+            past: name,
+            ahead: name,
+          }[state];
+          const dot = (
+            <span className={`week-strip__dot week-strip__dot--${state}`} aria-hidden="true">
+              {day.getDate()}
+            </span>
+          );
+          return (
+            <div key={d} className="week-strip__day">
+              <span className="week-strip__dow" aria-hidden="true">{DOW[i]}</span>
+              {href ? (
+                <Link to={href} className="week-strip__link" aria-label={label} title={label}>
+                  {dot}
+                </Link>
+              ) : (
+                <span role="img" aria-label={label}>
+                  {dot}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {anyPast && <p className="week-strip__key">{anyOpen ? "Dark = banked · dashed = still open" : "Dark = banked"}</p>}
     </div>
   );
 }

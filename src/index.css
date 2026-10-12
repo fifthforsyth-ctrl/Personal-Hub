@@ -255,22 +255,32 @@ button { cursor: pointer; touch-action: manipulation; }
   .page { padding: 16px 14px 28px; }
 }
 
-/* Round icon buttons, no labels: the icon is the label once you've used it
-   for a day, and the bar stays calm. The current tab gets a dark ring. */
+/* Round icon buttons with a small name under each, so a new tab is never a
+   guess. The current tab gets a dark ring and a dark name. */
 .bottom-tab {
-  width: 48px;
-  height: 48px;
   flex: 0 0 auto;
+  min-width: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+}
+.bottom-tab__icon {
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   border: 1.5px solid var(--line);
-  color: var(--text-3);
   transition: color 0.14s, border-color 0.14s;
 }
+.bottom-tab__label { font-size: 10.5px; font-weight: 600; line-height: 1; color: var(--text-2); letter-spacing: 0.01em; }
 
-.bottom-tab.active { color: var(--ink); border-color: var(--ink); }
-.bottom-tab:not(.active):active { background: var(--inset); }
+.bottom-tab.active { color: var(--ink); }
+.bottom-tab.active .bottom-tab__icon { border-color: var(--ink); }
+.bottom-tab.active .bottom-tab__label { color: var(--text); }
+.bottom-tab:not(.active):active .bottom-tab__icon { background: var(--inset); }
 
 /* ---------------------------------------------------------------------------
    Cards
@@ -1065,6 +1075,38 @@ form.card + .card { margin-top: 14px; }
 
 .auth-card .brand-mark h1 { font-size: 20px; margin: 0; color: var(--text); }
 
+.auth-card .brand-mark .auth-flame {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--on-ink);
+  display: grid;
+  place-items: center;
+}
+.auth-card .brand-mark .auth-flame svg { color: var(--accent); }
+.auth-lede { margin: -10px 0 20px; text-align: center; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.auth-forgot { display: flex; justify-content: flex-end; margin: -6px 0 16px; }
+.auth-forgot .btn-link { min-height: 32px; font-size: 12.5px; }
+.auth-sent { margin: 0 0 16px; padding: 12px 14px; border-radius: var(--r); background: var(--inset); font-size: 13.5px; line-height: 1.55; }
+
+/* The moment before the app knows who you are: the Flame, not a blank page. */
+.auth-splash {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+.auth-splash__mark { width: 52px; height: 52px; border-radius: 15px; animation: auth-breathe 1.6s ease-in-out infinite; }
+.auth-splash__mark svg { color: var(--accent); }
+@keyframes auth-breathe { 50% { transform: scale(0.94); opacity: 0.8; } }
+
+/* Set a new password, over whatever page the reset link opened. */
+.auth-reset { max-width: 400px; background: var(--card); }
+.auth-reset__title { font-size: 17px; font-weight: 650; margin: 2px 0 6px; }
+.auth-reset__body { color: var(--text-2); font-size: 14px; line-height: 1.55; margin: 0 0 16px; }
+.auth-reset__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+
 .auth-switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-2); }
 .auth-switch a, a:not([class]) { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 
@@ -1320,6 +1362,26 @@ form.card + .card { margin-top: 14px; }
 .side-capture { margin: 0 2px 12px; justify-content: flex-start; padding: 10px 12px; }
 .side-link--sm { font-size: 12.5px; padding: 7px 11px; }
 
+/* Sign out sits apart from the places, quieter, and asks before it acts. */
+.side-signout { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.side-link--quiet { width: 100%; background: none; border: none; color: var(--text-3); text-align: left; }
+.more-signout { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.more-link--quiet { color: var(--text-2); font-size: 14px; }
+
+.signout-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: var(--r);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 560;
+}
+.signout-ask__actions { display: flex; gap: 8px; }
+.signout-ask__actions .btn { flex: 1; }
+
 .bottom-plus {
   flex: 0 0 auto;
   width: 54px;
@@ -1432,7 +1494,8 @@ form.card + .card { margin-top: 14px; }
   color: var(--text-2);
   font-weight: 600;
 }
-.logged-banner--win { background: var(--accent-soft); color: var(--accent-hot); animation: win-pop 0.35s ease-out; }
+.logged-banner--win { background: var(--accent-soft); color: var(--accent-text); animation: win-pop 0.35s ease-out; }
+.logged-banner--win > svg { color: var(--accent); }
 
 .chip--tap { cursor: pointer; padding: 7px 12px; font-size: 12.5px; color: var(--text); }
 .chip--tap:active { border-color: var(--accent-line); background: var(--accent-soft); }
@@ -1479,7 +1542,8 @@ form.card + .card { margin-top: 14px; }
 .loss-link {
   background: none;
   border: none;
-  padding: 4px 8px;
+  min-height: 36px;
+  padding: 4px 10px;
   color: var(--text-3);
   font-size: 12px;
   display: inline-flex;
@@ -1491,17 +1555,24 @@ form.card + .card { margin-top: 14px; }
 .win-name { margin-top: 14px; animation: fade-in 0.2s ease-out; }
 
 .win-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+/* Each logged win, newest first; tapping one opens Rename / Remove. */
 .win-pill {
-  font-size: 12px;
-  padding: 4px 10px;
+  min-height: 36px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  padding: 6px 13px;
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: var(--accent-soft);
-  color: var(--accent-hot);
+  color: var(--accent-text);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.win-pill--unnamed { background: var(--inset); color: var(--text-2); }
+.win-pill--open { background: var(--ink); color: var(--on-ink); }
 
 .minutes-legend {
   display: grid;
@@ -1541,7 +1612,7 @@ form.card + .card { margin-top: 14px; }
   font-style: italic;
   color: var(--text);
 }
-.walk-ref { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); letter-spacing: 0.04em; }
+.walk-ref { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); letter-spacing: 0.04em; }
 .walk-prompt { margin: 14px 0 0; font-size: 14.5px; line-height: 1.55; color: var(--text); }
 
 .evening-banner {
@@ -1563,7 +1634,24 @@ form.card + .card { margin-top: 14px; }
 
 .evening-wl { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
 .evening-wl__count { font-size: 22px; font-weight: 680; font-variant-numeric: tabular-nums; }
-.evening-wl__row { display: flex; gap: 7px; font-size: 13.5px; line-height: 1.45; padding: 4px 0; }
+/* Each row opens to rename or remove it. */
+.evening-wl__row {
+  display: flex;
+  gap: 7px;
+  width: calc(100% + 12px);
+  min-height: 36px;
+  margin: 0 -6px;
+  padding: 7px 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+}
+@media (hover: hover) { .evening-wl__row:hover { background: var(--inset); } }
 
 @media (max-width: 520px) {
   .evening-wl { grid-template-columns: 1fr; gap: 16px; }
@@ -1617,7 +1705,10 @@ form.card + .card { margin-top: 14px; }
 }
 .week-strip__dot--banked { background: var(--ink); color: var(--on-ink); }
 .week-strip__dot--today { background: var(--accent); color: var(--on-accent); }
-.week-strip__dot--missed { background: var(--card); color: var(--text-2); border: 1.5px solid var(--line-strong); }
+/* A past day never banked: a dashed orange ring, still waiting for you.
+   Before the week has loaded, past days stay plain. */
+.week-strip__dot--open { background: var(--card); color: var(--text); border: 1.5px dashed var(--accent); }
+.week-strip__dot--past { background: var(--card); color: var(--text-2); border: 1.5px solid var(--line-strong); }
 .week-strip__dot--ahead { background: rgba(20, 18, 14, 0.06); color: var(--text-3); }
 @media (max-width: 380px) {
   .week-strip__dot { width: 36px; height: 36px; font-size: 11.5px; }

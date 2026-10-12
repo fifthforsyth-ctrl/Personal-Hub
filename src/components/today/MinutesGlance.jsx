@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Clock, Square, Play } from "lucide-react";
 import { stopTimeEntry } from "../../lib/api";
+import { friendlyError } from "../../lib/errors";
 import { colorFor, fmtMinutes } from "../../lib/categories";
-import { useCapture, announceChange } from "../CaptureSheet";
+import { useCapture } from "../CaptureSheet";
+import { announceChange } from "./announce";
+import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } from "./minutes";
 
 // Where today has gone, at a glance, with the timer one tap away.
 //
@@ -10,35 +13,33 @@ import { useCapture, announceChange } from "../CaptureSheet";
 // capture sheet. Here it's just the shape of the day and, when something is
 // running, the running thing with its stop button, because that's the one
 // action you can't put off.
-export default function MinutesGlance({ entries, running, onChanged }) {
+//
+// The number in the corner is the time tracked (the entries, end to end).
+// The legend credits every category on an entry, so it can add up to more.
+export default function MinutesGlance({ entries, running, loaded }) {
   const capture = useCapture();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  // Off the screen as soon as it's stopped, rather than offering Stop again
+  // until the reload lands (a second press would move its end time).
+  const [stoppedId, setStoppedId] = useState(null);
+  const live = running && running.id !== stoppedId ? running : null;
 
-  // Totals credit every tag on an entry, matching how categories are used
-  // everywhere else: an hour that was both Serve and Minister counts toward
-  // each.
-  const { rows, total } = useMemo(() => {
-    const totals = new Map();
-    let sum = 0;
-    for (const e of entries) {
-      const mins = Number(e.duration_minutes) || 0;
-      sum += mins;
-      for (const t of e.tags?.length ? e.tags : [e.category]) totals.set(t, (totals.get(t) ?? 0) + mins);
-    }
-    return {
-      rows: [...totals.entries()].map(([category, minutes]) => ({ category, minutes })).sort((a, b) => b.minutes - a.minutes),
-      total: sum,
-    };
-  }, [entries]);
-  const stripTotal = rows.reduce((s, r) => s + r.minutes, 0);
+  const rows = minutesByCategory(entries);
+  const total = trackedMinutes(entries);
+  const catTotal = rows.reduce((s, r) => s + r.minutes, 0);
 
   async function stop() {
-    if (busy || !running) return;
+    if (busy || !live) return;
     setBusy(true);
+    setError(null);
     try {
-      await stopTimeEntry(running.id);
-      await onChanged?.();
+      await stopTimeEntry(live.id);
+      setStoppedId(live.id);
+      // Today (and anything else open) reloads on this, once.
       announceChange();
+    } catch (err) {
+      setError(friendlyError(err, "Couldn't stop the timer. Try again."));
     } finally {
       setBusy(false);
     }
@@ -48,38 +49,40 @@ export default function MinutesGlance({ entries, running, onChanged }) {
     <div className="card">
       <div className="card-head" style={{ marginBottom: 10 }}>
         <span className="card-title"><Clock size={14} />Minutes</span>
-        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{total > 0 ? fmtMinutes(total) : "—"}</span>
+        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }} title="Tracked today">{total > 0 ? fmtMinutes(total) : "—"}</span>
       </div>
 
       {rows.length > 0 ? (
         <>
           <div className="time-strip time-strip--tall">
             {rows.map((r) => (
-              <i key={r.category} title={`${r.category} · ${fmtMinutes(r.minutes)}`} style={{ width: `${(r.minutes / stripTotal) * 100}%`, background: colorFor(r.category) }} />
+              <i key={r.category} title={`${r.category} · ${fmtMinutes(r.minutes)}`} style={{ width: `${(r.minutes / catTotal) * 100}%`, background: colorFor(r.category) }} />
             ))}
           </div>
           <div className="minutes-legend">
-            {rows.slice(0, 5).map((r) => (
-              <span key={r.category} className="row" style={{ gap: 6 }}>
+            {rows.map((r) => (
+              <span key={r.category} className="row" style={{ gap: 6, minWidth: 0 }}>
                 <span className="dot" style={{ background: colorFor(r.category) }} />
                 <span className="truncate">{r.category}</span>
-                <span className="mono faint">{fmtMinutes(r.minutes)}</span>
+                <span className="mono muted">{fmtMinutes(r.minutes)}</span>
               </span>
             ))}
           </div>
+          {catTotal > total + 0.5 && <p className="minutes-note">{OVERLAP_NOTE}</p>}
         </>
       ) : (
-        !running && <p className="empty" style={{ marginBottom: 4 }}>Nothing logged yet today.</p>
+        loaded && !live && <p className="empty" style={{ marginBottom: 4 }}>Nothing logged yet today.</p>
       )}
 
-      {running ? (
-        <RunningRow entry={running} onStop={stop} busy={busy} />
+      {live ? (
+        <RunningRow entry={live} onStop={stop} busy={busy} />
       ) : (
         <button className="btn btn--block" style={{ marginTop: 14 }} onClick={() => capture.open("minutes")}>
           <Play size={14} />
           Track time
         </button>
       )}
+      {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
     </div>
   );
 }
@@ -87,15 +90,10 @@ export default function MinutesGlance({ entries, running, onChanged }) {
 function RunningRow({ entry, onStop, busy }) {
   const [, tick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), 1000);
+    const id = setInterval(() => tick((n) => n + 1), 15000);
     return () => clearInterval(id);
   }, []);
 
-  const secs = Math.max(0, Math.floor((Date.now() - new Date(entry.started_at).getTime()) / 1000));
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const elapsed = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
   const tags = entry.tags?.length ? entry.tags : [entry.category];
 
   return (
@@ -103,11 +101,14 @@ function RunningRow({ entry, onStop, busy }) {
       <span className="running-dot" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="truncate" style={{ fontSize: 13.5, fontWeight: 600 }}>{entry.description || tags.join(" · ")}</div>
-        <div className="mono" style={{ fontSize: 12, color: "var(--accent)" }}>{elapsed}</div>
+        <div className="running-row__time">
+          <span className="mono">{fmtElapsed(entry.started_at)}</span>
+          <span className="running-row__since">since {timeOf(entry.started_at)}</span>
+        </div>
       </div>
-      <button className="btn" onClick={onStop} disabled={busy}>
-        <Square size={13} />
-        Stop
+      <button className="btn btn--accent" onClick={onStop} disabled={busy}>
+        <Square size={12} />
+        {busy ? "Stopping…" : "Stop timer"}
       </button>
     </div>
   );

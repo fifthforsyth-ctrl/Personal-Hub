@@ -1,24 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Archive,
-  ChevronDown,
-  Clock,
-  Flame,
-  HandHeart,
-  BookOpen,
-  Plus,
-  Minus,
-  Sprout,
-  PenLine,
-  Unlock,
-} from "lucide-react";
-import { fetchGoalCredit } from "../../lib/api";
-import { Donut, RadialMeter, RankedBars, Legend } from "../charts";
+import { useMemo, useState } from "react";
+import { Archive, ChevronDown, Clock, Flame, HandHeart, BookOpen, Plus, Minus, PenLine, Unlock, Sparkles } from "lucide-react";
+import { writeDaySynopsis, saveDaySynopsis } from "../../lib/api";
+import { friendlyError } from "../../lib/errors";
+import { Donut, RadialMeter, Legend } from "../charts";
 import DayTimeline from "./DayTimeline";
 import { answeredCards } from "./ReflectionFlow";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
+import { trackedMinutes, OVERLAP_NOTE } from "../today/minutes";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -43,32 +33,27 @@ function timeOf(iso) {
 // and last, at the bottom where you finish reading, the things you wrote
 // yourself — the reflection, the prayers, the promptings. Those are the point
 // of keeping a day at all, so they get the closing position, not a dropdown.
-export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }) {
+//
+// No goal tallies here: minutes per goal weren't telling you anything.
+export default function BankedDayCard({ userId, date, archive, chunks, tasks, onReopen, onChanged }) {
   const a = archive ?? {};
-  const [credit, setCredit] = useState([]);
   const [activeSlice, setActiveSlice] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchGoalCredit(date, date)
-      .then((r) => !cancelled && setCredit(r))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [date]);
+  const [reopening, setReopening] = useState(false);
+  const [reopenError, setReopenError] = useState(null);
 
   const timeRows = a.time_by_category ?? [];
-  const totalMinutes = timeRows.reduce((s, r) => s + Number(r.minutes || 0), 0);
   const entries = a.time_entries ?? [];
+  const tracked = trackedMinutes(entries);
   const topTasks = tasks.filter((t) => !t.parent_task_id);
   const done = topTasks.filter((t) => t.status).length;
   const wins = (a.wins_losses ?? []).filter((w) => w.kind === "win");
   const losses = (a.wins_losses ?? []).filter((w) => w.kind === "loss");
   const journal = a.journal ?? {};
+  const answered = answeredCards(journal);
   const prayers = a.prayers ?? [];
   const experiences = a.experiences ?? [];
   const notes = a.study_notes ?? [];
+  const wroteAnything = answered.length + prayers.length + experiences.length + notes.length > 0;
 
   const slices = useMemo(
     () =>
@@ -77,16 +62,19 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
         .filter((s) => s.value > 0),
     [timeRows]
   );
+  const overlaps = slices.reduce((s, x) => s + x.value, 0) > tracked + 0.5;
 
-  const goalRows = useMemo(
-    () =>
-      credit
-        .filter((r) => Number(r.total_minutes) > 0)
-        .sort((x, y) => Number(y.total_minutes) - Number(x.total_minutes))
-        .slice(0, 8)
-        .map((r) => ({ key: r.title, value: Number(r.total_minutes) })),
-    [credit]
-  );
+  async function reopen() {
+    if (reopening) return;
+    setReopening(true);
+    setReopenError(null);
+    try {
+      await onReopen();
+    } catch (err) {
+      setReopenError(friendlyError(err, "Couldn't reopen the day. Try again."));
+      setReopening(false);
+    }
+  }
 
   return (
     <div className="card card--accent" style={{ padding: 0, overflow: "hidden" }}>
@@ -104,7 +92,7 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
         {a.synopsis ? (
           <p className="prose" style={{ whiteSpace: "pre-wrap", marginTop: 10, marginBottom: 0 }}>{a.synopsis}</p>
         ) : (
-          <p className="empty" style={{ marginTop: 8 }}>No synopsis was written for this day.</p>
+          <WriteSummary userId={userId} date={date} onWritten={onChanged} />
         )}
       </div>
 
@@ -112,7 +100,7 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
       <div style={{ padding: "20px 22px", borderBottom: "1px solid var(--line)" }}>
         <div className="row" style={{ gap: 28, flexWrap: "wrap", alignItems: "flex-start" }}>
           {slices.length > 0 && (
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div className="eyebrow" style={{ marginBottom: 10 }}>Where the time went</div>
               <div className="row" style={{ gap: 18, alignItems: "center", flexWrap: "wrap" }}>
                 <Donut
@@ -121,17 +109,13 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
                   thickness={22}
                   format={fmtMinutes}
                   centerLabel="Tracked"
-                  centerValue={fmtMinutes(totalMinutes)}
+                  centerValue={fmtMinutes(tracked)}
                   activeKey={activeSlice}
                   onHover={setActiveSlice}
                 />
-                <div style={{ maxWidth: 220 }}>
-                  <Legend
-                    items={slices}
-                    format={fmtMinutes}
-                    activeKey={activeSlice}
-                    onHover={setActiveSlice}
-                  />
+                <div style={{ maxWidth: 240, minWidth: 0 }}>
+                  <Legend items={slices} format={fmtMinutes} activeKey={activeSlice} onHover={setActiveSlice} />
+                  {overlaps && <p className="minutes-note">{OVERLAP_NOTE}</p>}
                 </div>
               </div>
             </div>
@@ -140,15 +124,17 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
           <div>
             <div className="eyebrow" style={{ marginBottom: 10 }}>How the day closed</div>
             <div className="row" style={{ gap: 18, flexWrap: "wrap" }}>
-              <div style={{ textAlign: "center" }}>
-                <RadialMeter
-                  value={done}
-                  max={Math.max(topTasks.length, 1)}
-                  label={topTasks.length > 0 ? `${Math.round((done / topTasks.length) * 100)}%` : "—"}
-                  sublabel={topTasks.length > 0 ? `${done}/${topTasks.length}` : "no tasks"}
-                />
-                <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>Tasks done</div>
-              </div>
+              {topTasks.length > 0 && (
+                <div style={{ textAlign: "center" }}>
+                  <RadialMeter
+                    value={done}
+                    max={topTasks.length}
+                    label={`${Math.round((done / topTasks.length) * 100)}%`}
+                    sublabel={`${done}/${topTasks.length}`}
+                  />
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>Tasks done</div>
+                </div>
+              )}
               <div style={{ textAlign: "center" }}>
                 <RadialMeter
                   value={wins.length}
@@ -156,7 +142,7 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
                   label={String(wins.length)}
                   sublabel={losses.length > 0 ? `${losses.length} lost` : "no losses"}
                 />
-                <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>Wins</div>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>Wins</div>
               </div>
             </div>
           </div>
@@ -168,99 +154,91 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
             <DayTimeline chunks={chunks} entries={entries} />
           </div>
         )}
-
-        {goalRows.length > 0 && (
-          <div style={{ marginTop: 22 }}>
-            <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-              <Sprout size={11} />
-              What the day fed
-            </div>
-            <RankedBars rows={goalRows} format={fmtMinutes} />
-          </div>
-        )}
       </div>
 
       {/* ---- The detail, folded away -------------------------------------- */}
-      <div style={{ padding: "6px 22px", borderBottom: "1px solid var(--line)" }}>
-        {entries.length > 0 && (
-          <Fold icon={Clock} title="Every entry" count={entries.length}>
-            <div className="list">
-              {entries.map((e) => {
-                const tags = e.tags?.length ? e.tags : [e.category];
+      {(entries.length > 0 || chunks.length > 0 || topTasks.length > 0 || wins.length + losses.length > 0) && (
+        <div style={{ padding: "6px 22px", borderBottom: "1px solid var(--line)" }}>
+          {entries.length > 0 && (
+            <Fold icon={Clock} title="Every entry" count={entries.length}>
+              <div className="list">
+                {entries.map((e) => {
+                  const tags = e.tags?.length ? e.tags : [e.category];
+                  return (
+                    <div key={e.id} className="list-row">
+                      <span className="dot" style={{ background: colorFor(tags[0]) }} />
+                      <span className="truncate" style={{ flex: 1 }}>{e.description || "Untitled"}</span>
+                      <span className="row banked-entry__tags" style={{ gap: 4, flexShrink: 0 }}>
+                        {tags.map((t) => (
+                          <span key={t} className="chip" style={{ fontSize: 10, padding: "2px 7px" }}>{t}</span>
+                        ))}
+                      </span>
+                      <span className="list-row__meta">{timeOf(e.started_at)}</span>
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--accent-text)", flexShrink: 0 }}>{fmtMinutes(e.duration_minutes)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Fold>
+          )}
+
+          {(chunks.length > 0 || topTasks.length > 0) && (
+            <Fold icon={PenLine} title="The plan and what got done" count={topTasks.length}>
+              {chunks.map((c) => {
+                const own = tasks.filter((t) => t.time_chunk_id === c.id && !t.parent_task_id);
                 return (
-                  <div key={e.id} className="list-row">
-                    <span className="dot" style={{ background: colorFor(tags[0]) }} />
-                    <span className="truncate" style={{ flex: 1 }}>{e.description || "Untitled"}</span>
-                    <span className="row" style={{ gap: 4, flexShrink: 0 }}>
-                      {tags.map((t) => (
-                        <span key={t} className="chip" style={{ fontSize: 10, padding: "2px 7px" }}>{t}</span>
-                      ))}
-                    </span>
-                    <span className="list-row__meta">{timeOf(e.started_at)}</span>
-                    <span className="mono" style={{ fontSize: 11.5, color: "var(--accent)", flexShrink: 0 }}>{fmtMinutes(e.duration_minutes)}</span>
+                  <div key={c.id} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div className="row row--between" style={{ alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 570, fontSize: 13.5 }}>{c.title}</span>
+                      <span className="list-row__meta">
+                        {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
+                        {own.length > 0 ? ` · ${own.filter((t) => t.status).length}/${own.length}` : ""}
+                      </span>
+                    </div>
+                    {own.map((t) => (
+                      <TaskLine key={t.id} task={t} subtasks={tasks.filter((s) => s.parent_task_id === t.id)} />
+                    ))}
                   </div>
                 );
               })}
-            </div>
-          </Fold>
-        )}
+              {topTasks.filter((t) => !t.time_chunk_id).length > 0 && (
+                <div style={{ padding: "9px 0" }}>
+                  <div className="eyebrow" style={{ marginBottom: 4 }}>Unscheduled</div>
+                  {topTasks
+                    .filter((t) => !t.time_chunk_id)
+                    .map((t) => (
+                      <TaskLine key={t.id} task={t} subtasks={tasks.filter((s) => s.parent_task_id === t.id)} />
+                    ))}
+                </div>
+              )}
+            </Fold>
+          )}
 
-        {(chunks.length > 0 || topTasks.length > 0) && (
-          <Fold icon={PenLine} title="The plan and what got done" count={topTasks.length}>
-            {chunks.map((c) => {
-              const own = tasks.filter((t) => t.time_chunk_id === c.id && !t.parent_task_id);
-              return (
-                <div key={c.id} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
-                  <div className="row row--between" style={{ alignItems: "baseline" }}>
-                    <span style={{ fontWeight: 570, fontSize: 13.5 }}>{c.title}</span>
-                    <span className="list-row__meta">
-                      {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
-                      {own.length > 0 ? ` · ${own.filter((t) => t.status).length}/${own.length}` : ""}
+          {wins.length + losses.length > 0 && (
+            <Fold icon={Plus} title="Wins and losses" count={wins.length + losses.length}>
+              <div className="list">
+                {[...wins, ...losses].map((w) => (
+                  <div key={w.id} className="list-row">
+                    <span style={{ color: w.kind === "win" ? "var(--accent)" : "var(--text-3)", display: "flex", flexShrink: 0 }}>
+                      {w.kind === "win" ? <Plus size={14} /> : <Minus size={14} />}
                     </span>
+                    <span className="truncate" style={{ flex: 1 }}>{w.habit_label}</span>
+                    <span className="list-row__meta">{timeOf(w.occurred_at)}</span>
                   </div>
-                  {own.map((t) => (
-                    <TaskLine key={t.id} task={t} subtasks={tasks.filter((s) => s.parent_task_id === t.id)} />
-                  ))}
-                </div>
-              );
-            })}
-            {topTasks.filter((t) => !t.time_chunk_id).length > 0 && (
-              <div style={{ padding: "9px 0" }}>
-                <div className="eyebrow" style={{ marginBottom: 4 }}>Unscheduled</div>
-                {topTasks
-                  .filter((t) => !t.time_chunk_id)
-                  .map((t) => (
-                    <TaskLine key={t.id} task={t} subtasks={tasks.filter((s) => s.parent_task_id === t.id)} />
-                  ))}
+                ))}
               </div>
-            )}
-          </Fold>
-        )}
-
-        {wins.length + losses.length > 0 && (
-          <Fold icon={Plus} title="Wins and losses" count={wins.length + losses.length}>
-            <div className="list">
-              {[...wins, ...losses].map((w) => (
-                <div key={w.id} className="list-row">
-                  <span style={{ color: w.kind === "win" ? "var(--accent)" : "var(--text-3)", display: "flex", flexShrink: 0 }}>
-                    {w.kind === "win" ? <Plus size={14} /> : <Minus size={14} />}
-                  </span>
-                  <span className="truncate" style={{ flex: 1 }}>{w.habit_label}</span>
-                  <span className="list-row__meta">{timeOf(w.occurred_at)}</span>
-                </div>
-              ))}
-            </div>
-          </Fold>
-        )}
-      </div>
+            </Fold>
+          )}
+        </div>
+      )}
 
       {/* ---- What you wrote ---------------------------------------------- */}
       <div style={{ padding: "20px 22px" }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>In your own words</div>
+        {wroteAnything && <div className="eyebrow" style={{ marginBottom: 14 }}>In your own words</div>}
 
-        {answeredCards(journal).map((c) => (
+        {answered.map((c) => (
           <div key={c.label} style={{ marginBottom: 18 }}>
-            <div className="eyebrow" style={{ color: "var(--accent)", marginBottom: 5 }}>{c.label}</div>
+            <div className="eyebrow" style={{ color: "var(--accent-text)", marginBottom: 5 }}>{c.label}</div>
             <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{c.question}</div>
             <div className="prose">{c.text}</div>
           </div>
@@ -275,7 +253,7 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
                   <span className="list-row__meta">{timeOf(e.occurred_at)}</span>
                 </div>
                 <div className="prose prose--sm" style={{ marginTop: 6 }}>{e.what_came}</div>
-                {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--accent)", marginTop: 4 }}>Acted: {e.action_taken}</div>}
+                {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>Acted: {e.action_taken}</div>}
               </div>
             ))}
           </Written>
@@ -290,7 +268,7 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
                   <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
                 </div>
                 <div className="prose prose--sm" style={{ marginTop: 5 }}>{p.content}</div>
-                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent)", marginTop: 4 }}>Felt: {p.felt_response}</div>}
+                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>Felt: {p.felt_response}</div>}
               </div>
             ))}
           </Written>
@@ -311,14 +289,53 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
           </Written>
         )}
 
-        <div className="row row--between" style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
-          <span className="faint" style={{ fontSize: 11.5 }}>Banking is not a lock — reopen it if something needs correcting.</span>
-          <button className="btn" onClick={onReopen}>
+        <div
+          className="row row--between"
+          style={{ marginTop: wroteAnything ? 20 : 0, paddingTop: wroteAnything ? 16 : 0, borderTop: wroteAnything ? "1px solid var(--line)" : "none", gap: 10, flexWrap: "wrap" }}
+        >
+          <span className="muted" style={{ fontSize: 12 }}>Banking is not a lock. Reopen the day if something needs correcting.</span>
+          <button className="btn" onClick={reopen} disabled={reopening}>
             <Unlock size={14} />
-            Reopen this day
+            {reopening ? "Reopening…" : "Reopen this day"}
           </button>
         </div>
+        {reopenError && <div className="form-error" style={{ marginTop: 10 }}>{reopenError}</div>}
       </div>
+    </div>
+  );
+}
+
+// A day banked while the assistant was down (or before summaries existed)
+// can have its summary written now.
+function WriteSummary({ userId, date, onWritten }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function write() {
+    if (busy || !userId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { synopsis, headline } = await writeDaySynopsis(date);
+      await saveDaySynopsis(userId, date, headline ? `${headline}. ${synopsis}` : synopsis);
+      await onWritten?.();
+    } catch (err) {
+      setError(friendlyError(err, "Couldn't write the summary. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="row" style={{ gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+      <p className="muted" style={{ margin: 0, fontSize: 13.5, flex: "1 1 200px" }}>No summary was written for this day yet.</p>
+      {userId && (
+        <button className="btn btn--sm" onClick={write} disabled={busy}>
+          <Sparkles size={13} />
+          {busy ? "Writing…" : "Write it now"}
+        </button>
+      )}
+      {error && <div className="form-error" style={{ flexBasis: "100%" }}>{error}</div>}
     </div>
   );
 }
@@ -347,12 +364,8 @@ function TaskLine({ task, subtasks }) {
 function Fold({ icon: Icon, title, count, children }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ borderBottom: "1px solid var(--line)" }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="row"
-        style={{ gap: 9, width: "100%", background: "none", border: "none", padding: "13px 0", color: "inherit", textAlign: "left" }}
-      >
+    <div className="banked-fold">
+      <button onClick={() => setOpen((v) => !v)} className="banked-fold__head" aria-expanded={open}>
         <Icon size={14} style={{ color: "var(--text-3)", flexShrink: 0 }} />
         <span style={{ flex: 1, fontSize: 13, fontWeight: 570 }}>{title}</span>
         <span className="mono faint" style={{ fontSize: 11 }}>{count}</span>

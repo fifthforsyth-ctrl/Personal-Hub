@@ -1,33 +1,56 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Moon, ArrowRight, Archive, CalendarRange } from "lucide-react";
+import { Moon, ArrowRight, Archive, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchWinLosses, fetchTimeEntries, fetchOpenTimeEntry, fetchCategories, fetchDayPlan } from "../lib/api";
+import { useLoad } from "../lib/useLoad";
 import { setCategoryColors } from "../lib/categories";
-import { todayStr, fmtDayHeading } from "../lib/planDates";
+import { todayStr, addDays, fmtDayHeading, parseDateStr } from "../lib/planDates";
+import LoadError from "../components/ui/LoadError";
 import WinHero from "../components/today/WinHero";
 import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
 import WeekStrip from "../components/today/WeekStrip";
 import CuratedCards from "../components/curator/CuratedCards";
-import PurchaseQuestion from "../components/money/PurchaseQuestion";
+import { PurchaseNudge } from "../components/money/PurchaseQuestion";
+import { isEvening, isLateNight } from "../components/today/dayParts";
+import { useBackOnline } from "../components/today/useBackOnline";
+import "../styles/daily.css";
 
 // Today: wins, minutes, and your walk with God.
 //
 // The page you open dozens of times a day, so it carries exactly the three
 // things you said the Hub is for, in that order, and one action that matters
 // most (Win) sits at the top where a thumb finds it. The curator's cards and
-// the purchase question are still here, below the fold, for when you scroll.
+// a one-line note about purchases to sort are still here, below the fold.
 //
 // After seven in the evening the top of the page becomes the way into the
-// evening reflection.
+// evening reflection. If yesterday never got banked, Today says so and takes
+// you to it, which matters most just after midnight, when "today" has
+// already turned over but the evening you're still in hasn't.
 
-const EVENING_HOUR = 19;
-
-function todayStartISO() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+async function loadToday(userId, date) {
+  const since = parseDateStr(date).toISOString();
+  const [wl, list, open, plan, yesterdayPlan, cats] = await Promise.all([
+    fetchWinLosses(userId, { sinceISO: since, limit: 200 }),
+    fetchTimeEntries(userId, { sinceISO: since, limit: 200 }),
+    fetchOpenTimeEntry(userId),
+    fetchDayPlan(userId, date),
+    fetchDayPlan(userId, addDays(date, -1)),
+    // Only colours: Today still opens if these don't come.
+    fetchCategories(userId).catch((err) => {
+      console.warn(err);
+      return null;
+    }),
+  ]);
+  if (cats) setCategoryColors(cats);
+  return {
+    wins: wl.filter((w) => w.kind === "win"),
+    entries: list.filter((e) => e.ended_at),
+    running: open,
+    dayPlan: plan,
+    yesterdayBanked: Boolean(yesterdayPlan?.banked_at),
+  };
 }
 
 export default function Today() {
@@ -35,78 +58,58 @@ export default function Today() {
   const userId = user?.id;
   const date = todayStr();
 
-  const [wins, setWins] = useState([]);
-  const [entries, setEntries] = useState([]);
-  const [running, setRunning] = useState(null);
-  const [dayPlan, setDayPlan] = useState(null);
-
-  const reload = useCallback(async () => {
-    if (!userId) return;
-    const since = todayStartISO();
-    const [wl, list, open, cats, plan] = await Promise.all([
-      fetchWinLosses(userId, { sinceISO: since, limit: 200 }).catch(() => []),
-      fetchTimeEntries(userId, { sinceISO: since, limit: 200 }).catch(() => []),
-      fetchOpenTimeEntry(userId).catch(() => null),
-      fetchCategories(userId).catch(() => []),
-      fetchDayPlan(userId, date).catch(() => null),
-    ]);
-    setCategoryColors(cats);
-    setWins(wl.filter((w) => w.kind === "win").reverse());
-    setEntries(list.filter((e) => e.ended_at));
-    setRunning(open);
-    setDayPlan(plan);
-  }, [userId, date]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const { data, error, reload } = useLoad(() => loadToday(userId, date), [userId, date]);
 
   // Refresh when something is captured from the sheet, and when the phone
   // comes back to the app — a PWA left open overnight should show today.
   useEffect(() => {
-    const onChange = () => reload();
     const onVisible = () => document.visibilityState === "visible" && reload();
-    window.addEventListener("hub:changed", onChange);
+    window.addEventListener("hub:changed", reload);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("hub:changed", onChange);
+      window.removeEventListener("hub:changed", reload);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [reload]);
+  useBackOnline(reload, Boolean(error));
 
-  const banked = Boolean(dayPlan?.banked_at);
-  const isEvening = new Date().getHours() >= EVENING_HOUR;
+  const banked = Boolean(data?.dayPlan?.banked_at);
+  const evening = isEvening();
+  const lateNight = isLateNight();
+  const yesterday = addDays(date, -1);
+  const yesterdayOpen = Boolean(data) && !data.yesterdayBanked;
 
   return (
     <div className="page today">
-      <div className="row row--between" style={{ marginBottom: 14, alignItems: "flex-start" }}>
-        <div>
-          <div className="eyebrow">{fmtDayHeading(date)}</div>
-          <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
-        </div>
-        <Link to="/plan" className="btn-icon btn-icon--bordered" style={{ width: 38, height: 38 }} title="This week">
-          <CalendarRange size={16} />
-        </Link>
+      <div style={{ marginBottom: 14 }}>
+        <div className="eyebrow">{fmtDayHeading(date)}</div>
+        <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
       </div>
 
       <WeekStrip date={date} />
 
+      {error && <LoadError what="today" error={error} onRetry={reload} stale={Boolean(data)} className="today__error" />}
+
       <div className="today-grid">
         <div className="stack">
-          {(isEvening || banked) && <EveningBanner banked={banked} date={date} className="today-evening--phone" />}
-          <WinHero userId={userId} wins={wins} onChanged={reload} />
-          <MinutesGlance entries={entries} running={running} onChanged={reload} />
+          {yesterdayOpen && lateNight && <YesterdayBanner date={yesterday} urgent />}
+          {(evening || banked) && <EveningBanner banked={banked} date={date} className="today-evening--phone" />}
+          {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
+          <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
+          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
         </div>
         <div className="stack">
-          <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!isEvening} />
+          {/* Just after midnight the yesterday banner is the way in; a second
+              link to the same evening would only compete with it. */}
+          {!(yesterdayOpen && lateNight) && <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!evening} />}
           <WalkWithGod userId={userId} date={date} />
         </div>
       </div>
 
       <div className="stack" style={{ marginTop: 14 }}>
         <CuratedCards slot="home" title="For today" compact />
-        {/* Renders nothing when there's nothing to ask. */}
-        <PurchaseQuestion compact />
+        {/* One line, and only when there's something to sort. */}
+        <PurchaseNudge />
       </div>
     </div>
   );
@@ -128,5 +131,54 @@ function EveningBanner({ banked, date, className, quiet = false }) {
       <span style={{ flex: 1 }}>{quiet ? "Evening reflection" : "Time to reflect on today"}</span>
       <ArrowRight size={15} />
     </Link>
+  );
+}
+
+// Yesterday was never banked. Just after midnight that's the evening you're
+// still in, so it's the dark banner; later in the day it's a quiet nudge you
+// can put away until tomorrow.
+function YesterdayBanner({ date, urgent }) {
+  const key = `hub.yesterday-dismissed.${date}`;
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch (err) {
+      console.warn(err);
+      return false;
+    }
+  });
+  if (dismissed && !urgent) return null;
+
+  const weekday = parseDateStr(date).toLocaleDateString(undefined, { weekday: "long" });
+
+  return (
+    <div className={"yesterday-banner" + (urgent ? " yesterday-banner--urgent" : "")}>
+      <Link to={`/evening/${date}`} className="yesterday-banner__link">
+        <Moon size={16} />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span className="yesterday-banner__title">Yesterday isn't banked yet</span>
+          <span className="yesterday-banner__sub">Reflect on {weekday} and bank it</span>
+        </span>
+        <ArrowRight size={15} />
+      </Link>
+      {!urgent && (
+        <button
+          type="button"
+          className="btn-icon yesterday-banner__close"
+          aria-label="Hide until tomorrow"
+          title="Hide until tomorrow"
+          onClick={() => {
+            try {
+              localStorage.setItem(key, "1");
+            } catch (err) {
+              console.warn(err);
+            }
+            setDismissed(true);
+          }}
+        >
+          <X size={15} />
+        </button>
+      )}
+    </div>
   );
 }

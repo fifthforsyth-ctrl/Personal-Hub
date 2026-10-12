@@ -1,11 +1,18 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { GitBranch } from "lucide-react";
+import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { friendlyError } from "../lib/errors";
+import { AuthBrand } from "./Login";
+
+function signUpError(err) {
+  if (err?.code === "user_already_exists" || /already registered/i.test(err?.message ?? "")) return "There's already an account with that email. Sign in instead.";
+  if (err?.code === "weak_password") return "Choose a longer password, with a mix of letters and numbers.";
+  if (err?.code === "signup_disabled") return "New accounts aren't open.";
+  return friendlyError(err, "Couldn't create the account. Try again.");
+}
 
 export default function SignUp() {
-  const { signUp } = useAuth();
-  const navigate = useNavigate();
+  const { user, signUp } = useAuth();
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -14,15 +21,18 @@ export default function SignUp() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
+  if (user) return <Navigate to="/" replace />;
+
   async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
     setError("");
     setSubmitting(true);
     try {
-      await signUp({ email, password, displayName });
+      await signUp({ email: email.trim(), password, displayName: displayName.trim() });
       setDone(true);
     } catch (err) {
-      setError(err.message || "Couldn't create the account.");
+      setError(signUpError(err));
     } finally {
       setSubmitting(false);
     }
@@ -32,10 +42,7 @@ export default function SignUp() {
     return (
       <div className="auth-page">
         <div className="auth-card card" style={{ textAlign: "center" }}>
-          <div className="brand-mark">
-            <GitBranch size={24} />
-            <h1>Personal Hub</h1>
-          </div>
+          <AuthBrand />
           <p className="placeholder-note">
             Check your email to confirm the account, then <Link to="/login">sign in</Link>.
           </p>
@@ -47,21 +54,27 @@ export default function SignUp() {
   return (
     <div className="auth-page">
       <form className="auth-card card" onSubmit={handleSubmit}>
-        <div className="brand-mark">
-          <GitBranch size={24} />
-          <h1>Personal Hub</h1>
-        </div>
+        <AuthBrand />
 
-        {error && <div className="form-error">{error}</div>}
+        {error && <div className="form-error" style={{ marginBottom: 14 }}>{error}</div>}
 
         <div className="field">
           <label htmlFor="name">Name</label>
-          <input id="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+          <input id="name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
         </div>
 
         <div className="field">
           <label htmlFor="email">Email</label>
-          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </div>
 
         <div className="field">
@@ -69,6 +82,7 @@ export default function SignUp() {
           <input
             id="password"
             type="password"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={6}
