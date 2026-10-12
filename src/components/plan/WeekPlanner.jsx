@@ -307,7 +307,7 @@ export default function WeekPlanner({ anchorDate, onCommitted, onBusyChange }) {
     <div className="card week-planner" style={{ marginBottom: 14 }}>
       <div className="card-head">
         <span className="card-title"><CalendarRange size={14} />{title}</span>
-        <button className="btn-link" style={{ minHeight: 36 }} onClick={() => setOpen(false)}>Close</button>
+        <button className="btn-link" style={{ minHeight: 36, padding: "0 6px", marginRight: -6 }} onClick={() => setOpen(false)}>Close</button>
       </div>
 
       {ctx.error && !ctx.data && <LoadError what="the week" error={ctx.error} onRetry={ctx.reload} />}
