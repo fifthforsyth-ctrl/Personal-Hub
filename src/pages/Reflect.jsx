@@ -400,8 +400,9 @@ function hourName(h) {
 }
 
 // Hour-of-day × day-of-week — "when do the hours happen". All 24 columns fit
-// a phone at about ten pixels a square, so nothing scrolls sideways. Each
-// entry counts toward the hour it started in.
+// a phone at about ten pixels a square, so nothing scrolls sideways. The
+// database spreads each entry across the hours it covers and leaves sleep
+// out, so one night doesn't wash out the waking day.
 function Heatmap({ rows }) {
   const { grid, max } = useMemo(() => {
     const g = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -442,7 +443,7 @@ function Heatmap({ rows }) {
           </div>
         ))}
       </div>
-      <IntensityLegend note={`Each entry counts toward the hour it started. Darkest square: ${fmtMinutes(max)}.`} />
+      <IntensityLegend note={`Minutes land in the hours they were spent; sleep is left out. Darkest square: ${fmtMinutes(max)}.`} />
     </div>
   );
 }
