@@ -147,7 +147,7 @@
   font-weight: 650;
 }
 
-/* "Saved to your board. [Open]" inside a toast, ahead of its Undo. */
+/* "Saved to your Board. [Open]" inside a toast, ahead of its Undo. */
 .toast-split { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* --- Minutes: picking, logging, fixing ------------------------------------ */

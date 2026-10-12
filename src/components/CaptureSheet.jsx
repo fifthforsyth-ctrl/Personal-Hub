@@ -232,7 +232,7 @@ function ThoughtCapture({ userId, onDone }) {
     onDone();
     toast.show(
       <span className="toast-split">
-        <span>Saved to your board.</span>
+        <span>Saved to your Board.</span>
         <button
           type="button"
           className="toast__action"
@@ -250,9 +250,9 @@ function ThoughtCapture({ userId, onDone }) {
           deleteNote(note.id).then(
             () => {
               announceChange();
-              toast.show("Taken off your board");
+              toast.show("Taken off your Board");
             },
-            (err) => toast.error(err, "Couldn't take it back. It's still on your board.")
+            (err) => toast.error(err, "Couldn't take it back. It's still on your Board.")
           ),
       }
     );
@@ -271,7 +271,7 @@ function ThoughtCapture({ userId, onDone }) {
       />
       {error && <div className="form-error">{error}</div>}
       <button type="submit" className="btn btn--accent btn--lg" disabled={busy || !text.trim()}>
-        {busy ? "Saving…" : "Save to board"}
+        {busy ? "Saving…" : "Save to Board"}
       </button>
     </form>
   );

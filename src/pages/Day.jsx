@@ -411,7 +411,7 @@ function WrittenToday({ experiences, prayers, notes, isToday }) {
                 <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
               </div>
               <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{p.content}</div>
-              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 2 }}>Felt: {p.felt_response}</div>}
+              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 2 }}>What came: {p.felt_response}</div>}
             </div>
           ))}
         </Group>
