@@ -28,7 +28,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // BEFORE the button on purpose — everything else the assistant reads is
 // history; this is the only place a fixed appointment or "I'm exhausted"
 // can enter the picture.
-export default function Tomorrow({ userId, date, reflectionDone }) {
+export default function Tomorrow({ userId, date, reflectionDone, startOpen = false }) {
   const tomorrow = addDays(date, 1);
   const toast = useToast();
 
@@ -45,7 +45,10 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
     return { notes: plan?.notes ?? "", ideal: idealDayFor(idealDays, tomorrow), committed: chunks ?? [] };
   }, [userId, tomorrow]);
 
-  const [open, setOpen] = useState(false);
+  // Reached through the Day page's "Plan tomorrow" button, the card opens at
+  // the notes box rather than asking a second time — once you've reflected.
+  const openAtStart = useRef(startOpen && reflectionDone);
+  const [open, setOpen] = useState(openAtStart.current);
   // What you've typed, and what was last written — both for one date only,
   // so moving to another day never carries a note across.
   const [edit, setEdit] = useState(null);
@@ -61,7 +64,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
 
   useEffect(() => {
     runRef.current += 1;
-    setOpen(false);
+    setOpen(openAtStart.current);
     setResult(null);
     setGenerating(false);
     setProblem(null);
@@ -176,6 +179,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
 
       {open && drafting === null && (
         <>
+          {/* Three lines tall, so the example isn't cut off on a phone. */}
           <label className="field">
             <span>Anything the assistant should know about tomorrow?</span>
             <textarea
@@ -185,7 +189,7 @@ export default function Tomorrow({ userId, date, reflectionDone }) {
               onChange={(e) => setEdit({ date: tomorrow, text: e.target.value })}
               onBlur={saveNotes}
               placeholder="Zone conference at 10 — move the morning block. Low energy, keep it light. Otherwise leave the week's shape alone."
-              style={{ minHeight: 76 }}
+              style={{ minHeight: 96 }}
             />
           </label>
 

@@ -366,10 +366,13 @@ function GoalLinks({ date, isToday, onApplied }) {
 // button away the rest of the week.
 function PlanTomorrow({ userId, date, reflectionDone }) {
   const dow = parseDateStr(date).getDay();
-  const [open, setOpen] = useState(dow === 0 || dow === 6);
-  if (open) return <Tomorrow userId={userId} date={date} reflectionDone={reflectionDone} />;
+  const weekend = dow === 0 || dow === 6;
+  const [open, setOpen] = useState(weekend);
+  // A weekday tap already said "plan tomorrow", so the card opens at the
+  // notes box instead of offering a second button that says the same.
+  if (open) return <Tomorrow userId={userId} date={date} reflectionDone={reflectionDone} startOpen={!weekend} />;
   return (
-    <button type="button" className="btn btn--block" onClick={() => setOpen(true)}>
+    <button type="button" className="btn btn--block btn--on-page" onClick={() => setOpen(true)}>
       <CalendarPlus size={15} />
       Plan tomorrow
     </button>
