@@ -1,224 +1,641 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, X, RotateCcw, Trash2, LayoutTemplate, Bookmark, Archive, Briefcase } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Plus,
+  RotateCcw,
+  RotateCw,
+  LayoutTemplate,
+  Bookmark,
+  Archive,
+  Briefcase,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  CalendarCheck,
+  Repeat,
+} from "lucide-react";
 import {
   fetchDayPlan,
   setDayEnergyTag,
   fetchTimeChunks,
   createTimeChunk,
+  updateTimeChunk,
   deleteTimeChunk,
+  deleteTimeChunks,
   fetchTasks,
   createTask,
   toggleTask,
   updateTask,
   deleteTask,
+  deleteTasks,
   rolloverIncompleteTasks,
   fetchStalledTasks,
   reviveTask,
-  fetchTimeEntriesForDate,
   fetchTemplates,
   applyTemplate,
   saveDayAsTemplate,
   createChunkTemplate,
+  deleteTemplate,
   setTaskWork,
+  fetchCategories,
 } from "../../lib/api";
-import { todayStr, fmtTime, minutesOf } from "../../lib/planDates";
+import { todayStr, fmtTimeRange, fmtShortDate, minutesOf } from "../../lib/planDates";
+import { colorFor } from "../../lib/categories";
+import { useLoad } from "../../lib/useLoad";
+import { friendlyError } from "../../lib/errors";
+import { useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
 import ChunkNotes from "../day/ChunkNotes";
+import { useChoiceSheet } from "./ChoiceSheet";
+import "../../styles/plan.css";
 
 const ENERGY_TAGS = ["Open day", "Heavy edit day", "Deep focus", "Recovery day"];
 
-// A single planned day: energy tag, its time blocks (each holding tasks and
-// one level of sub-tasks), an unscheduled bucket, presets, and the
-// end-of-day plan-vs-actual comparison.
-export default function DayView({ userId, date, goalOptions, onDataChanged }) {
-  const [dayPlan, setDayPlanState] = useState(null);
-  const [chunks, setChunks] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [actualEntries, setActualEntries] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [stalled, setStalled] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [addingChunk, setAddingChunk] = useState(false);
-  const [rolledMsg, setRolledMsg] = useState(null);
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const quote = (s, max = 40) => `“${s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s}”`;
+const byStart = (a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0);
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
+function namesOf(list, max = 3) {
+  const names = list.map((x) => `“${x.title}”`);
+  if (names.length <= max) return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
+}
+
+// A single planned day: energy tag, its time blocks (each holding tasks and
+// one level of sub-tasks), an unscheduled bucket, presets, and on today the
+// tasks that stopped rolling forward.
+//
+// It loads and refreshes its own data. The page around it is only told
+// (onDataChanged) when something it also shows changed — task counts, the
+// energy tag — never on load and never for a moved block, so one checkbox
+// tap doesn't reload the whole day twice.
+export default function DayView({ userId, date, goalOptions = [], onDataChanged }) {
+  const toast = useToast();
+  const [choose, choiceSheet] = useChoiceSheet();
   const isToday = date === todayStr();
 
-  const reload = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
-    const [plan, chunkList, taskList, actual, tmpl, stale] = await Promise.all([
+  // Unfinished tasks from earlier days move onto today once per visit, and
+  // before the day's tasks are read, so they're in the first answer. The
+  // promise lives in a ref so a refresh after a checkbox tap doesn't run it
+  // again, and so StrictMode's double effect shares one call.
+  const rollover = useRef({ key: null, promise: null });
+
+  const { data, error, reload, mutate } = useLoad(async () => {
+    if (!userId) return null;
+    let rolled = null;
+    if (isToday) {
+      const key = `${userId}|${date}`;
+      if (rollover.current.key !== key) {
+        rollover.current = {
+          key,
+          promise: rolloverIncompleteTasks().then(
+            (n) => ({ key, n: Number(n) || 0 }),
+            (err) => ({ key, n: 0, error: err })
+          ),
+        };
+      }
+      rolled = await rollover.current.promise;
+    }
+    const [plan, chunks, tasks, stalled] = await Promise.all([
       fetchDayPlan(userId, date),
       fetchTimeChunks(userId, date),
       fetchTasks(userId, date),
-      fetchTimeEntriesForDate(userId, date),
-      fetchTemplates(userId),
-      fetchStalledTasks().catch(() => []),
+      // Stalled means "past and not rolling" — until a rollover has run,
+      // that list would also hold everything about to move, so skip it.
+      isToday && !rolled?.error
+        ? fetchStalledTasks().then((rows) => ({ rows }), (err) => ({ rows: [], error: err }))
+        : { rows: [] },
     ]);
-    setDayPlanState(plan);
-    setChunks(chunkList);
-    setTasks(taskList);
-    setActualEntries(actual);
-    setTemplates(tmpl);
-    setStalled(stale);
-    setLoading(false);
-    onDataChanged?.();
-  }, [userId, date, onDataChanged]);
-
-  // Rollover fires only when landing on today — never when reviewing a past
-  // day or drafting a future one.
-  useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-    (async () => {
-      if (isToday) {
-        const n = await rolloverIncompleteTasks().catch(() => 0);
-        if (!cancelled && n > 0) setRolledMsg(`Moved ${n} unfinished ${n === 1 ? "task" : "tasks"} forward from earlier days.`);
-      } else {
-        setRolledMsg(null);
-      }
-      if (!cancelled) await reload();
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return { date, plan, chunks, tasks, stalled, rolled };
   }, [userId, date]);
 
-  const { byChunk, unscheduled } = useMemo(() => {
-    const map = new Map();
-    const loose = [];
-    for (const t of tasks) {
-      if (t.parent_task_id) continue;
-      if (t.time_chunk_id) {
-        if (!map.has(t.time_chunk_id)) map.set(t.time_chunk_id, []);
-        map.get(t.time_chunk_id).push(t);
+  const presets = useLoad(() => (userId ? fetchTemplates(userId) : []), [userId]);
+
+  // Tell the page, once things settle. Debounced so ticking off three tasks
+  // in a row refreshes the page once.
+  const changedRef = useRef(onDataChanged);
+  changedRef.current = onDataChanged;
+  const notifyTimer = useRef(null);
+  const notifyPage = useCallback(() => {
+    clearTimeout(notifyTimer.current);
+    notifyTimer.current = setTimeout(() => changedRef.current?.(), 400);
+  }, []);
+  useEffect(() => () => clearTimeout(notifyTimer.current), []);
+
+  // Tasks that rolled onto today change the page's counts, which it read
+  // before the rollover finished.
+  const notifiedRollover = useRef(null);
+  useEffect(() => {
+    const r = data?.rolled;
+    if (r && r.n > 0 && notifiedRollover.current !== r.key) {
+      notifiedRollover.current = r.key;
+      notifyPage();
+    }
+  }, [data, notifyPage]);
+
+  function retryRollover() {
+    rollover.current = { key: null, promise: null };
+    reload();
+  }
+
+  // Deletes wait six seconds for Undo; until then the row is only hidden.
+  const [hidden, setHidden] = useState(() => new Set());
+  const hide = useCallback((ids) => setHidden((h) => new Set([...h, ...ids])), []);
+  const unhide = useCallback(
+    (ids) =>
+      setHidden((h) => {
+        const next = new Set(h);
+        for (const id of ids) next.delete(id);
+        return next;
+      }),
+    []
+  );
+
+  // One write at a time per thing, so a double tap can't send two.
+  const inFlight = useRef(new Set());
+  const once = useCallback(async (key, fn) => {
+    if (inFlight.current.has(key)) return undefined;
+    inFlight.current.add(key);
+    try {
+      return await fn();
+    } finally {
+      inFlight.current.delete(key);
+    }
+  }, []);
+
+  const [editing, setEditing] = useState(null); // a block id, "new", or null
+  const [openRow, setOpenRow] = useState(null);
+  const [presetsOpen, setPresetsOpen] = useState(null); // null = decide from the day
+  const [busyPreset, setBusyPreset] = useState(null);
+
+  useEffect(() => {
+    setEditing(null);
+    setOpenRow(null);
+    setPresetsOpen(null);
+  }, [date]);
+
+  const allChunks = useMemo(() => data?.chunks ?? [], [data]);
+  const chunks = useMemo(() => allChunks.filter((c) => !hidden.has(c.id)), [allChunks, hidden]);
+  const { byChunk, unscheduled, subsByParent } = useMemo(() => {
+    const live = new Set(chunks.map((c) => c.id));
+    const byChunk = new Map();
+    const unscheduled = [];
+    const subsByParent = new Map();
+    for (const t of data?.tasks ?? []) {
+      if (hidden.has(t.id) || (t.parent_task_id && hidden.has(t.parent_task_id))) continue;
+      if (t.parent_task_id) {
+        if (!subsByParent.has(t.parent_task_id)) subsByParent.set(t.parent_task_id, []);
+        subsByParent.get(t.parent_task_id).push(t);
+      } else if (t.time_chunk_id && live.has(t.time_chunk_id)) {
+        if (!byChunk.has(t.time_chunk_id)) byChunk.set(t.time_chunk_id, []);
+        byChunk.get(t.time_chunk_id).push(t);
       } else {
-        loose.push(t);
+        // Includes tasks whose block is waiting to be deleted: that's where
+        // they'll be once it is.
+        unscheduled.push(t);
       }
     }
-    return { byChunk: map, unscheduled: loose };
-  }, [tasks]);
+    return { byChunk, unscheduled, subsByParent };
+  }, [data, chunks, hidden]);
 
-  const subtasksByParent = useMemo(() => {
-    const map = new Map();
-    for (const t of tasks) {
-      if (!t.parent_task_id) continue;
-      if (!map.has(t.parent_task_id)) map.set(t.parent_task_id, []);
-      map.get(t.parent_task_id).push(t);
-    }
-    return map;
-  }, [tasks]);
+  const stalled = (data?.stalled?.rows ?? []).filter((t) => !hidden.has(t.id));
 
-  const plannedMinutes = chunks.reduce((s, c) => s + Math.max(0, minutesOf(c.end_time) - minutesOf(c.start_time)), 0);
-  const actualMinutes = actualEntries.reduce((s, e) => s + (Number(e.duration_minutes) || 0), 0);
-  const topLevel = tasks.filter((t) => !t.parent_task_id);
-  const doneCount = topLevel.filter((t) => t.status).length;
+  const patchTask = (id, fields) =>
+    mutate((d) => d && { ...d, tasks: d.tasks.map((t) => (t.id === id ? { ...t, ...fields } : t)) });
 
-  async function guard(fn) {
+  // --- tasks ---------------------------------------------------------------
+
+  const act = {
+    toggle: (task) =>
+      once(`task:${task.id}`, async () => {
+        const done = !task.status;
+        patchTask(task.id, { status: done, completed_at: done ? new Date().toISOString() : null });
+        try {
+          await toggleTask(task.id, done);
+          notifyPage();
+        } catch (err) {
+          patchTask(task.id, { status: task.status, completed_at: task.completed_at });
+          toast.error(err, "Couldn't save that. Try again.");
+        }
+      }),
+
+    add: async ({ chunkId = null, parentId = null, title }) => {
+      const position = Math.max(-1, ...(data?.tasks ?? []).map((t) => t.position ?? 0)) + 1;
+      try {
+        const row = await createTask(userId, { date, time_chunk_id: chunkId, parent_task_id: parentId, title, position });
+        mutate((d) => (d && d.date === row.date ? { ...d, tasks: [...d.tasks, row] } : d));
+        notifyPage();
+        return true;
+      } catch (err) {
+        toast.error(err, "Couldn't add that task.");
+        return false;
+      }
+    },
+
+    toggleWork: (task) =>
+      once(`task:${task.id}`, async () => {
+        const isWork = !task.is_work;
+        patchTask(task.id, { is_work: isWork });
+        try {
+          await setTaskWork(task.id, isWork);
+          toast.show(isWork ? "Marked as work — it'll be on the work report" : "Off the work report");
+        } catch (err) {
+          patchTask(task.id, { is_work: task.is_work });
+          toast.error(err, "Couldn't change that.");
+        }
+      }),
+
+    move: (task, chunkId) =>
+      once(`task:${task.id}`, async () => {
+        const prev = task.time_chunk_id ?? null;
+        patchTask(task.id, { time_chunk_id: chunkId });
+        try {
+          await updateTask(task.id, { time_chunk_id: chunkId });
+          const target = chunkId ? allChunks.find((c) => c.id === chunkId) : null;
+          toast.show(target ? `Moved to ${quote(target.title)}` : "Moved to Unscheduled");
+        } catch (err) {
+          patchTask(task.id, { time_chunk_id: prev });
+          toast.error(err, "Couldn't move that task.");
+        }
+      }),
+
+    rename: async (task, title) => {
+      const prev = task.title;
+      patchTask(task.id, { title });
+      try {
+        await updateTask(task.id, { title });
+        return true;
+      } catch (err) {
+        patchTask(task.id, { title: prev });
+        toast.error(err, "Couldn't rename that task.");
+        return false;
+      }
+    },
+
+    remove: (task) => {
+      const subs = (data?.tasks ?? []).filter((t) => t.parent_task_id === task.id).length;
+      setOpenRow(null);
+      hide([task.id]);
+      toast.undoable({
+        message: subs > 0 ? `Deleted ${quote(task.title)} and ${plural(subs, "sub-task")}` : `Deleted ${quote(task.title)}`,
+        run: async () => {
+          await deleteTask(task.id);
+          mutate((d) => d && { ...d, tasks: d.tasks.filter((t) => t.id !== task.id && t.parent_task_id !== task.id) });
+          unhide([task.id]);
+          notifyPage();
+        },
+        onUndo: () => unhide([task.id]),
+      });
+    },
+  };
+
+  // --- energy --------------------------------------------------------------
+
+  const setEnergy = (tag) =>
+    once("energy", async () => {
+      const prev = data?.plan?.energy_tag ?? null;
+      const next = prev === tag ? null : tag;
+      const put = (value) => mutate((d) => d && { ...d, plan: { ...(d.plan ?? {}), energy_tag: value } });
+      put(next);
+      try {
+        await setDayEnergyTag(userId, date, next);
+        notifyPage();
+      } catch (err) {
+        put(prev);
+        toast.error(err, "Couldn't save the day's energy.");
+      }
+    });
+
+  // --- blocks --------------------------------------------------------------
+
+  async function saveBlock(chunk, fields) {
     try {
-      await fn();
-      await reload();
+      if (chunk) {
+        const row = await updateTimeChunk(chunk.id, fields);
+        mutate((d) => d && { ...d, chunks: d.chunks.map((c) => (c.id === row.id ? row : c)).sort(byStart) });
+      } else {
+        const row = await createTimeChunk(userId, { date, ...fields });
+        mutate((d) => (d && d.date === row.date ? { ...d, chunks: [...d.chunks, row].sort(byStart) } : d));
+      }
+      setEditing(null);
+      return true;
     } catch (err) {
-      alert(err.message);
+      toast.error(err, chunk ? "Couldn't save the block." : "Couldn't add the block.");
+      return false;
     }
   }
 
-  const handleAddChunk = (fields) =>
-    guard(async () => {
-      await createTimeChunk(userId, {
-        date,
-        start_time: fields.start,
-        end_time: fields.end,
-        title: fields.title,
-        goal_node_id: fields.goalNodeId || null,
+  // The block goes; its tasks stay on the day, unscheduled, and come back
+  // into it on Undo along with its notes (nothing is deleted until then).
+  function removeBlock(chunk) {
+    const moving = (byChunk.get(chunk.id) ?? []).length;
+    setEditing(null);
+    hide([chunk.id]);
+    toast.undoable({
+      message: moving > 0 ? `Deleted ${quote(chunk.title)}. ${plural(moving, "task")} moved to Unscheduled.` : `Deleted ${quote(chunk.title)}`,
+      run: async () => {
+        await deleteTimeChunk(chunk.id);
+        mutate(
+          (d) =>
+            d && {
+              ...d,
+              chunks: d.chunks.filter((c) => c.id !== chunk.id),
+              tasks: d.tasks.map((t) => (t.time_chunk_id === chunk.id ? { ...t, time_chunk_id: null } : t)),
+            }
+        );
+        unhide([chunk.id]);
+      },
+      onUndo: () => unhide([chunk.id]),
+    });
+  }
+
+  // --- presets -------------------------------------------------------------
+
+  // A whole-day preset on a day that already has blocks asks first: the
+  // server only ever adds, so tapping "Workday" twice used to stack two.
+  async function applyPreset(t) {
+    if (busyPreset || !data) return;
+    const before = data;
+    let mode = "add";
+    if (t.kind === "day") {
+      // Standing blocks (church, a shift) belong to the week, not the preset.
+      const replaceable = chunks.filter((c) => !c.standing_block_id);
+      if (replaceable.length > 0) {
+        const ids = new Set(replaceable.map((c) => c.id));
+        const moving = before.tasks.filter((x) => !x.parent_task_id && ids.has(x.time_chunk_id) && !hidden.has(x.id)).length;
+        const withNotes = replaceable.filter((c) => c.notes?.trim()).length;
+        const standing = chunks.length - replaceable.length;
+        const pick = await choose({
+          title: `Apply ${quote(t.name)}?`,
+          body: (
+            <>
+              <p style={{ margin: "0 0 8px" }}>This day already has {plural(chunks.length, "block")}.</p>
+              <p style={{ margin: "0 0 8px" }}>
+                Replacing removes {namesOf(replaceable)}
+                {moving > 0 ? `; ${plural(moving, "task")} in them move to Unscheduled` : ""}
+                {withNotes > 0 ? `, and notes on ${plural(withNotes, "block")} go with them` : ""}.
+                {standing > 0 ? ` Standing blocks stay.` : ""}
+              </p>
+              <p style={{ margin: 0 }}>Adding on top keeps everything and adds the preset's blocks.</p>
+            </>
+          ),
+          options: [
+            { value: "replace", label: "Replace the day", danger: true },
+            { value: "add", label: "Add on top" },
+          ],
+        });
+        if (!pick) return;
+        mode = pick;
+      }
+    }
+
+    setBusyPreset(t.id);
+    try {
+      await applyTemplate(t.id, date);
+    } catch (err) {
+      setBusyPreset(null);
+      toast.error(err, `Couldn't apply ${t.name}.`);
+      return;
+    }
+    const fresh = await reload();
+    setBusyPreset(null);
+    notifyPage();
+
+    const done = t.kind === "day" ? `Applied ${t.name}` : `Added ${t.name}`;
+    if (!fresh || fresh.date !== date) {
+      toast.show(done);
+      return;
+    }
+
+    // What the preset added, so Undo can take exactly that back off.
+    const oldChunks = new Set(before.chunks.map((c) => c.id));
+    const oldTasks = new Set(before.tasks.map((x) => x.id));
+    const addedChunks = fresh.chunks.filter((c) => !oldChunks.has(c.id)).map((c) => c.id);
+    const addedTasks = fresh.tasks.filter((x) => !oldTasks.has(x.id)).map((x) => x.id);
+    const oldEnergy = before.plan?.energy_tag ?? null;
+    const energyChanged = (fresh.plan?.energy_tag ?? null) !== oldEnergy;
+    const takeBack = async () => {
+      try {
+        await deleteTasks(addedTasks);
+        await deleteTimeChunks(addedChunks);
+        if (energyChanged) await setDayEnergyTag(userId, date, oldEnergy);
+      } catch (err) {
+        toast.error(err, "Couldn't take all of that back off. Check the day.");
+      }
+      reload();
+      notifyPage();
+    };
+
+    if (mode === "replace") {
+      const removeIds = chunks.filter((c) => !c.standing_block_id).map((c) => c.id);
+      hide(removeIds);
+      toast.undoable({
+        message: `Replaced the day with ${t.name}`,
+        run: async () => {
+          await deleteTimeChunks(removeIds);
+          mutate(
+            (d) =>
+              d && {
+                ...d,
+                chunks: d.chunks.filter((c) => !removeIds.includes(c.id)),
+                tasks: d.tasks.map((x) => (removeIds.includes(x.time_chunk_id) ? { ...x, time_chunk_id: null } : x)),
+              }
+          );
+          unhide(removeIds);
+        },
+        onUndo: () => {
+          unhide(removeIds);
+          takeBack();
+        },
       });
-      setAddingChunk(false);
+    } else {
+      toast.show(done, { actionLabel: "Undo", onAction: takeBack });
+    }
+  }
+
+  async function saveDayPreset(name) {
+    try {
+      await saveDayAsTemplate(date, name);
+      presets.reload();
+      toast.show(`Saved this day as ${quote(name)}`);
+      return true;
+    } catch (err) {
+      toast.error(err, "Couldn't save the preset.");
+      return false;
+    }
+  }
+
+  function removePreset(t) {
+    hide([t.id]);
+    toast.undoable({
+      message: `Deleted the ${quote(t.name)} preset`,
+      run: async () => {
+        await deleteTemplate(t.id);
+        presets.mutate((list) => list?.filter((x) => x.id !== t.id));
+        unhide([t.id]);
+      },
+      onUndo: () => unhide([t.id]),
+    });
+  }
+
+  // --- stalled -------------------------------------------------------------
+
+  const revive = (t) =>
+    once(`task:${t.id}`, async () => {
+      try {
+        await reviveTask(t.id, date);
+      } catch (err) {
+        toast.error(err, "Couldn't move that to today.");
+        return;
+      }
+      const moved = { ...t, date, rollover_count: 0, time_chunk_id: null };
+      mutate(
+        (d) =>
+          d && {
+            ...d,
+            stalled: { ...d.stalled, rows: d.stalled.rows.filter((x) => x.id !== t.id) },
+            tasks: d.date === date ? [...d.tasks.filter((x) => x.id !== t.id), moved] : d.tasks,
+          }
+      );
+      notifyPage();
+      toast.show(`Moved ${quote(t.title)} to today`, {
+        actionLabel: "Undo",
+        onAction: async () => {
+          try {
+            await updateTask(t.id, { date: t.date, rollover_count: t.rollover_count ?? 0, time_chunk_id: t.time_chunk_id ?? null });
+            mutate(
+              (d) =>
+                d && {
+                  ...d,
+                  tasks: d.tasks.filter((x) => x.id !== t.id),
+                  stalled: { ...d.stalled, rows: [...d.stalled.rows, t].sort((a, b) => (a.date < b.date ? -1 : 1)) },
+                }
+            );
+            notifyPage();
+          } catch (err) {
+            toast.error(err, "Couldn't undo that.");
+          }
+        },
+      });
     });
 
-  const handleSetEnergy = (tag) =>
-    guard(() => setDayEnergyTag(userId, date, dayPlan?.energy_tag === tag ? null : tag));
-
-  const handleAddTask = (chunkId, title) =>
-    guard(() => createTask(userId, { date, time_chunk_id: chunkId ?? null, title: title.trim() }));
-
-  const handleAddSubtask = (parentId, title) =>
-    guard(() => {
-      const parent = tasks.find((t) => t.id === parentId);
-      return createTask(userId, {
-        date,
-        time_chunk_id: parent?.time_chunk_id ?? null,
-        parent_task_id: parentId,
-        title: title.trim(),
-      });
+  function dropStalled(t) {
+    hide([t.id]);
+    toast.undoable({
+      message: `Deleted ${quote(t.title)}`,
+      run: async () => {
+        await deleteTask(t.id);
+        mutate((d) => d && { ...d, stalled: { ...d.stalled, rows: d.stalled.rows.filter((x) => x.id !== t.id) } });
+        unhide([t.id]);
+      },
+      onUndo: () => unhide([t.id]),
     });
+  }
 
-  const handleToggle = (task) => guard(() => toggleTask(task.id, !task.status));
-  const handleToggleWork = (task) => guard(() => setTaskWork(task.id, !task.is_work));
-  const handleDeleteTask = (id) => guard(() => deleteTask(id));
-  const handleDeleteChunk = (id) => guard(() => deleteTimeChunk(id));
-  const handleAssignChunk = (taskId, chunkId) => guard(() => updateTask(taskId, { time_chunk_id: chunkId || null }));
-  const handleApplyTemplate = (templateId) => guard(() => applyTemplate(templateId, date));
-  const handleRevive = (taskId) => guard(() => reviveTask(taskId, date));
+  // --- render ----------------------------------------------------------------
+
+  if (!data) {
+    if (error) return <LoadError what="this day's plan" error={error} onRetry={reload} />;
+    return <p className="placeholder-note">Loading the plan…</p>;
+  }
+
+  const energy = data.plan?.energy_tag ?? null;
+  const showPresets = presetsOpen ?? chunks.length === 0;
+  const rowProps = { chunks, openRow, setOpenRow, act };
 
   return (
-    <>
-      {rolledMsg && (
-        <div className="card card--accent" style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--accent-soft)", marginBottom: 14, padding: 14 }}>
-          <RotateCcw size={15} color="var(--accent)" />
-          <span style={{ fontSize: 13 }}>{rolledMsg}</span>
+    <div className="plan-day">
+      {error && <LoadError stale error={error} onRetry={reload} />}
+
+      {data.rolled?.error && (
+        <div className="load-error" role="alert">
+          <span>
+            Couldn't move unfinished tasks here from earlier days.
+            <span className="load-error__why"> {friendlyError(data.rolled.error, "")}</span>
+          </span>
+          <button type="button" className="btn btn--sm" onClick={retryRollover}>
+            <RotateCw size={13} />
+            Try again
+          </button>
         </div>
       )}
 
-      <PresetBar
+      {data.rolled?.n > 0 && (
+        <div className="plan-notice">
+          <RotateCcw size={14} />
+          <span>Moved {plural(data.rolled.n, "unfinished task")} here from earlier days.</span>
+        </div>
+      )}
+
+      <PresetCard
         userId={userId}
-        templates={templates}
-        hasContent={chunks.length > 0}
-        date={date}
+        presets={presets}
+        hiddenIds={hidden}
+        open={showPresets}
+        onToggle={() => setPresetsOpen(!showPresets)}
+        busyId={busyPreset}
+        canSaveDay={chunks.length > 0}
         goalOptions={goalOptions}
-        onApply={handleApplyTemplate}
-        onSaved={reload}
+        onApply={applyPreset}
+        onSaveDay={saveDayPreset}
+        onCreated={presets.reload}
+        onDelete={removePreset}
       />
 
       <div className="card">
-        <div className="section-label">Energy / capacity</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {ENERGY_TAGS.map((tag) => {
-            const active = dayPlan?.energy_tag === tag;
-            return (
-              <button key={tag} onClick={() => handleSetEnergy(tag)} style={chipStyle(active)}>
-                {tag}
-              </button>
-            );
-          })}
+        <div className="section-label">Energy for the day</div>
+        <div className="plan-buttons" role="group" aria-label="Energy for the day">
+          {ENERGY_TAGS.map((tag) => (
+            <button key={tag} type="button" className="toggle-chip" aria-pressed={energy === tag} onClick={() => setEnergy(tag)}>
+              {tag}
+            </button>
+          ))}
         </div>
       </div>
 
-      {!loading && chunks.length === 0 && unscheduled.length === 0 && (
-        <p className="placeholder-note" style={{ marginTop: 16 }}>
-          Nothing planned yet — add a block below, apply a preset, or drop a loose task on the day.
+      {chunks.length === 0 && unscheduled.length === 0 && editing !== "new" && (
+        <p className="placeholder-note" style={{ margin: 0 }}>
+          Nothing planned yet. Add a time block, apply a preset, or add a task under Unscheduled.
         </p>
       )}
 
-      {chunks.map((chunk) => (
-        <ChunkCard
+      {allChunks.map((chunk) => (
+        <BlockCard
           key={chunk.id}
+          hidden={hidden.has(chunk.id)}
           chunk={chunk}
           tasks={byChunk.get(chunk.id) ?? []}
-          subtasksByParent={subtasksByParent}
+          subsByParent={subsByParent}
           goalOptions={goalOptions}
+          userId={userId}
           date={date}
-          onAddTask={(title) => handleAddTask(chunk.id, title)}
-          onAddSubtask={handleAddSubtask}
-          onToggle={handleToggle}
-          onToggleWork={handleToggleWork}
-          onDeleteTask={handleDeleteTask}
-          onDeleteChunk={() => handleDeleteChunk(chunk.id)}
+          editing={editing === chunk.id}
+          onEdit={() => {
+            setOpenRow(null);
+            setEditing(chunk.id);
+          }}
+          onCancelEdit={() => setEditing(null)}
+          onSave={saveBlock}
+          onDelete={removeBlock}
+          rowProps={rowProps}
         />
       ))}
 
-      {addingChunk ? (
-        <AddChunkForm goalOptions={goalOptions} onSave={handleAddChunk} onCancel={() => setAddingChunk(false)} />
+      {editing === "new" ? (
+        <div className="card">
+          <div className="section-label">New time block</div>
+          <BlockForm
+            userId={userId}
+            defaults={nextSlot(chunks)}
+            goalOptions={goalOptions}
+            onSave={(fields) => saveBlock(null, fields)}
+            onCancel={() => setEditing(null)}
+          />
+        </div>
       ) : (
-        <button onClick={() => setAddingChunk(true)} className="card" style={addCardStyle}>
+        <button type="button" className="plan-add-block" onClick={() => setEditing("new")}>
           <Plus size={16} />
           Add a time block
         </button>
@@ -227,196 +644,631 @@ export default function DayView({ userId, date, goalOptions, onDataChanged }) {
       <div className="card">
         <div className="section-label">Unscheduled</div>
         {unscheduled.map((task) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            subtasks={subtasksByParent.get(task.id) ?? []}
-            chunks={chunks}
-            onToggle={() => handleToggle(task)}
-            onToggleSub={handleToggle}
-            onToggleWork={() => handleToggleWork(task)}
-            onDelete={() => handleDeleteTask(task.id)}
-            onAddSubtask={(title) => handleAddSubtask(task.id, title)}
-            onAssignChunk={(chunkId) => handleAssignChunk(task.id, chunkId)}
-          />
+          <TaskRow key={task.id} task={task} subtasks={subsByParent.get(task.id) ?? []} {...rowProps} />
         ))}
-        <InlineAdd placeholder="Add an unscheduled task…" onAdd={(title) => handleAddTask(null, title)} />
+        <InlineAdd placeholder="Add a task without a time…" onAdd={(title) => act.add({ title })} />
       </div>
 
-      {isToday && stalled.length > 0 && (
-        <StalledCard stalled={stalled} onRevive={handleRevive} onDelete={handleDeleteTask} />
+      {isToday && data.stalled?.error && <LoadError what="stalled tasks" error={data.stalled.error} onRetry={reload} />}
+      {isToday && stalled.length > 0 && <StalledCard rows={stalled} onRevive={revive} onDelete={dropStalled} />}
+
+      {choiceSheet}
+    </div>
+  );
+}
+
+// Where a new block starts: right after the day's last one, an hour long.
+function nextSlot(chunks) {
+  const last = [...chunks].sort(byStart).at(-1);
+  const start = last ? minutesOf(last.end_time) : 9 * 60;
+  if (!last || start >= 23 * 60 || minutesOf(last.end_time) <= minutesOf(last.start_time)) {
+    return { start: "09:00", end: "10:00" };
+  }
+  return { start: hhmm(start), end: hhmm(Math.min(start + 60, 23 * 60 + 59)) };
+}
+
+function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, date, editing, onEdit, onCancelEdit, onSave, onDelete, rowProps }) {
+  const goal = goalOptions.find((g) => g.id === chunk.goal_node_id);
+  const done = tasks.filter((t) => t.status).length;
+
+  // A block waiting on its Undo stays mounted, only hidden, so its notes
+  // editor keeps what was typed if it comes back.
+  return (
+    <div className="card" hidden={hidden}>
+      {editing ? (
+        <BlockForm
+          userId={userId}
+          chunk={chunk}
+          goalOptions={goalOptions}
+          onSave={(fields) => onSave(chunk, fields)}
+          onCancel={onCancelEdit}
+          onDelete={() => onDelete(chunk)}
+        />
+      ) : (
+        <>
+          <button type="button" className="plan-block__head" onClick={onEdit} title="Change the time, title or category">
+            <span className="plan-block__what">
+              <span className="plan-block__time">{fmtTimeRange(chunk.start_time, chunk.end_time)}</span>
+              <span className="plan-block__title">{chunk.title}</span>
+            </span>
+            <span className="plan-block__edit">
+              <Pencil size={12} />
+              Edit
+            </span>
+          </button>
+          {(chunk.category || goal || chunk.standing_block_id || tasks.length > 0) && (
+            <div className="plan-block__meta">
+              {chunk.category && (
+                <span className="pill">
+                  <span className="dot" style={{ background: colorFor(chunk.category) }} />
+                  {chunk.category}
+                </span>
+              )}
+              {goal && <span className="pill">{goal.title}</span>}
+              {chunk.standing_block_id && (
+                <span className="pill" title="Comes from a standing block on the Week page">
+                  <Repeat size={11} />
+                  Standing
+                </span>
+              )}
+              {tasks.length > 0 && (
+                <span className="pill">
+                  {done} of {tasks.length} done
+                </span>
+              )}
+            </div>
+          )}
+        </>
       )}
 
-      {(chunks.length > 0 || topLevel.length > 0) && (
-        <div className="card">
-          <div className="section-label">Plan vs. actual</div>
-          <StatRow label="Time planned" value={`${Math.round(plannedMinutes)}m`} />
-          <StatRow label="Time logged" value={`${Math.round(actualMinutes)}m`} />
-          <StatRow label="Tasks done" value={`${doneCount} / ${topLevel.length}`} />
+      <div className="plan-block__tasks">
+        {tasks.map((task) => (
+          <TaskRow key={task.id} task={task} subtasks={subsByParent.get(task.id) ?? []} {...rowProps} />
+        ))}
+        <InlineAdd placeholder="Add a task…" onAdd={(title) => rowProps.act.add({ chunkId: chunk.id, title })} />
+      </div>
+
+      {/* Where meeting notes live: on the hour they happened in. */}
+      <ChunkNotes chunk={chunk} date={date} />
+    </div>
+  );
+}
+
+// Adds a block, or changes one. Moving a block here keeps its tasks and
+// notes, which deleting and re-adding it never did.
+function BlockForm({ userId, chunk, defaults, goalOptions, onSave, onCancel, onDelete }) {
+  const [title, setTitle] = useState(chunk?.title ?? "");
+  const [start, setStart] = useState(chunk ? chunk.start_time.slice(0, 5) : defaults.start);
+  const [end, setEnd] = useState(chunk ? chunk.end_time.slice(0, 5) : defaults.end);
+  const [category, setCategory] = useState(chunk?.category ?? "");
+  const [goalNodeId, setGoalNodeId] = useState(chunk?.goal_node_id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
+  const cats = useLoad(() => (userId ? fetchCategories(userId) : []), [userId]);
+
+  // An archived or renamed category still shows as what the block has.
+  const names = useMemo(() => {
+    const list = (cats.data ?? []).map((c) => c.name);
+    if (chunk?.category && !list.includes(chunk.category)) list.unshift(chunk.category);
+    return list;
+  }, [cats.data, chunk?.category]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    if (!title.trim()) return setProblem("Give the block a name.");
+    if (!start || !end) return setProblem("Pick when it starts and ends.");
+    if (start === end) return setProblem("It can't start and end at the same time.");
+    setProblem(null);
+    setBusy(true);
+    const ok = await onSave({
+      title: title.trim(),
+      start_time: start,
+      end_time: end,
+      category: category || null,
+      goal_node_id: goalNodeId || null,
+    });
+    if (!ok) setBusy(false);
+  }
+
+  return (
+    <form className="block-form" onSubmit={submit}>
+      <label className="field">
+        <span>What</span>
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Deep work" autoFocus={!chunk} />
+      </label>
+      <div className="block-form__times">
+        <label className="field">
+          <span>Starts</span>
+          <input type="time" className="input time-input" value={start} onChange={(e) => setStart(e.target.value)} required />
+        </label>
+        <label className="field">
+          <span>Ends</span>
+          <input type="time" className="input time-input" value={end} onChange={(e) => setEnd(e.target.value)} required />
+        </label>
+      </div>
+      {start && end && end < start && <p className="block-form__hint">Ends after midnight.</p>}
+      <div className="block-form__pair">
+        <label className="field">
+          <span>Category</span>
+          <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">No category</option>
+            {names.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        {goalOptions.length > 0 && (
+          <label className="field">
+            <span>Goal</span>
+            <select className="input" value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)}>
+              <option value="">No goal</option>
+              {goalOptions.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      {chunk?.standing_block_id && (
+        <p className="block-form__hint">This is this day's copy of a standing block. Changes here stay on this day.</p>
+      )}
+      {problem && (
+        <p className="block-form__problem" role="alert">
+          {problem}
+        </p>
+      )}
+      <div className="block-form__actions">
+        {chunk && (
+          <button type="button" className="btn-link btn-link--danger" onClick={onDelete} disabled={busy} style={{ minHeight: 36 }}>
+            <Trash2 size={13} />
+            Delete block
+          </button>
+        )}
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn--accent" disabled={busy}>
+          {busy ? "Saving…" : chunk ? "Save block" : "Add block"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// A task row. Everything you'd do to a task besides ticking it sits behind
+// its ⋯, so a phone row is just the box, the words and one button.
+function TaskRow({ task, subtasks = [], chunks, isSub = false, openRow, setOpenRow, act }) {
+  const open = openRow === task.id;
+  const [renaming, setRenaming] = useState(false);
+  const [addingSub, setAddingSub] = useState(false);
+  const meta = !isSub && (task.is_work || task.rollover_count > 0);
+  const moveTargets = chunks.filter((c) => c.id !== task.time_chunk_id);
+
+  return (
+    <div className={`plan-task ${task.status ? "plan-task--done" : ""}`}>
+      <div className="plan-task__row">
+        <label className="plan-task__check">
+          <input
+            type="checkbox"
+            checked={task.status}
+            onChange={() => act.toggle(task)}
+            aria-label={task.status ? `Mark “${task.title}” not done` : `Mark “${task.title}” done`}
+          />
+        </label>
+        <div className="plan-task__main">
+          {renaming ? (
+            <RenameForm
+              initial={task.title}
+              onSave={async (title) => {
+                const ok = await act.rename(task, title);
+                if (ok) setRenaming(false);
+                return ok;
+              }}
+              onCancel={() => setRenaming(false)}
+            />
+          ) : (
+            <span className="plan-task__title">{task.title}</span>
+          )}
+          {meta && (
+            <div className="plan-task__meta">
+              {task.is_work && (
+                <span className="plan-tag" title="On the work report">
+                  <Briefcase size={11} />
+                  Work
+                </span>
+              )}
+              {task.rollover_count > 0 && (
+                <span className="plan-tag" title="Unfinished on earlier days and carried forward">
+                  Carried over {plural(task.rollover_count, "time")}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn-icon plan-task__more"
+          aria-label={`More for “${task.title}”`}
+          title="More"
+          aria-expanded={open}
+          onClick={() => setOpenRow(open ? null : task.id)}
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="plan-task__actions">
+          {!isSub && (
+            <button type="button" className="btn btn--sm" onClick={() => act.toggleWork(task)}>
+              <Briefcase size={13} />
+              {task.is_work ? "Not work" : "Mark as work"}
+            </button>
+          )}
+          {!isSub && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => {
+                setAddingSub(true);
+                setOpenRow(null);
+              }}
+            >
+              <Plus size={13} />
+              Add sub-task
+            </button>
+          )}
+          {!isSub && (moveTargets.length > 0 || task.time_chunk_id) && (
+            <select
+              className="plan-move"
+              value=""
+              aria-label="Move to another block"
+              onChange={(e) => {
+                const v = e.target.value;
+                setOpenRow(null);
+                act.move(task, v === "none" ? null : v);
+              }}
+            >
+              <option value="" disabled>
+                Move to…
+              </option>
+              {moveTargets.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {fmtTimeRange(c.start_time, c.end_time)} · {c.title}
+                </option>
+              ))}
+              {task.time_chunk_id && <option value="none">Unscheduled</option>}
+            </select>
+          )}
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={() => {
+              setRenaming(true);
+              setOpenRow(null);
+            }}
+          >
+            <Pencil size={13} />
+            Rename
+          </button>
+          <button type="button" className="btn btn--sm btn--danger" onClick={() => act.remove(task)}>
+            <Trash2 size={13} />
+            Delete
+          </button>
         </div>
       )}
-    </>
+
+      {(subtasks.length > 0 || addingSub) && (
+        <div className="plan-task__subs">
+          {subtasks.map((st) => (
+            <TaskRow key={st.id} task={st} isSub chunks={chunks} openRow={openRow} setOpenRow={setOpenRow} act={act} />
+          ))}
+          {addingSub && (
+            <InlineAdd
+              small
+              autoFocus
+              placeholder="Add a sub-task…"
+              onAdd={(title) => act.add({ chunkId: task.time_chunk_id ?? null, parentId: task.id, title })}
+              onCancel={() => setAddingSub(false)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RenameForm({ initial, onSave, onCancel }) {
+  const [value, setValue] = useState(initial);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    const v = value.trim();
+    if (!v || busy) return;
+    if (v === initial) return onCancel();
+    setBusy(true);
+    const ok = await onSave(v);
+    if (!ok) setBusy(false);
+  }
+
+  return (
+    <form className="plan-task__rename" onSubmit={submit}>
+      <input
+        className="input"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        aria-label="Task name"
+        autoFocus
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+      />
+      <button type="submit" className="btn btn--sm btn--accent" disabled={busy || !value.trim()}>
+        {busy ? "Saving…" : "Save"}
+      </button>
+      <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+// The text stays put until the task is saved, so a failed add doesn't eat
+// what was typed.
+function InlineAdd({ placeholder, onAdd, small, autoFocus, onCancel }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    const v = value.trim();
+    if (!v || busy) return;
+    setBusy(true);
+    const ok = await onAdd(v);
+    setBusy(false);
+    if (ok) setValue("");
+  }
+
+  return (
+    <form className={`plan-add ${small ? "plan-add--small" : ""}`} onSubmit={submit}>
+      <input
+        className="input"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder.replace(/…$/, "")}
+        autoFocus={autoFocus}
+        onKeyDown={(e) => e.key === "Escape" && onCancel?.()}
+      />
+      <button type="submit" className="btn btn--sm" disabled={busy || !value.trim()}>
+        {busy ? "Adding…" : "Add"}
+      </button>
+      {onCancel && (
+        <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      )}
+    </form>
   );
 }
 
 // Tasks that stopped rolling. Kept off today's plan on purpose — the point
 // is that they need a decision, and leaving them mixed in with today makes
-// them invisible again. Collapsed by default so a long backlog doesn't
-// become the loudest thing on the page.
-function StalledCard({ stalled, onRevive, onDelete }) {
+// them invisible again. Only three show until asked, so a long backlog
+// doesn't become the loudest thing on the page.
+function StalledCard({ rows, onRevive, onDelete }) {
   const [open, setOpen] = useState(false);
-  const shown = open ? stalled : stalled.slice(0, 3);
+  const shown = open ? rows : rows.slice(0, 3);
 
   return (
-    <div className="card" style={{ borderColor: "var(--border-strong)" }}>
-      <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div className="card">
+      <div className="section-label">
         <Archive size={12} />
-        Stalled · {stalled.length}
+        Stalled · {rows.length}
       </div>
-      <p style={{ fontSize: 11.5, color: "var(--text-faint)", margin: "-4px 0 10px" }}>
-        These stopped moving forward on their own. Pull one back to today, or let it go.
+      <p className="card-note" style={{ marginBottom: 6 }}>
+        These carried over for two weeks and stopped moving on their own. Move one to today, or delete it.
       </p>
 
       {shown.map((t) => (
-        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-          <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{t.title}</span>
-          <span className="entry-meta">{t.date}</span>
-          <button onClick={() => onRevive(t.id)} style={{ ...iconBtnStyle, color: "var(--accent)" }} title="Bring to today">
-            <RotateCcw size={13} />
-          </button>
-          <button onClick={() => onDelete(t.id)} style={iconBtnStyle} title="Let it go">
-            <X size={13} />
-          </button>
+        <div key={t.id} className="stalled-row">
+          <div className="stalled-row__what">
+            {t.title}
+            <span className="stalled-row__when">from {fmtShortDate(t.date)}</span>
+          </div>
+          <div className="stalled-row__acts">
+            <button type="button" className="btn btn--sm" onClick={() => onRevive(t)}>
+              Move to today
+            </button>
+            <button type="button" className="btn btn--sm btn--danger" onClick={() => onDelete(t)}>
+              Delete
+            </button>
+          </div>
         </div>
       ))}
 
-      {stalled.length > 3 && (
-        <button onClick={() => setOpen((v) => !v)} style={textBtnStyle}>
-          {open ? "Show fewer" : `Show all ${stalled.length}`}
+      {rows.length > 3 && (
+        <button type="button" className="btn-link" style={{ marginTop: 8, minHeight: 32 }} onClick={() => setOpen((v) => !v)}>
+          {open ? "Show fewer" : `Show all ${rows.length}`}
         </button>
       )}
     </div>
   );
 }
 
-function StatRow({ label, value }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-      <span style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span style={{ fontFamily: "var(--font-mono)" }}>{value}</span>
-    </div>
-  );
-}
-
 // Presets: stamp a saved block or whole day onto this date, or save what's
-// already here for reuse. The doc's "preset chunks and even days" — the
-// same rhythm laid down once, then reapplied instead of rebuilt daily.
-function PresetBar({ userId, templates, hasContent, date, goalOptions, onApply, onSaved }) {
-  const [mode, setMode] = useState(null); // null | 'saveDay' | 'newChunk'
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const dayTemplates = templates.filter((t) => t.kind === "day");
-  const chunkTemplates = templates.filter((t) => t.kind === "chunk");
-
-  async function handleSaveDay(e) {
-    e.preventDefault();
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    try {
-      await saveDayAsTemplate(date, name.trim());
-      setName("");
-      setMode(null);
-      await onSaved();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
+// already here for reuse. Closed unless the day is empty — most days are
+// laid out by the week planner on Sunday, and this is the exception.
+function PresetCard({ userId, presets, hiddenIds, open, onToggle, busyId, canSaveDay, goalOptions, onApply, onSaveDay, onCreated, onDelete }) {
+  const [mode, setMode] = useState(null); // null | 'saveDay' | 'newBlock' | 'manage'
+  const list = (presets.data ?? []).filter((t) => !hiddenIds.has(t.id));
+  const days = list.filter((t) => t.kind === "day");
+  const blocks = list.filter((t) => t.kind === "chunk");
 
   return (
     <div className="card">
-      <div className="section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <LayoutTemplate size={12} />
-        Presets
-      </div>
+      <button type="button" className="plan-card-toggle" aria-expanded={open} onClick={onToggle}>
+        <span className="section-label">
+          <LayoutTemplate size={12} />
+          Presets{list.length > 0 ? ` · ${list.length}` : ""}
+        </span>
+        <span className="plan-card-toggle__hint">
+          {open ? "Hide" : "Show"}
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+      </button>
 
-      {templates.length === 0 && mode === null && (
-        <p className="placeholder-note" style={{ fontSize: 12.5, margin: "0 0 10px" }}>
-          No presets yet. Build a day you'd repeat, then save it here.
-        </p>
-      )}
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {presets.error && !presets.data && <LoadError what="presets" error={presets.error} onRetry={presets.reload} />}
 
-      {dayTemplates.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 5 }}>Full days</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {dayTemplates.map((t) => (
-              <button key={t.id} onClick={() => onApply(t.id)} style={chipStyle(false)} title="Apply to this day">
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {chunkTemplates.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 5 }}>Blocks</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {chunkTemplates.map((t) => (
-              <button key={t.id} onClick={() => onApply(t.id)} style={chipStyle(false)} title="Add to this day">
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {mode === "saveDay" && (
-        <form onSubmit={handleSaveDay} style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name this day preset…" style={inputStyle} autoFocus />
-          <button type="submit" className="btn-primary" style={{ width: "auto", margin: 0, padding: "8px 12px" }} disabled={busy}>
-            Save
-          </button>
-          <button type="button" onClick={() => setMode(null)} style={iconBtnStyle}>
-            <X size={14} />
-          </button>
-        </form>
-      )}
-
-      {mode === "newChunk" && (
-        <NewChunkTemplateForm
-          userId={userId}
-          goalOptions={goalOptions}
-          onCancel={() => setMode(null)}
-          onSaved={async () => {
-            setMode(null);
-            await onSaved();
-          }}
-        />
-      )}
-
-      {mode === null && (
-        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-          {hasContent && (
-            <button onClick={() => setMode("saveDay")} style={textBtnStyle}>
-              <Bookmark size={12} />
-              Save this day
-            </button>
+          {presets.data && list.length === 0 && mode === null && (
+            <p className="card-note">No presets yet. Build a day you'd repeat, then save it here.</p>
           )}
-          <button onClick={() => setMode("newChunk")} style={textBtnStyle}>
-            <Plus size={12} />
-            New block preset
-          </button>
+
+          {mode !== "manage" && days.length > 0 && (
+            <>
+              <div className="plan-sub">Whole days</div>
+              <div className="plan-buttons">
+                {days.map((t) => (
+                  <button key={t.id} type="button" className="btn btn--sm" disabled={busyId != null} onClick={() => onApply(t)}>
+                    <CalendarCheck size={13} />
+                    {busyId === t.id ? "Applying…" : `Apply ${t.name}`}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {mode !== "manage" && blocks.length > 0 && (
+            <>
+              <div className="plan-sub">Single blocks</div>
+              <div className="plan-buttons">
+                {blocks.map((t) => (
+                  <button key={t.id} type="button" className="btn btn--sm" disabled={busyId != null} onClick={() => onApply(t)}>
+                    <Plus size={13} />
+                    {busyId === t.id ? "Adding…" : `Add ${t.name}`}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {mode === "saveDay" && (
+            <SaveDayForm
+              onSave={async (name) => {
+                const ok = await onSaveDay(name);
+                if (ok) setMode(null);
+                return ok;
+              }}
+              onCancel={() => setMode(null)}
+            />
+          )}
+
+          {mode === "newBlock" && (
+            <NewBlockPresetForm
+              userId={userId}
+              goalOptions={goalOptions}
+              onCancel={() => setMode(null)}
+              onSaved={() => {
+                setMode(null);
+                onCreated();
+              }}
+            />
+          )}
+
+          {mode === "manage" && (
+            <div className="preset-manage">
+              {list.map((t) => (
+                <div key={t.id} className="preset-manage__row">
+                  <span style={{ minWidth: 0 }}>
+                    {t.name}
+                    <span className="faint" style={{ fontSize: 11.5 }}>
+                      {" "}
+                      · {t.kind === "day" ? ((t.applies_to_weekdays ?? []).length > 0 ? "ideal day" : "whole day") : "block"}
+                    </span>
+                  </span>
+                  {t.kind === "day" && (t.applies_to_weekdays ?? []).length > 0 ? (
+                    <span className="faint" style={{ fontSize: 11.5, textAlign: "right" }}>Edit under Week → Ideal</span>
+                  ) : (
+                    <button type="button" className="btn-link btn-link--danger" onClick={() => onDelete(t)}>
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button type="button" className="btn btn--sm" style={{ marginTop: 10 }} onClick={() => setMode(null)}>
+                Done
+              </button>
+            </div>
+          )}
+
+          {mode === null && (
+            <div className="plan-links">
+              {canSaveDay && (
+                <button type="button" className="btn-link" onClick={() => setMode("saveDay")}>
+                  <Bookmark size={12} />
+                  Save this day as a preset
+                </button>
+              )}
+              <button type="button" className="btn-link" onClick={() => setMode("newBlock")}>
+                <Plus size={12} />
+                New block preset
+              </button>
+              {list.length > 0 && (
+                <button type="button" className="btn-link" onClick={() => setMode("manage")}>
+                  Manage presets
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function NewChunkTemplateForm({ userId, goalOptions, onCancel, onSaved }) {
+function SaveDayForm({ onSave, onCancel }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    const ok = await onSave(name.trim());
+    if (!ok) setBusy(false);
+  }
+
+  return (
+    <form className="plan-add" onSubmit={submit} style={{ marginTop: 12 }}>
+      <input
+        className="input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name it (e.g. Workday)"
+        aria-label="Preset name"
+        autoFocus
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+      />
+      <button type="submit" className="btn btn--sm btn--accent" disabled={busy || !name.trim()}>
+        {busy ? "Saving…" : "Save"}
+      </button>
+      <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+function NewBlockPresetForm({ userId, goalOptions, onCancel, onSaved }) {
+  const toast = useToast();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [start, setStart] = useState("09:00");
@@ -424,10 +1276,14 @@ function NewChunkTemplateForm({ userId, goalOptions, onCancel, onSaved }) {
   const [goalNodeId, setGoalNodeId] = useState("");
   const [taskLines, setTaskLines] = useState("");
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState(null);
 
   async function submit(e) {
     e.preventDefault();
-    if (!name.trim() || !title.trim() || busy) return;
+    if (busy) return;
+    if (!name.trim() || !title.trim()) return setProblem("Give the preset a name and the block a title.");
+    if (start === end) return setProblem("It can't start and end at the same time.");
+    setProblem(null);
     setBusy(true);
     try {
       await createChunkTemplate(userId, {
@@ -438,281 +1294,65 @@ function NewChunkTemplateForm({ userId, goalOptions, onCancel, onSaved }) {
         goalNodeId,
         taskTitles: taskLines.split("\n"),
       });
-      await onSaved();
+      toast.show(`Saved the ${quote(name.trim())} preset`);
+      onSaved();
     } catch (err) {
-      alert(err.message);
-    } finally {
+      toast.error(err, "Couldn't save the preset.");
       setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Preset name (e.g. Morning routine)" style={inputStyle} required autoFocus />
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Block title" style={inputStyle} required />
-      <div style={{ display: "flex", gap: 8 }}>
-        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={inputStyle} required />
-        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={inputStyle} required />
+    <form className="block-form" onSubmit={submit} style={{ marginTop: 12 }}>
+      <label className="field">
+        <span>Preset name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Morning routine" autoFocus />
+      </label>
+      <label className="field">
+        <span>Block title</span>
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Scripture and prayer" />
+      </label>
+      <div className="block-form__times">
+        <label className="field">
+          <span>Starts</span>
+          <input type="time" className="input time-input" value={start} onChange={(e) => setStart(e.target.value)} required />
+        </label>
+        <label className="field">
+          <span>Ends</span>
+          <input type="time" className="input time-input" value={end} onChange={(e) => setEnd(e.target.value)} required />
+        </label>
       </div>
       {goalOptions.length > 0 && (
-        <select value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)} style={inputStyle}>
-          <option value="">No linked goal</option>
-          {goalOptions.map((g) => (
-            <option key={g.id} value={g.id}>{g.title}</option>
-          ))}
-        </select>
+        <label className="field">
+          <span>Goal</span>
+          <select className="input" value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)}>
+            <option value="">No goal</option>
+            {goalOptions.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.title}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
-      <textarea
-        value={taskLines}
-        onChange={(e) => setTaskLines(e.target.value)}
-        placeholder={"Tasks, one per line (optional)\nScripture study\nPrayer"}
-        style={{ ...inputStyle, minHeight: 64, resize: "vertical" }}
-      />
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" onClick={onCancel} className="btn-secondary">Cancel</button>
-        <button type="submit" className="btn-primary" style={{ width: "auto", flex: 1 }} disabled={busy}>
+      <label className="field">
+        <span>Tasks, one per line (optional)</span>
+        <textarea className="textarea" value={taskLines} onChange={(e) => setTaskLines(e.target.value)} placeholder={"Scripture study\nPrayer"} style={{ minHeight: 70 }} />
+      </label>
+      {problem && (
+        <p className="block-form__problem" role="alert">
+          {problem}
+        </p>
+      )}
+      <div className="block-form__actions">
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? "Saving…" : "Save preset"}
         </button>
       </div>
     </form>
   );
 }
-
-function ChunkCard({ chunk, tasks, subtasksByParent, goalOptions, date, onAddTask, onAddSubtask, onToggle, onToggleWork, onDeleteTask, onDeleteChunk }) {
-  const goal = goalOptions.find((g) => g.id === chunk.goal_node_id);
-  const done = tasks.filter((t) => t.status).length;
-
-  return (
-    <div className="card">
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
-            {fmtTime(chunk.start_time)} – {fmtTime(chunk.end_time)}
-          </div>
-          <div style={{ fontWeight: 620, fontSize: 15, marginTop: 3, letterSpacing: "-0.01em" }}>{chunk.title}</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-            {goal && <span className="pill" style={{ fontSize: 11 }}>{goal.title}</span>}
-            {tasks.length > 0 && (
-              <span className="pill" style={{ fontSize: 11, color: done === tasks.length ? "var(--accent)" : "var(--text-2)" }}>
-                {done}/{tasks.length}
-              </span>
-            )}
-          </div>
-        </div>
-        <button onClick={onDeleteChunk} style={iconBtnStyle} title="Delete block">
-          <Trash2 size={14} />
-        </button>
-      </div>
-
-      {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          subtasks={subtasksByParent.get(task.id) ?? []}
-          onToggle={() => onToggle(task)}
-          onToggleSub={onToggle}
-          onToggleWork={() => onToggleWork(task)}
-          onDelete={() => onDeleteTask(task.id)}
-          onAddSubtask={(title) => onAddSubtask(task.id, title)}
-        />
-      ))}
-      <InlineAdd placeholder="Add a task…" onAdd={onAddTask} />
-
-      {/* Where meeting notes live: on the hour they happened in. */}
-      <ChunkNotes chunk={chunk} date={date} />
-    </div>
-  );
-}
-
-function TaskRow({ task, subtasks, chunks, onToggle, onToggleSub, onToggleWork, onDelete, onAddSubtask, onAssignChunk }) {
-  const [showSubAdd, setShowSubAdd] = useState(false);
-  return (
-    <div style={{ marginBottom: 4 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-        <input type="checkbox" checked={task.status} onChange={onToggle} style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1, fontSize: 13.5, minWidth: 0, textDecoration: task.status ? "line-through" : "none", opacity: task.status ? 0.55 : 1 }}>
-          {task.title}
-        </span>
-        {task.rollover_count > 0 && (
-          <span className="pill" style={{ fontSize: 10, color: "var(--danger-text)", borderColor: "rgba(217,69,59,0.5)", flexShrink: 0 }} title={`Moved forward ${task.rollover_count} day(s) in a row`}>
-            moved {task.rollover_count}×
-          </span>
-        )}
-        {chunks && chunks.length > 0 && (
-          <select value="" onChange={(e) => e.target.value && onAssignChunk(e.target.value)} style={miniSelectStyle}>
-            <option value="">Slot in…</option>
-            {chunks.map((c) => (
-              <option key={c.id} value={c.id}>{c.title}</option>
-            ))}
-          </select>
-        )}
-        {/* Marks this as work, which is the only thing that decides whether it
-            reaches the end-of-day report. */}
-        {onToggleWork && (
-          <button
-            onClick={onToggleWork}
-            style={{ ...iconBtnStyle, color: task.is_work ? "var(--accent)" : "var(--text-3)" }}
-            title={task.is_work ? "This is work — on the report" : "Mark as work"}
-          >
-            <Briefcase size={13} />
-          </button>
-        )}
-        <button onClick={() => setShowSubAdd((v) => !v)} style={iconBtnStyle} title="Add sub-task">
-          <Plus size={13} />
-        </button>
-        <button onClick={onDelete} style={iconBtnStyle} title="Delete">
-          <X size={13} />
-        </button>
-      </div>
-
-      {subtasks.length > 0 && (
-        <div style={{ marginLeft: 26, borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
-          {subtasks.map((st) => (
-            <div key={st.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
-              <input type="checkbox" checked={st.status} onChange={() => onToggleSub(st)} style={{ flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12.5, textDecoration: st.status ? "line-through" : "none", opacity: st.status ? 0.55 : 1 }}>
-                {st.title}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showSubAdd && (
-        <div style={{ marginLeft: 26 }}>
-          <InlineAdd placeholder="Sub-task…" onAdd={(t) => { onAddSubtask(t); setShowSubAdd(false); }} small />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InlineAdd({ placeholder, onAdd, small }) {
-  const [value, setValue] = useState("");
-  function submit(e) {
-    e.preventDefault();
-    if (!value.trim()) return;
-    onAdd(value);
-    setValue("");
-  }
-  return (
-    <form onSubmit={submit} style={{ display: "flex", gap: 6, marginTop: 6 }}>
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={placeholder}
-        style={{ ...inputStyle, fontSize: small ? 12.5 : 13.5, padding: small ? "6px 10px" : "8px 10px" }}
-      />
-      <button type="submit" style={{ ...iconBtnStyle, border: "1px solid var(--border)", borderRadius: 6 }}>
-        <Plus size={14} />
-      </button>
-    </form>
-  );
-}
-
-function AddChunkForm({ goalOptions, onSave, onCancel }) {
-  const [start, setStart] = useState("09:00");
-  const [end, setEnd] = useState("10:00");
-  const [title, setTitle] = useState("");
-  const [goalNodeId, setGoalNodeId] = useState("");
-
-  function submit(e) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    onSave({ start, end, title: title.trim(), goalNodeId });
-  }
-
-  return (
-    <form onSubmit={submit} className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={inputStyle} required />
-        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={inputStyle} required />
-      </div>
-      <input placeholder="Block title (e.g. Deep work)" value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} required autoFocus />
-      {goalOptions.length > 0 && (
-        <select value={goalNodeId} onChange={(e) => setGoalNodeId(e.target.value)} style={inputStyle}>
-          <option value="">No linked goal</option>
-          {goalOptions.map((g) => (
-            <option key={g.id} value={g.id}>{g.title}</option>
-          ))}
-        </select>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" onClick={onCancel} className="btn-secondary">Cancel</button>
-        <button type="submit" className="btn-primary" style={{ width: "auto", flex: 1 }}>Add block</button>
-      </div>
-    </form>
-  );
-}
-
-function chipStyle(active) {
-  return {
-    background: active ? "var(--accent)" : "var(--inset)",
-    border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
-    color: active ? "var(--on-accent)" : "var(--text-2)",
-    borderRadius: "var(--r-pill)",
-    padding: "6px 13px",
-    fontSize: 12,
-    fontWeight: active ? 650 : 550,
-  };
-}
-
-const addCardStyle = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 6,
-  color: "var(--accent)",
-  fontWeight: 600,
-  fontSize: 13,
-  cursor: "pointer",
-  border: "1px dashed var(--line-strong)",
-  borderRadius: "var(--r-lg)",
-  padding: 16,
-  background: "transparent",
-  width: "100%",
-};
-
-const iconBtnStyle = {
-  background: "none",
-  border: "none",
-  color: "var(--text-faint)",
-  flexShrink: 0,
-  display: "flex",
-  alignItems: "center",
-  padding: 4,
-};
-
-const textBtnStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 5,
-  background: "none",
-  border: "none",
-  color: "var(--accent)",
-  fontSize: 12.5,
-  fontWeight: 600,
-  padding: 0,
-};
-
-const miniSelectStyle = {
-  background: "var(--inset)",
-  border: "1px solid var(--line)",
-  borderRadius: "var(--r-sm)",
-  color: "var(--text-muted)",
-  fontSize: 10.5,
-  padding: "3px 4px",
-  maxWidth: 90,
-  flexShrink: 0,
-};
-
-const inputStyle = {
-  width: "100%",
-  background: "var(--inset)",
-  border: "1px solid var(--line)",
-  borderRadius: "var(--r)",
-  padding: "10px 12px",
-  color: "var(--text)",
-  fontSize: 13.5,
-  fontFamily: "inherit",
-};

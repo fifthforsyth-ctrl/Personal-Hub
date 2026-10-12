@@ -1,0 +1,319 @@
+/* ===========================================================================
+   Planning: the day's plan (on the day page), the Week page and its
+   planner, Work and Charts. Shared tokens and buttons live in index.css;
+   this file only holds what these screens add.
+   =========================================================================== */
+
+/* --- Shared bits -------------------------------------------------------- */
+
+/* A choice sheet's buttons: stacked on a phone with Cancel last, a row on
+   a desk with Cancel on the left. */
+.choice-sheet__actions {
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+}
+@media (max-width: 900px) {
+  .choice-sheet__actions { flex-direction: column; }
+  .choice-sheet__actions .btn { width: 100%; padding-top: 13px; padding-bottom: 13px; }
+}
+
+/* A toggle that stays pressed: ink when on, quiet when off. Used for the
+   day's energy tag and the planner's weekday picks — never for actions,
+   which are buttons. */
+.toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 560;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+@media (hover: hover) { .toggle-chip:hover { border-color: var(--line-strong); color: var(--text); } }
+.toggle-chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--on-ink);
+  font-weight: 650;
+}
+.toggle-chip:disabled { opacity: 0.55; cursor: default; }
+
+/* Screen-reader-only label text. */
+.plan-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Time inputs never get squeezed below what "06:45 AM" needs. */
+.time-input { min-width: 7.75rem; }
+
+/* --- The day's plan (DayView) ------------------------------------------ */
+
+.plan-day { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.plan-day > .card + .card,
+.plan-day > form.card + .card,
+.plan-day > .card + form.card { margin-top: 0; }
+
+.plan-notice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: var(--r);
+  background: var(--inset);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.plan-notice svg { flex-shrink: 0; color: var(--text-3); }
+
+.plan-card-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+.plan-card-toggle .section-label { margin: 0; }
+.plan-card-toggle__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.plan-sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin: 12px 0 6px;
+}
+.plan-sub:first-child { margin-top: 2px; }
+
+.plan-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.plan-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: 12px;
+}
+.plan-links .btn-link { min-height: 32px; }
+
+/* A block: tap the header to change it. */
+.plan-block__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  margin: -2px 0 0;
+  text-align: left;
+  color: inherit;
+  border-radius: var(--r-sm);
+}
+.plan-block__what { flex: 1; min-width: 0; }
+.plan-block__time {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.plan-block__title {
+  display: block;
+  font-weight: 640;
+  font-size: 15px;
+  margin-top: 3px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.plan-block__edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--inset);
+}
+@media (hover: hover) { .plan-block__head:hover .plan-block__edit { color: var(--text); background: #e8e6e2; } }
+.plan-block__meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.plan-block__meta .pill { font-size: 11px; padding: 3px 9px; }
+.plan-block__tasks { margin-top: 6px; }
+.block-form + .plan-block__tasks { margin-top: 16px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* The add/edit form for a block. */
+.block-form { display: flex; flex-direction: column; gap: 12px; }
+.block-form .field { margin: 0; min-width: 0; }
+.block-form__times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(7.75rem, 1fr));
+  gap: 10px;
+}
+.block-form__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.block-form__hint { font-size: 12px; color: var(--text-2); margin: -4px 0 0; }
+.block-form__problem { font-size: 12.5px; color: var(--danger); margin: -4px 0 0; }
+.block-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.block-form__actions .spacer { flex: 1; }
+
+.plan-add-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+@media (hover: hover) { .plan-add-block:hover { background: var(--card); } }
+
+/* A task: checkbox, title (with a quiet second line), and a ⋯ that opens
+   its actions underneath — rename, move, mark as work, sub-task, delete. */
+.plan-task + .plan-task { border-top: 1px solid var(--line); }
+.plan-task__row { display: flex; align-items: flex-start; gap: 4px; padding: 2px 0; }
+.plan-task__check {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  margin-left: -8px;
+  cursor: pointer;
+}
+.plan-task__check input { width: 17px; height: 17px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+.plan-task__main { flex: 1; min-width: 0; padding: 8px 0 7px; }
+.plan-task__title { font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.plan-task--done .plan-task__title { text-decoration: line-through; color: var(--text-3); }
+.plan-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.plan-tag { display: inline-flex; align-items: center; gap: 4px; }
+.plan-task__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0 10px 28px;
+}
+.plan-move {
+  min-height: 34px;
+  max-width: 100%;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  background: var(--inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.plan-task__subs { margin-left: 28px; border-left: 1px solid var(--line); padding-left: 8px; }
+.plan-task__subs .plan-task__title { font-size: 12.5px; }
+.plan-task__subs .plan-task__main { padding: 8px 0 6px; }
+.plan-task__rename { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.plan-task__rename .input { flex: 1 1 160px; padding: 8px 11px; font-size: 13.5px; }
+
+.plan-add { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.plan-add .input { flex: 1; min-width: 0; padding: 9px 12px; font-size: 13.5px; }
+.plan-add--small .input { padding: 7px 11px; font-size: 12.5px; }
+
+/* Stalled tasks: a quiet list that wants a decision. */
+.stalled-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 0;
+}
+.stalled-row + .stalled-row { border-top: 1px solid var(--line); }
+.stalled-row__what { flex: 1 1 180px; min-width: 0; font-size: 13.5px; }
+.stalled-row__when { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.stalled-row__acts { display: flex; gap: 6px; }
+
+.preset-manage { margin-top: 10px; }
+.preset-manage__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.preset-manage__row:first-child { border-top: none; }
+.preset-manage__row .btn-link { min-height: 36px; }
+
+.plan-task__more[aria-expanded="true"] { background: var(--inset); color: var(--text); }
+
+@media (max-width: 900px) {
+  .plan-task__check { width: 40px; height: 40px; }
+  .plan-task__more.btn-icon { width: 40px; height: 40px; }
+}
+
+/* --- Work ----------------------------------------------------------------- */
+
+/* Three numbers on one line, even on a phone, so the running list starts
+   near the top of the screen. */
+.work-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .work-stats { gap: 8px; }
+  .work-stats .stat { padding: 11px 12px; border-radius: var(--r); }
+  .work-stats .stat-top { margin-bottom: 4px; }
+  .work-stats .stat-label { font-size: 11.5px; }
+  .work-stats .stat-value { font-size: 21px; }
+  .work-stats .stat-foot { margin-top: 4px; font-size: 10px; }
+}
