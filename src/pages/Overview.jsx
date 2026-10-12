@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, GitBranch, PieChart, Maximize2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import useIsMobile from "../lib/useIsMobile";
 import {
   fetchTree,
   fetchLifetimeByCategory,
@@ -19,39 +18,18 @@ import { Donut, Legend } from "../components/charts";
 import AskClaude from "../components/AskClaude";
 import CuratedCards from "../components/curator/CuratedCards";
 import PurchaseQuestion from "../components/money/PurchaseQuestion";
-import Capture from "../components/Capture";
 import { DayCard } from "../components/DayCard";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
 import { fetchCategories } from "../lib/api";
 import { todayStr, fmtDayHeading } from "../lib/planDates";
 
-// One route, two front doors.
-//
-// On a desktop this is the thousand-foot view: the goal wheel and every
-// minute you have ever logged, side by side, with a box you can ask questions
-// into. On a phone it is the capture surface, because a phone gets picked up
-// mid-day to record something, not to survey a life.
-export default function Home() {
-  const isMobile = useIsMobile();
+// The big picture: the goal wheel and every minute you've ever logged, side
+// by side, with a box you can ask questions into. This was the desktop home
+// before Today took that place; it lives under More now, for the evenings
+// you want the thousand-foot view.
+export default function Overview() {
   const { user } = useAuth();
-  return isMobile ? <MobileHome userId={user?.id} /> : <DesktopHome userId={user?.id} />;
-}
-
-function MobileHome({ userId }) {
-  return (
-    <div className="page">
-      <div style={{ marginBottom: 16 }}>
-        <div className="eyebrow">{fmtDayHeading(todayStr())}</div>
-        <h1 className="page-title" style={{ fontSize: 21, marginTop: 2 }}>Capture</h1>
-      </div>
-      <div className="stack">
-        <CuratedCards slot="home" title="For today" compact />
-        {/* Shows nothing at all when there's nothing to ask. */}
-        <PurchaseQuestion compact />
-        <Capture userId={userId} />
-      </div>
-    </div>
-  );
+  return <DesktopHome userId={user?.id} />;
 }
 
 function DesktopHome({ userId }) {

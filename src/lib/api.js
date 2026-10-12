@@ -219,6 +219,43 @@ export async function logWinLoss(userId, { kind, habitLabel, goalNodeId, note })
   return data;
 }
 
+// One-tap wins are logged first and named after, so the label is the one
+// field that gets edited once the row already exists.
+export async function updateWinLoss(id, fields) {
+  const { error } = await supabase.from("win_losses").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// The wins you log most, for one-tap chips. Labels are typed freehand, so
+// they're grouped case- and space-insensitively and shown in the spelling
+// you used most recently.
+export async function fetchTopWinLabels(userId, { days = 30, limit = 4 } = {}) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const { data, error } = await supabase
+    .from("win_losses")
+    .select("habit_label, occurred_at")
+    .eq("user_id", userId)
+    .eq("kind", "win")
+    .gte("occurred_at", since)
+    .order("occurred_at", { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  const groups = new Map();
+  for (const r of data ?? []) {
+    const label = (r.habit_label ?? "").trim();
+    const key = label.toLowerCase().replace(/\s+/g, " ");
+    if (!key || key === "win") continue;
+    const g = groups.get(key) ?? { label, count: 0 };
+    g.count += 1;
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit)
+    .map((g) => g.label);
+}
+
 export async function fetchWinLosses(userId, { sinceISO, limit = 100 } = {}) {
   let query = supabase.from("win_losses").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }).limit(limit);
   if (sinceISO) query = query.gte("occurred_at", sinceISO);
@@ -636,19 +673,26 @@ export async function fetchArchiveDays(limit = 120) {
   return data ?? [];
 }
 
+// Writes only the answers it is given. The evening has changed its questions
+// over time, and a day reflected under the old set must not lose those
+// answers because the new flow never sends them — so an absent field is left
+// alone and only an explicit value (including "") is written.
 export async function saveJournalEntry(userId, dateStr, fields) {
-  const { thoughts, gratitude, godsHand, qChrist, qPrinciples, qSuccess, completed } = fields;
-  const row = {
-    user_id: userId,
-    date: dateStr,
-    thoughts: thoughts || null,
-    gratitude: gratitude || null,
-    gods_hand: godsHand || null,
-    q_christ: qChrist || null,
-    q_principles: qPrinciples || null,
-    q_success: qSuccess || null,
-    updated_at: new Date().toISOString(),
+  const columns = {
+    thoughts: "thoughts",
+    gratitude: "gratitude",
+    godsHand: "gods_hand",
+    qChrist: "q_christ",
+    qPrinciples: "q_principles",
+    qSuccess: "q_success",
+    qSavior: "q_savior",
+    qLearn: "q_learn",
   };
+  const row = { user_id: userId, date: dateStr, updated_at: new Date().toISOString() };
+  for (const [key, column] of Object.entries(columns)) {
+    if (fields[key] !== undefined) row[column] = fields[key] || null;
+  }
+  const { completed } = fields;
   // Only stamped on the pass that finishes the reflection — saving a draft
   // must never make the day look reflected-on when it isn't.
   if (completed) row.reflection_completed_at = new Date().toISOString();
@@ -1417,6 +1461,26 @@ export async function unbankDay(userId, dateStr) {
     .eq("user_id", userId)
     .eq("date", dateStr);
   if (error) throw error;
+}
+
+// Today's verse and prompt. Read from the table first — it's written once a
+// day and kept — and only generated when there isn't one yet or you ask for
+// a fresh one.
+export async function fetchDailyWalk(dateStr) {
+  const { data, error } = await supabase.from("daily_walk").select("*").eq("date", dateStr).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export function generateDailyWalk(dateStr) {
+  return callAssistant("walk_with_god", { date: dateStr });
+}
+
+// Tonight's two adaptive questions and the nudge under God's hand. The
+// function writes them onto the journal row itself, so they're kept with
+// whatever you answer.
+export function generateReflectionQuestions(dateStr) {
+  return callAssistant("reflection_questions", { date: dateStr });
 }
 
 // Asks the assistant to read the whole day and write a few sentences about

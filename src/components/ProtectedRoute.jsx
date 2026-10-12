@@ -3,6 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { syncProfileTimezone } from "../lib/api";
 import { Sidebar, TopBar, BottomTabs } from "./NavBar";
+import { CaptureProvider } from "./CaptureSheet";
 
 // Both navigations are always mounted; CSS decides which one is real at this
 // width. Keeping it in CSS rather than JS means no flash of the wrong chrome
@@ -21,13 +22,15 @@ export default function ProtectedRoute() {
   if (!user) return <Navigate to="/login" replace />;
 
   return (
-    <div className="shell">
-      <Sidebar />
-      <TopBar />
-      <main className="main">
-        <Outlet />
-      </main>
-      <BottomTabs />
-    </div>
+    <CaptureProvider>
+      <div className="shell">
+        <Sidebar />
+        <TopBar />
+        <main className="main">
+          <Outlet />
+        </main>
+        <BottomTabs />
+      </div>
+    </CaptureProvider>
   );
 }

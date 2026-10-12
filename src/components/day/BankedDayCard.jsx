@@ -15,7 +15,7 @@ import {
 import { fetchGoalCredit } from "../../lib/api";
 import { Donut, RadialMeter, RankedBars, Legend } from "../charts";
 import DayTimeline from "./DayTimeline";
-import { PROMPTS } from "./ReflectionFlow";
+import { answeredCards } from "./ReflectionFlow";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
@@ -258,25 +258,13 @@ export default function BankedDayCard({ date, archive, chunks, tasks, onReopen }
       <div style={{ padding: "20px 22px" }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>In your own words</div>
 
-        {PROMPTS.map((p) => {
-          const key = { qChrist: "q_christ", qPrinciples: "q_principles", qSuccess: "q_success", gratitude: "gratitude", thoughts: "thoughts" }[p.key];
-          const text = journal[key];
-          if (!text) return null;
-          return (
-            <div key={p.key} style={{ marginBottom: 18 }}>
-              <div className="eyebrow" style={{ color: "var(--accent)", marginBottom: 5 }}>{p.label}</div>
-              <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{p.question}</div>
-              <div className="prose">{text}</div>
-            </div>
-          );
-        })}
-
-        {journal.gods_hand && (
-          <div style={{ marginBottom: 18 }}>
-            <div className="eyebrow" style={{ color: "var(--accent)", marginBottom: 5 }}>Where I saw God's hand</div>
-            <div className="prose">{journal.gods_hand}</div>
+        {answeredCards(journal).map((c) => (
+          <div key={c.label} style={{ marginBottom: 18 }}>
+            <div className="eyebrow" style={{ color: "var(--accent)", marginBottom: 5 }}>{c.label}</div>
+            <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{c.question}</div>
+            <div className="prose">{c.text}</div>
           </div>
-        )}
+        ))}
 
         {experiences.length > 0 && (
           <Written icon={Flame} title="What came">

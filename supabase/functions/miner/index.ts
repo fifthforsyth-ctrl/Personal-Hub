@@ -25,7 +25,7 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -227,7 +227,7 @@ async function anthropicMine(anthropic: Anthropic, note: any) {
         }\n\n---\n${note.body}\n---`,
       },
     ],
-    output_config: { format: zodOutputFormat(MineSchema) },
+    output_config: { format: zodOutputFormat(MineSchema), effort: "high" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");

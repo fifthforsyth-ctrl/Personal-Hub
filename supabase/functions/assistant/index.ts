@@ -12,7 +12,7 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,7 +101,7 @@ async function proposePlan(supabase: any, anthropic: Anthropic, tz: string, note
             : ""),
       },
     ],
-    output_config: { format: zodOutputFormat(PlanSchema) },
+    output_config: { format: zodOutputFormat(PlanSchema), effort: "high" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
@@ -505,7 +505,7 @@ async function suggestGoalLinks(
         )}`,
       },
     ],
-    output_config: { format: zodOutputFormat(LinkSchema) },
+    output_config: { format: zodOutputFormat(LinkSchema), effort: "high" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
@@ -626,7 +626,7 @@ async function askChart(supabase: any, anthropic: Anthropic, tz: string, questio
         content: `Timezone: ${tz}. Today is ${today}.\n\nQuestion: ${question}`,
       },
     ],
-    output_config: { format: zodOutputFormat(ChartSchema) },
+    output_config: { format: zodOutputFormat(ChartSchema), effort: "high" },
   });
 
   const spec = response.parsed_output;
@@ -686,11 +686,191 @@ async function daySynopsis(supabase: any, anthropic: Anthropic, tz: string, date
         content: `Write the synopsis for ${date}.\n\nThe day's record:\n${JSON.stringify(archive, null, 1)}\n\nWhat it fed on the goal tree:\n${JSON.stringify(credit ?? [], null, 1)}`,
       },
     ],
-    output_config: { format: zodOutputFormat(SynopsisSchema) },
+    output_config: { format: zodOutputFormat(SynopsisSchema), effort: "high" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
   return { ...response.parsed_output, date, usage: response.usage };
+}
+
+// ---------------------------------------------------------------------------
+// walk_with_god and reflection_questions — the two places the app speaks to
+// the spiritual side of the day.
+//
+// Both read the same material: the day so far, and the last week of what
+// was written in the evenings. Both are kept once written (the walk card in
+// daily_walk, the evening questions on the journal row) so they don't shift
+// under you each time a page opens.
+// ---------------------------------------------------------------------------
+
+const SPIRIT_CONTEXT = `The person is a member of The Church of Jesus Christ of Latter-day Saints. This app is where they track their minutes, wins and losses through the day, and reflect each evening. Its purpose, in their words, is to help them see how life is really going and to stay in tune with God.
+
+Ground everything in what is actually in the record: the activity they logged, the wins they named, what they wrote in recent evenings. A question that could have been asked of anyone on any day is a failure. Name the real thing — the person, the task, the hour — when the record has it.
+
+Tone: warm and direct, like a trusted friend who shares their faith. Never guilt, never a lecture, never flattery. Second person. No lists, no emoji.
+
+If the record is thin, lean on the recent evenings instead, and never invent events that aren't there.`;
+
+const WalkSchema = z.object({
+  verse_ref: z.string().describe('Standard citation, e.g. "D&C 88:63", "Mosiah 2:17", "John 15:5".'),
+  verse_text: z.string().describe("The verse text exactly as it reads in the Church's edition of the scriptures (KJV for the Bible)."),
+  prompt: z
+    .string()
+    .describe("One or two sentences inviting them to notice God's hand in this specific day. Usually ends in a question."),
+});
+
+const WALK_SYSTEM = `${SPIRIT_CONTEXT}
+
+You are writing the "Walk with God" card on their phone's home screen: one scripture and one short prompt to carry through the day.
+
+The verse:
+- From the standard works: the Bible (King James Version), the Book of Mormon, the Doctrine and Covenants, or the Pearl of Great Price.
+- One verse, two at most, and only one you can quote word for word. A misquoted verse is worse than a familiar one quoted exactly.
+- Chosen for what this day actually holds, not for being famous.
+- Never one of the verses listed as recently shown.
+
+The prompt:
+- Helps them find God's hand in the ordinary parts of today, from what the record shows so far.
+- If it is early and little is logged, point them toward what's ahead of them today or something from a recent evening.`;
+
+async function recentEvenings(supabase: any, date: string, days = 7) {
+  const since = new Date(`${date}T00:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - days);
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .select("date, thoughts, gratitude, gods_hand, q_christ, q_principles, q_success, q_savior_prompt, q_savior, q_learn_prompt, q_learn")
+    .gte("date", since.toISOString().slice(0, 10))
+    .lt("date", date)
+    .order("date", { ascending: false });
+  if (error) throw new Error(`journal_entries: ${error.message}`);
+  return data ?? [];
+}
+
+// The record, trimmed to what a reflection could use. The full archive
+// carries ids, timestamps and empty arrays that only crowd the prompt.
+function dayForPrompt(archive: any) {
+  const a = archive ?? {};
+  return {
+    time_by_category: a.time_by_category ?? [],
+    activities: (a.time_entries ?? []).map((t: any) => ({
+      at: t.started_at,
+      minutes: t.duration_minutes,
+      what: t.description,
+      tags: t.tags?.length ? t.tags : [t.category],
+    })),
+    planned_blocks: (a.chunks ?? []).map((c: any) => ({ title: c.title, start: c.start_time, end: c.end_time })),
+    tasks: (a.tasks ?? []).map((t: any) => ({ title: t.title, done: Boolean(t.status) })),
+    wins: (a.wins_losses ?? []).filter((w: any) => w.kind === "win").map((w: any) => w.habit_label),
+    losses: (a.wins_losses ?? []).filter((w: any) => w.kind === "loss").map((w: any) => w.habit_label),
+    spiritual_experiences: (a.experiences ?? []).map((e: any) => e.what_came),
+    prayers: (a.prayers ?? []).map((p: any) => p.content),
+  };
+}
+
+async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
+  const since = new Date(`${date}T00:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - 21);
+  const [{ data: archive, error: e1 }, evenings, { data: recent, error: e2 }] = await Promise.all([
+    supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
+    recentEvenings(supabase, date),
+    supabase.from("daily_walk").select("verse_ref").gte("date", since.toISOString().slice(0, 10)).lt("date", date),
+  ]);
+  if (e1) throw new Error(`day_archive: ${e1.message}`);
+  if (e2) throw new Error(`daily_walk: ${e2.message}`);
+
+  const now = new Date().toLocaleString("en-US", { timeZone: tz, weekday: "long", hour: "numeric", minute: "2-digit" });
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 8000,
+    system: WALK_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content:
+          `It is ${now} on ${date}.\n\nToday so far:\n${JSON.stringify(dayForPrompt(archive), null, 1)}` +
+          `\n\nThe last week of evenings, newest first:\n${JSON.stringify(evenings, null, 1)}` +
+          `\n\nVerses shown recently (don't repeat these): ${(recent ?? []).map((r: any) => r.verse_ref).join("; ") || "none"}`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(WalkSchema), effort: "high" },
+  });
+
+  const walk = response.parsed_output;
+  if (!walk) throw new Error("The model returned nothing parsable.");
+
+  const { error: e3 } = await supabase.from("daily_walk").upsert(
+    { user_id: userId, date, ...walk, generated_at: new Date().toISOString() },
+    { onConflict: "user_id,date" }
+  );
+  if (e3) throw new Error(`daily_walk: ${e3.message}`);
+  return { ...walk, date };
+}
+
+const ReflectionSchema = z.object({
+  gods_hand_nudge: z
+    .string()
+    .describe("One short sentence under the fixed God's-hand question, pointing at a specific moment in today's record worth looking at."),
+  savior_question: z
+    .string()
+    .describe("One question, drawn from today, that helps them draw closer to Jesus Christ."),
+  learn_question: z
+    .string()
+    .describe("One question, drawn from today, about what today's experiences can teach them."),
+});
+
+const REFLECTION_SYSTEM = `${SPIRIT_CONTEXT}
+
+You are writing tonight's evening reflection. They answer four cards, one at a time:
+1. "Where did you see God's hand today?" — fixed. You write only a one-sentence nudge under it, pointing at a specific moment in the record worth looking at again.
+2. A question toward the Savior — you write it. It should help them draw closer to Jesus Christ through something that actually happened today: a choice, a person, a struggle, a moment of service. Not a quiz about doctrine.
+3. A question about learning from today — you write it. What can the day's experiences, patterns or surprises teach them about how they live? Concrete enough that they could answer it in a few sentences.
+4. "Anything else" — fixed, nothing to write.
+
+Each question is a single sentence. Don't repeat a question they were asked in the last week (those are included). Don't ask two questions in one.`;
+
+async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
+  const [{ data: archive, error }, evenings] = await Promise.all([
+    supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
+    recentEvenings(supabase, date),
+  ]);
+  if (error) throw new Error(`day_archive: ${error.message}`);
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 8000,
+    system: REFLECTION_SYSTEM,
+    thinking: { type: "adaptive" },
+    messages: [
+      {
+        role: "user",
+        content:
+          `Tonight is ${date}.\n\nThe day's record:\n${JSON.stringify(dayForPrompt(archive), null, 1)}` +
+          `\n\nThe last week of evenings, newest first (including the questions they were asked):\n${JSON.stringify(evenings, null, 1)}`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(ReflectionSchema), effort: "high" },
+  });
+
+  const q = response.parsed_output;
+  if (!q) throw new Error("The model returned nothing parsable.");
+
+  // Only the question columns — an upsert names what it writes, so any
+  // answers already on the row are left exactly as they were.
+  const { error: e2 } = await supabase.from("journal_entries").upsert(
+    {
+      user_id: userId,
+      date,
+      gods_hand_nudge: q.gods_hand_nudge,
+      q_savior_prompt: q.savior_question,
+      q_learn_prompt: q.learn_question,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,date" }
+  );
+  if (e2) throw new Error(`journal_entries: ${e2.message}`);
+  return { ...q, date };
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +940,16 @@ Deno.serve(async (req) => {
             offset: body.offset,
           })
         );
+      }
+      case "walk_with_god": {
+        const date = String(body.date ?? "").trim();
+        if (!date) return json({ error: "walk_with_god needs a date." }, 400);
+        return json(await walkWithGod(supabase, anthropic, tz, date, userData.user.id));
+      }
+      case "reflection_questions": {
+        const date = String(body.date ?? "").trim();
+        if (!date) return json({ error: "reflection_questions needs a date." }, 400);
+        return json(await reflectionQuestions(supabase, anthropic, tz, date, userData.user.id));
       }
       default:
         return json({ error: `Unknown action "${action}".` }, 400);

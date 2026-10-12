@@ -1,59 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Archive, Check, Circle, Sparkles, AlertCircle } from "lucide-react";
-import { bankDay, writeDaySynopsis, fetchLinkStats, fetchTimeChunks } from "../../lib/api";
-import { addDays, fmtDayHeading } from "../../lib/planDates";
+import { bankDay, writeDaySynopsis } from "../../lib/api";
 
 // Closing the day out.
 //
-// Three things have to be true first, and the checklist says which are and
-// which aren't rather than just greying the button out — a disabled control
-// with no explanation is the most frustrating thing an app can do at the end
-// of a long day.
+// Reflect, then bank it: that's the evening. Banking used to also wait on
+// every minute being linked to a goal and tomorrow being planned, but you
+// plan on Sundays and the goal links weren't telling you anything, so the
+// reflection is the one thing asked for now.
 //
-// It stays possible to bank anyway. Some days genuinely have no tasks to
-// finish and nothing worth linking, and an app that refuses to let you close
-// such a day is wrong about your life, not the other way round.
+// It stays possible to bank without it. A day you couldn't reflect on is
+// still a day, and an app that refuses to close it is wrong about your life.
 export default function CloseOut({ userId, date, reflectionDone, onBanked }) {
-  const [linkStats, setLinkStats] = useState(null);
-  const [tomorrowChunks, setTomorrowChunks] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(null);
   const [error, setError] = useState(null);
 
-  const tomorrow = addDays(date, 1);
-
-  const load = useCallback(async () => {
-    if (!userId) return;
-    const [stats, chunks] = await Promise.all([
-      fetchLinkStats(date, date).catch(() => null),
-      fetchTimeChunks(userId, tomorrow).catch(() => []),
-    ]);
-    setLinkStats(stats);
-    setTomorrowChunks(chunks);
-  }, [userId, date, tomorrow]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const linksDone = linkStats ? Number(linkStats.unlinked ?? 0) === 0 : false;
-  const planDone = (tomorrowChunks ?? []).length > 0;
-  const steps = [
-    { key: "reflect", label: "Reflection written", done: reflectionDone, missing: "Finish the five questions above." },
-    {
-      key: "link",
-      label: "Minutes linked to goals",
-      done: linksDone,
-      missing: linkStats ? `${linkStats.unlinked} ${Number(linkStats.unlinked) === 1 ? "entry has" : "entries have"} no goal yet.` : "Checking…",
-    },
-    {
-      key: "plan",
-      label: `${fmtDayHeading(tomorrow)} planned`,
-      done: planDone,
-      missing: "Generate and accept a plan for tomorrow.",
-    },
-  ];
-
+  const steps = [{ key: "reflect", label: "Reflection written", done: reflectionDone, missing: "Finish the four cards above." }];
   const allDone = steps.every((s) => s.done);
 
   async function bank() {

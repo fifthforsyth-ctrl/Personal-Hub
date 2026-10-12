@@ -14,8 +14,8 @@ export const TRACKING_LABEL = {
   note: "Note",
 };
 
-export const FOCUS_COLOR = "#ff6f52";
-export const FOCUS_RING = "0 0 0 3px #ff6f52, 0 0 16px rgba(255, 111, 82, 0.5)";
+export const FOCUS_COLOR = "#ffa24c";
+export const FOCUS_RING = "0 0 0 3px #ffa24c, 0 0 16px rgba(255, 162, 76, 0.5)";
 export const HOVER_COLOR = "#f4f4f5";
 
 // A dark, hue-independent divider — visible against any fill color.

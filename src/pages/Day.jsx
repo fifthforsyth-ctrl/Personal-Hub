@@ -259,7 +259,7 @@ export default function Day() {
               answer the questions, not after you've closed them. */}
           {isToday && <CuratedCards slot="day" date={date} title="Worth holding today" />}
 
-          <ReflectionFlow userId={user?.id} date={date} journal={a.journal} onSaved={reload} />
+          <ReflectionFlow userId={user?.id} date={date} journal={a.journal} moments={experiences} onSaved={reload} />
 
           <Tomorrow userId={user?.id} date={date} reflectionDone={reflectionDone} />
 

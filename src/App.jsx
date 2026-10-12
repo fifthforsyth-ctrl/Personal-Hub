@@ -3,7 +3,9 @@ import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
-import Home from "./pages/Home";
+import Today from "./pages/Today";
+import Overview from "./pages/Overview";
+import Evening from "./pages/Evening";
 import Day from "./pages/Day";
 import Plan from "./pages/Plan";
 import Study from "./pages/Study";
@@ -31,7 +33,10 @@ export default function App() {
           <Route path="/preview" element={<Preview />} />
 
           <Route element={<ProtectedRoute />}>
-            <Route index element={<Home />} />
+            <Route index element={<Today />} />
+            <Route path="/evening" element={<Evening />} />
+            <Route path="/evening/:date" element={<Evening />} />
+            <Route path="/overview" element={<Overview />} />
             <Route path="/day" element={<RedirectToToday />} />
             <Route path="/day/:date" element={<Day />} />
             <Route path="/plan" element={<Plan />} />

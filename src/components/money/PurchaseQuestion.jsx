@@ -328,7 +328,7 @@ function Chip({ active, color, onClick, children }) {
         fontSize: 12.5,
         padding: "6px 11px",
         borderColor: active ? color ?? "var(--accent)" : "var(--line)",
-        background: active ? `${color ?? "#ef5b3f"}26` : "transparent",
+        background: active ? `${color ?? "#ff8a1f"}26` : "transparent",
         color: active ? "var(--text)" : "var(--text-2)",
         fontWeight: active ? 620 : 500,
       }}
