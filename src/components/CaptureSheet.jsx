@@ -191,7 +191,9 @@ function LogNow({ kind, userId, onDone }) {
             ))}
           </div>
         )}
-        <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : "")}>
+        {/* A loss closes quietly, but still on a button you can see: the sheet
+            is the page's colour, so the plain grey would vanish into it. */}
+        <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : " btn--on-page")}>
           {label.trim() ? "Save" : "Done"}
         </button>
       </form>

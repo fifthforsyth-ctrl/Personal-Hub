@@ -148,7 +148,7 @@ export default function Day() {
           {/* A banked day's card carries its own "Banked". */}
           {!banked && reflectionDone && <span className="chip chip--accent">Reflected</span>}
           {!isToday && (
-            <button className="btn" onClick={() => navigate(`/day/${todayStr()}`)}>
+            <button className="btn btn--on-page" onClick={() => navigate(`/day/${todayStr()}`)}>
               <CalendarDays size={14} />
               Today
             </button>

@@ -153,7 +153,7 @@ export function MinutesView({ userId, date = todayStr() }) {
           <div className="card-head">
             <span className="card-title">{isToday ? "Track" : `Log time on ${shortDay(date)}`}</span>
             {isToday && (
-              <button className="btn-link" onClick={() => setManualOpen((v) => !v)}>
+              <button className="btn-link minutes-link" onClick={() => setManualOpen((v) => !v)}>
                 {manualOpen ? "Use the timer instead" : "Log past time"}
               </button>
             )}
@@ -283,7 +283,7 @@ function CategoryGrid({ categories, hidden, picked, onToggle, onAdd, onHide, onR
       <div className="row row--between" style={{ marginBottom: 8 }}>
         <span className="eyebrow">Categories · pick any that overlap</span>
         <button
-          className="btn-link"
+          className="btn-link minutes-link"
           onClick={() => {
             setManaging((v) => !v);
             setConfirming(null);

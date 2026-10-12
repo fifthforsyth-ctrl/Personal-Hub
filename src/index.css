@@ -433,6 +433,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .btn--lg { padding: 15px 20px; font-size: 15px; border-radius: var(--r-pill); width: 100%; }
 .btn--block { width: 100%; }
 
+/* A button standing on the page itself, not in a card: the inset grey is the
+   page's own colour there, so it takes the card's white and a hairline. */
+.btn--on-page { background: var(--card); border-color: var(--line); }
+@media (hover: hover) { .btn--on-page:hover { background: var(--card-hover); border-color: var(--line-strong); } }
+
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -494,6 +499,12 @@ button { cursor: pointer; touch-action: manipulation; }
 
 @media (hover: hover) { .seg-btn:hover { color: var(--text); } }
 .seg-btn.active { background: var(--card); color: var(--text); font-weight: 650; box-shadow: var(--shadow); }
+
+/* On a phone the small sizes are still thumb targets: none under 36px, the
+   same everywhere rather than page by page. */
+@media (max-width: 900px) {
+  .btn--sm, .seg-btn { min-height: 36px; }
+}
 
 /* ---------------------------------------------------------------------------
    Chips & pills
@@ -1479,7 +1490,8 @@ form.card + .card { margin-top: 14px; }
 .logged-banner--win { background: var(--accent-soft); color: var(--accent-text); animation: win-pop 0.35s ease-out; }
 .logged-banner--win > svg { color: var(--accent); }
 
-.chip--tap { cursor: pointer; padding: 7px 12px; font-size: 12.5px; color: var(--text); }
+/* A one-tap win is a thumb target: as tall as the win pills under it. */
+.chip--tap { cursor: pointer; min-height: 36px; padding: 7px 12px; font-size: 12.5px; color: var(--text); }
 .chip--tap:active { border-color: var(--accent-line); background: var(--accent-soft); }
 @media (hover: hover) { .chip--tap:hover { border-color: var(--accent-line); background: var(--accent-soft); } }
 

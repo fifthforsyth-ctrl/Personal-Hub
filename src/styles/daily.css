@@ -175,6 +175,10 @@
 .cat-toggle--on { color: var(--text); font-weight: 650; }
 .cat-toggle--managing { cursor: default; padding-right: 30px; }
 
+/* "Log past time" and the categories' Edit are text buttons, but thumb-sized,
+   without making the row they sit in any taller. */
+.btn-link.minutes-link { min-height: 36px; margin: -9px 0; }
+
 /* The hide button sits on the corner while editing, with a 40px hit area
    around a smaller mark. */
 .cat-hide {

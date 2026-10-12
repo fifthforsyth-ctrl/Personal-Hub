@@ -239,13 +239,15 @@ export default function Tree() {
 
   return (
     <div className="goals-page">
+      {/* The bar sits on the page, so its buttons take the white face, like the
+          Brightness pill beside them. */}
       <header className="goals-bar">
         <div className="goals-bar__title">
           {centeredNode ? (
             <>
               <button
                 type="button"
-                className="btn btn--sm"
+                className="btn btn--sm btn--on-page"
                 onClick={() => (usingSectionWheel ? setMobileCenterOverrideId(null) : setCenterNodeId(null))}
                 title="Back to the whole wheel"
               >
@@ -261,12 +263,12 @@ export default function Tree() {
 
         <div className="goals-bar__actions">
           {hasGoals && (
-            <button type="button" className="btn btn--sm" onClick={() => setFindOpen(true)} aria-label="Find a goal" title="Find a goal">
+            <button type="button" className="btn btn--sm btn--on-page" onClick={() => setFindOpen(true)} aria-label="Find a goal" title="Find a goal">
               <Search size={15} />
               <span className="goals-wide-only">Find a goal</span>
             </button>
           )}
-          <Link to="/links" className="btn btn--sm" aria-label="Goal links" title="Goal links: which goal each category feeds">
+          <Link to="/links" className="btn btn--sm btn--on-page" aria-label="Goal links" title="Goal links: which goal each category feeds">
             <Link2 size={15} />
             <span className="goals-wide-only">Goal links</span>
           </Link>
@@ -291,7 +293,7 @@ export default function Tree() {
             {isMobile && (
               <button
                 type="button"
-                className="btn btn--sm"
+                className="btn btn--sm btn--on-page"
                 onClick={() => {
                   setMobileFullView((v) => !v);
                   setMobileCenterOverrideId(null);

@@ -120,7 +120,7 @@ function DesktopHome({ userId }) {
               }}
             />
           )}
-          <Link to={`/day/${date}`} className="btn">
+          <Link to={`/day/${date}`} className="btn btn--on-page">
             Full day
             <ArrowRight size={14} />
           </Link>
