@@ -266,11 +266,13 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         ) : (
           <>
             <p className="card-note" style={{ marginBottom: 14 }}>
-              Four cards: where you saw God's hand, two questions written from your day tonight, and anything else.
+              {completed
+                ? "Finished without writing anything down."
+                : "Four cards: where you saw God's hand, two questions written from your day tonight, and anything else."}
             </p>
-            <button className="btn btn--accent" onClick={start} disabled={preparing}>
-              <Sparkles size={15} />
-              {preparing ? "Writing tonight's questions…" : "Start reflection"}
+            <button className={completed ? "btn" : "btn btn--accent"} onClick={start} disabled={preparing}>
+              {completed ? <PenLine size={14} /> : <Sparkles size={15} />}
+              {preparing ? "Writing tonight's questions…" : completed ? "Revisit the reflection" : "Start reflection"}
             </button>
           </>
         )}

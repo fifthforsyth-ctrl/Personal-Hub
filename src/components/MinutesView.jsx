@@ -438,7 +438,7 @@ function EntryRow({ entry, categories, onDelete }) {
     <div className="entry-row-x">
       <div className="row row--between" style={{ alignItems: "center", gap: 6 }}>
         <span className="truncate" style={{ fontSize: 13.5, fontWeight: 570, flex: 1 }}>{entry.description || "Untitled"}</span>
-        <span className="mono" style={{ fontSize: 12, color: "var(--accent-text)", fontWeight: 600, flexShrink: 0 }}>{fmtMinutes(entry.duration_minutes)}</span>
+        <span className="mono" style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 600, flexShrink: 0 }}>{fmtMinutes(entry.duration_minutes)}</span>
         <button className="btn-icon entry-row-x__action" onClick={() => setEditing(true)} aria-label={`Edit ${entry.description || "this entry"}`} title="Edit">
           <Pencil size={14} />
         </button>

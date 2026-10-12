@@ -395,7 +395,7 @@ function WrittenToday({ experiences, prayers, notes, isToday }) {
                 <span className="list-row__meta">{timeOf(e.occurred_at)}</span>
               </div>
               <div style={{ fontSize: 13.5, fontWeight: 550, marginTop: 5 }}>{e.what_came}</div>
-              {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 3 }}>Acted: {e.action_taken}</div>}
+              {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 3 }}>Acted: {e.action_taken}</div>}
               {!e.acted_on && <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>Still open</div>}
             </div>
           ))}
@@ -411,7 +411,7 @@ function WrittenToday({ experiences, prayers, notes, isToday }) {
                 <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
               </div>
               <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{p.content}</div>
-              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 2 }}>What came: {p.felt_response}</div>}
+              {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 2 }}>What came: {p.felt_response}</div>}
             </div>
           ))}
         </Group>

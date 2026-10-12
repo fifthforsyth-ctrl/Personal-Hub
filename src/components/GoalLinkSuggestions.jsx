@@ -260,7 +260,7 @@ export default function GoalLinkSuggestions({ date, onApplied }) {
       <div className="card-head">
         <span className="card-title">
           <Link2 size={14} />
-          Goal links
+          Suggested links
         </span>
       </div>
 

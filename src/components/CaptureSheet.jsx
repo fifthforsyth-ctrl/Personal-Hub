@@ -50,6 +50,10 @@ export function CaptureProvider({ children }) {
 
 const TITLES = { win: "Win", loss: "Loss", minutes: "Minutes", thought: "Thought" };
 
+// A phone keyboard has a mic; a laptop's doesn't, so only the phone is told
+// about it.
+const TOUCH = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+
 function CaptureSheet({ view, setView, onClose }) {
   const { user } = useAuth();
 
@@ -264,7 +268,7 @@ function ThoughtCapture({ userId, onDone }) {
         className="textarea"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Type it, or tap the mic on your keyboard and say it."
+        placeholder={TOUCH ? "Type it, or tap the mic on your keyboard and say it." : "Type it out."}
         aria-label="Your thought"
         style={{ minHeight: 140, fontFamily: "var(--font-serif)", fontSize: 16 }}
         autoFocus

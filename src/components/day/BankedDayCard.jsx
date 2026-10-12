@@ -174,7 +174,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
                         ))}
                       </span>
                       <span className="list-row__meta">{timeOf(e.started_at)}</span>
-                      <span className="mono" style={{ fontSize: 11.5, color: "var(--accent-text)", flexShrink: 0 }}>{fmtMinutes(e.duration_minutes)}</span>
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--text-2)", flexShrink: 0 }}>{fmtMinutes(e.duration_minutes)}</span>
                     </div>
                   );
                 })}
@@ -238,7 +238,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
 
         {answered.map((c) => (
           <div key={c.label} style={{ marginBottom: 18 }}>
-            <div className="eyebrow" style={{ color: "var(--accent-text)", marginBottom: 5 }}>{c.label}</div>
+            <div className="eyebrow" style={{ marginBottom: 5 }}>{c.label}</div>
             <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{c.question}</div>
             <div className="prose">{c.text}</div>
           </div>
@@ -253,7 +253,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
                   <span className="list-row__meta">{timeOf(e.occurred_at)}</span>
                 </div>
                 <div className="prose prose--sm" style={{ marginTop: 6 }}>{e.what_came}</div>
-                {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>Acted: {e.action_taken}</div>}
+                {e.action_taken && <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 4 }}>Acted: {e.action_taken}</div>}
               </div>
             ))}
           </Written>
@@ -268,7 +268,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
                   <span className="list-row__meta">{timeOf(p.prayed_at)}</span>
                 </div>
                 <div className="prose prose--sm" style={{ marginTop: 5 }}>{p.content}</div>
-                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--accent-text)", marginTop: 4 }}>What came: {p.felt_response}</div>}
+                {p.felt_response && <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 4 }}>What came: {p.felt_response}</div>}
               </div>
             ))}
           </Written>
