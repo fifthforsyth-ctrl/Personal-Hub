@@ -261,7 +261,7 @@ export default function SectionWheel({ nodes, edges, brightnessById, onSelectNod
           }}
         >
           <svg width={totalRadius * 2} height={totalRadius * 2} viewBox={`${-totalRadius} ${-totalRadius} ${totalRadius * 2} ${totalRadius * 2}`}>
-            {wheel.hasVirtualHub && <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#050609" strokeWidth={2.5} strokeLinejoin="round" />}
+            {wheel.hasVirtualHub && <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" />}
 
             {[...wheel.layout.entries()].map(([id, pos]) => {
               const node = nodeById.get(id);

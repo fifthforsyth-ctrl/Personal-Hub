@@ -231,7 +231,7 @@ export default function PyramidWheel({ nodes, edges, wheel, brightnessById, cent
         </defs>
 
         {wheel.hasVirtualHub && (
-          <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#050609" strokeWidth={2.5} strokeLinejoin="round" />
+          <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" />
         )}
 
         {[...displayLayout.entries()].map(([id, pos]) => {

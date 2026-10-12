@@ -152,9 +152,8 @@ export function TopBar() {
 export function BottomTabs() {
   const capture = useCapture();
   const tab = ({ to, label, Icon, end }) => (
-    <NavLink key={to} to={to} end={end} className={({ isActive }) => "bottom-tab" + (isActive ? " active" : "")}>
-      <Icon size={19} strokeWidth={2} />
-      <span>{label}</span>
+    <NavLink key={to} to={to} end={end} aria-label={label} title={label} className={({ isActive }) => "bottom-tab" + (isActive ? " active" : "")}>
+      <Icon size={20} strokeWidth={1.8} />
     </NavLink>
   );
 

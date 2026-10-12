@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Moon, ArrowRight, Archive } from "lucide-react";
+import { Moon, ArrowRight, Archive, CalendarRange } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchWinLosses, fetchTimeEntries, fetchOpenTimeEntry, fetchCategories, fetchDayPlan } from "../lib/api";
 import { setCategoryColors } from "../lib/categories";
@@ -8,6 +8,7 @@ import { todayStr, fmtDayHeading } from "../lib/planDates";
 import WinHero from "../components/today/WinHero";
 import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
+import WeekStrip from "../components/today/WeekStrip";
 import CuratedCards from "../components/curator/CuratedCards";
 import PurchaseQuestion from "../components/money/PurchaseQuestion";
 
@@ -78,10 +79,17 @@ export default function Today() {
 
   return (
     <div className="page today">
-      <div style={{ marginBottom: 16 }}>
-        <div className="eyebrow">{fmtDayHeading(date)}</div>
-        <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
+      <div className="row row--between" style={{ marginBottom: 14, alignItems: "flex-start" }}>
+        <div>
+          <div className="eyebrow">{fmtDayHeading(date)}</div>
+          <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
+        </div>
+        <Link to="/plan" className="btn-icon btn-icon--bordered" style={{ width: 38, height: 38 }} title="This week">
+          <CalendarRange size={16} />
+        </Link>
       </div>
+
+      <WeekStrip date={date} />
 
       <div className="today-grid">
         <div className="stack">

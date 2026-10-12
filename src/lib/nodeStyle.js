@@ -14,12 +14,12 @@ export const TRACKING_LABEL = {
   note: "Note",
 };
 
-export const FOCUS_COLOR = "#ffa24c";
-export const FOCUS_RING = "0 0 0 3px #ffa24c, 0 0 16px rgba(255, 162, 76, 0.5)";
-export const HOVER_COLOR = "#f4f4f5";
+export const FOCUS_COLOR = "#f26a1b";
+export const FOCUS_RING = "0 0 0 3px #f26a1b, 0 0 16px rgba(242, 106, 27, 0.35)";
+export const HOVER_COLOR = "#141414";
 
-// A dark, hue-independent divider — visible against any fill color.
-export const WEDGE_SEPARATOR = "#08080a";
+// A page-coloured, hue-independent divider — visible against any fill color.
+export const WEDGE_SEPARATOR = "#ffffff";
 
 const RING_STOPS = [
   { t: 0.0, rgb: [0x2b, 0x24, 0x38] }, // deep violet-grey — identity/character
