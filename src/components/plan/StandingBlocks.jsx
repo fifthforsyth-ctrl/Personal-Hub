@@ -135,7 +135,7 @@ export default function StandingBlocks({ userId, categories, onChanged }) {
       ) : (
         <button
           className="btn-link"
-          style={{ marginTop: 6, minHeight: 32 }}
+          style={{ marginTop: 6, minHeight: 36 }}
           onClick={() => setDraft({ title: "", weekday: 6, start: "09:00", end: "10:00", category: "" })}
         >
           <Plus size={12} />

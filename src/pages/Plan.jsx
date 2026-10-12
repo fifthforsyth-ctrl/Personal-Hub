@@ -87,7 +87,7 @@ export default function Plan() {
           <div className="eyebrow">{eyebrow}</div>
           <h1 className="page-title" style={{ marginTop: 3 }}>{heading}</h1>
           {view !== "Ideal" && offset !== 0 && (
-            <button className="btn-link" style={{ marginTop: 4, minHeight: 28 }} onClick={() => setDate(today)} disabled={busy} title={holdTitle}>
+            <button className="btn-link" style={{ minHeight: 36 }} onClick={() => setDate(today)} disabled={busy} title={holdTitle}>
               Back to this {unit}
             </button>
           )}

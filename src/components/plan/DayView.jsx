@@ -1093,7 +1093,7 @@ function StalledCard({ rows, onRevive, onDelete }) {
       ))}
 
       {rows.length > 3 && (
-        <button type="button" className="btn-link" style={{ marginTop: 8, minHeight: 32 }} onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="btn-link" style={{ marginTop: 8, minHeight: 36 }} onClick={() => setOpen((v) => !v)}>
           {open ? "Show fewer" : `Show all ${rows.length}`}
         </button>
       )}

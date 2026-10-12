@@ -119,7 +119,7 @@ button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: poin
 .board-stream__head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; min-height: 32px; }
 .board-stream__label { font-size: 12.5px; font-weight: 620; }
 .board-stream__count { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-2); }
-.board-stream__head .btn-link { min-height: 36px; padding: 0 4px; }
+.board-stream__head .btn-link { min-height: 36px; padding: 0 6px; margin: 0 -2px; }
 
 .board-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 .board-cards > * { min-width: 0; }
@@ -379,7 +379,7 @@ button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: poin
 .board-subnote .board-quote { margin: 6px 0 0; font-size: 13.5px; }
 .board-subnote__text { margin-top: 10px; font-family: var(--font-serif); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
 .board-subnote__actions { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
-.board-subnote__actions .btn-link { min-height: 36px; }
+.board-subnote__actions .btn-link { min-height: 36px; padding: 0 6px; margin: 0 -6px; }
 
 .board-orphans { margin-top: 18px; }
 

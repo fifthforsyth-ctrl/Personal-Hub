@@ -239,20 +239,12 @@ function LifetimeList({ slices, total, active, onHover }) {
 
   return (
     <div>
-      <div className="stack" style={{ gap: 6 }}>
+      <div className="stack lifetime-rows">
         {shown.map((s) => (
           <button
             key={s.key}
-            className="row row--between"
-            style={{
-              width: "100%",
-              background: "none",
-              border: "none",
-              padding: "3px 0",
-              color: "inherit",
-              opacity: active && active !== s.key ? 0.38 : 1,
-              transition: "opacity 0.12s",
-            }}
+            className="row row--between lifetime-row"
+            style={{ opacity: active && active !== s.key ? 0.38 : 1 }}
             onMouseEnter={() => onHover(s.key)}
             onMouseLeave={() => onHover(null)}
           >
@@ -270,7 +262,7 @@ function LifetimeList({ slices, total, active, onHover }) {
         ))}
       </div>
       {slices.length > 8 && (
-        <button className="btn-link" style={{ marginTop: 8, minHeight: 32 }} onClick={() => setShowAll((v) => !v)}>
+        <button className="btn-link" style={{ marginTop: 8, minHeight: 36 }} onClick={() => setShowAll((v) => !v)}>
           {showAll ? "Show top 8" : `Show all ${slices.length}`}
         </button>
       )}
@@ -307,7 +299,7 @@ function TodayGlance({ userId, archive: a, tasks, date, synopsis }) {
       <div className="card">
         <div className="card-head">
           <span className="card-title">{synopsis ? "Today, closed out" : "Where today went"}</span>
-          <Link to={`/day/${date}`} className="btn-link" style={{ minHeight: 32 }}>
+          <Link to={`/day/${date}`} className="btn-link" style={{ minHeight: 36 }}>
             Full day <ArrowRight size={12} />
           </Link>
         </div>

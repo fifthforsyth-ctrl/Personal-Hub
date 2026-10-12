@@ -83,8 +83,8 @@
 .spirit-row__status.is-open::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
 .spirit-row__date { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
 /* A full-size target that doesn't make its line any taller. */
-.btn-link.spirit-row__edit { min-height: 36px; margin: -9px -4px -9px 0; padding: 0 4px; }
-.spirit-row__date + .spirit-row__edit { margin-left: 4px; }
+.btn-link.spirit-row__edit { min-height: 36px; margin: -9px -6px -9px -2px; padding: 0 6px; }
+.spirit-row__date + .spirit-row__edit { margin-left: 2px; }
 
 .spirit-row__text {
   margin: 6px 0 0;

@@ -833,6 +833,28 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .legend-item.dim { opacity: 0.4; }
 
+/* Big picture's categories, all time: each row lights its slice of the ring. */
+.stack.lifetime-rows { gap: 6px; }
+.lifetime-row {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 3px 0;
+  color: inherit;
+  transition: opacity 0.12s;
+}
+
+/* A legend row, a ranked bar or a category row lights its slice: on a phone
+   that's a tap, so each row is a thumb's height. */
+@media (max-width: 900px) {
+  .legend { row-gap: 0; }
+  .legend-item { min-height: 36px; }
+  .stack.ranked-bars,
+  .stack.lifetime-rows { gap: 0; }
+  .btn-link.ranked-bar { padding: 5px 0; }
+  .lifetime-row { min-height: 36px; }
+}
+
 /* ---------------------------------------------------------------------------
    Auth
    --------------------------------------------------------------------------- */
@@ -1080,8 +1102,8 @@ form.card + .card { margin-top: 14px; }
 }
 .auth-card .brand-mark .auth-flame svg { color: var(--accent); }
 .auth-lede { margin: -10px 0 20px; text-align: center; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
-.auth-forgot { display: flex; justify-content: flex-end; margin: -6px 0 16px; }
-.auth-forgot .btn-link { min-height: 32px; font-size: 12.5px; }
+.auth-forgot { display: flex; justify-content: flex-end; margin: -8px 0 14px; }
+.auth-forgot .btn-link { min-height: 36px; font-size: 12.5px; }
 .auth-sent { margin: 0 0 16px; padding: 12px 14px; border-radius: var(--r); background: var(--inset); font-size: 13.5px; line-height: 1.55; }
 
 /* The moment before the app knows who you are: the Flame, not a blank page. */
@@ -1102,6 +1124,8 @@ form.card + .card { margin-top: 14px; }
 .auth-reset__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
 
 .auth-switch { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-2); }
+/* Thumb-sized without making the line any taller. */
+.auth-switch a { display: inline-flex; align-items: center; min-height: 36px; margin: -9px 0; }
 .auth-switch a, a:not([class]) { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 
 /* Day ring — the clock face. The label sits inside the donut, so it takes

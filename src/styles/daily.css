@@ -121,7 +121,7 @@
   overflow-wrap: anywhere;
 }
 .noted__actions { display: flex; gap: 14px; flex-shrink: 0; }
-.noted__actions .btn-link { min-height: 36px; padding: 0 2px; }
+.noted__actions .btn-link { min-height: 36px; padding: 0 7px; margin: 0 -5px; }
 
 /* --- The week strip's key ------------------------------------------------- */
 
@@ -177,7 +177,7 @@
 
 /* "Log past time" and the categories' Edit are text buttons, but thumb-sized,
    without making the row they sit in any taller. */
-.btn-link.minutes-link { min-height: 36px; margin: -9px 0; }
+.btn-link.minutes-link { min-height: 36px; padding: 0 6px; margin: -9px -6px; }
 
 /* The hide button sits on the corner while editing, with a 40px hit area
    around a smaller mark. */

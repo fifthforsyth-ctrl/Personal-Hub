@@ -135,7 +135,7 @@ export default function WeekTargets({ userId, targets, categories, onChanged }) 
       {!editing && (
         <button
           className="btn-link"
-          style={{ marginTop: 6, minHeight: 32 }}
+          style={{ marginTop: 6, minHeight: 36 }}
           onClick={() => setEditing({ label: "", categories: [], minutes: 60, period: "week" })}
         >
           <Plus size={12} />

@@ -162,13 +162,13 @@ export function RankedBars({ rows, format = (v) => String(v), activeKey, onHover
   const max = maxProp ?? Math.max(...rows.map((r) => r.value), 1);
 
   return (
-    <div className="stack stack--tight">
+    <div className="stack stack--tight ranked-bars">
       {rows.map((r) => {
         const dim = activeKey != null && activeKey !== r.key;
         return (
           <button
             key={r.key}
-            className="btn-link"
+            className="btn-link ranked-bar"
             style={{ display: "block", width: "100%", textAlign: "left", color: "inherit", opacity: dim ? 0.4 : 1, transition: "opacity 0.12s" }}
             onMouseEnter={() => onHover?.(r.key)}
             onMouseLeave={() => onHover?.(null)}

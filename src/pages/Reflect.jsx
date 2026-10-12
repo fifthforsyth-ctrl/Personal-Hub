@@ -160,7 +160,7 @@ export default function Reflect() {
           </div>
           <p className="page-sub">{sub}</p>
           {stepUnit && offset < 0 && (
-            <button className="btn-link" style={{ marginTop: 4, minHeight: 28 }} onClick={() => setAnchor(today)}>
+            <button className="btn-link" style={{ minHeight: 36 }} onClick={() => setAnchor(today)}>
               Back to this {stepUnit}
             </button>
           )}
