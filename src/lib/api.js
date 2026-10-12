@@ -510,6 +510,9 @@ export async function fetchReflectionTotals(startDate, endDate) {
 // Re-indexes every verse reference in a piece of text against its entity.
 // Deletes first so an edit that REMOVES a reference doesn't leave the old
 // row behind pointing at text that no longer mentions it.
+// Callers treat this as best effort: the entry itself is already saved, and
+// reporting a failed index update as a failed save would invite a second,
+// duplicate entry.
 async function syncScriptureRefs(userId, entityType, entityId, ...texts) {
   const combined = texts.filter(Boolean).join("\n");
   const refs = parseScriptureRefs(combined);
@@ -546,7 +549,7 @@ export async function logExperience(userId, { kind, whatCame, triggerContext, li
     .select()
     .single();
   if (error) throw error;
-  await syncScriptureRefs(userId, "experience", data.id, whatCame, triggerContext);
+  await syncScriptureRefs(userId, "experience", data.id, whatCame, triggerContext).catch((err) => console.warn(err));
   return data;
 }
 
@@ -558,7 +561,7 @@ export async function updateExperience(userId, experienceId, fields) {
     .select()
     .single();
   if (error) throw error;
-  await syncScriptureRefs(userId, "experience", experienceId, data.what_came, data.trigger_context, data.follow_up_notes);
+  await syncScriptureRefs(userId, "experience", experienceId, data.what_came, data.trigger_context, data.follow_up_notes).catch((err) => console.warn(err));
   return data;
 }
 
@@ -628,7 +631,7 @@ export async function createStudyNote(userId, { title, body, sourceKind, sourceR
     .select()
     .single();
   if (error) throw error;
-  await syncScriptureRefs(userId, "study_note", data.id, title, body, sourceRef);
+  await syncScriptureRefs(userId, "study_note", data.id, title, body, sourceRef).catch((err) => console.warn(err));
   return data;
 }
 
@@ -681,7 +684,7 @@ export async function fetchReferencedScriptures(userId) {
 // Also index prayers, which Phase 0 wrote before scripture_refs existed.
 export async function logPrayerWithRefs(userId, fields) {
   const prayer = await logPrayer(userId, fields);
-  await syncScriptureRefs(userId, "prayer", prayer.id, fields.content, fields.context, fields.feltResponse);
+  await syncScriptureRefs(userId, "prayer", prayer.id, fields.content, fields.context, fields.feltResponse).catch((err) => console.warn(err));
   return prayer;
 }
 
@@ -694,7 +697,7 @@ export async function updatePrayer(userId, prayerId, { context, content, feltRes
   if (feltResponse !== undefined) row.felt_response = feltResponse?.trim() || null;
   const { data, error } = await supabase.from("prayer_logs").update(row).eq("id", prayerId).select().single();
   if (error) throw error;
-  await syncScriptureRefs(userId, "prayer", prayerId, data.content, data.context, data.felt_response);
+  await syncScriptureRefs(userId, "prayer", prayerId, data.content, data.context, data.felt_response).catch((err) => console.warn(err));
   return data;
 }
 
@@ -1519,19 +1522,32 @@ export function writeDaySynopsis(dateStr) {
 // The student section — reading notes, highlights, and sub-notes.
 // ---------------------------------------------------------------------------
 
-// The whole shelf in one call. The directory is a tree and trees are built in
-// memory; fetching per level would mean a round trip per expand.
-// The whole shelf in one call, bodies excluded — see the note_cards view.
-// A note's full text arrives only when you open it.
-export async function fetchNotes(userId) {
-  const { data, error } = await supabase
-    .from("note_cards")
-    .select("*")
-    .eq("user_id", userId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+// The API answers at most 1,000 rows a request, so a list that can outgrow
+// that is read a page at a time. `build` returns a fresh query ordered down to
+// a unique column, so pages can't overlap or skip a row.
+async function selectAllPages(build, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await build().range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
+// The whole shelf, bodies excluded (see the note_cards view): the directory
+// is a tree built in memory, and a note's full text arrives only when you
+// open it.
+export function fetchNotes(userId) {
+  return selectAllPages(() =>
+    supabase
+      .from("note_cards")
+      .select("*")
+      .eq("user_id", userId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+  );
 }
 
 export async function fetchNote(noteId) {
@@ -1619,11 +1635,11 @@ export async function deleteNote(noteId) {
 // in the address is longer than some proxies will pass.
 export async function fetchHighlights(userId, noteIds = null) {
   if (Array.isArray(noteIds) && noteIds.length === 0) return [];
-  let query = supabase.from("note_highlights").select("*").eq("user_id", userId).not("note_id", "is", null);
-  if (noteIds) query = query.in("note_id", noteIds);
-  const { data, error } = await query.order("start_offset", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+  return selectAllPages(() => {
+    let query = supabase.from("note_highlights").select("*").eq("user_id", userId).not("note_id", "is", null);
+    if (noteIds) query = query.in("note_id", noteIds);
+    return query.order("start_offset", { ascending: true }).order("id", { ascending: true });
+  });
 }
 
 export async function createHighlight(userId, { noteId, quotedText, startOffset, endOffset, color = "accent", childNoteId = null }) {
