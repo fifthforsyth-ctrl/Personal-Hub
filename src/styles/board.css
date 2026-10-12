@@ -247,6 +247,23 @@ button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: poin
 .board-note__from { margin: -6px 0 10px; min-width: 0; }
 .board-note__tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
 
+/* Changes left unsaved when the page was last left, waiting on the note. */
+.board-draft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--inset);
+}
+.board-draft__text { margin: 0; flex: 1 1 220px; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.board-draft__text--resumed { margin: 0 0 12px; }
+.board-draft__actions { display: flex; align-items: center; gap: 14px; }
+.board-draft__actions .btn-link { min-height: 36px; padding: 0 4px; }
+
 .btn-link.board-parent { min-height: 36px; min-width: 0; max-width: 100%; padding: 0; text-align: left; }
 .btn-link.board-parent > svg { flex-shrink: 0; }
 .btn-link.board-parent > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -27,6 +27,7 @@ import QuoteWall from "../components/study/QuoteWall";
 import SourceMiner from "../components/study/SourceMiner";
 import { KindChip, KindFilter } from "../components/study/KindChip";
 import { dayLabel } from "../components/study/dayLabel";
+import { changesFrom, clearNoteDraft, draftClashes, draftOver, draftTime, editableFields, readNoteDraft, writeNoteDraft } from "../components/study/noteDraft";
 import { buildTree, resolveHighlights } from "../lib/noteText";
 import { NOTE_KINDS, STUDY_NOTE, boardKindOf, isStudyNote, kindOf } from "../lib/noteKinds";
 import { cardFace, cutAtWord, niceTitle, previewText, toPlainText, titleRepeats } from "../lib/markdown";
@@ -96,7 +97,9 @@ export default function Study() {
     if (main) main.scrollTop = selectedId ? 0 : homeScroll.current;
   }, [selectedId]);
 
-  // Leaving a note you're editing asks first, if anything in it changed.
+  // Opening another note while you're editing one asks first, if anything in
+  // it changed. Leaving the Board altogether keeps the changes as a draft
+  // (noteDraft.js), waiting on the note for next time.
   const editorDirty = useRef(false);
 
   async function select(id, { edit = false } = {}) {
@@ -108,6 +111,7 @@ export default function Study() {
         cancelLabel: "Keep editing",
       });
       if (!leave) return;
+      clearNoteDraft(user.id, editingId);
     }
     editorDirty.current = false;
     if (!selectedId && id) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
@@ -184,6 +188,7 @@ export default function Study() {
   function removeNote(n) {
     const parent = n.parent_note_id && !gone.has(n.parent_note_id) ? n.parent_note_id : null;
     editorDirty.current = false; // the edits go with the note
+    clearNoteDraft(user.id, n.id);
     select(parent);
     removeNotes([n.id], "Note deleted");
   }
@@ -276,6 +281,7 @@ export default function Study() {
             <NoteView
               key={note.id}
               note={note}
+              userId={user.id}
               fullLoaded={Boolean(fullNote)}
               fullError={full.error}
               onRetry={full.reload}
@@ -762,6 +768,7 @@ function markWords(text, words) {
 
 function NoteView({
   note,
+  userId,
   fullLoaded,
   fullError,
   onRetry,
@@ -787,9 +794,29 @@ function NoteView({
   onForget,
   onUnmark,
 }) {
+  const confirm = useConfirm();
   const [pinBusy, setPinBusy] = useState(false);
   const [kindBusy, setKindBusy] = useState(false);
   const [promoting, setPromoting] = useState(() => new Set());
+  const [, setDraftsSeen] = useState(0);
+
+  // Changes left unsaved when the page was last left, if they'd still change
+  // anything about the note as it is now.
+  const draft = fullLoaded && !editing ? readNoteDraft(userId, note.id) : null;
+  const current = draft ? editableFields(note) : null;
+  const waiting = draft && Object.keys(changesFrom(draftOver(draft, current), current)).length > 0 ? draft : null;
+
+  async function throwAwayDraft() {
+    const yes = await confirm({
+      title: "Throw away your unsaved changes?",
+      body: "The note stays as it was last saved.",
+      confirmLabel: "Throw away",
+      cancelLabel: "Keep them",
+    });
+    if (!yes) return;
+    clearNoteDraft(userId, note.id);
+    setDraftsSeen((n) => n + 1);
+  }
 
   const source = fullLoaded ? note.body ?? "" : note.body_preview ?? "";
   const hasBody = fullLoaded ? source.trim().length > 0 : (note.body_length ?? 0) > 0;
@@ -887,9 +914,27 @@ function NoteView({
           </div>
         )}
 
+        {waiting && (
+          <div className="board-draft" role="status">
+            <p className="board-draft__text">
+              Unsaved changes from {draftTime(waiting.at)}.
+              {draftClashes(waiting, current) && " The note has changed since, so look them over before saving."}
+            </p>
+            <div className="board-draft__actions">
+              <button type="button" className="btn btn--sm btn--on-page" onClick={onEdit}>
+                Keep editing
+              </button>
+              <button type="button" className="btn-link btn-link--danger" onClick={throwAwayDraft}>
+                Throw away
+              </button>
+            </div>
+          </div>
+        )}
+
         {editing ? (
           <NoteEditor
             note={note}
+            userId={userId}
             studyNote={isStudyNote(note)}
             dirtyRef={editorDirty}
             onSave={async (fields) => {
@@ -979,31 +1024,33 @@ function openingLine(text) {
   return /^#{1,6}\s/.test(line) ? "" : toPlainText(line);
 }
 
-const PLACEHOLDER_TITLES = new Set(["untitled", "untitled note"]);
-
 // Seeded once from the whole note when it opens, and never reset under you
-// while you type. Save sends only what changed; Cancel asks before throwing
-// changes away.
-function NoteEditor({ note, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
+// while you type. Changes left unsaved last time come back with it. Every
+// change is kept on the device as it's typed; Save sends only what changed,
+// and Cancel asks before throwing changes away.
+function NoteEditor({ note, userId, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
   const confirm = useConfirm();
-  const [initial] = useState(() => ({
-    title: PLACEHOLDER_TITLES.has(String(note.title ?? "").trim().toLowerCase()) ? "" : note.title ?? "",
-    sourceRef: note.source_ref ?? "",
-    body: note.body ?? "",
-    kind: note.note_kind ?? "thought",
-  }));
-  const [title, setTitle] = useState(initial.title);
-  const [sourceRef, setSourceRef] = useState(initial.sourceRef);
-  const [body, setBody] = useState(initial.body);
-  const [kind, setKind] = useState(initial.kind);
+  const [initial] = useState(() => editableFields(note));
+  const [resumed] = useState(() => {
+    const draft = readNoteDraft(userId, note.id);
+    if (!draft) return null;
+    const fields = draftOver(draft, initial);
+    return Object.keys(changesFrom(fields, initial)).length > 0 ? { fields, at: draft.at } : null;
+  });
+  const start = resumed?.fields ?? initial;
+  const [title, setTitle] = useState(start.title);
+  const [sourceRef, setSourceRef] = useState(start.sourceRef);
+  const [body, setBody] = useState(start.body);
+  const [kind, setKind] = useState(start.kind);
   const [saving, setSaving] = useState(false);
 
-  const changes = {};
-  if (title.trim() !== initial.title.trim()) changes.title = title;
-  if (sourceRef.trim() !== initial.sourceRef.trim()) changes.sourceRef = sourceRef.trim();
-  if (body !== initial.body) changes.body = body;
-  if (kind !== initial.kind) changes.noteKind = kind;
+  const changes = changesFrom({ title, sourceRef, body, kind }, initial);
   const dirty = Object.keys(changes).length > 0;
+
+  useEffect(() => {
+    if (dirty) writeNoteDraft(userId, note.id, { title, sourceRef, body, kind }, initial);
+    else clearNoteDraft(userId, note.id);
+  }, [dirty, title, sourceRef, body, kind, userId, note.id, initial]);
 
   useEffect(() => {
     dirtyRef.current = dirty;
@@ -1024,7 +1071,8 @@ function NoteEditor({ note, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
     if (!dirty) return onCancel();
     setSaving(true);
     const row = await onSave(changes);
-    if (!row) setSaving(false); // on success the editor closes
+    if (row) clearNoteDraft(userId, note.id); // and the editor closes
+    else setSaving(false);
   }
 
   async function cancel() {
@@ -1040,6 +1088,7 @@ function NoteEditor({ note, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
     ) {
       return;
     }
+    clearNoteDraft(userId, note.id);
     onCancel();
   }
 
@@ -1051,6 +1100,7 @@ function NoteEditor({ note, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save(e);
       }}
     >
+      {resumed && <p className="board-draft__text board-draft__text--resumed">Your unsaved changes from {draftTime(resumed.at)} are back.</p>}
       <div className="board-note__meta">
         <KindChip value={kind} onChange={setKind} studyNote={studyNote} />
       </div>
