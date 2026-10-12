@@ -19,10 +19,13 @@ export async function fetchTree(userId) {
   const nodeIds = (nodes ?? []).map((n) => n.id);
   if (nodeIds.length === 0) return { nodes: [], edges: [] };
 
+  // Oldest first: a goal is drawn under its first parent, and without an
+  // order that could change from one load to the next.
   const { data: edges, error: edgesError } = await supabase
     .from("node_edges")
     .select("id, child_id, parent_id, weight")
-    .in("child_id", nodeIds);
+    .in("child_id", nodeIds)
+    .order("created_at", { ascending: true });
   if (edgesError) throw edgesError;
 
   return { nodes: nodes ?? [], edges: edges ?? [] };
@@ -40,14 +43,35 @@ export async function updateNode(nodeId, fields) {
   return data;
 }
 
+// Its sub-goals (with everything under them) move up to its parent, and what
+// was linked to it counts toward the parent instead — one transaction on the
+// server. Returns how many sub-goals moved.
 export async function deleteNode(nodeId) {
-  const { error } = await supabase.from("nodes").delete().eq("id", nodeId);
+  const { data, error } = await supabase.rpc("delete_goal", { p_node_id: nodeId });
   if (error) throw error;
+  return data ?? 0;
 }
 
 export async function createEdge(childId, parentId, weight) {
   const { error } = await supabase.from("node_edges").insert({ child_id: childId, parent_id: parentId, weight: weight ?? null });
   if (error) throw error;
+}
+
+// "Goes under": swaps the parent a goal is drawn under. The new edge goes in
+// before the old one comes out, so a failure halfway leaves the goal under
+// both rather than under neither.
+export async function moveNode(nodeId, fromParentId, toParentId) {
+  if (fromParentId === toParentId) return;
+  if (toParentId) {
+    const { error } = await supabase
+      .from("node_edges")
+      .upsert({ child_id: nodeId, parent_id: toParentId }, { onConflict: "child_id,parent_id", ignoreDuplicates: true });
+    if (error) throw error;
+  }
+  if (fromParentId) {
+    const { error } = await supabase.from("node_edges").delete().eq("child_id", nodeId).eq("parent_id", fromParentId);
+    if (error) throw error;
+  }
 }
 
 export async function setFocused(nodeId, isFocused) {
@@ -56,9 +80,17 @@ export async function setFocused(nodeId, isFocused) {
 }
 
 // Backs both the Checkbox method (amount always 1) and the Counter method
-// (arbitrary amount).
+// (arbitrary amount). The day is the phone's: the database clock is UTC,
+// which is tomorrow for most of a Mountain-time evening.
 export async function recordProgress(nodeId, amount = 1) {
-  const { error } = await supabase.rpc("record_progress", { p_node_id: nodeId, p_amount: amount });
+  const { error } = await supabase.rpc("record_progress", { p_node_id: nodeId, p_amount: amount, p_today: todayStr() });
+  if (error) throw error;
+}
+
+// Takes back the newest check-in made today (and the completion it brought,
+// if the goal falls short of its target again).
+export async function undoCheckin(nodeId) {
+  const { error } = await supabase.rpc("undo_checkin", { p_node_id: nodeId, p_today: todayStr(), p_tz: localZone() });
   if (error) throw error;
 }
 
@@ -675,32 +707,13 @@ export async function fetchGoalMappings(userId) {
 }
 
 // Distinct values actually present in the logs, so the setup screen lists
-// what you really track rather than what you once typed.
-export async function fetchMappableSources(userId) {
-  const [{ data: entries, error: e1 }, { data: habits, error: e2 }] = await Promise.all([
-    supabase.from("time_log_entries").select("category, subcategory").eq("user_id", userId),
-    supabase.from("win_losses").select("habit_label").eq("user_id", userId),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-
-  const counts = new Map();
-  const bump = (kind, value) => {
-    const key = `${kind}\u0000${value}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  };
-  for (const e of entries ?? []) {
-    bump("category", e.category);
-    if (e.subcategory) bump("subcategory", `${e.category} / ${e.subcategory}`);
-  }
-  for (const w of habits ?? []) bump("habit", w.habit_label);
-
-  return [...counts.entries()]
-    .map(([key, count]) => {
-      const [source_kind, source_value] = key.split("\u0000");
-      return { source_kind, source_value, count };
-    })
-    .sort((a, b) => b.count - a.count);
+// what you really track rather than what you once typed. Counted in the
+// database: downloading the entries to count them stopped at the API's
+// 1,000-row page, and categories went missing as the log grew.
+export async function fetchMappableSources() {
+  const { data, error } = await supabase.rpc("mappable_sources");
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ ...r, count: Number(r.count) || 0 }));
 }
 
 export async function upsertGoalMapping(userId, { sourceKind, sourceValue, goalNodeId, confirmed }) {
@@ -728,8 +741,9 @@ export async function confirmGoalMappings(userId, ids) {
   if (error) throw error;
 }
 
-// Pushes the confirmed mappings across every existing entry. Returns how
-// many rows changed.
+// Brings every entry the confirmed mappings own into line with them: a
+// changed link moves its past entries, an unlinked one lets them go. Links
+// you or the assistant chose are left alone. Returns how many changed.
 export async function applyGoalMappings() {
   const { data, error } = await supabase.rpc("apply_goal_mappings", { p_only_confirmed: true });
   if (error) throw error;
