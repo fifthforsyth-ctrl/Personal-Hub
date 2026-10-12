@@ -1,4 +1,4 @@
-import { Check, CircleDashed, HelpCircle, AlertTriangle, ArrowRight, Clock } from "lucide-react";
+import { Check, CircleDashed, HelpCircle, AlertTriangle, ArrowRight, Clock, MessageSquare } from "lucide-react";
 import { buildReport, fmtHours, fmtReportDate } from "../../lib/workReport";
 
 // The screenshot version.
@@ -29,7 +29,7 @@ export default function ReportCard({ work, name }) {
             <div style={{ fontSize: 20, fontWeight: 660, letterSpacing: "-0.02em" }}>{fmtReportDate(r.date)}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div className="row" style={{ gap: 6, justifyContent: "flex-end", color: "var(--accent)" }}>
+            <div className="row" style={{ gap: 6, justifyContent: "flex-end", color: "var(--accent-text)" }}>
               <Clock size={15} />
               <span style={{ fontSize: 26, fontWeight: 680, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
                 {fmtHours(r.minutes)}
@@ -58,18 +58,26 @@ export default function ReportCard({ work, name }) {
           items={r.open.map((t) => ({
             key: t.id,
             text: t.title,
-            meta: t.rolled > 0 ? `carried ${t.rolled}d` : null,
+            meta: t.rolled > 0 ? `carried ${t.rolled} ${t.rolled === 1 ? "day" : "days"}` : null,
           }))}
         />
 
         <Section
           title="Need from you"
           icon={AlertTriangle}
-          color="var(--accent)"
+          color="var(--accent-text)"
           items={[
             ...r.blocked.map((n) => ({ key: n.id, text: n.body })),
             ...r.questions.map((n) => ({ key: n.id, text: n.body, question: true })),
           ]}
+        />
+
+        {/* Same order as the text version, so the two never disagree. */}
+        <Section
+          title="Notes"
+          icon={MessageSquare}
+          color="var(--text-2)"
+          items={r.asides.map((n) => ({ key: n.id, text: n.body }))}
         />
 
         <Section
@@ -117,7 +125,7 @@ function Section({ title, icon: Icon, color, items, emptyText }) {
                 }}
               />
               <span style={{ flex: 1, fontSize: 14, lineHeight: 1.5 }}>
-                {it.question && <HelpCircle size={12} style={{ color: "var(--accent)", marginRight: 5, verticalAlign: -1 }} />}
+                {it.question && <HelpCircle size={12} style={{ color: "var(--accent-text)", marginRight: 5, verticalAlign: -1 }} />}
                 {it.text}
               </span>
               {it.meta && <span className="mono faint" style={{ fontSize: 11, flexShrink: 0, marginTop: 3 }}>{it.meta}</span>}
