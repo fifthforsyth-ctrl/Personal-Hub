@@ -1673,6 +1673,10 @@ form.card + .card { margin-top: 14px; }
    Shared feedback: focus, toasts, confirm, load errors
    =========================================================================== */
 
+/* The moment between opening the app and knowing who's signed in. */
+.boot { min-height: 100%; display: grid; place-items: center; background: var(--bg); }
+.boot .brand-mark { width: 44px; height: 44px; border-radius: 13px; animation: fade-in 0.3s ease-out; }
+
 /* A keyboard focus you can see; mouse and touch clicks don't show it. */
 button:focus-visible,
 a:focus-visible,
