@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { NOTE_KINDS, kindOf } from "../../lib/noteKinds";
+import { NOTE_KINDS, STUDY_NOTE, kindOf } from "../../lib/noteKinds";
 
 // A note's kind, shown and changed in the same place. Tagging has to be one
 // click from wherever you're looking at the note, or it won't happen.
-export function KindChip({ value, onChange, size = "md" }) {
-  const kind = kindOf(value);
+//
+// The chip itself is neutral; the kind's colour is only the dot, so a page of
+// notes doesn't read as a paint chart. `studyNote` names an untagged vault
+// note for what it is rather than calling it a Thought.
+export function KindChip({ value, onChange, size = "md", studyNote = false, align = "left", up = false, disabled = false }) {
+  const kind = studyNote && (value ?? "thought") === "thought" ? STUDY_NOTE : kindOf(value);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -17,127 +21,119 @@ export function KindChip({ value, onChange, size = "md" }) {
     function esc(e) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("mousedown", away);
+    document.addEventListener("pointerdown", away);
     document.addEventListener("keydown", esc);
     return () => {
-      document.removeEventListener("mousedown", away);
+      document.removeEventListener("pointerdown", away);
       document.removeEventListener("keydown", esc);
     };
   }, [open]);
 
   const small = size === "sm";
-  const label = small ? kind.short : kind.label;
+  const chipClass = "chip board-kind__chip" + (small ? " board-kind__chip--sm" : "");
+  const dot = <span className="dot" style={{ background: kind.color, width: small ? 6 : 7, height: small ? 6 : 7 }} />;
 
   if (!onChange) {
     return (
-      <span
-        className="chip"
-        style={{ borderColor: `${kind.color}55`, background: `${kind.color}18`, color: "var(--text)", fontSize: small ? 10.5 : 11.5 }}
-      >
-        <span className="dot" style={{ background: kind.color, width: small ? 6 : 7, height: small ? 6 : 7 }} />
-        {label}
+      <span className={chipClass}>
+        {dot}
+        {kind.label}
       </span>
     );
   }
 
   return (
-    <span ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+    <span ref={ref} className="board-kind">
       <button
-        className="chip"
+        type="button"
+        className={chipClass}
         onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
         title="Change what kind of note this is"
-        style={{
-          borderColor: `${kind.color}55`,
-          background: `${kind.color}18`,
-          color: "var(--text)",
-          fontSize: small ? 10.5 : 11.5,
-          cursor: "pointer",
-        }}
       >
-        <span className="dot" style={{ background: kind.color, width: small ? 6 : 7, height: small ? 6 : 7 }} />
-        {label}
-        <ChevronDown size={11} style={{ color: "var(--text-3)" }} />
+        {dot}
+        {kind.label}
+        <ChevronDown size={12} aria-hidden="true" />
       </button>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 40,
-            width: 244,
-            background: "var(--surface)",
-            border: "1px solid var(--line-strong)",
-            borderRadius: "var(--r)",
-            padding: 5,
-            boxShadow: "var(--shadow-lift)",
+        <KindMenu
+          current={kind.key}
+          align={align}
+          up={up}
+          onPick={(key) => {
+            setOpen(false);
+            if (key !== (value ?? "thought")) onChange(key);
           }}
-        >
-          {NOTE_KINDS.map((k) => (
-            <button
-              key={k.key}
-              onClick={() => {
-                onChange(k.key);
-                setOpen(false);
-              }}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                background: k.key === kind.key ? "var(--inset)" : "transparent",
-                border: "none",
-                borderRadius: "var(--r-sm)",
-                padding: "7px 9px",
-                color: "inherit",
-              }}
-            >
-              <span className="row" style={{ gap: 7 }}>
-                <span className="dot" style={{ background: k.color }} />
-                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 550 }}>{k.label}</span>
-                {k.key === kind.key && <Check size={12} style={{ color: "var(--accent)" }} />}
-              </span>
-              <span className="faint" style={{ display: "block", fontSize: 11, marginLeft: 14, marginTop: 1 }}>{k.hint}</span>
-            </button>
-          ))}
-        </div>
+        />
       )}
     </span>
   );
 }
 
-// The filter row above the shelf. Counts come along so a kind with nothing in
-// it reads as empty rather than broken.
-export function KindFilter({ counts, active, onChange }) {
+// The seven kinds with what each is for. Shared by the chip above and the
+// "Make a note" button in the reader.
+export function KindMenu({ current = null, onPick, align = "left", up = false, label = "Kind of note" }) {
   return (
-    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+    <div
+      className={"board-kind-menu" + (align === "right" ? " board-kind-menu--right" : "") + (up ? " board-kind-menu--up" : "")}
+      role="menu"
+      aria-label={label}
+    >
+      {NOTE_KINDS.map((k) => (
+        <button
+          key={k.key}
+          type="button"
+          role="menuitemradio"
+          aria-checked={k.key === current}
+          className={"board-kind-menu__item" + (k.key === current ? " is-on" : "")}
+          onClick={() => onPick(k.key)}
+        >
+          <span className="board-kind-menu__label">
+            <span className="dot" style={{ background: k.color }} />
+            <span style={{ flex: 1 }}>{k.label}</span>
+            {k.key === current && <Check size={13} aria-hidden="true" />}
+          </span>
+          <span className="board-kind-menu__hint">{k.hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// The filter row over what you've kept. Only kinds you actually have get a
+// chip (a row of zeros is noise), each with its count, and the selected one is
+// ink so it reads as chosen at a glance.
+export function KindFilter({ counts, active, onChange, className = "" }) {
+  const kinds = [...NOTE_KINDS, STUDY_NOTE].filter((k) => (counts.get(k.key) ?? 0) > 0);
+  if (kinds.length < 2) return null;
+
+  return (
+    <div className={"board-filters " + className} role="group" aria-label="Show one kind">
       <button
-        className={"chip" + (active === null ? " chip--accent" : "")}
+        type="button"
+        className={"chip board-filter" + (active === null ? " is-on" : "")}
+        aria-pressed={active === null}
         onClick={() => onChange(null)}
-        style={{ cursor: "pointer" }}
       >
         Everything
       </button>
-      {NOTE_KINDS.map((k) => {
-        const n = counts.get(k.key) ?? 0;
+      {kinds.map((k) => {
         const on = active === k.key;
         return (
           <button
             key={k.key}
-            className="chip"
+            type="button"
+            className={"chip board-filter" + (on ? " is-on" : "")}
+            aria-pressed={on}
             onClick={() => onChange(on ? null : k.key)}
-            disabled={n === 0}
-            style={{
-              cursor: n === 0 ? "default" : "pointer",
-              opacity: n === 0 ? 0.4 : 1,
-              borderColor: on ? k.color : "var(--line)",
-              background: on ? `${k.color}22` : "var(--inset)",
-              color: on ? "var(--text)" : "var(--text-2)",
-            }}
+            title={k.hint}
           >
             <span className="dot" style={{ background: k.color, width: 6, height: 6 }} />
-            {k.short}
-            <span className="mono faint" style={{ fontSize: 10 }}>{n}</span>
+            {k.label}
+            <span className="board-filter__n">{counts.get(k.key)}</span>
           </button>
         );
       })}

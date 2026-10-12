@@ -1,0 +1,411 @@
+/* ===========================================================================
+   Money — the page, its cards and its sheets. Nothing here is used outside
+   src/pages/Money.jsx and src/components/money/.
+
+   Orange stays the highlight: the question waiting for you and "To sort".
+   Business, warnings and links are ink and grey, so orange never has to mean
+   three things at once.
+   =========================================================================== */
+
+/* --- Page head: the month between its arrows, then the two figures, both
+   reading from the left like everything under them. ----------------------- */
+
+.money-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 28px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.money-month { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.money-month .page-title { margin: 2px 0 0; }
+
+.money-figures { display: flex; gap: 26px; flex-wrap: wrap; }
+.money-figure__value {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+
+.money-loading { color: var(--text-2); font-size: 13px; margin: 0; }
+
+/* Budgets and Business side by side: the shared "card after card" margin
+   would push the second one down out of line. */
+.money-grid { align-items: start; }
+.money-grid > .card + .card { margin-top: 0; }
+
+/* --- The older-purchases offer --------------------------------------------- */
+
+.money-history { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.money-history__icon { color: var(--text-3); flex-shrink: 0; }
+.money-history__text { flex: 1; min-width: 200px; }
+.money-history__title { display: block; font-size: 13.5px; font-weight: 600; }
+.money-history__sub { display: block; color: var(--text-2); font-size: 12px; line-height: 1.5; margin-top: 2px; }
+
+.money-caught-up { gap: 10px; }
+.money-caught-up__text { flex: 1; font-size: 13.5px; }
+.money-stale { margin-bottom: 12px; }
+
+.money-nudge { gap: 10px; color: inherit; }
+
+/* --- Sheets: white, so the grey fields inside read as fields --------------- */
+
+.sheet.money-sheet { background: var(--card); max-width: 480px; }
+.sheet.money-sheet--wide { max-width: 560px; }
+
+.money-sheet__title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.money-sheet__figure { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.money-sheet__amount {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.money-sheet__amount.is-in { color: var(--good-text); }
+.money-sheet__raw { font-size: 10.5px; margin: 4px 0 16px; overflow-wrap: anywhere; }
+.money-sheet__para { margin: 0 0 4px; }
+
+.money-sheet__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.money-sheet__actions > .btn--accent { margin-left: auto; }
+
+.money-section { margin-top: 18px; }
+.money-section__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+
+/* --- Fields ---------------------------------------------------------------- */
+
+.money-label { font-size: 12px; font-weight: 600; color: var(--text-2); margin: 0 0 8px; }
+
+.money-field { display: block; margin-bottom: 12px; min-width: 0; }
+.money-field > span { display: block; font-size: 12px; font-weight: 560; color: var(--text-2); margin-bottom: 6px; }
+
+.money-cash-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; margin-bottom: 4px; }
+.money-field--wide { grid-column: 1 / -1; }
+
+.money-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.money-check input { width: 18px; height: 18px; margin: 0; flex-shrink: 0; accent-color: var(--ink); }
+
+.btn.money-danger { color: var(--danger); }
+@media (hover: hover) { .btn.money-danger:hover { background: var(--danger-soft); color: var(--danger); } }
+
+/* A form inside a white card: white with a line round it, so the grey inputs
+   inside show. (It used to be grey on grey, and the fields disappeared.) */
+.money-form {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px;
+  margin-bottom: 16px;
+  background: var(--card);
+}
+.money-form__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+.money-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  max-width: 100%;
+}
+.money-file > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Chips: selected is ink with white text --------------------------------- */
+
+.money-chips { flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+
+.chip.money-chip {
+  min-height: 36px;
+  padding: 7px 13px;
+  font-size: 13px;
+  color: var(--text);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.chip.money-chip.is-on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.chip.money-chip:disabled { opacity: 0.45; cursor: default; }
+@media (hover: hover) { .chip.money-chip:not(.is-on):not(:disabled):hover { border-color: var(--line-strong); } }
+
+/* --- The switch (Business expense) ----------------------------------------- */
+
+.money-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  border: 1px solid transparent;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 560;
+  text-align: left;
+}
+.money-switch:disabled { opacity: 0.45; }
+.money-switch__icon { color: var(--text-2); flex-shrink: 0; }
+.money-switch__label { flex: 1; min-width: 0; }
+.money-switch__track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.money-switch__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(20, 18, 14, 0.25);
+  transition: transform 0.15s;
+}
+.money-switch.is-on .money-switch__track { background: var(--ink); }
+.money-switch.is-on .money-switch__knob { transform: translateX(16px); }
+
+/* --- "What was this?" ------------------------------------------------------ */
+
+.money-question .card-head { flex-wrap: wrap; row-gap: 6px; }
+.money-question .card-title { white-space: nowrap; }
+.money-question__count { font-size: 11.5px; color: var(--text-2); }
+.money-question__who { font-weight: 650; letter-spacing: -0.02em; line-height: 1.25; overflow-wrap: anywhere; }
+.money-question__amount { font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.money-question__actions { gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+
+.btn-link.money-more { min-height: 36px; margin-top: 10px; font-size: 13px; }
+.money-more__body { margin-top: 6px; }
+
+/* --- Transactions ---------------------------------------------------------- */
+
+.seg-btn.money-seg-btn { padding: 6px 12px; font-size: 12.5px; }
+
+.money-txn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 9px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.money-txn__date { width: 46px; flex-shrink: 0; font-size: 11px; color: var(--text-2); }
+.money-txn__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.money-txn__who { display: block; font-size: 13.5px; font-weight: 550; }
+.money-txn__tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.money-txn__amount { flex-shrink: 0; font-size: 13px; }
+.money-txn__amount.is-in { color: var(--good-text); }
+.money-txn__chev { flex-shrink: 0; color: var(--text-3); }
+.money-txn.is-transfer .money-txn__who,
+.money-txn.is-transfer .money-txn__amount { color: var(--text-2); }
+@media (hover: hover) {
+  .money-txn:hover .money-txn__who { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  .money-txn:hover .money-txn__chev { color: var(--text); }
+}
+
+.money-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.money-tag.is-accent { background: var(--accent-soft); color: var(--accent-text); }
+
+.money-pending-row { gap: 10px; }
+.money-pending-row.is-transfer { color: var(--text-2); }
+
+/* --- Accounts -------------------------------------------------------------- */
+
+.money-accounts { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.money-accounts > * { min-width: 0; }
+
+.money-account .stat-top { min-height: 36px; margin-bottom: 6px; }
+.money-account__name { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.money-account__rename { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.money-account__rename .input { padding: 7px 10px; font-size: 13px; }
+.money-account__sub { color: var(--text-2); font-size: 11.5px; line-height: 1.5; margin-top: 4px; }
+.money-account__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.money-account__asof { font-size: 11.5px; color: var(--text-2); line-height: 1.45; min-width: 0; }
+.money-account__asof.is-stale { color: var(--text); }
+.money-kind .seg-btn { padding: 6px 11px; font-size: 12px; }
+
+.money-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--danger-soft);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.money-banner__icon { color: var(--danger); flex-shrink: 0; margin-top: 3px; }
+.money-banner__text { flex: 1; min-width: 200px; }
+.money-banner__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.money-banner .btn { background: var(--card); border-color: var(--line); }
+.money-banner .btn.btn--accent { background: var(--ink); border-color: var(--ink); }
+.money-banner--quiet { background: var(--inset); color: var(--text-2); font-size: 12.5px; }
+.money-banner--quiet .money-banner__icon { color: var(--text-2); }
+
+.money-sync { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.money-sync__note { font-size: 12px; color: var(--text-2); line-height: 1.5; min-width: 0; }
+.money-sync__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+/* It sits on the page, not in a card, where the usual grey button would
+   vanish into the background. */
+.btn.money-sync__btn { background: var(--card); border-color: var(--line); }
+
+.money-connect-steps { margin: 0 0 16px; padding-left: 20px; font-size: 13.5px; line-height: 1.75; }
+.money-connect-safe { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; }
+.money-connect-safe p { margin: 0; color: var(--text-2); font-size: 11.5px; line-height: 1.55; }
+
+/* --- Budgets --------------------------------------------------------------- */
+
+.money-budgets { display: flex; flex-direction: column; gap: 2px; }
+
+.money-budget {
+  display: block;
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.money-budget__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.money-budget__name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.money-budget__figure { flex-shrink: 0; font-size: 12.5px; }
+.money-budget__figure .is-over { color: var(--danger); }
+.money-budget__foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 11.5px; color: var(--text-2); }
+.money-budget__foot .is-over { color: var(--danger); font-weight: 600; }
+.money-budget__chev { color: var(--text-3); flex-shrink: 0; align-self: center; }
+@media (hover: hover) {
+  .money-budget:hover .money-budget__name > .truncate { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+}
+
+.money-bar { position: relative; height: 10px; border-radius: var(--r-pill); background: var(--inset); }
+.money-bar__fill { height: 100%; border-radius: var(--r-pill); transition: width 0.3s; }
+.money-bar__today { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text-2); }
+
+.money-unsorted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.money-archived { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.money-archived__toggle { min-height: 36px; }
+
+.money-compare {
+  background: var(--inset);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin: 14px 0 4px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.money-compare strong { font-weight: 650; }
+.money-compare__sub { color: var(--text-2); font-size: 12px; }
+
+.money-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.money-swatch {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: none;
+}
+.money-swatch > span { display: block; width: 24px; height: 24px; border-radius: 50%; }
+.money-swatch.is-on { border-color: var(--ink); }
+
+/* --- Business -------------------------------------------------------------- */
+
+.money-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.money-tile { border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; min-width: 0; }
+.money-tile__label { font-size: 12px; color: var(--text-2); font-weight: 500; line-height: 1.35; }
+.money-tile__value { font-size: 21px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.money-tile__foot { font-size: 11px; color: var(--text-2); margin-top: 3px; }
+.money-tile__foot.is-good { color: var(--good-text); }
+
+.money-subhead { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+
+.money-row { gap: 10px; min-height: 52px; }
+.money-row__main { flex: 1; min-width: 0; }
+.money-row__title { display: block; font-size: 13px; }
+.money-row__sub { display: block; font-size: 11.5px; color: var(--text-2); }
+.money-row__amount { flex-shrink: 0; font-size: 12.5px; }
+
+/* --- Phone ----------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .money-head { margin-bottom: 18px; }
+  .money-figures { gap: 22px; }
+  .money-account .btn-icon,
+  .money-row .btn-icon { width: 40px; height: 40px; }
+  .money-sheet__actions .btn { min-height: 42px; }
+  .money-question__actions .btn--ghost { padding-left: 10px; padding-right: 10px; }
+  /* Three tiles don't fit a phone with their labels on one line: the two
+     totals share a row and missing receipts gets its own. */
+  .money-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .money-tile { padding: 10px 12px; }
+  .money-tile__value { font-size: 19px; }
+  .money-tile--wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+  .money-tile--wide .money-tile__label { grid-column: 1; grid-row: 1; }
+  .money-tile--wide .money-tile__foot { grid-column: 1; grid-row: 2; }
+  .money-tile--wide .money-tile__value { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
+}

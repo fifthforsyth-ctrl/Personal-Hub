@@ -562,8 +562,11 @@ export async function updateExperience(userId, experienceId, fields) {
   return data;
 }
 
+// The verse index first: if that fails nothing is gone yet, so an Undo toast
+// that puts the row back is telling the truth.
 export async function deleteExperience(experienceId) {
-  await supabase.from("scripture_refs").delete().eq("entity_type", "experience").eq("entity_id", experienceId);
+  const { error: refsError } = await supabase.from("scripture_refs").delete().eq("entity_type", "experience").eq("entity_id", experienceId);
+  if (refsError) throw refsError;
   const { error } = await supabase.from("spiritual_experiences").delete().eq("id", experienceId);
   if (error) throw error;
 }
@@ -593,13 +596,15 @@ export async function fetchExperiences(userId, { limit = 100, sinceISO } = {}) {
 
 // Promptings still waiting on a follow-up, oldest first — the weekly-review
 // queue. `minAgeHours` keeps something logged an hour ago out of the way;
-// it hasn't had a chance to be acted on yet.
+// it hasn't had a chance to be acted on yet. Only promptings: a tender mercy
+// or a comfort is something to keep, not something to do.
 export async function fetchOpenLoops(userId, { minAgeHours = 24 } = {}) {
   const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("spiritual_experiences")
     .select("*")
     .eq("user_id", userId)
+    .eq("kind", "prompting")
     .eq("acted_on", false)
     .lte("occurred_at", cutoff)
     .order("occurred_at", { ascending: true });
@@ -678,6 +683,28 @@ export async function logPrayerWithRefs(userId, fields) {
   const prayer = await logPrayer(userId, fields);
   await syncScriptureRefs(userId, "prayer", prayer.id, fields.content, fields.context, fields.feltResponse);
   return prayer;
+}
+
+// Fixing a prayer you wrote. Its verse references are re-indexed from the new
+// words, so an edit that removes "Alma 32" stops listing it under Alma.
+export async function updatePrayer(userId, prayerId, { context, content, feltResponse }) {
+  const row = {};
+  if (context !== undefined) row.context = context?.trim() || null;
+  if (content !== undefined) row.content = content.trim();
+  if (feltResponse !== undefined) row.felt_response = feltResponse?.trim() || null;
+  const { data, error } = await supabase.from("prayer_logs").update(row).eq("id", prayerId).select().single();
+  if (error) throw error;
+  await syncScriptureRefs(userId, "prayer", prayerId, data.content, data.context, data.felt_response);
+  return data;
+}
+
+// References first, as with an experience: left behind, they'd list a prayer
+// under its verses that no longer exists.
+export async function deletePrayer(prayerId) {
+  const { error: refsError } = await supabase.from("scripture_refs").delete().eq("entity_type", "prayer").eq("entity_id", prayerId);
+  if (refsError) throw refsError;
+  const { error } = await supabase.from("prayer_logs").delete().eq("id", prayerId);
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------
@@ -1513,6 +1540,16 @@ export async function fetchNote(noteId) {
   return data;
 }
 
+// Every word of every note, searched on the server: the shelf only carries
+// the first 400 characters of each body, so searching it in the page missed
+// most of what's written. Each hit comes back with a short window around the
+// first match instead of the whole body.
+export async function searchNotes(query, limit = 30) {
+  const { data, error } = await supabase.rpc("search_notes", { p_query: query, p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function createNote(userId, fields = {}) {
   const row = {
     user_id: userId,
@@ -1532,7 +1569,8 @@ export async function createNote(userId, fields = {}) {
   if (error) throw error;
   // Verse references are indexed the same way here as everywhere else, so a
   // note that mentions Alma 32 shows up under Alma 32 on the scripture page.
-  await syncScriptureRefs(userId, "study_note", data.id, data.title, data.body).catch(() => {});
+  // The note itself is saved either way, so a failed index is only logged.
+  await syncScriptureRefs(userId, "study_note", data.id, data.title, data.body).catch((err) => console.warn(err));
   return data;
 }
 
@@ -1550,7 +1588,7 @@ export async function updateNote(userId, noteId, fields) {
   const { data, error } = await supabase.from("study_notes").update(row).eq("id", noteId).select("*").single();
   if (error) throw error;
   if (fields.title !== undefined || fields.body !== undefined) {
-    await syncScriptureRefs(userId, "study_note", noteId, data.title, data.body).catch(() => {});
+    await syncScriptureRefs(userId, "study_note", noteId, data.title, data.body).catch((err) => console.warn(err));
   }
   return data;
 }
@@ -1559,20 +1597,31 @@ export async function updateNote(userId, noteId, fields) {
 // pointing at nothing — the database would null them to the top level, which
 // loses where they came from.
 export async function deleteNote(noteId) {
-  const { data: note } = await supabase.from("study_notes").select("parent_note_id").eq("id", noteId).single();
-  await supabase.from("study_notes").update({ parent_note_id: note?.parent_note_id ?? null }).eq("parent_note_id", noteId);
+  const { data: note, error: readError } = await supabase.from("study_notes").select("parent_note_id").eq("id", noteId).single();
+  if (readError) throw readError;
+  const { error: moveError } = await supabase
+    .from("study_notes")
+    .update({ parent_note_id: note?.parent_note_id ?? null })
+    .eq("parent_note_id", noteId);
+  // Stop here rather than delete: the database would drop the children to the
+  // top level and lose where they came from.
+  if (moveError) throw moveError;
+  // Its verse references go with it, or the Scripture tab keeps counting a
+  // note that no longer exists.
+  const { error: refsError } = await supabase.from("scripture_refs").delete().eq("entity_type", "study_note").eq("entity_id", noteId);
+  if (refsError) throw refsError;
   const { error } = await supabase.from("study_notes").delete().eq("id", noteId);
   if (error) throw error;
 }
 
-export async function fetchHighlights(userId, noteIds) {
-  if (!noteIds?.length) return [];
-  const { data, error } = await supabase
-    .from("note_highlights")
-    .select("*")
-    .eq("user_id", userId)
-    .in("note_id", noteIds)
-    .order("start_offset", { ascending: true });
+// Every highlight on the shelf, or only those on the notes named. The whole
+// shelf is asked for by owner rather than as a list of ids: five hundred ids
+// in the address is longer than some proxies will pass.
+export async function fetchHighlights(userId, noteIds = null) {
+  if (Array.isArray(noteIds) && noteIds.length === 0) return [];
+  let query = supabase.from("note_highlights").select("*").eq("user_id", userId).not("note_id", "is", null);
+  if (noteIds) query = query.in("note_id", noteIds);
+  const { data, error } = await query.order("start_offset", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
@@ -1620,6 +1669,24 @@ export async function createSubNoteFromHighlight(userId, { noteId, quotedText, s
     childNoteId: child.id,
   });
   return { child, highlight };
+}
+
+// A highlight you marked earlier, made into a note of its own now: the note
+// is written first, then the highlight is pointed at it, so a failure leaves
+// at worst a note without a mark rather than a mark pointing at nothing.
+export async function promoteHighlight(userId, highlight, { title, sourceRef, position, noteKind }) {
+  const child = await createNote(userId, {
+    title: title || highlight.quoted_text.slice(0, 70),
+    body: "",
+    excerpt: highlight.quoted_text,
+    parentId: highlight.note_id,
+    sourceRef,
+    noteKind,
+    position: position ?? 0,
+  });
+  const { error } = await supabase.from("note_highlights").update({ child_note_id: child.id }).eq("id", highlight.id);
+  if (error) throw error;
+  return child;
 }
 
 export async function fetchNotesToResurface(limit = 3) {
@@ -1724,10 +1791,15 @@ export async function signedImageUrl(path, seconds = 3600) {
   return data?.signedUrl ?? null;
 }
 
+// The note lets go of the picture first, so a failure leaves it exactly as it
+// was. The file itself is only clutter once nothing points at it.
 export async function removeNoteImage(userId, noteId, path) {
-  if (path) await supabase.storage.from("note-images").remove([path]).catch(() => {});
   const { error } = await supabase.from("study_notes").update({ image_path: null }).eq("id", noteId);
   if (error) throw error;
+  if (path) {
+    const { error: fileError } = await supabase.storage.from("note-images").remove([path]);
+    if (fileError) console.warn(fileError);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1794,32 +1866,28 @@ export function mineSource(noteId) {
 // exactly what the manual gesture produces — so a mined line and one you
 // picked out yourself are the same object afterwards, and the source shows
 // both marked in its text.
+//
+// Through keep_snippet, the same function the nightly run uses: one
+// transaction, and keeping the same passage twice (a double tap, or a line the
+// nightly run already kept) hands back the card that's there instead of
+// writing a second one.
 export async function acceptSnippet(userId, source, snippet) {
-  const card = await createNote(userId, {
-    title: snippet.essence?.slice(0, 90) || snippet.quote.slice(0, 70),
-    body: "",
-    excerpt: snippet.quote,
-    noteKind: snippet.kind ?? "thought",
-    parentId: source.id,
-    sourceRef: source.source_ref,
-    studiedOn: source.studied_on,
+  const { data: id, error } = await supabase.rpc("keep_snippet", {
+    p_user_id: userId,
+    p_source_id: source.id,
+    p_quote: snippet.quote,
+    p_essence: snippet.essence || null,
+    p_kind: snippet.kind ?? "thought",
+    p_start: snippet.start_offset,
+    p_end: snippet.end_offset,
+    p_auto: false,
   });
-
-  const { error: essenceError } = await supabase
-    .from("study_notes")
-    .update({ essence: snippet.essence || null })
-    .eq("id", card.id);
-  if (essenceError) throw essenceError;
-
-  await createHighlight(userId, {
-    noteId: source.id,
-    quotedText: snippet.quote,
-    startOffset: snippet.start_offset,
-    endOffset: snippet.end_offset,
-    childNoteId: card.id,
-  });
-
-  return card;
+  if (error) throw error;
+  // The card's title is indexed for verse references as any note's is (the
+  // quote already is, in its source). A failure here only leaves it off the
+  // Scripture list, so it isn't fatal.
+  await syncScriptureRefs(userId, "study_note", id, snippet.essence || snippet.quote).catch((err) => console.warn(err));
+  return { id };
 }
 
 export async function markSourceMined(noteId, kept) {
@@ -1948,11 +2016,30 @@ export async function classifyPurchase(id, { budgetId, kind, isBusiness, busines
 }
 
 // Put a transaction back in the question queue — for an answer you want to
-// change.
-export async function reopenTransaction(id) {
+// change. The old answer comes off the transaction (a purchase waiting for an
+// answer counts as unsorted, and keeping its budget counted it in both places)
+// and goes back on as the suggestion, so the question opens already filled in.
+export async function reopenTransaction(id, { budgetId = null, kind = null } = {}) {
   const { error } = await supabase
     .from("bank_transactions")
-    .update({ reviewed_at: null, suggested_budget_id: null, suggested_kind: null })
+    .update({
+      reviewed_at: null,
+      budget_id: null,
+      purchase_kind: null,
+      suggested_budget_id: budgetId || null,
+      suggested_kind: kind || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// A note on any transaction, without answering anything else about it — the
+// one thing that can be said about a deposit.
+export async function updateTransactionNote(id, note) {
+  const { error } = await supabase
+    .from("bank_transactions")
+    .update({ note: note?.trim() || null, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
@@ -1962,7 +2049,7 @@ export async function setTransfer(id, isTransfer) {
   if (error) throw error;
 }
 
-export async function fetchTransactions(userId, { start, end, scope = "all", limit = 200 } = {}) {
+export async function fetchTransactions(userId, { start, end, scope = "all", budgetId, limit = 200 } = {}) {
   let q = supabase
     .from("bank_transactions")
     .select("*, account:bank_accounts(name, nickname, kind), budget:budgets!bank_transactions_budget_id_fkey(name, color), receipts(id)")
@@ -1973,6 +2060,7 @@ export async function fetchTransactions(userId, { start, end, scope = "all", lim
   if (end) q = q.lt("posted_at", new Date(`${end}T00:00:00`).toISOString());
   if (scope === "business") q = q.eq("is_business", true);
   if (scope === "personal") q = q.eq("is_business", false);
+  if (budgetId) q = q.eq("budget_id", budgetId);
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
@@ -2014,6 +2102,26 @@ export async function addManualExpense(userId, { date, amount, description, isBu
   return data;
 }
 
+// Only a cash expense can be corrected or removed this way; what came from
+// the bank is the bank's record, and the filter on `source` makes sure of it.
+export async function updateManualExpense(id, { date, amount, description }) {
+  const row = { updated_at: new Date().toISOString() };
+  if (date !== undefined) row.posted_at = new Date(`${date}T12:00:00`).toISOString();
+  if (amount !== undefined) {
+    const value = Math.abs(Number(amount));
+    if (!value) throw new Error("Enter an amount.");
+    row.amount = -value;
+  }
+  if (description !== undefined) row.description = description?.trim() || "Cash expense";
+  const { error } = await supabase.from("bank_transactions").update(row).eq("id", id).eq("source", "manual");
+  if (error) throw error;
+}
+
+export async function deleteManualExpense(id) {
+  const { error } = await supabase.from("bank_transactions").delete().eq("id", id).eq("source", "manual");
+  if (error) throw error;
+}
+
 export async function fetchBudgets(userId) {
   const { data, error } = await supabase
     .from("budgets")
@@ -2027,11 +2135,14 @@ export async function fetchBudgets(userId) {
 }
 
 export async function saveBudget(userId, budget) {
+  // A limit of nothing or zero is no limit: "$0 left" on a budget you only
+  // wanted to track says something you didn't mean.
+  const limit = Number(budget.limit);
   const row = {
     user_id: userId,
     name: budget.name.trim(),
     color: budget.color,
-    monthly_limit: budget.limit === "" || budget.limit == null ? null : Number(budget.limit),
+    monthly_limit: budget.limit === "" || budget.limit == null || !(limit > 0) ? null : Math.round(limit * 100) / 100,
     kind: budget.kind ?? "personal",
   };
   const q = budget.id
@@ -2048,9 +2159,39 @@ export async function archiveBudget(id) {
   if (error) throw error;
 }
 
+export async function fetchArchivedBudgets(userId) {
+  const { data, error } = await supabase
+    .from("budgets")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("archived", true)
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function restoreBudget(id) {
+  const { error } = await supabase.from("budgets").update({ archived: false }).eq("id", id);
+  if (error) throw error;
+}
+
 export async function setAccountKind(accountId, kind) {
   const { error } = await supabase.rpc("set_account_kind", { p_account_id: accountId, p_kind: kind });
   if (error) throw error;
+}
+
+// How many purchases a change of account kind would relabel: set_account_kind
+// carries the new kind through to everything in the account not yet answered.
+export async function countUnsortedInAccount(accountId) {
+  const { count, error } = await supabase
+    .from("bank_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId)
+    .is("reviewed_at", null)
+    .eq("is_transfer", false)
+    .lt("amount", 0);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function renameAccount(accountId, nickname) {
@@ -2088,7 +2229,8 @@ export async function uploadReceipt(userId, transactionId, file) {
     .single();
   if (error) {
     // Don't leave an orphaned file behind a row that never got written.
-    await supabase.storage.from("receipts").remove([path]).catch(() => {});
+    const { error: cleanupError } = await supabase.storage.from("receipts").remove([path]);
+    if (cleanupError) console.warn(cleanupError);
     throw error;
   }
   return data;
@@ -2112,8 +2254,12 @@ export async function receiptLink(path, seconds = 600) {
   return data?.signedUrl ?? null;
 }
 
+// The row first: if that fails nothing is lost and the receipt can come back
+// on screen. A file left behind after the row is gone is only clutter in the
+// bucket, so that failure is logged rather than shown.
 export async function deleteReceipt(receipt) {
-  await supabase.storage.from("receipts").remove([receipt.storage_path]).catch(() => {});
   const { error } = await supabase.from("receipts").delete().eq("id", receipt.id);
   if (error) throw error;
+  const { error: fileError } = await supabase.storage.from("receipts").remove([receipt.storage_path]);
+  if (fileError) console.warn(fileError);
 }

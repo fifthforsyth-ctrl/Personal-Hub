@@ -1,32 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  BookOpen,
-  Pencil,
-  Check,
-  Trash2,
-  Pin,
-  PinOff,
-  RotateCcw,
-  ChevronLeft,
-  Quote,
-  Highlighter,
-  StickyNote,
-  Library,
-  Layers,
-  Plus,
-} from "lucide-react";
+import { Search, X, Pencil, Pin, ChevronLeft, CornerLeftUp, Layers, RotateCcw, Library, Plus, Highlighter, BookOpen } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useToast, useConfirm } from "../components/ui/Feedback";
+import LoadError from "../components/ui/LoadError";
+import { useLoad } from "../lib/useLoad";
 import {
   fetchNotes,
   fetchNote,
   fetchHighlights,
+  searchNotes,
   createNote,
   updateNote,
   deleteNote,
   createHighlight,
   deleteHighlight,
   createSubNoteFromHighlight,
+  promoteHighlight,
   fetchNotesToResurface,
   markNoteSurfaced,
 } from "../lib/api";
@@ -36,561 +26,1069 @@ import CaptureBar from "../components/study/CaptureBar";
 import QuoteWall from "../components/study/QuoteWall";
 import SourceMiner from "../components/study/SourceMiner";
 import { KindChip, KindFilter } from "../components/study/KindChip";
-import { buildTree } from "../lib/noteText";
-import { NOTE_KINDS, kindOf } from "../lib/noteKinds";
+import { dayLabel } from "../components/study/dayLabel";
+import { buildTree, resolveHighlights } from "../lib/noteText";
+import { NOTE_KINDS, STUDY_NOTE, boardKindOf, isStudyNote, kindOf } from "../lib/noteKinds";
+import { cardFace, cutAtWord, niceTitle, previewText, toPlainText, titleRepeats } from "../lib/markdown";
 import useIsMobile from "../lib/useIsMobile";
+import "../styles/board.css";
 
-// The student section — everyday reading, kept somewhere it can be found again.
+// The Board: what came, what you make of it, and what you're reading, kept
+// somewhere it can be found again.
 //
-// Two panes on a desktop: the shelf on the left, whatever you're reading on the
-// right. On a phone it's one at a time, because a 375px column split two ways
-// is two unusable columns.
+// Your own notes come first: the box to record something, then what you've
+// kept, grouped by what it is. The machinery (notes worth seeing again, the
+// vault's long notes and what the nightly reading kept) sits below that.
+// Opening a note takes over the page; on a wide screen the list of all notes
+// can sit beside it.
 export default function Study() {
   const { user } = useAuth();
-  const isMobile = useIsMobile();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const touch = useIsMobile();
+  const narrow = useNarrow();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("note");
 
-  const [notes, setNotes] = useState([]);
-  const [highlights, setHighlights] = useState([]);
-  const [query, setQuery] = useState("");
-  const [kindFilter, setKindFilter] = useState(null);
-  const [shelfOpen, setShelfOpen] = useState(false);
-  const [view, setView] = useState("stream");
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [error, setError] = useState(null);
+  const shelf = useLoad(() => loadShelf(user.id), [user.id]);
+  const [gone, setGone] = useState(() => new Set()); // notes deleted, waiting out the Undo
+  const [goneMarks, setGoneMarks] = useState(() => new Set()); // highlights, likewise
 
-  const reload = useCallback(async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    try {
-      const list = await fetchNotes(user.id);
-      setNotes(list);
-      if (list.length > 0) {
-        setHighlights(await fetchHighlights(user.id, list.map((n) => n.id)));
-      } else {
-        setHighlights([]);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  // The shelf listing carries previews, not bodies. Opening a note fetches the
-  // whole thing — which is the point of the split, since a body averages
-  // eleven thousand characters and sixty-one of them is not a page load.
-  const [openNote, setOpenNote] = useState(null);
-  const listed = useMemo(() => notes.find((n) => n.id === selectedId) ?? null, [notes, selectedId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedId) {
-      setOpenNote(null);
-      return;
-    }
-    fetchNote(selectedId)
-      .then((n) => !cancelled && setOpenNote(n))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId, notes]);
-
-  // Show the listing immediately and swap in the full row when it lands, so
-  // opening a note never blanks the page while the body is in flight.
-  const note = openNote?.id === selectedId ? openNote : listed;
+  const notes = useMemo(() => withoutGone(shelf.data?.notes ?? [], gone), [shelf.data, gone]);
+  const highlights = useMemo(() => (shelf.data?.highlights ?? []).filter((h) => !goneMarks.has(h.id)), [shelf.data, goneMarks]);
+  const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
   const byParent = useMemo(() => buildTree(notes), [notes]);
-  const noteHighlights = useMemo(() => highlights.filter((h) => h.note_id === selectedId), [highlights, selectedId]);
-  const childrenByHighlight = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
 
-  function select(id) {
-    setEditing(false);
-    setParams(id ? { note: id } : {}, { replace: false });
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [kindFilter, setKindFilter] = useState(null);
+  const [view, setView] = useState("stream");
+  const [showOvernight, setShowOvernight] = useState(false);
+
+  // One search box, answered on the server from every word of every note.
+  const [query, setQuery] = useState("");
+  const [asked, setAsked] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setAsked(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+  const searching = asked.length >= 2;
+  const search = useLoad(() => (searching ? searchNotes(asked, 40) : Promise.resolve(null)), [asked, searching]);
+  // While the next answer is on its way, the last one stays up under its
+  // own words, rather than the list blinking out on every letter.
+  const lastSearch = useRef(null);
+  if (searching && search.data) lastSearch.current = { query: asked, hits: search.data };
+  const shownSearch = searching ? (search.data ? { query: asked, hits: search.data } : lastSearch.current) : null;
+
+  // The shelf carries a preview of each note, not its body. Opening a note
+  // fetches the whole thing, and nothing can be edited until it has: an editor
+  // seeded from a preview would save the preview over the note.
+  const full = useLoad(() => (selectedId ? fetchNote(selectedId) : Promise.resolve(null)), [selectedId]);
+  const listed = selectedId ? byId.get(selectedId) ?? null : null;
+  const fullNote = full.data && full.data.id === selectedId ? full.data : null;
+  const note = selectedId && !gone.has(selectedId) && (listed || fullNote) ? { ...listed, ...fullNote } : null;
+
+  // Opening a note starts at its top; coming back puts the Board where it was.
+  const homeScroll = useRef(0);
+  useLayoutEffect(() => {
+    const main = document.querySelector(".main");
+    if (main) main.scrollTop = selectedId ? 0 : homeScroll.current;
+  }, [selectedId]);
+
+  // Leaving a note you're editing asks first, if anything in it changed.
+  const editorDirty = useRef(false);
+
+  async function select(id, { edit = false } = {}) {
+    if (editingId && editorDirty.current && id !== selectedId) {
+      const leave = await confirm({
+        title: "Throw away your changes?",
+        body: "You're editing a note and haven't saved it.",
+        confirmLabel: "Throw away",
+        cancelLabel: "Keep editing",
+      });
+      if (!leave) return;
+    }
+    editorDirty.current = false;
+    if (!selectedId && id) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
+    setEditingId(edit ? id : null);
+    setParams(id ? { note: id } : {});
   }
 
-  async function guard(fn) {
+  // --- writes ---------------------------------------------------------------
+
+  async function capture({ text, kind }) {
+    const firstLine = text.split("\n").find((l) => l.trim())?.trim() ?? text;
     try {
-      await fn();
-      await reload();
+      await createNote(user.id, { title: cutAtWord(firstLine, 80), body: text, noteKind: kind });
+      shelf.reload();
+      toast.show(`Kept under ${kindOf(kind).label}`);
+      return true;
     } catch (err) {
-      setError(err.message);
+      toast.error(err, "Couldn't keep that. It's still in the box.");
+      return false;
     }
   }
 
-  const createTop = () =>
-    guard(async () => {
+  async function createTop() {
+    if (creating) return;
+    setCreating(true);
+    try {
       const created = await createNote(user.id, { title: "Untitled note", body: "" });
-      select(created.id);
-      setEditing(true);
-    });
+      shelf.reload();
+      select(created.id, { edit: true });
+    } catch (err) {
+      toast.error(err, "Couldn't start a new note.");
+    } finally {
+      setCreating(false);
+    }
+  }
 
-  // Straight from the capture bar. The first line becomes the title so the
-  // shelf reads as sentences rather than a column of "Untitled".
-  const capture = ({ text, kind }) =>
-    guard(async () => {
-      const firstLine = text.split("\n")[0].trim();
-      await createNote(user.id, {
-        title: firstLine.length <= 80 ? firstLine : firstLine.slice(0, 77).trimEnd() + "…",
-        body: text,
-        noteKind: kind,
-      });
-    });
+  // Only the fields that changed are sent, and the note on screen becomes
+  // the row the database sent back.
+  async function saveNote(id, fields, fallback = "Couldn't save the note.") {
+    try {
+      const row = await updateNote(user.id, id, fields);
+      full.mutate((current) => (current?.id === id ? row : current));
+      shelf.reload();
+      return row;
+    } catch (err) {
+      toast.error(err, fallback);
+      return null;
+    }
+  }
 
-  const handleHighlight = (sel) =>
-    guard(() =>
-      createHighlight(user.id, {
-        noteId: note.id,
+  // Gone from the screen at once, and for real once the Undo has had its
+  // six seconds. A note's children move up to its parent, as they will in
+  // the database.
+  function removeNotes(ids, message) {
+    setGone((prev) => new Set([...prev, ...ids]));
+    toast.undoable({
+      message,
+      run: async () => {
+        try {
+          for (const id of ids) await deleteNote(id);
+        } finally {
+          shelf.reload();
+        }
+      },
+      onUndo: () =>
+        setGone((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        }),
+    });
+  }
+
+  function removeNote(n) {
+    const parent = n.parent_note_id && !gone.has(n.parent_note_id) ? n.parent_note_id : null;
+    editorDirty.current = false; // the edits go with the note
+    select(parent);
+    removeNotes([n.id], "Note deleted");
+  }
+
+  function forgetHighlight(h, message) {
+    setGoneMarks((prev) => new Set(prev).add(h.id));
+    toast.undoable({
+      message,
+      run: async () => {
+        await deleteHighlight(h.id);
+        shelf.reload();
+      },
+      onUndo: () =>
+        setGoneMarks((prev) => {
+          const next = new Set(prev);
+          next.delete(h.id);
+          return next;
+        }),
+    });
+  }
+
+  async function addHighlight(n, sel) {
+    try {
+      const row = await createHighlight(user.id, { noteId: n.id, quotedText: sel.text, startOffset: sel.start, endOffset: sel.end });
+      shelf.mutate((d) => d && { ...d, highlights: [...d.highlights, row] });
+      return true;
+    } catch (err) {
+      toast.error(err, "Couldn't save the highlight.");
+      return false;
+    }
+  }
+
+  async function makeSubNote(n, sel, kind) {
+    try {
+      const { child, highlight } = await createSubNoteFromHighlight(user.id, {
+        noteId: n.id,
         quotedText: sel.text,
         startOffset: sel.start,
         endOffset: sel.end,
-      })
+        title: cutAtWord(sel.text.replace(/\s+/g, " "), 70),
+        sourceRef: n.source_ref,
+        noteKind: kind,
+        position: (byParent.get(n.id) ?? []).length,
+      });
+      shelf.mutate((d) => d && { ...d, notes: [...d.notes, child], highlights: [...d.highlights, highlight] });
+      shelf.reload();
+      toast.show("Made a note from it", { actionLabel: "Open", onAction: () => select(child.id) });
+      return true;
+    } catch (err) {
+      shelf.reload();
+      toast.error(err, "Couldn't make the note.");
+      return false;
+    }
+  }
+
+  async function promote(n, h) {
+    try {
+      const child = await promoteHighlight(user.id, h, {
+        title: cutAtWord(h.quoted_text.replace(/\s+/g, " "), 70),
+        sourceRef: n.source_ref,
+        noteKind: "thought",
+        position: (byParent.get(n.id) ?? []).length,
+      });
+      shelf.reload();
+      toast.show("Made a note from it", { actionLabel: "Open", onAction: () => select(child.id) });
+    } catch (err) {
+      shelf.reload();
+      toast.error(err, "Couldn't make the note.");
+    }
+  }
+
+  // --- the page --------------------------------------------------------------
+
+  const tree = (
+    <NoteTree
+      notes={notes}
+      selectedId={selectedId}
+      onSelect={(id) => select(id)}
+      onCreateTop={selectedId ? createTop : undefined}
+      creating={creating}
+    />
+  );
+
+  if (selectedId) {
+    return (
+      <div className="page">
+        <div className={"board-note-layout" + (treeOpen ? " has-shelf" : "")}>
+          {treeOpen && tree}
+          {note ? (
+            <NoteView
+              key={note.id}
+              note={note}
+              fullLoaded={Boolean(fullNote)}
+              fullError={full.error}
+              onRetry={full.reload}
+              parent={note.parent_note_id ? byId.get(note.parent_note_id) ?? null : null}
+              highlights={highlights.filter((h) => h.note_id === note.id)}
+              childrenById={byId}
+              touch={touch}
+              editing={editingId === note.id && Boolean(fullNote)}
+              treeOpen={treeOpen}
+              onToggleTree={() => setTreeOpen((v) => !v)}
+              onBack={() => select(null)}
+              onOpenNote={(id) => select(id)}
+              onEdit={() => setEditingId(note.id)}
+              onCloseEditor={() => setEditingId(null)}
+              editorDirty={editorDirty}
+              onSave={async (fields) => {
+                const row = await saveNote(note.id, fields, "Couldn't save the note. Your changes are still here.");
+                if (row) toast.show("Saved");
+                return row;
+              }}
+              onDelete={() => removeNote(note)}
+              onPin={async () => {
+                const row = await saveNote(note.id, { pinned: !note.pinned });
+                if (row) toast.show(row.pinned ? "Pinned. It comes back around more often." : "Unpinned");
+              }}
+              onSetKind={(key) => saveNote(note.id, { noteKind: key }, "Couldn't change its kind.")}
+              onHighlight={(sel) => addHighlight(note, sel)}
+              onCreateSubNote={(sel, kind) => makeSubNote(note, sel, kind)}
+              onPromote={(h) => promote(note, h)}
+              onForget={(h) => forgetHighlight(h, "Highlight removed")}
+              onUnmark={(h) => forgetHighlight(h, "Passage unmarked. The note is kept.")}
+            />
+          ) : full.error && !shelf.loading ? (
+            <div className="card board-note">
+              <BackBar onBack={() => select(null)} />
+              <LoadError what="this note" error={full.error} onRetry={full.reload} />
+            </div>
+          ) : full.loading || shelf.loading ? (
+            <div className="card board-note">
+              <BackBar onBack={() => select(null)} />
+              <p className="empty">Loading the note…</p>
+            </div>
+          ) : (
+            <div className="card board-note">
+              <BackBar onBack={() => select(null)} />
+              <p className="empty">That note isn't here any more.</p>
+            </div>
+          )}
+        </div>
+      </div>
     );
+  }
 
-  const handleCreateSubNote = (sel, kind = "thought") =>
-    guard(async () => {
-      const siblings = byParent.get(note.id) ?? [];
-      await createSubNoteFromHighlight(user.id, {
-        noteId: note.id,
-        quotedText: sel.text,
-        startOffset: sel.start,
-        endOffset: sel.end,
-        // A first line that reads like a title is a title; anything longer
-        // gets trimmed, and you can rename it the moment it exists.
-        title: sel.text.length <= 70 ? sel.text : sel.text.slice(0, 67).trimEnd() + "…",
-        sourceRef: note.source_ref,
-        noteKind: kind,
-        position: siblings.length,
-      });
-    });
-
-  // Counts drive the filter row, and they count the whole shelf rather than
-  // the current filter — a chip that says 0 because of another chip is a lie.
-  const kindCounts = useMemo(() => {
-    const m = new Map();
-    for (const n of notes) m.set(n.note_kind ?? "thought", (m.get(n.note_kind ?? "thought") ?? 0) + 1);
-    return m;
-  }, [notes]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return notes.filter((n) => {
-      if (kindFilter && (n.note_kind ?? "thought") !== kindFilter) return false;
-      if (!q) return true;
-      return (
-        n.title?.toLowerCase().includes(q) ||
-        n.body_preview?.toLowerCase().includes(q) ||
-        n.excerpt?.toLowerCase().includes(q)
-      );
-    });
-  }, [notes, kindFilter, query]);
+  const overnightCount = notes.filter((n) => n.auto_kept).length;
 
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head board-head">
         <div>
-          <div className="eyebrow">Student</div>
-          <h1 className="page-title" style={{ marginTop: 3 }}>Receive and record</h1>
-          <p className="page-sub">
-            What comes, what you make of it, and what you're reading. Highlight any passage to turn it into a note of its own.
-          </p>
+          <h1 className="page-title">Board</h1>
+          <p className="page-sub">What came, what you make of it, and what you're reading.</p>
         </div>
-        <button className="btn" onClick={() => setShelfOpen((v) => !v)}>
-          <Library size={14} />
-          {shelfOpen ? "Hide the shelf" : "The shelf"}
-        </button>
+        <div className="board-head__actions">
+          <button type="button" className={"btn btn--sm" + (treeOpen ? " btn--accent" : "")} onClick={() => setTreeOpen((v) => !v)} aria-pressed={treeOpen}>
+            <Library size={14} />
+            All notes
+          </button>
+          <button type="button" className="btn btn--sm" onClick={createTop} disabled={creating}>
+            <Plus size={14} />
+            {creating ? "Starting…" : "New long note"}
+          </button>
+        </div>
       </div>
 
-      {error && <div className="form-error" style={{ marginBottom: 14 }}>{error}</div>}
+      <div className="board-search" role="search">
+        <Search size={16} aria-hidden="true" />
+        <input
+          className="input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+          placeholder="Search every note"
+          aria-label="Search every note"
+          enterKeyHint="search"
+          autoComplete="off"
+        />
+        {query && (
+          <button type="button" className="btn-icon board-search__clear" onClick={() => setQuery("")} aria-label="Clear the search" title="Clear the search">
+            <X size={16} />
+          </button>
+        )}
+      </div>
 
-      {/* Reading a note takes over the page — the capture bar and the streams
-          are what you see when you arrive, not what you scroll past. */}
-      {note ? (
-        <div className="grid" style={{ gridTemplateColumns: isMobile || !shelfOpen ? "1fr" : "minmax(220px, 290px) minmax(0, 1fr)", alignItems: "start" }}>
-          {!isMobile && shelfOpen && (
-            <NoteTree notes={notes} selectedId={selectedId} onSelect={select} onCreateTop={createTop} query={query} onQueryChange={setQuery} />
-          )}
-          <NoteDetail
-            key={note.id}
-            note={note}
-            highlights={noteHighlights}
-            childrenByHighlight={childrenByHighlight}
-            parent={notes.find((n) => n.id === note.parent_note_id) ?? null}
-            childCount={(byParent.get(note.id) ?? []).length}
-            editing={editing}
-            onEditingChange={setEditing}
-            isMobile={isMobile}
-            onBack={() => select(null)}
-            onOpenNote={select}
-            onHighlight={handleHighlight}
-            onCreateSubNote={handleCreateSubNote}
-            onDeleteHighlight={(id) => guard(() => deleteHighlight(id))}
-            onSave={(fields) => guard(() => updateNote(user.id, note.id, fields))}
-            onSetKind={(k) => guard(() => updateNote(user.id, note.id, { noteKind: k }))}
-            onDelete={() =>
-              guard(async () => {
-                await deleteNote(note.id);
-                select(note.parent_note_id ?? null);
-              })
-            }
-            onTogglePin={() => guard(() => updateNote(user.id, note.id, { pinned: !note.pinned }))}
-          />
-        </div>
+      {searching ? (
+        <SearchResults
+          query={shownSearch?.query ?? asked}
+          hits={shownSearch?.hits ?? null}
+          error={search.error}
+          onRetry={search.reload}
+          byId={byId}
+          onOpen={(id) => select(id)}
+        />
       ) : (
         <div className="stack">
+          {treeOpen && tree}
+
           <CaptureBar onCapture={capture} />
 
-          <Resurfaced onOpen={select} />
-
-          <SourceMiner onChanged={reload} />
-
-          {shelfOpen && (
-            <NoteTree notes={notes} selectedId={selectedId} onSelect={select} onCreateTop={createTop} query={query} onQueryChange={setQuery} />
-          )}
-
-          {notes.length > 0 && (
+          {shelf.loading ? (
             <div className="card">
-              <div className="card-head" style={{ flexWrap: "wrap", gap: 10 }}>
-                <span className="card-title"><Layers size={14} />What you've kept</span>
-                <div className="row" style={{ gap: 8 }}>
-                  <input
-                    className="input"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search…"
-                    style={{ width: 170, padding: "7px 11px", fontSize: 13 }}
-                  />
-                  <button className="btn" onClick={createTop}>
-                    <Plus size={14} />
-                    Long note
-                  </button>
-                </div>
-              </div>
-
-              <div className="row row--between" style={{ marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
-                <KindFilter counts={kindCounts} active={kindFilter} onChange={setKindFilter} />
-                <div className="seg">
-                  <button className={"seg-btn" + (view === "stream" ? " active" : "")} onClick={() => setView("stream")}>Stream</button>
-                  <button className={"seg-btn" + (view === "wall" ? " active" : "")} onClick={() => setView("wall")}>Wall</button>
-                </div>
-              </div>
-
-              {view === "wall" ? (
-                <QuoteWall notes={filtered} onOpen={select} onChanged={reload} />
-              ) : (
-                <Streams notes={filtered} kindFilter={kindFilter} onOpen={select} />
-              )}
+              <p className="empty">Loading your notes…</p>
             </div>
+          ) : shelf.error && !shelf.data ? (
+            <LoadError what="your notes" error={shelf.error} onRetry={shelf.reload} />
+          ) : notes.length === 0 ? (
+            <div className="card board-empty">
+              <BookOpen size={24} aria-hidden="true" />
+              <p className="empty">
+                Nothing kept yet. Write the first thing in the box above, or start a long note for what you're reading
+                and highlight your way through it.
+              </p>
+            </div>
+          ) : (
+            <Kept
+              notes={notes}
+              stale={shelf.error}
+              onRetry={shelf.reload}
+              overnightCount={overnightCount}
+              showOvernight={showOvernight}
+              onToggleOvernight={() => setShowOvernight((v) => !v)}
+              kindFilter={kindFilter}
+              onKindFilter={setKindFilter}
+              view={view}
+              onView={setView}
+              perGroup={narrow ? 2 : 4}
+              onOpen={(id) => select(id)}
+              onChanged={shelf.reload}
+            />
           )}
 
-          {!loading && notes.length === 0 && (
-            <div className="card" style={{ display: "grid", placeItems: "center", minHeight: 220, textAlign: "center" }}>
-              <div style={{ maxWidth: 360 }}>
-                <BookOpen size={26} style={{ color: "var(--text-3)", marginBottom: 10 }} />
-                <p className="empty">
-                  Nothing kept yet. Write the first thing in the box above — or start a long note for the book you're
-                  reading and highlight your way through it.
-                </p>
-              </div>
-            </div>
-          )}
+          <Resurfaced onOpen={(id) => select(id)} />
+
+          <SourceMiner waiting={overnightCount} hidden={gone} onChanged={shelf.reload} onDrop={removeNotes} />
         </div>
       )}
     </div>
   );
 }
 
-// Notes grouped by what they are, newest first, a handful at a time.
-//
-// This is the answer to "these can't just be buried in a long list": a
-// spiritual experience from March sits under Spiritual experience, not at
-// position 340 of everything you've ever written.
-function Streams({ notes, kindFilter, onOpen }) {
-  const groups = kindFilter
-    ? [{ kind: kindOf(kindFilter), items: notes }]
-    : NOTE_KINDS.map((k) => ({ kind: k, items: notes.filter((n) => (n.note_kind ?? "thought") === k.key) })).filter(
-        (g) => g.items.length > 0
-      );
+async function loadShelf(userId) {
+  const [notes, highlights] = await Promise.all([fetchNotes(userId), fetchHighlights(userId)]);
+  return { notes, highlights };
+}
 
-  if (groups.length === 0) return <p className="empty">Nothing matches.</p>;
+// Notes deleted and waiting out their Undo are left out, and their children
+// shown where the database will put them: under the deleted note's parent.
+function withoutGone(notes, gone) {
+  if (gone.size === 0) return notes;
+  const byId = new Map(notes.map((n) => [n.id, n]));
+  const lift = (id) => {
+    let at = id;
+    const seen = new Set();
+    while (at && gone.has(at) && !seen.has(at)) {
+      seen.add(at);
+      at = byId.get(at)?.parent_note_id ?? null;
+    }
+    return at;
+  };
+  return notes
+    .filter((n) => !gone.has(n.id))
+    .map((n) => (n.parent_note_id && gone.has(n.parent_note_id) ? { ...n, parent_note_id: lift(n.parent_note_id) } : n));
+}
 
+// A phone shows fewer cards per kind, so every kind fits in a screen or two.
+function useNarrow(query = "(max-width: 600px)") {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = (e) => setNarrow(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return narrow;
+}
+
+function BackBar({ onBack }) {
   return (
-    <div className="stack">
-      {groups.map((g) => (
-        <Stream key={g.kind.key} kind={g.kind} items={g.items} onOpen={onOpen} expanded={Boolean(kindFilter)} />
-      ))}
+    <div className="board-note__bar">
+      <div className="board-note__nav">
+        <button type="button" className="btn btn--sm btn--ghost" onClick={onBack}>
+          <ChevronLeft size={15} />
+          Board
+        </button>
+      </div>
     </div>
   );
 }
 
-function Stream({ kind, items, onOpen, expanded }) {
-  const [showAll, setShowAll] = useState(expanded);
-  const sorted = [...items].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const shown = showAll ? sorted : sorted.slice(0, 4);
+// ---------------------------------------------------------------------------
+// What you've kept
+// ---------------------------------------------------------------------------
+
+// Notes grouped by what they are, newest first, a handful at a time — so a
+// revelation from March sits under Revelation, not at position 340 of
+// everything you've ever written. Cards the nightly reading kept stay out
+// until you've looked them over in From the vault (or ask to see them).
+function Kept({
+  notes,
+  stale,
+  onRetry,
+  overnightCount,
+  showOvernight,
+  onToggleOvernight,
+  kindFilter,
+  onKindFilter,
+  view,
+  onView,
+  perGroup,
+  onOpen,
+  onChanged,
+}) {
+  const visible = useMemo(() => (showOvernight ? notes : notes.filter((n) => !n.auto_kept)), [notes, showOvernight]);
+  const counts = useMemo(() => {
+    const m = new Map();
+    for (const n of visible) {
+      const key = boardKindOf(n).key;
+      m.set(key, (m.get(key) ?? 0) + 1);
+    }
+    return m;
+  }, [visible]);
+
+  // A filter whose kind has nothing left in it lets go rather than showing
+  // an empty board.
+  const active = kindFilter && counts.get(kindFilter) ? kindFilter : null;
+  const filtered = active ? visible.filter((n) => boardKindOf(n).key === active) : visible;
 
   return (
-    <div>
-      <div className="row" style={{ gap: 8, marginBottom: 9 }}>
+    <section className="card board-kept">
+      <div className="card-head">
+        <h2 className="card-title">
+          <Layers size={14} />
+          What you've kept
+        </h2>
+        <div className="seg" role="group" aria-label="Show as">
+          <button type="button" className={"seg-btn" + (view === "stream" ? " active" : "")} aria-pressed={view === "stream"} onClick={() => onView("stream")}>
+            By kind
+          </button>
+          <button type="button" className={"seg-btn" + (view === "wall" ? " active" : "")} aria-pressed={view === "wall"} onClick={() => onView("wall")}>
+            Wall
+          </button>
+        </div>
+      </div>
+
+      {stale && <LoadError stale error={stale} onRetry={onRetry} className="board-kept__filters" />}
+
+      {view === "wall" ? (
+        <QuoteWall notes={visible} onOpen={onOpen} onChanged={onChanged} />
+      ) : (
+        <>
+          <KindFilter counts={counts} active={active} onChange={onKindFilter} className="board-kept__filters" />
+          <Streams notes={filtered} kindFilter={active} perGroup={perGroup} onOpen={onOpen} />
+        </>
+      )}
+
+      {overnightCount > 0 && (
+        <div className="board-more-row">
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {showOvernight
+              ? `Showing the ${overnightCount} kept overnight that you haven't looked over yet.`
+              : `${overnightCount} kept overnight from your vault aren't shown until you've looked them over (in From the vault, below).`}
+          </span>
+          <button type="button" className="btn btn--sm" onClick={onToggleOvernight}>
+            {showOvernight ? "Hide them" : "Show them"}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Streams({ notes, kindFilter, perGroup, onOpen }) {
+  const groups = useMemo(() => {
+    const order = [...NOTE_KINDS, STUDY_NOTE];
+    const by = new Map(order.map((k) => [k.key, []]));
+    for (const n of notes) {
+      const key = boardKindOf(n).key;
+      if (!by.has(key)) by.set(key, []);
+      by.get(key).push(n);
+    }
+    return [...by.entries()]
+      .filter(([, items]) => items.length > 0)
+      .map(([key, items]) => ({
+        kind: key === STUDY_NOTE.key ? STUDY_NOTE : kindOf(key),
+        items: items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
+      }));
+  }, [notes]);
+
+  if (groups.length === 0) return <p className="empty">Nothing here yet.</p>;
+
+  return groups.map((g) => (
+    <Stream key={g.kind.key} kind={g.kind} items={g.items} perGroup={perGroup} expanded={Boolean(kindFilter)} onOpen={onOpen} />
+  ));
+}
+
+function Stream({ kind, items, perGroup, expanded, onOpen }) {
+  const [showAll, setShowAll] = useState(expanded);
+  const shown = showAll ? items : items.slice(0, perGroup);
+
+  return (
+    <section className="board-stream">
+      <div className="board-stream__head">
         <span className="dot" style={{ background: kind.color, width: 8, height: 8 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 620 }}>{kind.label}</span>
-        <span className="mono faint" style={{ fontSize: 10.5 }}>{items.length}</span>
+        <h3 className="board-stream__label">{kind.label}</h3>
+        <span className="board-stream__count">{items.length}</span>
         <span className="spacer" />
-        {items.length > 4 && (
-          <button className="btn-link" onClick={() => setShowAll((v) => !v)}>
+        {items.length > perGroup && (
+          <button type="button" className="btn-link" onClick={() => setShowAll((v) => !v)} aria-expanded={showAll}>
             {showAll ? "Fewer" : `All ${items.length}`}
           </button>
         )}
       </div>
-
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+      <div className="board-cards">
         {shown.map((n) => (
-          <button
-            key={n.id}
-            onClick={() => onOpen(n.id)}
-            className="day-card"
-            style={{ padding: "12px 14px", cursor: "pointer", borderLeft: `2px solid ${kind.color}` }}
-          >
-            <div className="row" style={{ gap: 6, marginBottom: 5 }}>
-              <span className="truncate" style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{n.title}</span>
-              {n.pinned && <Pin size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />}
-            </div>
-            <div
-              className="prose prose--sm"
-              style={{
-                whiteSpace: "normal",
-                display: "-webkit-box",
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                color: "var(--text-2)",
-                fontSize: 12.5,
-              }}
-            >
-              {n.essence || n.excerpt || n.body_preview}
-            </div>
-            <div className="mono faint" style={{ fontSize: 10, marginTop: 8 }}>
-              {new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              {n.source_ref ? ` · ${n.source_ref}` : ""}
-            </div>
-          </button>
+          <NoteCard key={n.id} note={n} onOpen={onOpen} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-function NoteDetail({
-  note,
-  highlights,
-  childrenByHighlight,
-  parent,
-  childCount,
-  editing,
-  onEditingChange,
-  isMobile,
-  onBack,
-  onOpenNote,
-  onHighlight,
-  onCreateSubNote,
-  onDeleteHighlight,
-  onSave,
-  onSetKind,
-  onDelete,
-  onTogglePin,
-}) {
-  const [title, setTitle] = useState(note.title);
-  const [body, setBody] = useState(note.body ?? "");
-  const [sourceRef, setSourceRef] = useState(note.source_ref ?? "");
+// One text per card, cut at a word; the title only when it says something
+// the text doesn't.
+function NoteCard({ note, onOpen, meta }) {
+  const face = cardFace(note);
+  return (
+    <button type="button" className="board-card" onClick={() => onOpen(note.id)}>
+      {face.title && <span className="board-card__title">{face.title}</span>}
+      <span className="board-card__text">{face.text}</span>
+      <span className="board-card__meta">
+        {note.pinned && <Pin size={11} fill="currentColor" aria-label="Pinned" />}
+        <span>{meta ?? [dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}</span>
+      </span>
+    </button>
+  );
+}
 
-  useEffect(() => {
-    setTitle(note.title);
-    setBody(note.body ?? "");
-    setSourceRef(note.source_ref ?? "");
-  }, [note.id, note.title, note.body, note.source_ref]);
+// ---------------------------------------------------------------------------
+// Worth seeing again
+// ---------------------------------------------------------------------------
 
-  const plainHighlights = highlights.filter((h) => !h.child_note_id);
+// A note you wrote weeks ago and haven't thought about since, offered once —
+// not a feed, not a streak. Marking it seen is what puts it back into the
+// cooling-off period.
+function Resurfaced({ onOpen }) {
+  const toast = useToast();
+  const { data, error, reload } = useLoad(() => fetchNotesToResurface(2), []);
+  const [dismissed, setDismissed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (error && !data) return <LoadError what="notes worth seeing again" error={error} onRetry={reload} />;
+  if (dismissed || !data?.length) return null;
+
+  async function markSeen() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await Promise.all(data.map((n) => markNoteSurfaced(n.id)));
+      setDismissed(true);
+    } catch (err) {
+      toast.error(err, "Couldn't mark them as seen.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="row row--between" style={{ gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-          <div className="row" style={{ gap: 8, minWidth: 0 }}>
-            {isMobile && (
-              <button className="btn-icon btn-icon--bordered" onClick={onBack} title="Back to the shelf">
-                <ChevronLeft size={15} />
-              </button>
-            )}
-            {parent && (
-              <button className="btn-link" onClick={() => onOpenNote(parent.id)}>
-                <ChevronLeft size={11} />
-                {parent.title}
-              </button>
-            )}
-          </div>
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">
+          <RotateCcw size={14} />
+          Worth seeing again
+        </h2>
+        <button type="button" className="btn btn--sm" onClick={markSeen} disabled={busy}>
+          {busy ? "Saving…" : "Mark as seen"}
+        </button>
+      </div>
+      <div className="board-cards">
+        {data.map((n) => (
+          <NoteCard
+            key={n.id}
+            note={n}
+            meta={[n.last_surfaced_at ? `Last seen ${dayLabel(n.last_surfaced_at)}` : `Kept ${dayLabel(n.created_at)}`, n.source_ref].filter(Boolean).join(" · ")}
+            onOpen={(id) => {
+              // Opening it counts as seeing it. If that doesn't save, it
+              // only means the note may be offered again.
+              markNoteSurfaced(id).catch((err) => console.warn(err));
+              onOpen(id);
+            }}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
-          <div className="row" style={{ gap: 6 }}>
-            <button className="btn-icon" onClick={onTogglePin} title={note.pinned ? "Unpin" : "Pin so it resurfaces often"}>
-              {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+function SearchResults({ query, hits, error, onRetry, byId, onOpen }) {
+  const words = useMemo(() => query.toLowerCase().split(/\s+/).filter((w) => w.length > 0).slice(0, 8), [query]);
+
+  if (error && !hits) return <LoadError what="the search" error={error} onRetry={onRetry} />;
+  if (!hits) return <p className="empty">Searching…</p>;
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="card-title">
+          <Search size={14} />
+          {hits.length === 0
+            ? `Nothing has “${query}”`
+            : `${hits.length >= 40 ? "40 or more" : hits.length} ${hits.length === 1 ? "note has" : "notes have"} “${query}”`}
+        </h2>
+      </div>
+      {error && <LoadError stale error={error} onRetry={onRetry} />}
+      {hits.length === 0 ? (
+        <p className="card-note">Every word of every note was searched. Notes have to contain all the words, so try fewer.</p>
+      ) : (
+        hits.map((h) => {
+          const listed = byId.get(h.id);
+          const kind = boardKindOf(listed ?? h);
+          // A note with a body shows its title and the words around the
+          // match; a card shows its one text, with a title only if it adds
+          // something.
+          const face = h.snippet ? { title: niceTitle(h), text: around(h.snippet, words, listed?.body_preview) } : cardFace(h, 220);
+          return (
+            <button key={h.id} type="button" className="board-result" onClick={() => onOpen(h.id)}>
+              <span className="board-result__top">
+                <span className="dot" style={{ background: kind.color }} />
+                {face.title ? (
+                  <span className="board-result__title">{markWords(face.title, words)}</span>
+                ) : (
+                  <span className="board-result__snippet">{markWords(face.text, words)}</span>
+                )}
+              </span>
+              {face.title && face.text && <span className="board-result__snippet">{markWords(face.text, words)}</span>}
+              <span className="board-result__meta">{[kind.label, h.source_ref, dayLabel(h.created_at)].filter(Boolean).join(" · ")}</span>
             </button>
-            <button className="btn" onClick={() => (editing ? onSave({ title, body, sourceRef }) : onEditingChange(true))}>
-              {editing ? <Check size={14} /> : <Pencil size={14} />}
-              {editing ? "Done" : "Edit"}
+          );
+        })
+      )}
+    </section>
+  );
+}
+
+// The server sends a fixed-width window of the note around the first match,
+// so its ends usually fall mid-word. Those ends are trimmed to whole words,
+// unless that would cut away the word you searched for, or the window starts
+// at the top of the note (which the shelf's preview shows). Headings and
+// callout labels are left out, as on a card.
+function around(snippet, words, preview) {
+  const atTop = Boolean(preview) && preview.startsWith(snippet.slice(0, 40));
+  let s = previewText(snippet) || toPlainText(snippet);
+  const has = (part) => words.some((w) => part.toLowerCase().includes(w));
+  const first = s.indexOf(" ");
+  if (!atTop && first > 0 && first < 24 && !has(s.slice(0, first))) s = "…" + s.slice(first + 1);
+  const last = s.lastIndexOf(" ");
+  if (last > 0 && last > s.length - 24 && !has(s.slice(last + 1))) s = s.slice(0, last) + "…";
+  return s;
+}
+
+function markWords(text, words) {
+  if (!text || words.length === 0) return text;
+  const pattern = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return String(text)
+    .split(pattern)
+    .map((part, i) => (i % 2 === 1 ? <mark key={i} className="board-hit">{part}</mark> : part));
+}
+
+// ---------------------------------------------------------------------------
+// A note, open
+// ---------------------------------------------------------------------------
+
+function NoteView({
+  note,
+  fullLoaded,
+  fullError,
+  onRetry,
+  parent,
+  highlights,
+  childrenById,
+  touch,
+  editing,
+  editorDirty,
+  treeOpen,
+  onToggleTree,
+  onBack,
+  onOpenNote,
+  onEdit,
+  onCloseEditor,
+  onSave,
+  onDelete,
+  onPin,
+  onSetKind,
+  onHighlight,
+  onCreateSubNote,
+  onPromote,
+  onForget,
+  onUnmark,
+}) {
+  const [pinBusy, setPinBusy] = useState(false);
+  const [kindBusy, setKindBusy] = useState(false);
+  const [promoting, setPromoting] = useState(() => new Set());
+
+  const source = fullLoaded ? note.body ?? "" : note.body_preview ?? "";
+  const hasBody = fullLoaded ? source.trim().length > 0 : (note.body_length ?? 0) > 0;
+  const title = niceTitle(note);
+  const lead = !hasBody && note.essence ? note.essence : null;
+  // The title is left out when it's only the first words of what's right
+  // under it — a kept line's essence, the passage itself, or the first line
+  // of a thought — so nothing reads twice. A first heading that repeats it
+  // is dropped from the note instead.
+  const showTitle = !titleRepeats(title, lead || note.excerpt || (hasBody ? openingLine(source) : ""));
+
+  // Marked but not made into notes, and still in the text (the ones that
+  // lost their place are listed with the note itself).
+  const plain = useMemo(() => {
+    const list = highlights.filter((h) => !h.child_note_id);
+    return fullLoaded ? resolveHighlights(note.body ?? "", list).filter((h) => !h.orphaned) : list;
+  }, [highlights, fullLoaded, note.body]);
+
+  async function pin() {
+    if (pinBusy) return;
+    setPinBusy(true);
+    await onPin();
+    setPinBusy(false);
+  }
+
+  async function setKind(key) {
+    setKindBusy(true);
+    await onSetKind(key);
+    setKindBusy(false);
+  }
+
+  async function promote(h) {
+    if (promoting.has(h.id)) return;
+    setPromoting((prev) => new Set(prev).add(h.id));
+    await onPromote(h);
+    setPromoting((prev) => {
+      const next = new Set(prev);
+      next.delete(h.id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="stack board-note">
+      <article className="card">
+        <div className="board-note__bar">
+          <div className="board-note__nav">
+            <button type="button" className="btn btn--sm btn--ghost" onClick={onBack}>
+              <ChevronLeft size={15} />
+              Board
             </button>
-            <button className="btn-icon" onClick={onDelete} title="Delete this note">
-              <Trash2 size={15} />
+          </div>
+          <div className="board-note__tools">
+            <button
+              type="button"
+              className={"btn-icon board-shelf-toggle" + (treeOpen ? " is-on" : "")}
+              onClick={onToggleTree}
+              aria-pressed={treeOpen}
+              aria-label="All notes beside this one"
+              title={treeOpen ? "Hide all notes" : "Show all notes beside this one"}
+            >
+              <Library size={16} />
             </button>
+            <button
+              type="button"
+              className={"btn-icon board-pin" + (note.pinned ? " is-on" : "")}
+              onClick={pin}
+              disabled={pinBusy}
+              aria-pressed={Boolean(note.pinned)}
+              aria-label={note.pinned ? "Unpin" : "Pin"}
+              title={note.pinned ? "Unpin" : "Pin: it comes back around more often"}
+            >
+              <Pin size={16} fill={note.pinned ? "currentColor" : "none"} />
+            </button>
+            {!editing && (
+              <button type="button" className="btn btn--sm" onClick={onEdit} disabled={!fullLoaded} title={fullLoaded ? undefined : "Waiting for the whole note"}>
+                <Pencil size={13} />
+                Edit
+              </button>
+            )}
           </div>
         </div>
+
+        {parent && (
+          <div className="board-note__from">
+            <button
+              type="button"
+              className="btn-link board-parent"
+              onClick={() => onOpenNote(parent.id)}
+              title={`Open “${niceTitle(parent)}”, the note this came from`}
+            >
+              <CornerLeftUp size={14} aria-hidden="true" />
+              <span>From {niceTitle(parent)}</span>
+            </button>
+          </div>
+        )}
 
         {editing ? (
-          <div className="stack stack--tight">
-            <KindChip value={note.note_kind} onChange={onSetKind} />
-            <input className="input input--lg" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
-            <input className="input" value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="Where it's from — book, chapter, page (optional)" />
-            <textarea
-              className="textarea"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="What you're reading, and what you make of it. Blank line between paragraphs."
-              style={{ minHeight: 380, fontFamily: "var(--font-serif)", fontSize: 15, lineHeight: 1.7 }}
-            />
-            <p className="faint" style={{ fontSize: 11.5 }}>
-              Highlights follow their own words, so editing around them is safe. If you delete a highlighted passage
-              outright, its note is kept and listed at the bottom.
-            </p>
-          </div>
+          <NoteEditor
+            note={note}
+            studyNote={isStudyNote(note)}
+            dirtyRef={editorDirty}
+            onSave={async (fields) => {
+              const row = await onSave(fields);
+              if (row) onCloseEditor();
+              return row;
+            }}
+            onCancel={onCloseEditor}
+            onDelete={onDelete}
+          />
         ) : (
           <>
-            <h2 style={{ fontSize: 20, marginBottom: 8 }}>{note.title}</h2>
-            <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              <KindChip value={note.note_kind} onChange={onSetKind} />
-              {note.source_ref && <span className="chip"><Quote size={11} />{note.source_ref}</span>}
-              {childCount > 0 && <span className="chip"><StickyNote size={11} />{childCount} {childCount === 1 ? "sub-note" : "sub-notes"}</span>}
-              {highlights.length > 0 && <span className="chip"><Highlighter size={11} />{highlights.length}</span>}
-              {note.ai_theme && <span className="chip chip--accent">{note.ai_theme}</span>}
-              <span className="mono faint" style={{ fontSize: 11 }}>{note.studied_on}</span>
+            <h1 className={showTitle ? "board-note__title" : "board-sr"}>{title}</h1>
+            <div className="board-note__meta">
+              <KindChip value={note.note_kind} onChange={setKind} studyNote={isStudyNote(note)} disabled={kindBusy} />
+              {note.source_ref && <span className="chip">{note.source_ref}</span>}
+              <span className="board-note__date">{dayLabel(note.studied_on || note.created_at)}</span>
             </div>
 
-            {/* A sub-note keeps the passage it came from at the top, so it can
-                be read on its own without hunting for the parent. */}
-            {note.excerpt && (
-              <blockquote
-                className="prose prose--sm"
-                style={{
-                  margin: "0 0 18px",
-                  padding: "10px 14px",
-                  borderLeft: "2px solid var(--accent)",
-                  background: "var(--surface)",
-                  borderRadius: "0 var(--r) var(--r) 0",
-                  color: "var(--text-2)",
-                  fontStyle: "italic",
-                }}
-              >
-                {note.excerpt}
-              </blockquote>
-            )}
+            {/* A note made from a passage keeps the passage at the top, so it
+                reads on its own without hunting for where it came from. */}
+            {note.excerpt && <blockquote className="board-quote">{note.excerpt}</blockquote>}
+            {lead && <p className="board-essence">{lead}</p>}
 
-            <NoteReader
-              note={note}
-              highlights={highlights}
-              childrenByHighlight={childrenByHighlight}
-              onHighlight={onHighlight}
-              onCreateSubNote={onCreateSubNote}
-              onDeleteHighlight={onDeleteHighlight}
-              onOpenNote={onOpenNote}
-            />
+            {!fullLoaded ? (
+              fullError ? (
+                <LoadError what="the whole note" error={fullError} onRetry={onRetry} />
+              ) : (
+                hasBody && <p className="empty">Loading the note…</p>
+              )
+            ) : hasBody ? (
+              <NoteReader
+                note={note}
+                title={note.title}
+                highlights={highlights}
+                childrenById={childrenById}
+                touch={touch}
+                onHighlight={onHighlight}
+                onCreateSubNote={onCreateSubNote}
+                onForget={onForget}
+                onUnmark={onUnmark}
+                onOpenNote={onOpenNote}
+              />
+            ) : (
+              !lead && <p className="empty">{note.excerpt ? "Nothing written about it yet." : "Nothing written here yet."}</p>
+            )}
           </>
         )}
-      </div>
+      </article>
 
-      {!editing && plainHighlights.length > 0 && (
-        <div className="card">
+      {!editing && plain.length > 0 && (
+        <section className="card">
           <div className="card-head">
-            <span className="card-title"><Highlighter size={14} />Highlights</span>
-            <span className="mono faint" style={{ fontSize: 11.5 }}>{plainHighlights.length}</span>
+            <h2 className="card-title">
+              <Highlighter size={14} />
+              Highlights
+            </h2>
+            <span className="mono muted" style={{ fontSize: 11.5 }}>{plain.length}</span>
           </div>
-          <p className="card-note" style={{ marginBottom: 12 }}>
-            Marked but not written about yet. Any of these can still become a note of its own.
+          <p className="card-note" style={{ marginBottom: 4 }}>
+            Marked but not written about yet. Any of them can still become a note of its own.
           </p>
-          {plainHighlights.map((h) => (
-            <blockquote
-              key={h.id}
-              className="prose prose--sm"
-              style={{ margin: "0 0 10px", paddingLeft: 12, borderLeft: "2px solid var(--accent-line)", color: "var(--text-2)" }}
-            >
-              {h.quoted_text}
-            </blockquote>
+          {plain.map((h) => (
+            <div key={h.id} className="board-highlight">
+              <blockquote className="board-quote">{h.quoted_text}</blockquote>
+              <div className="board-highlight__actions">
+                <button type="button" className="btn-link" onClick={() => promote(h)} disabled={promoting.has(h.id)}>
+                  {promoting.has(h.id) ? "Making it…" : "Make a note"}
+                </button>
+                <button type="button" className="btn-link" onClick={() => onForget(h)}>
+                  Forget
+                </button>
+              </div>
+            </div>
           ))}
-        </div>
+        </section>
       )}
     </div>
   );
 }
 
-// "Occasionally resurfaced." A note you wrote six weeks ago and haven't
-// thought about since, offered once — not a feed, not a streak. Marking it
-// seen is what puts it back into the cooling-off period.
-function Resurfaced({ onOpen }) {
-  const [notes, setNotes] = useState([]);
-  const [dismissed, setDismissed] = useState(false);
+// The first line of a note's text, as words. A heading doesn't count: if it
+// repeats the title the reader drops it, and if it doesn't it's a heading of
+// its own.
+function openingLine(text) {
+  const line = (String(text ?? "").split("\n").find((l) => l.trim()) ?? "").trim();
+  return /^#{1,6}\s/.test(line) ? "" : toPlainText(line);
+}
 
-  const load = useCallback(() => {
-    fetchNotesToResurface(2).then(setNotes).catch(() => {});
-  }, []);
+const PLACEHOLDER_TITLES = new Set(["untitled", "untitled note"]);
+
+// Seeded once from the whole note when it opens, and never reset under you
+// while you type. Save sends only what changed; Cancel asks before throwing
+// changes away.
+function NoteEditor({ note, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
+  const confirm = useConfirm();
+  const [initial] = useState(() => ({
+    title: PLACEHOLDER_TITLES.has(String(note.title ?? "").trim().toLowerCase()) ? "" : note.title ?? "",
+    sourceRef: note.source_ref ?? "",
+    body: note.body ?? "",
+    kind: note.note_kind ?? "thought",
+  }));
+  const [title, setTitle] = useState(initial.title);
+  const [sourceRef, setSourceRef] = useState(initial.sourceRef);
+  const [body, setBody] = useState(initial.body);
+  const [kind, setKind] = useState(initial.kind);
+  const [saving, setSaving] = useState(false);
+
+  const changes = {};
+  if (title.trim() !== initial.title.trim()) changes.title = title;
+  if (sourceRef.trim() !== initial.sourceRef.trim()) changes.sourceRef = sourceRef.trim();
+  if (body !== initial.body) changes.body = body;
+  if (kind !== initial.kind) changes.noteKind = kind;
+  const dirty = Object.keys(changes).length > 0;
 
   useEffect(() => {
-    load();
-  }, [load]);
+    dirtyRef.current = dirty;
+    if (!dirty) return;
+    // Closing the tab or reloading with unsaved changes asks too.
+    const stay = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", stay);
+    return () => window.removeEventListener("beforeunload", stay);
+  }, [dirty, dirtyRef]);
+  useEffect(() => () => (dirtyRef.current = false), [dirtyRef]);
 
-  if (dismissed || notes.length === 0) return null;
+  async function save(e) {
+    e?.preventDefault();
+    if (saving) return;
+    if (!dirty) return onCancel();
+    setSaving(true);
+    const row = await onSave(changes);
+    if (!row) setSaving(false); // on success the editor closes
+  }
+
+  async function cancel() {
+    if (saving) return;
+    if (
+      dirty &&
+      !(await confirm({
+        title: "Throw away your changes?",
+        body: `What you changed in “${cutAtWord(title.trim() || niceTitle(note), 60)}” won't be saved.`,
+        confirmLabel: "Throw away",
+        cancelLabel: "Keep editing",
+      }))
+    ) {
+      return;
+    }
+    onCancel();
+  }
 
   return (
-    <div className="card card--accent" style={{ marginBottom: 16 }}>
-      <div className="card-head">
-        <span className="card-title"><RotateCcw size={14} />Worth seeing again</span>
-        <button
-          className="btn-link"
-          onClick={async () => {
-            await Promise.all(notes.map((n) => markNoteSurfaced(n.id).catch(() => {})));
-            setDismissed(true);
-          }}
-        >
-          Mark as seen
-        </button>
+    <form
+      className="board-editor"
+      onSubmit={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save(e);
+      }}
+    >
+      <div className="board-note__meta">
+        <KindChip value={kind} onChange={setKind} studyNote={studyNote} />
       </div>
+      <label className="board-field">
+        <span>Title</span>
+        <input className="input input--lg" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />
+      </label>
+      <label className="board-field">
+        <span>Where it's from (optional)</span>
+        <input className="input" value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="Book, chapter, talk, page" />
+      </label>
+      <label className="board-field">
+        <span>The note</span>
+        <textarea
+          className="textarea"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="What you're reading, and what you make of it. A blank line between paragraphs."
+        />
+      </label>
+      <p className="board-editor__note">
+        Highlights follow their own words, so editing around them is safe. If you delete a highlighted passage, the
+        note made from it is kept and listed at the bottom.
+      </p>
 
-      <div className="grid grid--halves">
-        {notes.map((n) => (
-          <button
-            key={n.id}
-            className="day-card"
-            style={{ padding: "13px 15px", cursor: "pointer" }}
-            onClick={async () => {
-              await markNoteSurfaced(n.id).catch(() => {});
-              onOpen(n.id);
-            }}
-          >
-            <div className="row" style={{ gap: 7, marginBottom: 6 }}>
-              {n.excerpt ? <StickyNote size={12} style={{ color: "var(--accent)" }} /> : <BookOpen size={12} style={{ color: "var(--text-3)" }} />}
-              <span className="truncate" style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</span>
-            </div>
-            <div className="prose prose--sm" style={{ whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", color: "var(--text-2)" }}>
-              {n.essence || n.excerpt || n.body_preview}
-            </div>
-            {n.last_surfaced_at && (
-              <div className="mono faint" style={{ fontSize: 10, marginTop: 7 }}>
-                last seen {new Date(n.last_surfaced_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              </div>
-            )}
+      <div className="board-editor__actions">
+        <button type="button" className="btn-link btn-link--danger" onClick={onDelete} disabled={saving}>
+          Delete note
+        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn" onClick={cancel} disabled={saving}>
+            Cancel
           </button>
-        ))}
+          <button type="submit" className="btn btn--accent" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
-    </div>
+    </form>
   );
 }

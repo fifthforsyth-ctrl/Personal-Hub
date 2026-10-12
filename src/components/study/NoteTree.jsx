@@ -1,28 +1,33 @@
-import { useMemo, useState } from "react";
-import { ChevronRight, ChevronDown, FileText, StickyNote, Search, Plus, Pin, BookOpen } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, ChevronDown, FileText, StickyNote, Plus, Pin } from "lucide-react";
 import { buildTree } from "../../lib/noteText";
+import { niceTitle } from "../../lib/markdown";
 
-// The directory. Sub-notes appear here as real entries, nested under whatever
-// they were made from — the whole point of promoting a highlight is that the
-// thought becomes a thing in its own right, not an annotation buried in a
-// paragraph.
-export default function NoteTree({ notes, selectedId, onSelect, onCreateTop, query, onQueryChange }) {
+// Every note, as the directory it is. Sub-notes appear as real entries,
+// nested under whatever they were made from — the whole point of promoting a
+// highlight is that the thought becomes a thing in its own right, not an
+// annotation buried in a paragraph.
+//
+// Searching lives in the one box at the top of the Board, which reads every
+// word of every note; this is for browsing.
+export default function NoteTree({ notes, selectedId, onSelect, onCreateTop, creating = false }) {
   const byParent = useMemo(() => buildTree(notes), [notes]);
   const [expanded, setExpanded] = useState(() => new Set());
 
-  // Searching flattens: when you're looking for a phrase you want every note
-  // that contains it, not a tree you have to open one level at a time.
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return null;
-    return notes.filter(
-      (n) =>
-        n.title?.toLowerCase().includes(q) ||
-        n.body_preview?.toLowerCase().includes(q) ||
-        n.excerpt?.toLowerCase().includes(q) ||
-        n.source_ref?.toLowerCase().includes(q)
-    );
-  }, [notes, query]);
+  // The open note's branch unfolds by itself, so the tree always shows where
+  // you are.
+  useEffect(() => {
+    if (!selectedId) return;
+    const byId = new Map(notes.map((n) => [n.id, n]));
+    const path = [];
+    let at = byId.get(selectedId)?.parent_note_id;
+    while (at && !path.includes(at)) {
+      path.push(at);
+      at = byId.get(at)?.parent_note_id;
+    }
+    if (path.length === 0) return;
+    setExpanded((prev) => (path.every((id) => prev.has(id)) ? prev : new Set([...prev, ...path])));
+  }, [selectedId, notes]);
 
   function toggle(id) {
     setExpanded((prev) => {
@@ -35,40 +40,23 @@ export default function NoteTree({ notes, selectedId, onSelect, onCreateTop, que
   const roots = byParent.get("__root__") ?? [];
 
   return (
-    <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 150px)" }}>
-      <div style={{ padding: 12, borderBottom: "1px solid var(--line)" }}>
-        <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-          <Search size={15} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-          <input
-            className="input"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search every note…"
-            style={{ border: "none", background: "none", padding: 0, fontSize: 13.5 }}
-          />
+    <nav className="card board-tree" aria-label="All notes">
+      <div className="board-tree__head">
+        <div className="card-head" style={{ marginBottom: 10 }}>
+          <span className="card-title">All notes</span>
+          <span className="mono muted" style={{ fontSize: 11 }}>{notes.length}</span>
         </div>
-        <button className="btn btn--block" onClick={onCreateTop}>
+        <button type="button" className="btn btn--sm btn--block" onClick={onCreateTop} disabled={creating}>
           <Plus size={14} />
-          New note
+          {creating ? "Starting…" : "New long note"}
         </button>
       </div>
 
-      <div style={{ overflowY: "auto", padding: 8, flex: 1 }}>
-        {matches ? (
-          matches.length === 0 ? (
-            <p className="empty" style={{ padding: "14px 8px", fontSize: 12.5 }}>Nothing matches “{query}”.</p>
-          ) : (
-            matches.map((n) => (
-              <Row key={n.id} note={n} depth={0} selected={n.id === selectedId} onSelect={onSelect} hasChildren={false} />
-            ))
-          )
-        ) : roots.length === 0 ? (
-          <div style={{ padding: "20px 10px", textAlign: "center" }}>
-            <BookOpen size={22} style={{ color: "var(--text-3)", marginBottom: 8 }} />
-            <p className="empty" style={{ fontSize: 12.5 }}>
-              Nothing on the shelf yet. Make a note for what you're reading, then highlight your way through it.
-            </p>
-          </div>
+      <div className="board-tree__body">
+        {roots.length === 0 ? (
+          <p className="empty" style={{ padding: "14px 8px", fontSize: 12.5 }}>
+            Nothing here yet. Start a long note for what you're reading, then highlight your way through it.
+          </p>
         ) : (
           roots.map((n) => (
             <Branch
@@ -84,7 +72,7 @@ export default function NoteTree({ notes, selectedId, onSelect, onCreateTop, que
           ))
         )}
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -99,7 +87,6 @@ function Branch({ note, depth, byParent, expanded, onToggle, selectedId, onSelec
         depth={depth}
         selected={note.id === selectedId}
         onSelect={onSelect}
-        hasChildren={children.length > 0}
         isOpen={isOpen}
         onToggle={() => onToggle(note.id)}
         childCount={children.length}
@@ -121,56 +108,37 @@ function Branch({ note, depth, byParent, expanded, onToggle, selectedId, onSelec
   );
 }
 
-function Row({ note, depth, selected, onSelect, hasChildren, isOpen, onToggle, childCount }) {
-  const isSub = Boolean(note.excerpt);
+function Row({ note, depth, selected, onSelect, isOpen, onToggle, childCount }) {
+  const isSub = Boolean(note.parent_note_id);
+  const title = niceTitle(note);
 
   return (
-    <div
-      className="row"
-      style={{
-        gap: 2,
-        paddingLeft: depth * 13,
-        background: selected ? "var(--inset)" : "transparent",
-        borderRadius: "var(--r-sm)",
-      }}
-    >
-      <button
-        onClick={onToggle}
-        disabled={!hasChildren}
-        className="btn-icon"
-        style={{ width: 20, height: 26, flexShrink: 0, opacity: hasChildren ? 1 : 0 }}
-        title={isOpen ? "Collapse" : "Expand"}
-      >
-        {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-      </button>
+    <div className={"board-tree__row" + (selected ? " is-on" : "")} style={{ paddingLeft: depth * 14 }}>
+      {childCount > 0 ? (
+        <button
+          type="button"
+          className="btn-icon board-tree__toggle"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          aria-label={`${isOpen ? "Hide" : "Show"} the ${childCount} ${childCount === 1 ? "note" : "notes"} under “${title}”`}
+          title={isOpen ? "Hide what's under it" : "Show what's under it"}
+        >
+          {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+      ) : (
+        <span className="board-tree__toggle" style={{ width: 28, flexShrink: 0 }} aria-hidden="true" />
+      )}
 
       <button
+        type="button"
+        className="board-tree__open"
         onClick={() => onSelect(note.id)}
-        className="row"
-        style={{
-          gap: 7,
-          flex: 1,
-          minWidth: 0,
-          background: "none",
-          border: "none",
-          padding: "6px 6px 6px 0",
-          color: "inherit",
-          textAlign: "left",
-        }}
+        aria-current={selected ? "page" : undefined}
       >
-        {isSub ? (
-          <StickyNote size={12} style={{ color: "var(--accent)", flexShrink: 0 }} />
-        ) : (
-          <FileText size={12} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-        )}
-        <span
-          className="truncate"
-          style={{ flex: 1, fontSize: 12.5, fontWeight: selected ? 620 : 500, color: selected ? "var(--text)" : "var(--text-2)" }}
-        >
-          {note.title}
-        </span>
-        {note.pinned && <Pin size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />}
-        {childCount > 0 && <span className="mono faint" style={{ fontSize: 10, flexShrink: 0 }}>{childCount}</span>}
+        {isSub ? <StickyNote size={13} aria-hidden="true" /> : <FileText size={13} aria-hidden="true" />}
+        <span className="truncate" style={{ flex: 1, minWidth: 0 }}>{title}</span>
+        {note.pinned && <Pin size={11} aria-label="Pinned" fill="currentColor" />}
+        {childCount > 0 && <span className="mono" style={{ fontSize: 10.5, color: "var(--text-2)", flexShrink: 0 }}>{childCount}</span>}
       </button>
     </div>
   );

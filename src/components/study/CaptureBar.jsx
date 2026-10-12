@@ -9,6 +9,9 @@ import { NOTE_KINDS, DEFAULT_KIND, kindOf } from "../../lib/noteKinds";
 // prompting you have to file before you can write down is a prompting you
 // lose. The kind is picked in the same gesture, and Thought is always there
 // as the answer that claims nothing.
+//
+// `onCapture` resolves true once it's kept. Anything else leaves the words in
+// the box, so a dropped connection never costs you what you wrote.
 export default function CaptureBar({ onCapture }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState(DEFAULT_KIND);
@@ -22,30 +25,29 @@ export default function CaptureBar({ onCapture }) {
     const value = text.trim();
     if (!value || busy) return;
     setBusy(true);
+    let kept = false;
     try {
-      await onCapture({ text: value, kind });
-      setText("");
-      ref.current?.focus();
+      kept = await onCapture({ text: value, kind });
     } finally {
       setBusy(false);
+    }
+    if (kept) {
+      setText("");
+      ref.current?.focus();
     }
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="card"
-      style={{ borderColor: `${active.color}44`, background: `linear-gradient(180deg, ${active.color}0f, transparent 60%), var(--card)` }}
-    >
-      <div className="card-head" style={{ marginBottom: 10 }}>
-        <span className="card-title">
-          <Feather size={14} style={{ color: active.color }} />
+    <form onSubmit={submit} className="card board-capture">
+      <div className="card-head">
+        <label className="card-title" htmlFor="board-capture-text">
+          <Feather size={14} />
           Record it
-        </span>
-        <span className="faint" style={{ fontSize: 11.5 }}>{active.hint}</span>
+        </label>
       </div>
 
       <textarea
+        id="board-capture-text"
         ref={ref}
         className="textarea"
         value={text}
@@ -54,33 +56,29 @@ export default function CaptureBar({ onCapture }) {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
         }}
         placeholder="What came? Write it down before it goes."
-        style={{ minHeight: 88, fontFamily: "var(--font-serif)", fontSize: 15.5, lineHeight: 1.65 }}
       />
 
-      <div className="row row--between" style={{ marginTop: 11, gap: 10, flexWrap: "wrap" }}>
-        <div className="row" style={{ gap: 5, flexWrap: "wrap" }}>
-          {NOTE_KINDS.map((k) => {
-            const on = k.key === kind;
-            return (
-              <button
-                key={k.key}
-                type="button"
-                className="chip"
-                onClick={() => setKind(k.key)}
-                title={k.hint}
-                style={{
-                  cursor: "pointer",
-                  borderColor: on ? k.color : "var(--line)",
-                  background: on ? `${k.color}22` : "transparent",
-                  color: on ? "var(--text)" : "var(--text-2)",
-                  fontWeight: on ? 620 : 500,
-                }}
-              >
-                <span className="dot" style={{ background: k.color, width: 6, height: 6 }} />
-                {k.short}
-              </button>
-            );
-          })}
+      <div className="board-capture__foot">
+        <div className="board-capture__kinds">
+          <div className="board-filters" role="radiogroup" aria-label="What kind of note">
+            {NOTE_KINDS.map((k) => {
+              const on = k.key === kind;
+              return (
+                <button
+                  key={k.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  className={"chip board-filter" + (on ? " is-on" : "")}
+                  onClick={() => setKind(k.key)}
+                >
+                  <span className="dot" style={{ background: k.color, width: 6, height: 6 }} />
+                  {k.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="board-capture__hint">{active.hint}</p>
         </div>
 
         <button type="submit" className="btn btn--accent" disabled={busy || !text.trim()}>

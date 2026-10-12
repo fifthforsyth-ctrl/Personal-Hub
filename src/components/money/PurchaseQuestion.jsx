@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Receipt, Check, ChevronRight, Paperclip, Briefcase, ArrowLeftRight, Loader2, Wallet } from "lucide-react";
+import { Receipt, Check, ChevronRight, ChevronDown, Paperclip, Briefcase, ArrowLeftRight, Loader2, Wallet } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { fetchPurchaseInbox, fetchBudgets, classifyPurchase, setTransfer, uploadReceipt } from "../../lib/api";
-import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle } from "../../lib/money";
+import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle, kindForBudget } from "../../lib/money";
+import { useLoad } from "../../lib/useLoad";
+import { friendlyError } from "../../lib/errors";
+import { useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
+import { useReloadOn, Chip, Switch } from "./shared";
 
 // "What was this?"
 //
@@ -15,81 +20,125 @@ import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle }
 // A guess never counts against a budget until you press Save: the money stays
 // in "unsorted" and the budget page says so, rather than a wrong pre-fill
 // quietly making a month look better or worse than it was.
-export default function PurchaseQuestion({ compact = false, includeHistory = false, title = "What was this?", onAnswered }) {
+//
+// `version` is the Money page's change counter: when another card changes a
+// transaction, the queue is fetched again.
+export default function PurchaseQuestion({ compact = false, includeHistory = false, title = "What was this?", onAnswered, version = 0, onDismiss }) {
   const { user } = useAuth();
-  const [queue, setQueue] = useState([]);
-  const [budgets, setBudgets] = useState([]);
-  const [index, setIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    if (!user?.id) return;
-    try {
-      const [q, b] = await Promise.all([fetchPurchaseInbox(includeHistory ? 200 : 40, includeHistory), fetchBudgets(user.id)]);
-      setQueue(q);
-      setBudgets(b);
-      setIndex(0);
-    } finally {
-      setLoading(false);
-    }
+  const toast = useToast();
+  const { data, error, loading, reload } = useLoad(async () => {
+    const [queue, budgets] = await Promise.all([fetchPurchaseInbox(includeHistory ? 200 : 40, includeHistory), fetchBudgets(user.id)]);
+    return { queue, budgets };
   }, [user?.id, includeHistory]);
+  useReloadOn(version, reload);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Answered and put-off purchases leave the card at once, without waiting
+  // for the queue to come back from the server.
+  const [answered, setAnswered] = useState(() => new Set());
+  const [later, setLater] = useState(() => new Set());
 
-  const remaining = queue.length - index;
-  const txn = queue[index];
+  const queue = useMemo(() => (data?.queue ?? []).filter((t) => !answered.has(t.id)), [data, answered]);
+  const ahead = queue.filter((t) => !later.has(t.id));
+  const txn = ahead[0];
 
-  if (loading || !txn) {
-    if (!loading && queue.length > 0 && remaining <= 0) {
+  if (loading) return null;
+  if (error && !data) {
+    return <LoadError what={includeHistory ? "the older purchases" : "the purchases to sort"} error={error} onRetry={reload} />;
+  }
+
+  if (!txn) {
+    if (queue.length > 0) {
       return (
-        <div className="card">
-          <div className="row" style={{ gap: 9 }}>
-            <Check size={16} style={{ color: "var(--good)" }} />
-            <span style={{ fontSize: 13.5 }}>All caught up — every purchase has a home.</span>
-          </div>
+        <div className="card row money-caught-up">
+          <span style={{ flex: 1, fontSize: 13.5 }}>
+            {queue.length} put off for later.
+          </span>
+          <button type="button" className="btn btn--sm" onClick={() => setLater(new Set())}>
+            Go through them again
+          </button>
+        </div>
+      );
+    }
+    if (answered.size > 0) {
+      return (
+        <div className="card row money-caught-up">
+          <Check size={16} style={{ color: "var(--good)" }} />
+          <span style={{ flex: 1, fontSize: 13.5 }}>All caught up. Every purchase has a home.</span>
+          {onDismiss && <button type="button" className="btn-link" onClick={onDismiss}>Close</button>}
         </div>
       );
     }
     return null;
   }
 
-  const total = queue.slice(index).reduce((s, t) => s + spentOf(t.amount), 0);
+  const remaining = ahead.length;
+  const total = ahead.reduce((s, t) => s + spentOf(t.amount), 0);
+
+  function finish(id) {
+    setAnswered((prev) => new Set(prev).add(id));
+    onAnswered?.();
+  }
 
   return (
-    <div className="card card--accent">
+    <div className="card card--accent money-question">
       <div className="card-head">
         <span className="card-title"><Receipt size={14} />{title}</span>
-        <span className="mono faint" style={{ fontSize: 11 }}>
-          {remaining === 1 ? "last one" : `${remaining} to sort · ${fmtMoney(total, { round: true })}`}
+        <span className="row" style={{ gap: 14 }}>
+          <span className="mono money-question__count">
+            {remaining === 1 ? "Last one" : `${remaining} to sort · ${fmtMoney(total, { round: true })}`}
+          </span>
+          {onDismiss && (
+            <button type="button" className="btn-link" style={{ minHeight: 36 }} onClick={onDismiss}>
+              Done for now
+            </button>
+          )}
         </span>
       </div>
+
+      {error && <LoadError stale error={error} onRetry={reload} className="money-stale" />}
 
       <Question
         key={txn.id}
         txn={txn}
-        budgets={budgets}
+        budgets={data.budgets}
         compact={compact}
         userId={user.id}
-        onDone={async () => {
-          setIndex((i) => i + 1);
-          await onAnswered?.();
+        onDone={() => finish(txn.id)}
+        onNotPurchase={() => {
+          finish(txn.id);
+          toast.show("Marked as not a purchase", {
+            actionLabel: "Undo",
+            onAction: async () => {
+              try {
+                await setTransfer(txn.id, false);
+                setAnswered((prev) => {
+                  const next = new Set(prev);
+                  next.delete(txn.id);
+                  return next;
+                });
+                onAnswered?.();
+              } catch (err) {
+                toast.error(err, "Couldn't undo that.");
+              }
+            },
+          });
         }}
-        onSkip={() => setIndex((i) => i + 1)}
+        onSkip={() => setLater((prev) => new Set(prev).add(txn.id))}
       />
     </div>
   );
 }
 
-// Exported for the signed-out preview, which renders it against sample data.
-export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
-  const [kind, setKind] = useState(txn.suggested_kind ?? "");
+// One purchase's question. Only the budget is asked: what kind of purchase it
+// was follows from the budget (or from last time), and can be set under
+// "More detail" when it doesn't.
+export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotPurchase }) {
   const [budgetId, setBudgetId] = useState(txn.suggested_budget_id ?? "");
   const [isBusiness, setIsBusiness] = useState(Boolean(txn.is_business));
   const [category, setCategory] = useState(txn.business_category ?? "");
+  const [kind, setKind] = useState(null); // null until picked by hand
   const [note, setNote] = useState("");
-  const [showNote, setShowNote] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [receipts, setReceipts] = useState(txn.receipts ?? 0);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -100,28 +149,48 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
     () => budgets.filter((b) => (isBusiness ? true : b.kind !== "business")),
     [budgets, isBusiness]
   );
+
+  // A business budget picked while Business was on doesn't stay chosen,
+  // unseen, once Business is turned off: what's saved is only ever what's
+  // showing. The same goes for a suggestion pointing at an archived budget.
+  const chosen = visibleBudgets.some((b) => b.id === budgetId) ? budgetId : "";
+  useEffect(() => {
+    if (budgetId && !chosen) setBudgetId("");
+  }, [budgetId, chosen]);
+
+  const chosenBudget = budgets.find((b) => b.id === chosen);
+  const derivedKind = kindForBudget(chosenBudget?.name, {
+    suggestedKind: txn.suggested_kind,
+    suggestedBudgetId: txn.suggested_budget_id,
+    budgetId: chosen || null,
+  });
+  const shownKind = kind ?? derivedKind ?? "";
+
   const prefilled = Boolean(txn.suggested_kind || txn.suggested_budget_id);
   const date = new Date(txn.posted_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
   async function save() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      await classifyPurchase(txn.id, { budgetId, kind, isBusiness, businessCategory: category, note });
-      await onDone();
+      await classifyPurchase(txn.id, { budgetId: chosen, kind: shownKind, isBusiness, businessCategory: isBusiness ? category : "", note });
+      onDone();
     } catch (err) {
-      setError(err.message);
+      setError(friendlyError(err, "Couldn't save that answer. Try again."));
       setBusy(false);
     }
   }
 
   async function notAPurchase() {
+    if (busy) return;
     setBusy(true);
+    setError(null);
     try {
       await setTransfer(txn.id, true);
-      await onDone();
+      (onNotPurchase ?? onDone)();
     } catch (err) {
-      setError(err.message);
+      setError(friendlyError(err, "Couldn't change that. Try again."));
       setBusy(false);
     }
   }
@@ -136,7 +205,7 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
       await uploadReceipt(userId, txn.id, file);
       setReceipts((n) => n + 1);
     } catch (err) {
-      setError(err.message);
+      setError(friendlyError(err, "Couldn't attach that receipt. Try again."));
     } finally {
       setUploading(false);
     }
@@ -147,14 +216,14 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
       {/* What it was, as plainly as possible: who, how much, when, from where. */}
       <div className="row row--between" style={{ alignItems: "flex-start", gap: 14, marginBottom: 4 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: compact ? 17 : 19, fontWeight: 640, letterSpacing: "-0.02em", lineHeight: 1.25 }}>
+          <div className="money-question__who" style={{ fontSize: compact ? 17 : 19 }}>
             {merchantTitle(txn.description)}
           </div>
-          <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>
+          <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
             {date} · {txn.account_name ?? "Account"}
           </div>
         </div>
-        <div style={{ fontSize: compact ? 22 : 26, fontWeight: 680, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+        <div className="money-question__amount" style={{ fontSize: compact ? 22 : 26 }}>
           {fmtMoney(spentOf(txn.amount))}
         </div>
       </div>
@@ -163,23 +232,20 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
       </div>
 
       {prefilled && (
-        <div className="faint" style={{ fontSize: 11.5, marginBottom: 10 }}>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
           Filled in from what you said about this place last time.
         </div>
       )}
 
-      <Label>What kind of purchase?</Label>
-      <Chips options={PURCHASE_KINDS} value={kind} onChange={setKind} />
-
       <Label>Which budget?</Label>
       {visibleBudgets.length === 0 ? (
-        <p className="faint" style={{ fontSize: 12, margin: "0 0 12px" }}>
-          No budgets yet — <Link to="/money">set some up</Link> and they'll appear here.
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 14px" }}>
+          No budgets yet. <Link to="/money">Set some up</Link> and they'll appear here.
         </p>
       ) : (
-        <div className="row" style={{ gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+        <div className="row money-chips">
           {visibleBudgets.map((b) => (
-            <Chip key={b.id} active={budgetId === b.id} color={b.color} onClick={() => setBudgetId(budgetId === b.id ? "" : b.id)}>
+            <Chip key={b.id} active={chosen === b.id} color={b.color} onClick={() => setBudgetId(chosen === b.id ? "" : b.id)}>
               {b.name}
             </Chip>
           ))}
@@ -188,61 +254,26 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
 
       {/* Business is a switch, not a third question — most purchases aren't,
           and the ones from the business account arrive with it already on. */}
-      <button
-        type="button"
-        onClick={() => setIsBusiness((v) => !v)}
-        className="row"
-        style={{
-          gap: 9,
-          width: "100%",
-          background: isBusiness ? "var(--inset)" : "transparent",
-          border: `1px solid ${isBusiness ? "var(--accent-line)" : "var(--line)"}`,
-          borderRadius: "var(--r)",
-          padding: "9px 11px",
-          color: "inherit",
-          textAlign: "left",
-          marginBottom: isBusiness ? 10 : 14,
-        }}
-      >
-        <Briefcase size={14} style={{ color: isBusiness ? "var(--accent)" : "var(--text-3)" }} />
-        <span style={{ flex: 1, fontSize: 13, fontWeight: isBusiness ? 620 : 500 }}>Business expense</span>
-        <span
-          style={{
-            width: 32,
-            height: 18,
-            borderRadius: 999,
-            background: isBusiness ? "var(--accent)" : "var(--line-strong)",
-            position: "relative",
-            transition: "background 0.15s",
-          }}
-        >
-          <span
-            style={{
-              position: "absolute",
-              top: 2,
-              left: isBusiness ? 16 : 2,
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: "#fff",
-              transition: "left 0.15s",
-            }}
-          />
-        </span>
-      </button>
+      <Switch on={isBusiness} onChange={setIsBusiness} icon={Briefcase}>Business expense</Switch>
 
       {isBusiness && (
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ margin: "12px 0 4px" }}>
           <Label>Business category</Label>
-          <Chips options={BUSINESS_CATEGORIES} value={category} onChange={setCategory} />
+          <div className="row money-chips">
+            {BUSINESS_CATEGORIES.map((c) => (
+              <Chip key={c} active={category === c} onClick={() => setCategory(category === c ? "" : c)}>
+                {c}
+              </Chip>
+            ))}
+          </div>
 
-          <div className="row" style={{ gap: 8, marginTop: 4 }}>
-            <button type="button" className="btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+            <button type="button" className="btn btn--sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
               {uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />}
-              {receipts > 0 ? "Add another receipt" : "Attach receipt"}
+              {uploading ? "Attaching…" : receipts > 0 ? "Add another receipt" : "Attach receipt"}
             </button>
             {receipts > 0 && (
-              <span className="row" style={{ gap: 5, fontSize: 12, color: "var(--good)" }}>
+              <span className="row" style={{ gap: 5, fontSize: 12.5, color: "var(--good-text)" }}>
                 <Check size={13} />
                 {receipts} attached
               </span>
@@ -254,25 +285,41 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
         </div>
       )}
 
-      {showNote ? (
-        <input
-          className="input"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Anything to remember about it"
-          style={{ marginBottom: 12, fontSize: 13 }}
-          autoFocus
-        />
-      ) : (
-        <button type="button" className="btn-link" onClick={() => setShowNote(true)} style={{ marginBottom: 12 }}>
-          + Add a note
-        </button>
+      <button
+        type="button"
+        className="btn-link money-more"
+        aria-expanded={moreOpen}
+        onClick={() => setMoreOpen((v) => !v)}
+      >
+        {moreOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        More detail
+        {!moreOpen && (shownKind || note) && <span className="faint"> · {[shownKind, note && "note"].filter(Boolean).join(", ")}</span>}
+      </button>
+
+      {moreOpen && (
+        <div className="money-more__body">
+          <Label>What kind of purchase?</Label>
+          <div className="row money-chips">
+            {PURCHASE_KINDS.map((k) => (
+              <Chip key={k} active={shownKind === k} onClick={() => setKind(shownKind === k ? "" : k)}>
+                {k}
+              </Chip>
+            ))}
+          </div>
+          <input
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="A note to remember about it (optional)"
+            style={{ fontSize: 13.5 }}
+          />
+        </div>
       )}
 
-      {error && <div className="form-error" style={{ marginBottom: 10 }}>{error}</div>}
+      {error && <div className="form-error" style={{ margin: "12px 0 0" }}>{error}</div>}
 
-      <div className="row row--between" style={{ gap: 8, flexWrap: "wrap" }}>
-        <div className="row" style={{ gap: 4 }}>
+      <div className="row row--between money-question__actions">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
           <button type="button" className="btn btn--ghost" onClick={onSkip} disabled={busy}>
             Later
           </button>
@@ -283,14 +330,13 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
             disabled={busy}
             title="A transfer between your own accounts, a refund, or a card payment"
           >
-            <ArrowLeftRight size={13} />
+            <ArrowLeftRight size={14} />
             Not a purchase
           </button>
         </div>
         <button type="button" className="btn btn--accent" onClick={save} disabled={busy} style={{ marginLeft: "auto" }}>
           {busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
-          Save
-          <ChevronRight size={14} />
+          {busy ? "Saving…" : "Save"}
         </button>
       </div>
     </div>
@@ -298,45 +344,7 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip }) {
 }
 
 function Label({ children }) {
-  return (
-    <div className="eyebrow" style={{ marginBottom: 7 }}>
-      {children}
-    </div>
-  );
-}
-
-function Chips({ options, value, onChange }) {
-  return (
-    <div className="row" style={{ gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
-      {options.map((o) => (
-        <Chip key={o} active={value === o} onClick={() => onChange(value === o ? "" : o)}>
-          {o}
-        </Chip>
-      ))}
-    </div>
-  );
-}
-
-function Chip({ active, color, onClick, children }) {
-  return (
-    <button
-      type="button"
-      className="chip"
-      onClick={onClick}
-      style={{
-        cursor: "pointer",
-        fontSize: 12.5,
-        padding: "6px 11px",
-        borderColor: active ? color ?? "var(--accent)" : "var(--line)",
-        background: active ? `${color ?? "#ff8a1f"}26` : "transparent",
-        color: active ? "var(--text)" : "var(--text-2)",
-        fontWeight: active ? 620 : 500,
-      }}
-    >
-      {color && <span className="dot" style={{ background: color, width: 6, height: 6 }} />}
-      {children}
-    </button>
-  );
+  return <div className="money-label">{children}</div>;
 }
 
 // The small version for Today: one line that says how many purchases are
@@ -350,7 +358,7 @@ export function PurchaseNudge() {
     let live = true;
     fetchPurchaseInbox(40).then(
       (q) => live && setWaiting({ count: q.length, total: q.reduce((s, t) => s + spentOf(t.amount), 0) }),
-      () => {}
+      (err) => console.warn(err)
     );
     return () => {
       live = false;
@@ -359,8 +367,8 @@ export function PurchaseNudge() {
 
   if (!waiting?.count) return null;
   return (
-    <Link to="/money" className="card row" style={{ gap: 10, textDecoration: "none", color: "inherit" }}>
-      <Wallet size={16} style={{ color: "var(--text-2)" }} />
+    <Link to="/money" className="card row money-nudge">
+      <Wallet size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
       <span style={{ flex: 1, fontSize: 13.5 }}>
         {waiting.count} {waiting.count === 1 ? "purchase" : "purchases"} to sort · {fmtMoney(waiting.total, { round: true })}
       </span>
