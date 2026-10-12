@@ -33,6 +33,18 @@ export default defineConfig({
       },
     }),
   ],
+  // Libraries change far less often than the app, so keeping them in their
+  // own files means a redeploy only re-downloads the app's code.
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          supabase: ["@supabase/supabase-js"],
+        },
+      },
+    },
+  },
   server: {
     port: process.env.PORT ? Number(process.env.PORT) : 5174,
   },
