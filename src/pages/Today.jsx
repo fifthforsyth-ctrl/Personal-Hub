@@ -11,6 +11,7 @@ import WinHero from "../components/today/WinHero";
 import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
 import WeekStrip from "../components/today/WeekStrip";
+import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
@@ -20,9 +21,10 @@ import "../styles/daily.css";
 // Today: wins, minutes, and your walk with God.
 //
 // The page you open dozens of times a day, so it carries exactly the three
-// things you said the Hub is for, in that order, and one action that matters
-// most (Win) sits at the top where a thumb finds it. The curator's cards and
-// a one-line note about purchases to sort are still here, below the fold.
+// things you said the Hub is for, in that order, then this week's focus
+// goals, and one action that matters most (Win) sits at the top where a
+// thumb finds it. The curator's cards and a one-line note about purchases
+// to sort are still here, below the fold.
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -103,6 +105,7 @@ export default function Today() {
               link to the same evening would only compete with it. */}
           {!(yesterdayOpen && lateNight) && <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!evening} />}
           <WalkWithGod userId={userId} date={date} />
+          <FocusDay userId={userId} date={date} />
         </div>
       </div>
 

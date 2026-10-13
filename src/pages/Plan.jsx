@@ -6,6 +6,7 @@ import MonthView from "../components/plan/MonthView";
 import YearView from "../components/plan/YearView";
 import IdealDays from "../components/plan/IdealDays";
 import CategoryKey from "../components/CategoryKey";
+import FocusWeek from "../components/focus/FocusWeek";
 import {
   todayStr,
   addDays,
@@ -133,6 +134,8 @@ export default function Plan() {
         </div>
       </div>
 
+      {/* What the week is for comes before how its hours are laid out. */}
+      {view === "Week" && <FocusWeek anchorDate={date} />}
       {view === "Week" && <WeekView anchorDate={date} onBusyChange={setBusy} />}
       {view === "Month" && <MonthView monthDate={date} onPickDay={(d) => navigate(`/day/${d}`)} />}
       {view === "Year" && <YearView year={yearOf(date)} onPickMonth={pickMonth} />}

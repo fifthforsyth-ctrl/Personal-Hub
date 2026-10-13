@@ -10,6 +10,7 @@ import LoadError from "../components/ui/LoadError";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import CloseOut from "../components/day/CloseOut";
 import BankedDayCard from "../components/day/BankedDayCard";
+import FocusDay from "../components/focus/FocusDay";
 import TapEditor from "../components/today/TapEditor";
 import { useOutbox, withTaps, isUnnamed } from "../components/today/tapOutbox";
 import { trackedMinutes, OVERLAP_NOTE } from "../components/today/minutes";
@@ -18,8 +19,8 @@ import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
 // The evening, on one page, in the order it actually goes: what went well
-// and what didn't, where the hours went, the four reflection cards, and then
-// bank it. Nothing else on the page, so the only way forward is down.
+// and what didn't, where the hours went, the four reflection cards, whether
+// today moved this week's focus goals, and then bank it. Nothing else on the page, so the only way forward is down.
 //
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
@@ -112,6 +113,7 @@ export default function Evening() {
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
           <MinutesCard archive={a} />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
+          <FocusDay userId={userId} date={date} variant="evening" />
           <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} />
         </div>
       )}

@@ -1,0 +1,153 @@
+/* Weekly focus goals: the Week tab's Focus card, and the same goals seen
+   from Today and the evening. */
+
+/* --- Today and the evening ------------------------------------------------ */
+
+.focus-day__edit { min-height: 36px; padding: 0 2px; }
+
+.focus-day__empty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.focus-day__set { min-height: 36px; }
+
+.focus-day__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  color: var(--text);
+}
+
+.focus-day__row:first-of-type { border-top: none; }
+
+.focus-day__row--tap { background: none; border-left: none; border-right: none; border-bottom: none; }
+
+.focus-day__title { flex: 1; min-width: 0; font-size: 14px; font-weight: 560; line-height: 1.35; }
+
+.focus-day__check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--on-accent);
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.focus-day__row.is-moved .focus-day__check { background: var(--accent); border-color: var(--accent); }
+.focus-day__moved { font-size: 11.5px; font-weight: 600; color: var(--accent-text); flex-shrink: 0; }
+
+.focus-day__row--ask { flex-wrap: wrap; }
+.focus-day__answer { flex-shrink: 0; }
+.focus-day__answer .seg-btn { padding: 7px 13px; font-size: 12.5px; }
+
+@media (max-width: 520px) {
+  .focus-day__row--ask .focus-day__title { flex-basis: 100%; }
+  .focus-day__answer { width: 100%; }
+}
+
+/* --- The Week tab --------------------------------------------------------- */
+
+.focus-review {
+  background: var(--surface);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.focus-review__all { min-height: 36px; padding: 0 2px; }
+
+.focus-review__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.focus-review__row:first-of-type { border-top: none; }
+.focus-review__what { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 180px; }
+.focus-review__title { font-size: 14px; font-weight: 600; }
+.focus-review__how { font-size: 12px; color: var(--text-2); }
+.focus-review__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.focus-week__empty { color: var(--text-2); font-size: 13.5px; margin: 0 0 12px; }
+
+.focus-week__list { list-style: none; margin: 0 0 14px; padding: 0; }
+
+.focus-week__goal { padding: 10px 0 12px; border-top: 1px solid var(--line); }
+.focus-week__goal:first-child { border-top: none; padding-top: 0; }
+
+.focus-week__head { display: flex; align-items: center; gap: 6px; }
+
+.focus-week__title {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-size: 14.5px;
+  font-weight: 620;
+  color: var(--text);
+}
+
+.focus-week__pencil { color: var(--text-3); flex-shrink: 0; opacity: 0; transition: opacity 0.14s; }
+.focus-week__title:hover .focus-week__pencil,
+.focus-week__title:focus-visible .focus-week__pencil { opacity: 1; }
+@media (hover: none) { .focus-week__pencil { opacity: 1; } }
+
+.focus-week__edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; }
+.focus-week__edit .input { flex: 1 1 200px; min-width: 0; }
+
+.focus-week__meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.focus-week__count { font-size: 12px; color: var(--text-2); }
+
+.focus-week__link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.focus-week__link svg { color: var(--text-3); flex-shrink: 0; }
+.focus-week__link .btn-link { min-height: 32px; flex-shrink: 0; }
+
+.focus-week__add { display: flex; gap: 8px; }
+.focus-week__add .input { flex: 1; min-width: 0; }
+.focus-week__from-wheel { min-height: 40px; margin-top: 4px; }
+
+/* Seven small letters, one per day: orange when that day moved it, a grey
+   ring for "not today", faint when nobody answered. */
+.focus-dots { display: inline-flex; gap: 4px; }
+
+.focus-dots__day {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-3);
+  background: var(--inset);
+}
+
+.focus-dots__day.is-yes { background: var(--accent); color: var(--on-accent); }
+.focus-dots__day.is-no { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); color: var(--text-2); }
+.focus-dots__day.is-today { outline: 1.5px solid var(--ink); outline-offset: 1px; }
