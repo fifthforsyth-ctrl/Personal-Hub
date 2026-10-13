@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, ImageOff, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../ui/Feedback";
-import { uploadNoteImage, signedImageUrl, removeNoteImage } from "../../lib/api";
+import { uploadNoteImage, signedImageUrl, removeNoteImage, removeNoteWebImage } from "../../lib/api";
 import { cardFace } from "../../lib/markdown";
 import { corkItems, pinOf, tiltOf } from "../../lib/quoteShelves";
 import { dayLabel } from "../study/dayLabel";
@@ -85,9 +85,10 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
   );
 }
 
-// A thought on an index card, or a print if it has a picture.
+// A thought on an index card, or a print if it has a picture: one you added,
+// or else the one the board found for it.
 
-function PaperNote({ note, onOpen, onChanged }) {
+export function PaperNote({ note, onOpen, onChanged }) {
   const { user } = useAuth();
   const toast = useToast();
   const [url, setUrl] = useState(null);
@@ -99,11 +100,11 @@ function PaperNote({ note, onOpen, onChanged }) {
     let cancelled = false;
     setRemoved(false);
     if (note.image_path) signedImageUrl(note.image_path).then((u) => !cancelled && setUrl(u));
-    else setUrl(null);
+    else setUrl(note.image_url ?? null);
     return () => {
       cancelled = true;
     };
-  }, [note.image_path]);
+  }, [note.image_path, note.image_url]);
 
   async function pick(e) {
     const file = e.target.files?.[0];
@@ -126,7 +127,8 @@ function PaperNote({ note, onOpen, onChanged }) {
     toast.undoable({
       message: "Picture removed",
       run: async () => {
-        await removeNoteImage(user.id, note.id, path);
+        if (path) await removeNoteImage(user.id, note.id, path);
+        else await removeNoteWebImage(note.id);
         await onChanged();
       },
       onUndo: () => setRemoved(false),
@@ -134,7 +136,7 @@ function PaperNote({ note, onOpen, onChanged }) {
   }
 
   const photo = !removed && url;
-  const hasPicture = Boolean(note.image_path) && !removed;
+  const hasPicture = Boolean(note.image_path || note.image_url) && !removed;
   const face = cardFace(note, 240);
 
   return (
@@ -144,7 +146,7 @@ function PaperNote({ note, onOpen, onChanged }) {
     >
       <span className="paper__pin" aria-hidden="true" />
       <button type="button" className="paper__open" onClick={() => onOpen(note.id)}>
-        {photo && <img className="paper__photo" src={url} alt="" />}
+        {photo && <img className="paper__photo" src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setUrl(null)} />}
         {face.title && <span className="paper__title">{face.title}</span>}
         <span className="paper__text">{face.text}</span>
         <span className="paper__meta">{[dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}</span>

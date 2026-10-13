@@ -8,6 +8,7 @@
 // ways a passing build did not catch, which is the entire argument for this
 // file existing.
 
+import { readFileSync } from "node:fs";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -27,7 +28,25 @@ import {
 } from "../src/lib/ring.js";
 import { initials, ratedLine, sourceLine, RATINGS } from "../src/lib/quotes.js";
 import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
-import { slug, shelfFor, topShelf, inShelfOrder, shelfState, tiltOf, pinOf, PIN_COLORS, PEOPLE, THEMES, MOODS, corkItems } from "../src/lib/quoteShelves.js";
+import {
+  slug,
+  shelfFor,
+  topShelf,
+  inShelfOrder,
+  shelfState,
+  tiltOf,
+  pinOf,
+  PIN_COLORS,
+  PEOPLE,
+  THEMES,
+  MOODS,
+  corkItems,
+  notesOnShelf,
+  shelfCounts,
+  notePeople,
+  interleave,
+  holdsNotes,
+} from "../src/lib/quoteShelves.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
 let pass = 0;
@@ -543,6 +562,33 @@ ok("pinned thoughts go to the top of the cork", cork[0].id === "n2");
 ok("then everything newest first", cork.map((i) => i.id).join() === "n2,q2,n1,q1");
 ok("thoughts cut from a passage stay folded on the cork", !cork.some((i) => i.id === "n3"));
 ok("the cork copes with nothing", corkItems(null, undefined).length === 0);
+
+// Your own notes on the shelves.
+const filed = [
+  { id: "b1", created_at: "2026-10-01T08:00:00Z", parent_note_id: null, shelf_keys: ["person:david-a-bednar", "theme:discipline"], shelf_people: ["David A. Bednar"] },
+  { id: "b2", created_at: "2026-10-05T08:00:00Z", parent_note_id: null, shelf_keys: ["person:david-a-bednar"], shelf_people: ["David A. Bednar"] },
+  { id: "g1", created_at: "2026-10-03T08:00:00Z", parent_note_id: null, shelf_keys: ["person:grandpa-joe", "theme:work"], shelf_people: ["Grandpa Joe"] },
+  { id: "c1", created_at: "2026-10-06T08:00:00Z", parent_note_id: "b1", shelf_keys: ["person:david-a-bednar"], shelf_people: ["David A. Bednar"] },
+  { id: "u1", created_at: "2026-10-07T08:00:00Z", parent_note_id: null },
+];
+ok("a Bednar quote you wrote is on his shelf, newest first", notesOnShelf(filed, "person:david-a-bednar").map((n) => n.id).join() === "b2,b1");
+ok("a note can be on a person's shelf and a theme's", notesOnShelf(filed, "theme:discipline").map((n) => n.id).join() === "b1");
+ok("cards cut from a note don't count twice", !notesOnShelf(filed, "person:david-a-bednar").some((n) => n.id === "c1"));
+ok("notes not yet filed are on no shelf", notesOnShelf(filed, "theme:work").every((n) => n.id !== "u1"));
+ok("shelf counts", shelfCounts(filed).get("person:david-a-bednar") === 2 && shelfCounts(filed).get("theme:work") === 1);
+ok("people your notes quote get shelves; the Board's own don't repeat", notePeople(filed).map((p) => `${p.name}:${p.count}`).join() === "Grandpa Joe:1");
+ok("their shelf key is made the usual way", shelfFor("person", notePeople(filed)[0]).key === "person:grandpa-joe");
+ok("nothing filed, no people", notePeople(null).length === 0 && shelfCounts(undefined).size === 0);
+ok("All takes turns", interleave(["q1", "q2", "q3"], ["n1"]).join() === "q1,n1,q2,q3");
+ok("All with only notes", interleave([], ["n1", "n2"]).join() === "n1,n2");
+ok("people, themes and moods hold notes; top picks and asks don't",
+  holdsNotes({ facet: "person" }) && holdsNotes({ facet: "theme" }) && holdsNotes({ facet: "mood" }) && !holdsNotes({ facet: "top" }) && !holdsNotes({ facet: "ask" }));
+
+// The board function files notes under these same names.
+const boardFn = readFileSync(new URL("../supabase/functions/board/index.ts", import.meta.url), "utf8");
+ok("the board function knows every person", PEOPLE.every((p) => boardFn.includes(`"${p.name}"`)));
+ok("the board function knows every theme", THEMES.every((t) => boardFn.includes(`"${t.name}"`)));
+ok("the board function knows every mood", MOODS.every((m) => boardFn.includes(`"${m.name}"`)));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

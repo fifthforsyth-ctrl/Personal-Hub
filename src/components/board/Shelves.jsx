@@ -4,8 +4,21 @@ import { useLoad } from "../../lib/useLoad";
 import { fetchShelfCovers } from "../../lib/api";
 import { friendlyError } from "../../lib/errors";
 import { todayStr } from "../../lib/planDates";
-import { FACETS, MOODS, PEOPLE, THEMES, shelfFor, topShelf } from "../../lib/quoteShelves";
+import {
+  FACETS,
+  MOODS,
+  PEOPLE,
+  THEMES,
+  holdsNotes,
+  interleave,
+  notePeople,
+  notesOnShelf,
+  shelfCounts,
+  shelfFor,
+  topShelf,
+} from "../../lib/quoteShelves";
 import { initials } from "../../lib/quotes";
+import { PaperNote } from "./CorkBoard";
 import QuoteCard from "./QuoteCard";
 import { useShelf } from "./useShelf";
 import { useWikiPhoto } from "./useWikiPhoto";
@@ -65,11 +78,16 @@ export function TopPicks({ userId, onSaved }) {
 // Browse: shelves by person, theme or mood, or anything you ask for.
 // ---------------------------------------------------------------------------
 
-export function Browse({ userId, onOpen }) {
+export function Browse({ userId, notes, onOpen }) {
   const [facet, setFacet] = useState("person");
   const [ask, setAsk] = useState("");
   const covers = useLoad(() => fetchShelfCovers(userId), [userId]);
   const cover = (shelf) => covers.data?.[shelf.key] ?? null;
+  // Your own notes are filed onto the shelves too: how many on each, and the
+  // people you've quoted who aren't among the Board's own.
+  const counts = useMemo(() => shelfCounts(notes), [notes]);
+  const yours = (shelf) => counts.get(shelf.key) ?? 0;
+  const others = useMemo(() => notePeople(notes), [notes]);
 
   function submitAsk(e) {
     e.preventDefault();
@@ -102,8 +120,12 @@ export function Browse({ userId, onOpen }) {
 
       {facet === "person" && (
         <div className="browse__people">
-          {PEOPLE.map((p) => (
-            <PersonTile key={p.name} person={p} onOpen={() => onOpen(shelfFor("person", p))} />
+          {PEOPLE.map((p) => {
+            const shelf = shelfFor("person", p);
+            return <PersonTile key={p.name} person={p} yours={yours(shelf)} onOpen={() => onOpen(shelf)} />;
+          })}
+          {others.map((p) => (
+            <PersonTile key={p.name} person={p} yours={p.count} onOpen={() => onOpen(shelfFor("person", p))} />
           ))}
         </div>
       )}
@@ -112,19 +134,23 @@ export function Browse({ userId, onOpen }) {
         <div className="browse__themes">
           {THEMES.map((t, i) => {
             const shelf = shelfFor("theme", t);
-            return <ThemeTile key={t.name} item={t} index={i} cover={cover(shelf)} onOpen={() => onOpen(shelf)} />;
+            return <ThemeTile key={t.name} item={t} index={i} cover={cover(shelf)} yours={yours(shelf)} onOpen={() => onOpen(shelf)} />;
           })}
         </div>
       )}
 
       {facet === "mood" && (
         <div className="browse__moods">
-          {MOODS.map((m, i) => (
-            <button key={m.name} type="button" className={`mood-tile mood-tile--${i % 5}`} onClick={() => onOpen(shelfFor("mood", m))}>
-              <span className="mood-tile__feel">Feeling</span>
-              <span className="mood-tile__name">{m.name.toLowerCase()}</span>
-            </button>
-          ))}
+          {MOODS.map((m, i) => {
+            const shelf = shelfFor("mood", m);
+            return (
+              <button key={m.name} type="button" className={`mood-tile mood-tile--${i % 5}`} onClick={() => onOpen(shelf)}>
+                <span className="mood-tile__feel">Feeling</span>
+                <span className="mood-tile__name">{m.name.toLowerCase()}</span>
+                <Yours count={yours(shelf)} />
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -147,8 +173,16 @@ export function Browse({ userId, onOpen }) {
   );
 }
 
-function PersonTile({ person, onOpen }) {
-  const photo = useWikiPhoto(person.wiki);
+// "3 of yours": how many of your own notes are on a shelf.
+function Yours({ count }) {
+  if (!count) return null;
+  return <span className="yours-count">{count} of yours</span>;
+}
+
+// One of the Board's people, or someone your notes quote (no `wiki`, so
+// their initials stand in for a photo).
+function PersonTile({ person, yours, onOpen }) {
+  const photo = useWikiPhoto(person.wiki ?? null);
   const [failed, setFailed] = useState(false);
   return (
     <button type="button" className="person-tile" onClick={onOpen}>
@@ -160,17 +194,21 @@ function PersonTile({ person, onOpen }) {
         )}
       </span>
       <span className="person-tile__name">{person.name}</span>
-      <span className="person-tile__kind">{person.kind === "church" ? "Church leader" : "History"}</span>
+      <span className="person-tile__kind">
+        {person.kind === "church" ? "Church leader" : person.kind === "historical" ? "History" : "From your notes"}
+      </span>
+      <Yours count={yours} />
     </button>
   );
 }
 
-function ThemeTile({ item, index, cover, onOpen }) {
+function ThemeTile({ item, index, cover, yours, onOpen }) {
   const [failed, setFailed] = useState(false);
   return (
     <button type="button" className={`theme-tile theme-tile--${index % 6}` + (cover && !failed ? " has-cover" : "")} onClick={onOpen}>
       {cover && !failed && <img className="theme-tile__cover" src={cover} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
       <span className="theme-tile__name">{item.name}</span>
+      <Yours count={yours} />
     </button>
   );
 }
@@ -179,10 +217,23 @@ function ThemeTile({ item, index, cover, onOpen }) {
 // One shelf, open.
 // ---------------------------------------------------------------------------
 
-export function ShelfView({ userId, shelf, onBack, onSaved }) {
-  const s = useShelf(userId, shelf);
+// A shelf shows the quotes found for you, your own notes filed on it, or
+// both, the way you choose: All, For you, From you.
+const VIEWS = [
+  { key: "all", label: "All" },
+  { key: "found", label: "For you" },
+  { key: "mine", label: "From you" },
+];
+
+export function ShelfView({ userId, shelf, notes, sorting, onBack, onSaved, onOpenNote, onNotesChanged }) {
   const person = shelf.facet === "person" ? PEOPLE.find((p) => shelfFor("person", p).key === shelf.key) : null;
   const photo = useWikiPhoto(person?.wiki ?? null);
+  const withNotes = holdsNotes(shelf);
+  const mine = useMemo(() => (withNotes ? notesOnShelf(notes, shelf.key) : []), [withNotes, notes, shelf.key]);
+  // Someone only your notes quote opens on your notes; the web is asked for
+  // their quotes only if you look.
+  const [view, setView] = useState(() => (shelf.facet === "person" && !person ? "mine" : "all"));
+  const s = useShelf(userId, shelf, { auto: view !== "mine" });
 
   function changed(quote) {
     s.replace(quote);
@@ -190,6 +241,12 @@ export function ShelfView({ userId, shelf, onBack, onSaved }) {
   }
 
   const eyebrow = { person: "Quotes by", theme: "On", mood: "For when you're feeling", ask: "Quotes about", top: "This week" }[shelf.facet];
+  const showQuotes = view !== "mine";
+  const showNotes = withNotes && view !== "found";
+  const items = interleave(
+    showQuotes ? s.quotes.map((q) => ({ kind: "quote", id: q.id, quote: q })) : [],
+    showNotes ? mine.map((n) => ({ kind: "note", id: n.id, note: n })) : []
+  );
 
   return (
     <div className="shelf">
@@ -209,14 +266,36 @@ export function ShelfView({ userId, shelf, onBack, onSaved }) {
         </div>
       </header>
 
-      {s.quotes.length > 0 && (
+      {withNotes && (
+        <div className="seg shelf__views" role="tablist" aria-label="Show">
+          {VIEWS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              role="tab"
+              aria-selected={view === v.key}
+              className={"seg-btn" + (view === v.key ? " active" : "")}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
+              {v.key === "mine" && mine.length > 0 && <span className="seg-count">{mine.length}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {items.length > 0 && (
         <div className="shelf__grid">
-          {s.quotes.map((q) => (
-            <div key={q.id} className="print-slot">
-              <QuoteCard quote={q} variant="shelf" onChange={changed} />
+          {items.map((item) => (
+            <div key={item.id} className="print-slot">
+              {item.kind === "quote" ? (
+                <QuoteCard quote={item.quote} variant="shelf" onChange={changed} />
+              ) : (
+                <PaperNote note={item.note} onOpen={onOpenNote} onChanged={onNotesChanged} />
+              )}
             </div>
           ))}
-          {s.state === "pending" && (
+          {showQuotes && s.quotes.length > 0 && s.state === "pending" && (
             <div className="print-slot">
               <WaitingPrint label="Finding more…" />
             </div>
@@ -224,11 +303,13 @@ export function ShelfView({ userId, shelf, onBack, onSaved }) {
         </div>
       )}
 
-      {s.quotes.length === 0 && (s.state === "failed" || s.loadError) && (
+      {view === "mine" && mine.length === 0 && <MineEmpty shelf={shelf} sorting={sorting} />}
+
+      {showQuotes && s.quotes.length === 0 && (s.state === "failed" || s.loadError) && (
         <ShelfTrouble error={s.error ?? s.loadError} onRetry={s.loadError ? s.reload : s.retry} />
       )}
 
-      {s.quotes.length === 0 && s.state !== "failed" && !s.loadError && (
+      {showQuotes && s.quotes.length === 0 && s.state !== "failed" && !s.loadError && (
         <div className="shelf__waiting">
           <p className="shelf__waiting-note">
             Looking up each quote in its talk or book, so the words are the real ones. The first time takes about a
@@ -244,7 +325,7 @@ export function ShelfView({ userId, shelf, onBack, onSaved }) {
         </div>
       )}
 
-      {s.quotes.length > 0 && (
+      {showQuotes && s.quotes.length > 0 && (
         <div className="shelf__more">
           {s.state === "failed" && <span className="form-error">{friendlyError(s.error, "Couldn't find more.")}</span>}
           <button type="button" className="btn" onClick={s.state === "failed" ? s.retry : s.more} disabled={s.state === "pending"}>
@@ -253,6 +334,24 @@ export function ShelfView({ userId, shelf, onBack, onSaved }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Nothing of yours on this shelf yet: what will put something here.
+function MineEmpty({ shelf, sorting }) {
+  const what = {
+    person: `Quotes you write down from ${shelf.label}`,
+    theme: `Thoughts you write about ${shelf.label.toLowerCase()}`,
+    mood: `Notes that help when you're ${shelf.label.toLowerCase()}`,
+  }[shelf.facet];
+  return (
+    <div className="shelf__mine-empty">
+      <p className="empty">
+        {sorting
+          ? "Still sorting your notes onto the shelves. Yours will show up here as they're filed."
+          : `Nothing of yours here yet. ${what} will show up here.`}
+      </p>
     </div>
   );
 }
