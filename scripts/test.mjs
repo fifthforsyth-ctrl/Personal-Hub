@@ -25,6 +25,7 @@ import {
   DAY_END_MIN,
   WINDOW_MINUTES,
 } from "../src/lib/ring.js";
+import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
 let pass = 0;
@@ -453,6 +454,24 @@ ok("titles are trimmed and squeezed", cleanTitle("  patience   with\nthe kids ")
 ok("a blank title is empty", cleanTitle("   ") === "");
 ok("titles are capped at 200", cleanTitle("x".repeat(250)).length === 200);
 ok("ordering doesn't change the input", (() => { const g = [{ position: 2 }, { position: 1 }]; orderGoals(g); return g[0].position === 2; })());
+
+// --- The Board ---------------------------------------------------------------
+
+const shelf = [
+  { id: "old", created_at: "2026-08-01T10:00:00Z", parent_note_id: null },
+  { id: "child", created_at: "2026-09-20T10:00:00Z", parent_note_id: "old" },
+  { id: "new", created_at: "2026-10-12T10:00:00Z", parent_note_id: null },
+];
+ok("the board lists newest first", boardNotes(shelf).map((n) => n.id).join() === "new,old");
+ok("notes cut from a passage fold under their parent", !boardNotes(shelf).some((n) => n.id === "child"));
+ok("the board copes with nothing", boardNotes(null).length === 0);
+ok("folding doesn't reorder the input", shelf[0].id === "old");
+
+ok("useful saves as a high score", verdictOf(USEFUL) === "useful");
+ok("not now saves as a low score", verdictOf(NOT_NOW) === "not_now");
+ok("an old 7 out of 10 reads as useful", verdictOf(7) === "useful");
+ok("an old 5 out of 10 reads as not now", verdictOf(5) === "not_now");
+ok("unscored has no verdict", verdictOf(null) === null && verdictOf(0) === null);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

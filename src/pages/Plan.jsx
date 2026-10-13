@@ -7,6 +7,7 @@ import YearView from "../components/plan/YearView";
 import IdealDays from "../components/plan/IdealDays";
 import CategoryKey from "../components/CategoryKey";
 import FocusWeek from "../components/focus/FocusWeek";
+import CuratedCards from "../components/curator/CuratedCards";
 import {
   todayStr,
   addDays,
@@ -136,6 +137,13 @@ export default function Plan() {
 
       {/* What the week is for comes before how its hours are laid out. */}
       {view === "Week" && <FocusWeek anchorDate={date} />}
+      {/* Sunday is when the week gets planned, so it's when the board brings
+          back what fits the week ahead. */}
+      {view === "Week" && isSundayReview(date) && (
+        <div style={{ marginBottom: 16 }}>
+          <CuratedCards slot="day" title="From your board, for the week ahead" />
+        </div>
+      )}
       {view === "Week" && <WeekView anchorDate={date} onBusyChange={setBusy} />}
       {view === "Month" && <MonthView monthDate={date} onPickDay={(d) => navigate(`/day/${d}`)} />}
       {view === "Year" && <YearView year={yearOf(date)} onPickMonth={pickMonth} />}
@@ -146,4 +154,9 @@ export default function Plan() {
       <CategoryKey />
     </div>
   );
+}
+
+function isSundayReview(anchorDate) {
+  const today = todayStr();
+  return parseDateStr(today).getDay() === 0 && startOfWeek(anchorDate) === startOfWeek(today);
 }

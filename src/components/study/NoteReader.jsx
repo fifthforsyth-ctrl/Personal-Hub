@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Highlighter, StickyNote, X, ChevronRight, ChevronDown, Info, MousePointerClick } from "lucide-react";
 import { resolveHighlights, findInSource, selectionInfo } from "../../lib/noteText";
 import { MarkdownNote, annotateHighlights, niceTitle, cardFace } from "../../lib/markdown";
-import { KindChip, KindMenu } from "./KindChip";
 
 // Reading a note, with the passage-to-note gesture on top of it.
 //
@@ -38,7 +37,6 @@ export default function NoteReader({
   const [selection, setSelection] = useState(null); // { text, start, end } in the source
   const [anchor, setAnchor] = useState(null); // where it sits, in the reader's own coordinates
   const [barLeft, setBarLeft] = useState(null);
-  const [kindMenu, setKindMenu] = useState(false);
   const [missed, setMissed] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -77,8 +75,8 @@ export default function NoteReader({
   }, [anchored, childrenById]);
 
   useEffect(() => {
-    holdRef.current = kindMenu || busy;
-  }, [kindMenu, busy]);
+    holdRef.current = busy;
+  }, [busy]);
 
   useEffect(() => {
     setSelection(null);
@@ -92,12 +90,11 @@ export default function NoteReader({
     function capture() {
       const info = selectionInfo(textRef.current);
       if (!info) {
-        // The bar stays while it's working or its menu is open: on a phone,
-        // tapping it can clear the selection it's about to use.
+        // The bar stays while it's working: on a phone, tapping it can clear
+        // the selection it's about to use.
         if (holdRef.current) return;
         setSelection(null);
         setAnchor(null);
-        setKindMenu(false);
         return;
       }
 
@@ -112,7 +109,6 @@ export default function NoteReader({
       }
 
       setMissed(false);
-      setKindMenu(false);
       setSelection({ text: info.text.trim(), start: found.start, end: found.end });
       const box = rootRef.current.getBoundingClientRect();
       const top = info.rect.top - box.top;
@@ -163,21 +159,10 @@ export default function NoteReader({
     setBarLeft(Math.min(max, Math.max(0, anchor.center - width / 2)));
   }, [anchor, touch]);
 
-  // Tapping away closes the kind menu, which lets the bar go with it.
-  useEffect(() => {
-    if (!kindMenu) return;
-    function away(e) {
-      if (!barRef.current?.contains(e.target)) setKindMenu(false);
-    }
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [kindMenu]);
-
   function clear() {
     window.getSelection()?.removeAllRanges();
     setSelection(null);
     setAnchor(null);
-    setKindMenu(false);
   }
 
   async function act(fn) {
@@ -259,35 +244,10 @@ export default function NoteReader({
             Highlight
           </button>
 
-          <span className="board-split">
-            <button type="button" className="btn btn--accent" onClick={() => act((sel) => onCreateSubNote(sel, "thought"))} disabled={busy}>
-              <StickyNote size={14} />
-              {busy ? "Saving…" : "Make a note"}
-            </button>
-            <button
-              type="button"
-              className="btn btn--accent"
-              onClick={() => setKindMenu((v) => !v)}
-              disabled={busy}
-              aria-haspopup="menu"
-              aria-expanded={kindMenu}
-              aria-label="Make a note of a particular kind"
-              title="Make a note of a particular kind"
-            >
-              <ChevronDown size={14} />
-            </button>
-            {kindMenu && (
-              <KindMenu
-                align="right"
-                up={docked}
-                label="Make a note of this kind"
-                onPick={(key) => {
-                  setKindMenu(false);
-                  act((sel) => onCreateSubNote(sel, key));
-                }}
-              />
-            )}
-          </span>
+          <button type="button" className="btn btn--accent" onClick={() => act(onCreateSubNote)} disabled={busy}>
+            <StickyNote size={14} />
+            {busy ? "Saving…" : "Make a note"}
+          </button>
 
           <button type="button" className="btn-icon" onClick={clear} aria-label="Cancel" title="Cancel">
             <X size={16} />
@@ -357,7 +317,6 @@ function InlineSubNote({ highlight, child, collapsed, onToggle, onOpen, onUnmark
       <button type="button" className="board-subnote__head" onClick={onToggle} aria-expanded={!collapsed}>
         {collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
         <span className="board-subnote__title">{niceTitle(child)}</span>
-        <KindChip value={child.note_kind} size="sm" />
       </button>
 
       {!collapsed && (

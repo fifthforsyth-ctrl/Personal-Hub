@@ -5,9 +5,9 @@ import { fetchDailySelection, runCurator, scoreSelectionItem, signedImageUrl, ma
 import { useLoad } from "../../lib/useLoad";
 import { friendlyError, isOffline } from "../../lib/errors";
 import LoadError from "../ui/LoadError";
-import { kindOf } from "../../lib/noteKinds";
 import { todayStr } from "../../lib/planDates";
 import { useBackOnline } from "../today/useBackOnline";
+import { USEFUL, NOT_NOW, verdictOf } from "../../lib/board";
 
 // What the curator chose for today, and what you thought of it.
 //
@@ -162,15 +162,16 @@ export default function CuratedCards({ slot, date = todayStr(), title, compact =
   );
 }
 
+// Two answers, because that's all a glance can give: useful or not now. The
+// why is optional and comes after, for when there's something to say; the
+// curator reads both when it chooses tomorrow.
 export function CuratedCard({ item, onScored, compact }) {
   const note = item.note ?? {};
-  const kind = kindOf(note.note_kind);
   const [imageUrl, setImageUrl] = useState(null);
-  const [scoring, setScoring] = useState(false);
   const [feedback, setFeedback] = useState(item.feedback ?? "");
-  const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(null);
   const [scoreError, setScoreError] = useState(null);
+  const verdict = verdictOf(saving ?? item.score);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,134 +186,106 @@ export function CuratedCard({ item, onScored, compact }) {
     };
   }, [note.image_path]);
 
-  async function submitScore(score) {
+  async function submitScore(score, why = feedback) {
     if (saving) return;
     setSaving(score);
     setScoreError(null);
     try {
-      await scoreSelectionItem(item.id, score, feedback.trim() ? feedback.trim() : null);
-      setScoring(false);
+      await scoreSelectionItem(item.id, score, why.trim() ? why.trim() : null);
       await onScored();
     } catch (err) {
-      setScoreError(friendlyError(err, "Couldn't save your score. Try again."));
+      setScoreError(friendlyError(err, "Couldn't save that. Try again."));
     } finally {
       setSaving(null);
     }
   }
 
   const text = note.essence || note.body || note.excerpt || "";
-  const shown = saving ?? pending ?? item.score ?? 0;
+  const whyChanged = item.score && feedback.trim() !== (item.feedback ?? "").trim();
 
   return (
-    <div
-      className="card"
-      style={{
-        borderColor: `${kind.color}44`,
-        background: `linear-gradient(180deg, ${kind.color}12, transparent 55%), var(--card)`,
-        padding: 0,
-        overflow: "hidden",
-      }}
-    >
+    <div className="card curated-card">
       {/* A quote with a picture is the one place an image earns its keep:
           it's what makes the thing land before you've read a word.
           Capped in pixels rather than by aspect ratio: on a wide desktop card
           a 21:9 band becomes 500px of picture and shoves the words off the
           screen, which is the opposite of the point. */}
       {imageUrl && (
-        <div style={{ width: "100%", height: compact ? 150 : 190, overflow: "hidden" }}>
-          <img src={imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        <div className="curated-card__image" style={{ height: compact ? 150 : 190 }}>
+          <img src={imageUrl} alt="" />
         </div>
       )}
 
-      <div style={{ padding: 16 }}>
-        <div className="row row--between" style={{ marginBottom: 9, gap: 10 }}>
-          <span className="chip" style={{ borderColor: `${kind.color}55`, background: `${kind.color}18`, color: "var(--text)" }}>
-            <span className="dot" style={{ background: kind.color, width: 6, height: 6 }} />
-            {kind.short}
-          </span>
-          {note.created_at && (
-            <span className="mono muted" style={{ fontSize: 10.5 }}>
-              {new Date(note.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-            </span>
-          )}
-        </div>
+      <div className="curated-card__body">
+        {note.created_at && (
+          <div className="curated-card__date mono">
+            {new Date(note.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          </div>
+        )}
 
         <div className="prose" style={{ fontSize: compact ? 14.5 : 15.5, marginBottom: 10 }}>{text}</div>
 
-        {note.excerpt && note.body?.trim() && (
-          <blockquote
-            className="prose prose--sm"
-            style={{ margin: "0 0 10px", paddingLeft: 11, borderLeft: `2px solid ${kind.color}66`, color: "var(--text-2)", fontStyle: "italic" }}
-          >
-            {note.excerpt}
-          </blockquote>
-        )}
+        {note.excerpt && note.body?.trim() && <blockquote className="prose prose--sm curated-card__quote">{note.excerpt}</blockquote>}
 
         {/* Why this, today. */}
-        <div
-          className="row"
-          style={{ gap: 8, alignItems: "flex-start", padding: "9px 11px", background: "var(--inset)", borderRadius: "var(--r)", marginBottom: 12 }}
-        >
+        <div className="curated-card__why">
           <Sparkles size={12} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
-          <span className="muted" style={{ fontSize: 12.5, lineHeight: 1.55 }}>{item.reason}</span>
+          <span className="muted">{item.reason}</span>
         </div>
 
-        <div className="row row--between" style={{ gap: 10, flexWrap: "wrap" }}>
-          {item.score ? (
-            <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--accent-text)" }}>
-              <Check size={13} />
-              You scored this {item.score}/10
-              <button className="btn-link curated__link" style={{ marginLeft: 4 }} onClick={() => setScoring((v) => !v)}>
-                {scoring ? "Never mind" : "Change"}
-              </button>
-            </span>
-          ) : (
-            <button className="btn-link curated__link" onClick={() => setScoring((v) => !v)}>
-              {scoring ? "Never mind" : "How well did this fit?"}
+        <div className="curated-card__foot">
+          <div className="seg" role="group" aria-label="Was this useful today?">
+            <button
+              type="button"
+              className={"seg-btn" + (verdict === "useful" ? " active" : "")}
+              aria-pressed={verdict === "useful"}
+              disabled={Boolean(saving)}
+              onClick={() => submitScore(USEFUL)}
+            >
+              {verdict === "useful" && <Check size={12} />}
+              Useful
             </button>
-          )}
+            <button
+              type="button"
+              className={"seg-btn" + (verdict === "not_now" ? " active" : "")}
+              aria-pressed={verdict === "not_now"}
+              disabled={Boolean(saving)}
+              onClick={() => submitScore(NOT_NOW)}
+            >
+              Not now
+            </button>
+          </div>
           <Link to={`/study?note=${note.id}`} className="btn-link curated__link" onClick={() => markNoteSurfaced(note.id).catch((err) => console.warn(err))}>
             Open it
             <ArrowRight size={12} />
           </Link>
         </div>
 
-        {scoring && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>How well did this apply to you today?</div>
-            <div className="curated__scores" onMouseLeave={() => setPending(null)}>
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onMouseEnter={() => setPending(n)}
-                  onClick={() => submitScore(n)}
-                  disabled={Boolean(saving)}
-                  aria-label={`Score ${n} out of 10`}
-                  aria-pressed={item.score === n}
-                  className={"curated__score mono" + (shown >= n ? " curated__score--on" : "")}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="row" style={{ gap: 8 }}>
-              <MessageSquare size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-              <input
-                className="input"
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Why? (optional: this is what teaches it)"
-                aria-label="Why you gave that score"
-                style={{ fontSize: 13 }}
-              />
-            </div>
-            {scoreError && <div className="form-error" style={{ marginTop: 10 }}>{scoreError}</div>}
-            <p className="muted" style={{ fontSize: 11.5, margin: "8px 0 0", lineHeight: 1.5 }}>
-              {saving ? "Saving…" : "Write why first if you want to, then press a number to save. A low score with a reason is the most useful thing you can give the curator."}
-            </p>
-          </div>
+        {item.score && (
+          <form
+            className="curated-card__say"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (whyChanged) submitScore(item.score);
+            }}
+          >
+            <MessageSquare size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />
+            <input
+              className="input"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder="Why? (optional, it teaches the board)"
+              aria-label="Why"
+            />
+            {whyChanged && (
+              <button type="submit" className="btn btn--sm" disabled={Boolean(saving)}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+            )}
+          </form>
         )}
+
+        {scoreError && <div className="form-error" style={{ marginTop: 10 }}>{scoreError}</div>}
       </div>
     </div>
   );

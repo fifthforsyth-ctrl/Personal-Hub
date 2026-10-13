@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useNavigate } from "react-router-dom";
 import { Plus, Minus, Clock, Lightbulb, X, Check, ChevronLeft, CloudOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { createStudyNote, deleteNote } from "../lib/api";
+import { createStudyNote, deleteNote, gistNote } from "../lib/api";
 import { friendlyError } from "../lib/errors";
 import { useToast } from "./ui/Feedback";
 import { MinutesView } from "./MinutesView";
@@ -232,6 +232,9 @@ function ThoughtCapture({ userId, onDone }) {
       setBusy(false);
       return;
     }
+    // The board files it afterwards (a gist and a few tags); if that fails,
+    // the next time the Board opens picks it up.
+    gistNote(note.id).catch((err) => console.warn(err));
     announceChange();
     onDone();
     toast.show(

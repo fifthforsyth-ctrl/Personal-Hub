@@ -5,27 +5,19 @@ import { useToast } from "../ui/Feedback";
 import { uploadNoteImage, signedImageUrl, removeNoteImage } from "../../lib/api";
 import { cardFace } from "../../lib/markdown";
 
-// The wall.
+// The wall: the cork board itself.
 //
-// Quotes are the one thing here that works better as a grid than as a stream:
-// you come to this looking to be reminded that other people walked the same
-// road, and that's a browsing motion, not a reading one. The picture does most
-// of the work — it's what makes a line land before you've finished reading it.
+// The same cards as the list, laid out as a grid you browse rather than read,
+// pinned ones first. Any card can carry a picture, and the picture does most
+// of the work: it's what makes a line land before you've finished reading it.
 export default function QuoteWall({ notes, onOpen, onChanged }) {
   const quotes = useMemo(
-    () =>
-      notes
-        .filter((n) => n.note_kind === "motivation" || n.note_kind === "revelation")
-        .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.created_at).localeCompare(String(a.created_at))),
+    () => [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.created_at).localeCompare(String(a.created_at))),
     [notes]
   );
 
   if (quotes.length === 0) {
-    return (
-      <p className="empty">
-        Nothing on the wall yet. Motivation and Revelation notes land here, and any of them can carry a picture.
-      </p>
-    );
+    return <p className="empty">Nothing on the wall yet. Anything you keep lands here, and any card can carry a picture.</p>;
   }
 
   return (
@@ -101,7 +93,7 @@ function QuoteTile({ note, onOpen, onChanged }) {
       )}
 
       <button type="button" className="board-tile__open" onClick={() => onOpen(note.id)}>
-        <QuoteIcon size={14} className="board-tile__mark" aria-hidden="true" />
+        {(note.note_kind === "motivation" || note.note_kind === "revelation") && <QuoteIcon size={14} className="board-tile__mark" aria-hidden="true" />}
         <div className="board-tile__text">{text}</div>
         {note.source_ref && <div className="board-tile__ref">— {note.source_ref}</div>}
       </button>

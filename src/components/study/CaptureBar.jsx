@@ -1,24 +1,22 @@
 import { useRef, useState } from "react";
 import { Feather, CornerDownLeft } from "lucide-react";
-import { NOTE_KINDS, DEFAULT_KIND, kindOf } from "../../lib/noteKinds";
 
 // Recording something before it goes.
 //
 // This sits at the top of the page and nothing stands between typing and
-// keeping — no title field, no dialog, no choosing where it goes first. A
+// keeping: no title field, no dialog, no choosing where it goes first. A
 // prompting you have to file before you can write down is a prompting you
-// lose. The kind is picked in the same gesture, and Thought is always there
-// as the answer that claims nothing.
+// lose. There is no kind to pick either; the board files it quietly
+// afterwards with a one-line gist and a few tags you never have to see.
+//
+// Speaking works the same way: the keyboard's microphone types into the box.
 //
 // `onCapture` resolves true once it's kept. Anything else leaves the words in
 // the box, so a dropped connection never costs you what you wrote.
 export default function CaptureBar({ onCapture }) {
   const [text, setText] = useState("");
-  const [kind, setKind] = useState(DEFAULT_KIND);
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
-
-  const active = kindOf(kind);
 
   async function submit(e) {
     e?.preventDefault();
@@ -27,7 +25,7 @@ export default function CaptureBar({ onCapture }) {
     setBusy(true);
     let kept = false;
     try {
-      kept = await onCapture({ text: value, kind });
+      kept = await onCapture({ text: value });
     } finally {
       setBusy(false);
     }
@@ -55,32 +53,11 @@ export default function CaptureBar({ onCapture }) {
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
         }}
-        placeholder="What came? Write it down before it goes."
+        placeholder="What came? Type it or speak it, before it goes."
       />
 
       <div className="board-capture__foot">
-        <div className="board-capture__kinds">
-          <div className="board-filters" role="radiogroup" aria-label="What kind of note">
-            {NOTE_KINDS.map((k) => {
-              const on = k.key === kind;
-              return (
-                <button
-                  key={k.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  className={"chip board-filter" + (on ? " is-on" : "")}
-                  onClick={() => setKind(k.key)}
-                >
-                  <span className="dot" style={{ background: k.color, width: 6, height: 6 }} />
-                  {k.label}
-                </button>
-              );
-            })}
-          </div>
-          <p className="board-capture__hint">{active.hint}</p>
-        </div>
-
+        <p className="board-capture__hint">Kept as you wrote it. The board files it for later.</p>
         <button type="submit" className="btn btn--accent" disabled={busy || !text.trim()}>
           <CornerDownLeft size={14} />
           {busy ? "Keeping…" : "Keep it"}

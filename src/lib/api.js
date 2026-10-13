@@ -1566,6 +1566,18 @@ export async function searchNotes(query, limit = 30) {
   return data ?? [];
 }
 
+// The board's quiet filing: a one-line gist and a few tags for a thought,
+// so search and the curator can find it later. Never shown on the card.
+export function gistNote(noteId) {
+  return callFunction("board", { action: "gist", note_id: noteId }, "The board");
+}
+
+// Thoughts kept before the filing existed, a few at a time. Resolves to
+// { filed, failed, more }.
+export function gistBacklog() {
+  return callFunction("board", { action: "gist_backlog" }, "The board");
+}
+
 export async function createNote(userId, fields = {}) {
   const row = {
     user_id: userId,
@@ -1605,6 +1617,8 @@ export async function updateNote(userId, noteId, fields) {
   if (error) throw error;
   if (fields.title !== undefined || fields.body !== undefined) {
     await syncScriptureRefs(userId, "study_note", noteId, data.title, data.body).catch((err) => console.warn(err));
+    // The gist described the words as they were, so it's filed again.
+    if (!data.parent_note_id && !data.obsidian_uid) gistNote(noteId).catch((err) => console.warn(err));
   }
   return data;
 }
@@ -1703,12 +1717,6 @@ export async function promoteHighlight(userId, highlight, { title, sourceRef, po
   const { error } = await supabase.from("note_highlights").update({ child_note_id: child.id }).eq("id", highlight.id);
   if (error) throw error;
   return child;
-}
-
-export async function fetchNotesToResurface(limit = 3) {
-  const { data, error } = await supabase.rpc("notes_to_resurface", { p_limit: limit });
-  if (error) throw error;
-  return data ?? [];
 }
 
 export async function markNoteSurfaced(noteId) {
@@ -1854,78 +1862,6 @@ export async function syncProfileTimezone(userId) {
     ({ error }) => error && console.warn(error),
     (err) => console.warn(err)
   );
-}
-
-// ---------------------------------------------------------------------------
-// Mining long sources for keepable lines.
-// ---------------------------------------------------------------------------
-
-export async function fetchMiningStats() {
-  const { data, error } = await supabase.rpc("mining_stats");
-  if (error) throw error;
-  return data ?? { sources: 0, mined: 0, cards_from_sources: 0 };
-}
-
-export async function fetchUnminedSources(limit = 25) {
-  const { data, error } = await supabase.rpc("unmined_sources", { p_limit: limit });
-  if (error) throw error;
-  return data ?? [];
-}
-
-// Proposals only. Nothing is written until you accept a snippet, and the
-// source isn't marked mined until you've been through it.
-export function mineSource(noteId) {
-  return callFunction("miner", { note_id: noteId }, "The miner");
-}
-
-// An accepted snippet becomes a card AND a highlight on the source, which is
-// exactly what the manual gesture produces — so a mined line and one you
-// picked out yourself are the same object afterwards, and the source shows
-// both marked in its text.
-//
-// Through keep_snippet, the same function the nightly run uses: one
-// transaction, and keeping the same passage twice (a double tap, or a line the
-// nightly run already kept) hands back the card that's there instead of
-// writing a second one.
-export async function acceptSnippet(userId, source, snippet) {
-  const { data: id, error } = await supabase.rpc("keep_snippet", {
-    p_user_id: userId,
-    p_source_id: source.id,
-    p_quote: snippet.quote,
-    p_essence: snippet.essence || null,
-    p_kind: snippet.kind ?? "thought",
-    p_start: snippet.start_offset,
-    p_end: snippet.end_offset,
-    p_auto: false,
-  });
-  if (error) throw error;
-  // The card's title is indexed for verse references as any note's is (the
-  // quote already is, in its source). A failure here only leaves it off the
-  // Scripture list, so it isn't fatal.
-  await syncScriptureRefs(userId, "study_note", id, snippet.essence || snippet.quote).catch((err) => console.warn(err));
-  return { id };
-}
-
-export async function markSourceMined(noteId, kept) {
-  const { error } = await supabase
-    .from("study_notes")
-    .update({ mined_at: new Date().toISOString(), mined_count: kept })
-    .eq("id", noteId);
-  if (error) throw error;
-}
-
-// Cards the nightly mining kept while you were asleep. They're already usable;
-// this is just the short pass so nothing arrives on the shelf unseen.
-export async function fetchUnreviewedCards(limit = 30) {
-  const { data, error } = await supabase.rpc("unreviewed_auto_cards", { p_limit: limit });
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function markCardsReviewed(ids) {
-  if (!ids?.length) return;
-  const { error } = await supabase.rpc("mark_cards_reviewed", { p_ids: ids });
-  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------

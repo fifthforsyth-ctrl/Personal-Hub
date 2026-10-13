@@ -55,71 +55,12 @@
 .board-capture .card-head { margin-bottom: 10px; }
 .board-capture .textarea { min-height: 88px; font-family: var(--font-serif); font-size: 15.5px; line-height: 1.65; }
 .board-capture__foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 11px; }
-.board-capture__kinds { flex: 1; min-width: 0; }
-.board-capture__hint { margin: 8px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.board-capture__hint { flex: 1; min-width: 0; margin: 8px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }
 
-/* --- Kind chips and filters: selected is ink with white text ----------------- */
-
-.board-filters { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.chip.board-filter {
-  min-height: 32px;
-  padding: 6px 11px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.chip.board-filter.is-on { background: var(--ink); color: var(--on-ink); }
-.board-filter__n { font-family: var(--font-mono); font-size: 10px; opacity: 0.8; }
-@media (hover: hover) { .chip.board-filter:not(.is-on):hover { color: var(--text); } }
-
-.board-kind { position: relative; display: inline-flex; }
-.chip.board-kind__chip { color: var(--text); }
-button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: pointer; }
-.chip.board-kind__chip--sm { font-size: 10.5px; padding: 3px 8px; }
-
-.board-kind-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 41;
-  white-space: normal;
-  width: 248px;
-  max-width: calc(100vw - 40px);
-  padding: 5px;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-lift);
-}
-.board-kind-menu--right { left: auto; right: 0; }
-.board-kind-menu--up { top: auto; bottom: calc(100% + 6px); }
-.board-kind-menu__item {
-  display: block;
-  width: 100%;
-  min-height: 38px;
-  padding: 7px 9px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--text);
-  text-align: left;
-}
-.board-kind-menu__item.is-on { background: var(--inset); }
-.board-kind-menu__label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 560; }
-.board-kind-menu__hint { display: block; margin: 1px 0 0 15px; font-size: 11.5px; color: var(--text-2); }
-@media (hover: hover) { .board-kind-menu__item:hover { background: var(--inset); } }
-
-/* --- What you've kept: streams of cards ------------------------------------- */
+/* --- What you've kept: one list of cards ----------------------------------- */
 
 .board-kept .card-head { flex-wrap: wrap; }
 .board-kept__filters { margin-bottom: 16px; }
-
-.board-stream + .board-stream { margin-top: 20px; }
-.board-stream__head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; min-height: 32px; }
-.board-stream__label { font-size: 12.5px; font-weight: 620; }
-.board-stream__count { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-2); }
-.board-stream__head .btn-link { min-height: 36px; padding: 0 6px; margin: 0 -2px; }
 
 .board-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 .board-cards > * { min-width: 0; }
@@ -354,9 +295,6 @@ button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: poin
   padding: 6px;
 }
 .board-toolbar .btn { padding: 8px 13px; font-size: 13px; }
-.board-split { display: flex; position: relative; }
-.board-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.board-split > .btn:nth-child(2) { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255, 255, 255, 0.28); padding-left: 9px; padding-right: 10px; }
 
 .board-subnotes { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .board-subnotes__label { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 10px; }
@@ -502,6 +440,7 @@ button.chip.board-kind__chip { min-height: 32px; padding: 5px 11px; cursor: poin
   .board-capture__foot > .btn { align-self: flex-end; }
   .board-note__title { font-size: 19px; }
   .board-tile__tool { width: 40px; height: 40px; }
-  button.chip.board-kind__chip { min-height: 36px; }
-  .chip.board-filter { min-height: 36px; }
 }
+
+/* The board's own filing, shown quietly under a note's date. */
+.board-note__tags { font-size: 11.5px; color: var(--text-3); }
