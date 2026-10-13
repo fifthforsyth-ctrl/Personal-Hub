@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, X, Pencil, Pin, ChevronLeft, CornerLeftUp, Layers, Library, Plus, Highlighter, BookOpen } from "lucide-react";
+import { Search, X, Pencil, Pin, ChevronLeft, CornerLeftUp, Library, Plus, Highlighter } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
@@ -19,30 +19,36 @@ import {
   promoteHighlight,
   gistNote,
   gistBacklog,
+  fetchSavedQuotes,
 } from "../lib/api";
 import NoteTree from "../components/study/NoteTree";
 import NoteReader from "../components/study/NoteReader";
 import CaptureBar from "../components/study/CaptureBar";
-import QuoteWall from "../components/study/QuoteWall";
+import CorkBoard from "../components/board/CorkBoard";
+import { TopPicks, Browse, ShelfView } from "../components/board/Shelves";
+import { MOODS, PEOPLE, THEMES, shelfFor } from "../lib/quoteShelves";
 import CuratedCards from "../components/curator/CuratedCards";
 import { dayLabel } from "../components/study/dayLabel";
 import { changesFrom, clearNoteDraft, draftClashes, draftOver, draftTime, editableFields, readNoteDraft, writeNoteDraft } from "../components/study/noteDraft";
 import { buildTree, resolveHighlights } from "../lib/noteText";
-import { boardNotes } from "../lib/board";
 import { cardFace, cutAtWord, niceTitle, previewText, toPlainText, titleRepeats } from "../lib/markdown";
 import useIsMobile from "../lib/useIsMobile";
 import "../styles/board.css";
 
-// The Board: what came, what you make of it, and what you're reading, kept
-// somewhere it can be found again.
+// The Board: a cork board for what came, what you make of it, and the words
+// of others that help you press on.
 //
-// One box to record something, then everything you've kept as one list,
-// newest first, each thought one card. Nothing is sorted into kinds: in the
-// background each new thought gets a one-line gist and a few quiet tags, so
-// search and the curator can find it again, and the curator brings old ones
-// back where they fit. Notes made from a passage of a longer note are folded
-// under that note rather than filling the board. Opening a note takes over
-// the page; on a wide screen the list of all notes can sit beside it.
+// It opens on one box to record something, then this week's top picks: quotes
+// chosen for what the week is about. Under them, shelves of quotes to browse
+// by person, theme or mood (or anything you type), and then the cork itself:
+// the quotes you saved and the thoughts you kept, pinned up together.
+//
+// Nothing is sorted into kinds: in the background each new thought gets a
+// one-line gist and a few quiet tags, so search and the curator can find it
+// again, and the curator brings old ones back where they fit. Notes made from
+// a passage of a longer note are folded under that note rather than filling
+// the board. Opening a note or a shelf takes over the page; on a wide screen
+// the list of all notes can sit beside a note.
 export default function Study() {
   const { user } = useAuth();
   const toast = useToast();
@@ -50,8 +56,10 @@ export default function Study() {
   const touch = useIsMobile();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("note");
+  const openShelf = useMemo(() => shelfFromParams(params), [params]);
 
   const shelf = useLoad(() => loadShelf(user.id), [user.id]);
+  const saved = useLoad(() => fetchSavedQuotes(user.id), [user.id]);
   const [gone, setGone] = useState(() => new Set()); // notes deleted, waiting out the Undo
   const [goneMarks, setGoneMarks] = useState(() => new Set()); // highlights, likewise
 
@@ -63,7 +71,6 @@ export default function Study() {
   const [treeOpen, setTreeOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [view, setView] = useState("stream");
 
   // Thoughts kept before the board filed things get their gist a few at a
   // time, quietly, the first time the board opens in a session.
@@ -94,12 +101,14 @@ export default function Study() {
   const fullNote = full.data && full.data.id === selectedId ? full.data : null;
   const note = selectedId && !gone.has(selectedId) && (listed || fullNote) ? { ...listed, ...fullNote } : null;
 
-  // Opening a note starts at its top; coming back puts the Board where it was.
+  // Opening a note or a shelf starts at its top; coming back puts the Board
+  // where it was.
   const homeScroll = useRef(0);
+  const away = Boolean(selectedId || openShelf);
   useLayoutEffect(() => {
     const main = document.querySelector(".main");
-    if (main) main.scrollTop = selectedId ? 0 : homeScroll.current;
-  }, [selectedId]);
+    if (main) main.scrollTop = away ? 0 : homeScroll.current;
+  }, [away, selectedId, openShelf?.key]);
 
   // Opening another note while you're editing one asks first, if anything in
   // it changed. Leaving the Board altogether keeps the changes as a draft
@@ -118,9 +127,22 @@ export default function Study() {
       clearNoteDraft(user.id, editingId);
     }
     editorDirty.current = false;
-    if (!selectedId && id) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
+    if (!selectedId && !openShelf && id) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
     setEditingId(edit ? id : null);
     setParams(id ? { note: id } : {});
+  }
+
+  function browse(next) {
+    if (!openShelf) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
+    setParams(next ? shelfParams(next) : {});
+  }
+
+  // A quote saved or unsaved anywhere on the page: the cork follows.
+  function quoteChanged(quote) {
+    saved.mutate((list) => {
+      const rest = (list ?? []).filter((q) => q.id !== quote.id);
+      return quote.saved_at ? [quote, ...rest] : rest;
+    });
   }
 
   // --- writes ---------------------------------------------------------------
@@ -278,6 +300,14 @@ export default function Study() {
     />
   );
 
+  if (openShelf && !selectedId) {
+    return (
+      <div className="page">
+        <ShelfView key={openShelf.key} userId={user.id} shelf={openShelf} onBack={() => browse(null)} onSaved={quoteChanged} />
+      </div>
+    );
+  }
+
   if (selectedId) {
     return (
       <div className="page">
@@ -393,30 +423,36 @@ export default function Study() {
 
           <CaptureBar onCapture={capture} />
 
-          {shelf.loading ? (
+          <TopPicks userId={user.id} onSaved={quoteChanged} />
+
+          <Browse userId={user.id} onOpen={browse} />
+
+          {shelf.loading || saved.loading ? (
             <div className="card">
-              <p className="empty">Loading your notes…</p>
+              <p className="empty">Loading your board…</p>
             </div>
           ) : shelf.error && !shelf.data ? (
             <LoadError what="your notes" error={shelf.error} onRetry={shelf.reload} />
-          ) : notes.length === 0 ? (
-            <div className="card board-empty">
-              <BookOpen size={24} aria-hidden="true" />
-              <p className="empty">
-                Nothing kept yet. Write the first thing in the box above, or start a long note for what you're reading
-                and highlight your way through it.
-              </p>
-            </div>
           ) : (
-            <Kept
-              notes={notes}
-              stale={shelf.error}
-              onRetry={shelf.reload}
-              view={view}
-              onView={setView}
-              onOpen={(id) => select(id)}
-              onChanged={shelf.reload}
-            />
+            <>
+              {(shelf.error || saved.error) && (
+                <LoadError
+                  stale
+                  error={shelf.error ?? saved.error}
+                  onRetry={() => {
+                    shelf.reload();
+                    saved.reload();
+                  }}
+                />
+              )}
+              <CorkBoard
+                quotes={saved.data ?? []}
+                notes={notes}
+                onOpenNote={(id) => select(id)}
+                onQuoteChange={quoteChanged}
+                onNotesChanged={shelf.reload}
+              />
+            </>
           )}
 
           <CuratedCards slot="day" title="Back for today" />
@@ -424,6 +460,29 @@ export default function Study() {
       )}
     </div>
   );
+}
+
+// A shelf open on the page lives in the address, so Back works and a shelf
+// can be reopened: ?shelf=person:russell-m-nelson. A typed one carries its
+// words too.
+const LISTED = [
+  ...PEOPLE.map((p) => shelfFor("person", p)),
+  ...THEMES.map((t) => shelfFor("theme", t)),
+  ...MOODS.map((m) => shelfFor("mood", m)),
+];
+
+function shelfFromParams(params) {
+  const key = params.get("shelf");
+  if (!key) return null;
+  if (key.startsWith("ask:")) {
+    const words = params.get("about");
+    return words ? shelfFor("ask", { name: words }) : null;
+  }
+  return LISTED.find((s) => s.key === key) ?? null;
+}
+
+function shelfParams(shelf) {
+  return shelf.facet === "ask" ? { shelf: shelf.key, about: shelf.label } : { shelf: shelf.key };
 }
 
 async function loadShelf(userId) {
@@ -476,82 +535,6 @@ function BackBar({ onBack }) {
         </button>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// What you've kept
-// ---------------------------------------------------------------------------
-
-// Everything you've kept, newest first, one card each and a page at a time.
-// Notes made from a passage (yours, or the ones the nightly reading cut in
-// September) are folded under the note they came from: open that note to see
-// them in place. Search still finds every one.
-const PAGE = 12;
-
-function Kept({ notes, stale, onRetry, view, onView, onOpen, onChanged }) {
-  const list = useMemo(() => boardNotes(notes), [notes]);
-  const [shown, setShown] = useState(PAGE);
-
-  return (
-    <section className="card board-kept">
-      <div className="card-head">
-        <h2 className="card-title">
-          <Layers size={14} />
-          What you've kept
-        </h2>
-        <div className="seg" role="group" aria-label="Show as">
-          <button type="button" className={"seg-btn" + (view === "stream" ? " active" : "")} aria-pressed={view === "stream"} onClick={() => onView("stream")}>
-            Newest
-          </button>
-          <button type="button" className={"seg-btn" + (view === "wall" ? " active" : "")} aria-pressed={view === "wall"} onClick={() => onView("wall")}>
-            Wall
-          </button>
-        </div>
-      </div>
-
-      {stale && <LoadError stale error={stale} onRetry={onRetry} className="board-kept__filters" />}
-
-      {view === "wall" ? (
-        <QuoteWall notes={list} onOpen={onOpen} onChanged={onChanged} />
-      ) : list.length === 0 ? (
-        <p className="empty">Nothing here yet.</p>
-      ) : (
-        <>
-          <div className="board-cards">
-            {list.slice(0, shown).map((n) => (
-              <NoteCard key={n.id} note={n} onOpen={onOpen} />
-            ))}
-          </div>
-          {list.length > shown && (
-            <div className="board-more-row">
-              <span style={{ flex: 1, minWidth: 0 }}>
-                Showing {shown} of {list.length}
-              </span>
-              <button type="button" className="btn btn--sm" onClick={() => setShown((n) => n + PAGE * 2)}>
-                Show more
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-// One text per card, cut at a word; the title only when it says something
-// the text doesn't.
-function NoteCard({ note, onOpen, meta }) {
-  const face = cardFace(note);
-  return (
-    <button type="button" className="board-card" onClick={() => onOpen(note.id)}>
-      {face.title && <span className="board-card__title">{face.title}</span>}
-      <span className="board-card__text">{face.text}</span>
-      <span className="board-card__meta">
-        {note.pinned && <Pin size={11} fill="currentColor" aria-label="Pinned" />}
-        <span>{meta ?? [dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}</span>
-      </span>
-    </button>
   );
 }
 
