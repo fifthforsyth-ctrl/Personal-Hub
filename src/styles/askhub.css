@@ -1,0 +1,148 @@
+/* ===========================================================================
+   Ask — a conversation about your record (src/pages/Ask.jsx).
+   Questions sit on the right in ink; answers read like a page, with their
+   charts on white cards; the box to ask stays at the bottom of the screen.
+   =========================================================================== */
+
+.askhub { display: flex; flex-direction: column; gap: 18px; min-height: 100%; padding-bottom: 0; }
+.askhub__head { margin-bottom: 0; }
+.askhub__head .page-title { font-family: var(--font-serif); font-weight: 500; letter-spacing: -0.015em; font-size: 30px; line-height: 1.1; }
+.askhub__head-actions { gap: 8px; flex: none; }
+
+/* Past conversations */
+.askhub-past { padding: 6px; }
+.askhub-past__list { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }
+.askhub-past__item { display: flex; align-items: center; gap: 4px; border-radius: 10px; }
+.askhub-past__item.is-open { background: var(--inset); }
+.askhub-past__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 10px;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  border-radius: 10px;
+}
+@media (hover: hover) { .askhub-past__open:hover { background: var(--inset); } }
+.askhub-past__title { flex: 1; min-width: 0; font-size: 14px; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.askhub-past__when { flex: none; font-size: 12px; color: var(--text-3); }
+
+/* Starting questions */
+.askhub-starters { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.askhub-starter {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: var(--shadow);
+  transition: transform 0.15s, border-color 0.15s;
+}
+.askhub-starter svg { flex: none; margin-top: 3px; color: var(--accent); }
+@media (hover: hover) { .askhub-starter:hover { transform: translateY(-1px); border-color: var(--line-strong, #d9d6d0); } }
+
+/* The conversation */
+.askhub-thread { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+
+.askhub-q { display: flex; justify-content: flex-end; }
+.askhub-q p {
+  margin: 0;
+  max-width: min(560px, 86%);
+  padding: 11px 16px;
+  border-radius: 20px 20px 6px 20px;
+  background: var(--ink);
+  color: var(--on-ink, #fff);
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.askhub-a { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.askhub-a__text { font-size: 15.5px; line-height: 1.6; color: var(--text); }
+.askhub-a__text > :first-child { margin-top: 0; }
+.askhub-a__text > :last-child { margin-bottom: 0; }
+.askhub-a__chart {
+  padding: 18px 18px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+.askhub-a__chart .ask__title { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+
+.askhub-a__how { font-size: 12.5px; color: var(--text-3); }
+.askhub-a__how > summary { cursor: pointer; min-height: 28px; display: inline-flex; align-items: center; }
+.askhub-a__how ol { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 3px; }
+
+.askhub-a--error { flex-direction: row; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--text-2); font-size: 14px; }
+.askhub-a--error p { margin: 0; }
+
+.askhub-working { display: grid; gap: 6px; padding: 2px 0; }
+.askhub-working__step { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px; color: var(--text-3); }
+.askhub-working__step svg { flex: none; }
+.askhub-working__step.is-now { color: var(--text); font-weight: 560; }
+.askhub-working__step.is-now svg { color: var(--accent); }
+
+/* The box to ask, held at the bottom of the screen */
+.askhub-compose {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 -6px;
+  padding: 10px 6px 18px;
+  background: linear-gradient(180deg, transparent, var(--bg) 14px);
+}
+.askhub-compose__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 50px;
+  max-height: 180px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 25px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 15.5px;
+  line-height: 1.4;
+  resize: none;
+  field-sizing: content;
+  box-shadow: 0 6px 20px -8px rgba(20, 18, 14, 0.18);
+}
+.askhub-compose__input:focus { outline: none; border-color: var(--ink); }
+.askhub-compose__send {
+  flex: none;
+  width: 50px;
+  height: 50px;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ink);
+  color: var(--on-ink, #fff);
+  transition: opacity 0.15s;
+}
+.askhub-compose__send:disabled { opacity: 0.35; }
+
+@media (max-width: 900px) {
+  .askhub__head .page-title { font-size: 25px; }
+  .askhub-starters { grid-template-columns: 1fr; gap: 8px; }
+  .askhub-starter { padding: 12px 14px; }
+  .askhub-compose { padding-bottom: 12px; }
+  .askhub-a__chart { padding: 14px 12px 8px; margin: 0 -4px; }
+}
