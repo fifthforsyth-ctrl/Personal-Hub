@@ -10,8 +10,6 @@ import {
   Link2,
   LogOut,
   Flame,
-  BookOpen,
-  Briefcase,
   Wallet,
   StickyNote,
   Plus,
@@ -42,14 +40,17 @@ export const NAV = [
 const EVENING = { to: "/evening", label: "Evening", Icon: Moon };
 
 // Each place has one name, the same here as on its page.
+//
+// Work notes and the prayer and promptings log aren't listed: neither had
+// been used since August, and tender mercies are kept from the Walk with God
+// card now. Both pages and everything in them are still there, at /work and
+// /spirit, for the day they're wanted again.
 export const MORE = [
   { to: "/evening", label: "Evening", Icon: Moon },
   { to: "/day", label: "Past days", Icon: CalendarDays },
   { to: "/overview", label: "Big picture", Icon: Compass },
   { to: "/tree", label: "Goal wheel", Icon: GitBranch },
-  { to: "/work", label: "Work", Icon: Briefcase },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },
-  { to: "/spirit", label: "Promptings & prayer", Icon: BookOpen },
   { to: "/links", label: "Goal links", Icon: Link2 },
 ];
 
