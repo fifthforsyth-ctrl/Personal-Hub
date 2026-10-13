@@ -174,6 +174,16 @@ function plain(html: string) {
   return html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
 
+// Commons' artist field can carry a file's whole history ("Original.jpg:
+// Some Agency derivative work: SomeUser"). The card wants who made it.
+function artistOf(html: string) {
+  let artist = plain(html);
+  const derived = artist.match(/^[^:]*\.(?:jpe?g|png|tiff?|gif):\s*(.*?)\s*derivative work\b/i);
+  if (derived) artist = derived[1];
+  artist = artist.replace(/[\s,;:]+$/, "");
+  return artist.length > 80 ? "" : artist;
+}
+
 // The Wikipedia article's lead image, kept only if Commons says it's public
 // domain. Any failure means a name card, never an error.
 async function portraitFor(title: string) {
@@ -209,7 +219,7 @@ async function portraitFor(title: string) {
 
     return {
       image_url: String(image.thumburl).split("?")[0],
-      image_credit: [plain(String(meta.Artist?.value ?? "")), "public domain, via Wikimedia Commons"].filter(Boolean).join(", "),
+      image_credit: [artistOf(String(meta.Artist?.value ?? "")), "public domain, via Wikimedia Commons"].filter(Boolean).join(", "),
       image_page: image.descriptionurl ?? null,
     };
   } catch (err) {
