@@ -200,6 +200,8 @@ button { cursor: pointer; touch-action: manipulation; }
   z-index: 20;
 }
 
+.topbar-ask.active { color: var(--accent); }
+
 .bottom-tabs { display: none; }
 
 /* The page frame. Dashboard-width by default; `.page--narrow` is for reading

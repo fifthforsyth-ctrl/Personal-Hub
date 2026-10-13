@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Compass,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -38,6 +39,10 @@ export const NAV = [
 // The evening is a desk ritual, so it sits in the sidebar; on a phone it's
 // reached from the banner Today shows after dark, or from More.
 const EVENING = { to: "/evening", label: "Evening", Icon: Moon };
+
+// Ask: questions about your whole record, answered with words and charts.
+// In the sidebar under the four places; on a phone, one tap from the top bar.
+const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 
 // Each place has one name, the same here as on its page.
 //
@@ -131,7 +136,7 @@ export function Sidebar() {
         Capture
       </button>
 
-      {[NAV[0], EVENING, ...NAV.slice(1)].map(({ to, label, Icon, end }) => (
+      {[NAV[0], EVENING, ...NAV.slice(1), ASK].map(({ to, label, Icon, end }) => (
         <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "side-link" + (on ? " active" : "")}>
           <Icon size={17} strokeWidth={2} />
           {label}
@@ -171,6 +176,9 @@ export function TopBar() {
         </span>
         <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
         <span className="spacer" />
+        <NavLink to="/ask" className={({ isActive: on }) => "btn-icon topbar-ask" + (on ? " active" : "")} aria-label="Ask" title="Ask">
+          <Sparkles size={18} />
+        </NavLink>
         <button className="btn-icon" onClick={() => setOpen(true)} aria-label="More" title="More" aria-expanded={open}>
           <Menu size={18} />
         </button>
