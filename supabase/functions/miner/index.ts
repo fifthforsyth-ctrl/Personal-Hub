@@ -61,7 +61,7 @@ const MineSchema = z.object({
 
 const SYSTEM = `You read one of a person's own study notes and pull out the handful of passages worth keeping as standalone cards.
 
-They are a member of The Church of Jesus Christ of Latter-day Saints serving as a missionary. These notes are written during morning scripture study and run long — often several thousand words. Most of any given note is working-out: restating the verse, thinking aloud, trailing off, picking the thread back up. That is not what you are looking for.
+They are a member of The Church of Jesus Christ of Latter-day Saints. These notes are written during morning scripture study and run long — often several thousand words. Most of any given note is working-out: restating the verse, thinking aloud, trailing off, picking the thread back up. That is not what you are looking for.
 
 You are looking for the few places where a complete thought actually landed. A line that would still mean something read alone, months later, with none of the surrounding note. In a long note there are usually between four and eight of these; in a short one, one or two. Length of the note is not a quota — scan the whole thing and take what is genuinely there.
 

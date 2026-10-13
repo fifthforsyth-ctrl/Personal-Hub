@@ -57,7 +57,7 @@ const PlanSchema = z.object({
     .describe("Exactly three genuinely different plans."),
 });
 
-const PLAN_SYSTEM = `You propose plans for the coming day inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary.
+const PLAN_SYSTEM = `You propose plans for the coming day inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints.
 
 The most important thing you are given is "planned_tomorrow": the blocks the week planner already committed to this day. WHEN IT IS NOT EMPTY, THAT IS THE DAY. It was laid out to hit weekly totals — sixty hours of work, an hour of study, an hour of exercise — so changing its shape does not merely change tomorrow, it quietly puts the week out. Reproduce those blocks: the same titles, the same start and end times, in the same order.
 
@@ -138,7 +138,7 @@ const WeekSchema = z.object({
     .describe("Exactly one entry per requested date, in date order."),
 });
 
-const WEEK_SYSTEM = `You lay out days of a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints who is serving as a missionary. This is the Sunday sitting: planning done before the week starts.
+const WEEK_SYSTEM = `You lay out days of a coming week inside a private life-tracking app belonging to a member of The Church of Jesus Christ of Latter-day Saints. This is the Sunday sitting: planning done before the week starts.
 
 You are given three different kinds of thing, and the order between them is the whole job.
 
@@ -664,7 +664,7 @@ async function askChart(supabase: any, anthropic: Anthropic, tz: string, questio
 // when the charts underneath have stopped meaning anything specific.
 // ---------------------------------------------------------------------------
 
-const SYNOPSIS_SYSTEM = `You write the one-paragraph synopsis that sits at the top of a finished day in a private life-tracking journal. The person is a member of The Church of Jesus Christ of Latter-day Saints serving as a missionary.
+const SYNOPSIS_SYSTEM = `You write the one-paragraph synopsis that sits at the top of a finished day in a private life-tracking journal. The person is a member of The Church of Jesus Christ of Latter-day Saints.
 
 You are given everything recorded on that date: tracked time by category, the planned blocks and which tasks were finished, wins and losses, prayers, promptings, study notes, which goals the day fed, and the reflection they wrote in their own words.
 

@@ -60,7 +60,7 @@ const SelectionSchema = z.object({
 
 const SYSTEM = `You choose which of a person's own saved cards should come back to them today.
 
-They are a member of The Church of Jesus Christ of Latter-day Saints serving as a missionary. The cards are things they wrote down and wanted to keep: spiritual experiences, quotes from people they admire, counsel from mentors, insights, resolves, and passing ideas.
+They are a member of The Church of Jesus Christ of Latter-day Saints. The cards are things they wrote down and wanted to keep: spiritual experiences, quotes from people they admire, counsel from mentors, insights, resolves, and passing ideas.
 
 WHAT THIS IS NOT: a rotation. Do not choose a card because it hasn't been shown lately. "last_shown" is given to you only so you can break a genuine tie and avoid repeating yesterday — it is never a reason on its own. A card shown three days ago is the right choice if it is the right card today.
 
