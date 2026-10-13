@@ -13,6 +13,7 @@ import WalkWithGod from "../components/today/WalkWithGod";
 import WeekStrip from "../components/today/WeekStrip";
 import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
+import QuoteOfDay from "../components/today/QuoteOfDay";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
@@ -23,8 +24,8 @@ import "../styles/daily.css";
 // The page you open dozens of times a day, so it carries exactly the three
 // things you said the Hub is for, in that order, then this week's focus
 // goals, and one action that matters most (Win) sits at the top where a
-// thumb finds it. The curator's cards and a one-line note about purchases
-// to sort are still here, below the fold.
+// thumb finds it. Below the fold: a quote chosen for this week, the
+// curator's cards, and a one-line note about purchases to sort.
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -110,6 +111,7 @@ export default function Today() {
       </div>
 
       <div className="stack" style={{ marginTop: 14 }}>
+        <QuoteOfDay userId={userId} date={date} />
         <CuratedCards slot="home" title="For today" compact />
         {/* One line, and only when there's something to sort. */}
         <PurchaseNudge />

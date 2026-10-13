@@ -25,6 +25,7 @@ import {
   DAY_END_MIN,
   WINDOW_MINUTES,
 } from "../src/lib/ring.js";
+import { initials, ratedLine, sourceLine, RATINGS } from "../src/lib/quotes.js";
 import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
@@ -472,6 +473,21 @@ ok("not now saves as a low score", verdictOf(NOT_NOW) === "not_now");
 ok("an old 7 out of 10 reads as useful", verdictOf(7) === "useful");
 ok("an old 5 out of 10 reads as not now", verdictOf(5) === "not_now");
 ok("unscored has no verdict", verdictOf(null) === null && verdictOf(0) === null);
+
+// --- Quotes ------------------------------------------------------------------
+
+ok("initials skip titles", initials("President Russell M. Nelson") === "RN");
+ok("initials for one name", initials("Augustine") === "A");
+ok("initials from initials", initials("C. S. Lewis") === "CL");
+ok("initials ignore a suffix", initials("Martin Luther King Jr.") === "MK");
+ok("initials of nothing are empty", initials("") === "");
+ok("three ratings, in order", RATINGS.map((r) => r.key).join() === "applies,somewhat,not_now");
+ok("applies says it comes back", ratedLine("applies").includes("come back"));
+ok("unrated says nothing", ratedLine(null) === "");
+ok("source gets its year", sourceLine({ source: "Mere Christianity", year: 1952 }) === "Mere Christianity (1952)");
+ok("a year already in the source isn't repeated", sourceLine({ source: "General conference, October 2018", year: 2018 }) === "General conference, October 2018");
+ok("only a year", sourceLine({ source: "", year: 1863 }) === "1863");
+ok("nothing at all", sourceLine({}) === "");
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
