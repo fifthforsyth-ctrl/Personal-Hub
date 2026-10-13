@@ -210,19 +210,38 @@ export default function AskClaude({ open, onOpenChange }) {
   );
 }
 
-function ChartResult({ result }) {
+// One chart and its numbers. Also drawn by the Ask page, where a line chart
+// can carry several series (spec.series_key names the column that says which
+// series a row belongs to).
+export function ChartResult({ result }) {
   const { spec, rows } = result;
   const [active, setActive] = useState(null);
   const isDate = spec.x_kind === "date";
+  const seriesKey = spec.chart_type === "line" && spec.series_key ? spec.series_key : null;
 
   const points = useMemo(() => {
     return (rows ?? [])
       .map((r) => {
         const raw = r[spec.x_key];
-        return { label: String(raw ?? ""), t: isDate ? parseDay(raw) : null, value: Number(r[spec.y_key]) };
+        const series = seriesKey ? String(r[seriesKey] ?? "") : null;
+        return { label: String(raw ?? ""), t: isDate ? parseDay(raw) : null, value: Number(r[spec.y_key]), series };
       })
       .filter((p) => Number.isFinite(p.value));
-  }, [rows, spec.x_key, spec.y_key, isDate]);
+  }, [rows, spec.x_key, spec.y_key, isDate, seriesKey]);
+
+  // Each series in the order it first appears, with its colour.
+  const lines = useMemo(() => {
+    if (!seriesKey) return null;
+    const names = [...new Set(points.map((p) => p.series))];
+    return names.map((name, i) => ({
+      key: name || "Other",
+      color: colorOf(name, i),
+      points: points
+        .filter((p) => p.series === name)
+        .map((p) => ({ x: isDate ? p.t : Number(p.label), y: p.value }))
+        .filter((p) => Number.isFinite(p.x)),
+    }));
+  }, [seriesKey, points, isDate]);
 
   const { exact, tick } = useMemo(() => formattersFor(spec.y_unit), [spec.y_unit]);
 
@@ -263,10 +282,22 @@ function ChartResult({ result }) {
   return (
     <>
       <h3 className="ask__title">{spec.title}</h3>
-      <p className="card-note" style={{ marginBottom: 16 }}>{spec.answer}</p>
+      {spec.answer ? <p className="card-note" style={{ marginBottom: 16 }}>{spec.answer}</p> : <div style={{ height: 10 }} />}
 
       <div className="ask-chart">
-        {spec.chart_type === "line" && (
+        {spec.chart_type === "line" && lines && (
+          <>
+            <LineChart series={lines} area={false} format={lineFormat} formatX={isDate ? (t) => labels.long(t) : (v) => String(v)} />
+            <div style={{ marginTop: 10 }}>
+              <Legend
+                items={lines.map((l) => ({ key: l.key, value: l.points.reduce((s, p) => s + p.y, 0), color: l.color }))}
+                format={exact}
+              />
+            </div>
+          </>
+        )}
+
+        {spec.chart_type === "line" && !lines && (
           <LineChart
             series={[
               {
@@ -325,6 +356,7 @@ function ChartResult({ result }) {
             <thead>
               <tr>
                 <th>{heading(spec.x_key, isDate ? "Date" : "Item")}</th>
+                {seriesKey && <th>{heading(seriesKey, "Series")}</th>}
                 <th className="is-num">{heading(spec.y_key, "Value")}</th>
               </tr>
             </thead>
@@ -332,6 +364,7 @@ function ChartResult({ result }) {
               {points.map((p, i) => (
                 <tr key={i}>
                   <td>{longLabel(p)}</td>
+                  {seriesKey && <td>{p.series}</td>}
                   <td className="is-num mono">{exact(p.value)}</td>
                 </tr>
               ))}

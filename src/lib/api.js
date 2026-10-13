@@ -2394,3 +2394,85 @@ export function requestShelf(shelf, { more = false, fresh = false } = {}) {
 export function repictureQuotes() {
   return callFunction("quotes", { action: "repicture" }, "Pictures");
 }
+
+// ---------------------------------------------------------------------------
+// Ask: a conversation about your record. The `ask` function looks things up
+// in your own tables and answers with words and charts; each conversation is
+// kept in ask_conversations.
+// ---------------------------------------------------------------------------
+
+export async function fetchAskConversations(userId) {
+  const { data, error } = await supabase
+    .from("ask_conversations")
+    .select("id, title, updated_at, working_since")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(40);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchAskConversation(id) {
+  const { data, error } = await supabase.from("ask_conversations").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteAskConversation(id) {
+  const { error } = await supabase.from("ask_conversations").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Asks one question. The answer is worked out on the server and saved to
+// the conversation whether or not this page is still listening; while it
+// is, `onEvent` hears each step: { type: "conversation", id, title },
+// { type: "step", text }, then { type: "answer", message }. Resolves to the
+// answer message.
+export async function askHub({ conversationId = null, question, onEvent = () => {} }) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You need to be signed in.");
+
+  const response = await fetch(`${supabase.supabaseUrl}/functions/v1/ask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabase.supabaseKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ conversation_id: conversationId, question, tz: localZone() }),
+  });
+
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({}));
+    const err = new Error(body?.error ?? `Ask failed (${response.status}).`);
+    err.status = response.status;
+    throw err;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    let at;
+    while ((at = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, at).trim();
+      buffer = buffer.slice(at + 1);
+      if (!line) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (event.type === "answer") answer = event.message;
+      onEvent(event);
+    }
+    if (done) break;
+  }
+  if (!answer) throw new Error("The answer stopped partway. It may still land; look again in a minute.");
+  return answer;
+}

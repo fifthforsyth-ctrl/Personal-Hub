@@ -27,6 +27,7 @@ import {
   WINDOW_MINUTES,
 } from "../src/lib/ring.js";
 import { initials, ratedLine, sourceLine, RATINGS } from "../src/lib/quotes.js";
+import { answerParts, stillWorking, unanswered, chartResult, ANSWER_GIVES_UP_MS } from "../src/lib/ask.js";
 import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
 import {
   slug,
@@ -589,6 +590,23 @@ const boardFn = readFileSync(new URL("../supabase/functions/board/index.ts", imp
 ok("the board function knows every person", PEOPLE.every((p) => boardFn.includes(`"${p.name}"`)));
 ok("the board function knows every theme", THEMES.every((t) => boardFn.includes(`"${t.name}"`)));
 ok("the board function knows every mood", MOODS.every((m) => boardFn.includes(`"${m.name}"`)));
+
+// Ask: an answer's words and charts, and whether one is still coming.
+const charts2 = [{ n: 1, title: "Sleep" }, { n: 2, title: "Study" }];
+const parts = answerParts("You slept **7h**.\n\n[[chart:2]]\n\nMore below.\n[[chart:9]]", charts2);
+ok("a chart goes where its marker is", parts.map((p) => (p.kind === "chart" ? `c${p.chart.n}` : "t")).join() === "t,c2,t,c1");
+ok("a marker with no chart is dropped", !parts.some((p) => p.kind === "chart" && p.chart.n === 9));
+ok("an answer with no markers puts its charts at the end", answerParts("Just words.", charts2).map((p) => p.kind).join() === "text,chart,chart");
+ok("a chart placed twice shows once", answerParts("[[chart:1]] and [[chart:1]]", [{ n: 1 }]).filter((p) => p.kind === "chart").length === 1);
+ok("an empty answer is no parts", answerParts("", []).length === 0);
+const t0 = Date.parse("2026-10-13T20:00:00Z");
+const waitingConvo = { working_since: "2026-10-13T20:00:00Z", messages: [{ role: "user", text: "q" }] };
+ok("a fresh question is still being worked on", stillWorking(waitingConvo, t0 + 30_000));
+ok("past three minutes it isn't coming", !stillWorking(waitingConvo, t0 + ANSWER_GIVES_UP_MS + 1) && unanswered(waitingConvo, t0 + ANSWER_GIVES_UP_MS + 1));
+ok("an answered question isn't waiting", !stillWorking({ working_since: null, messages: [{ role: "user" }, { role: "assistant" }] }) && !unanswered({ messages: [{ role: "user" }, { role: "assistant" }] }));
+ok("no conversation, nothing waiting", !stillWorking(null) && !unanswered(null));
+const cr = chartResult({ n: 1, title: "T", caption: "C", chart_type: "line", x_key: "week", y_key: "minutes", series_key: "category", x_kind: "date", y_unit: "minutes", rows: [{}] });
+ok("a saved chart draws with its caption and series", cr.spec.answer === "C" && cr.spec.series_key === "category" && cr.rows.length === 1);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
