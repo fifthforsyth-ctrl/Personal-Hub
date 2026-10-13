@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
-import { todayStr } from "./planDates";
+import { todayStr, addDays } from "./planDates";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -2278,4 +2278,67 @@ export async function deleteReceipt(receipt) {
   if (error) throw error;
   const { error: fileError } = await supabase.storage.from("receipts").remove([receipt.storage_path]);
   if (fileError) console.warn(fileError);
+}
+
+// ---------------------------------------------------------------------------
+// Weekly focus goals (0059). A week is the Sunday it starts on.
+// ---------------------------------------------------------------------------
+
+const FOCUS_COLUMNS = "id, week_start, title, node_id, carried_from, review, reviewed_at, position, created_at";
+
+// The week's goals and every answer given about them that week.
+export async function fetchFocusWeek(userId, weekStart) {
+  const [goals, checkins] = await Promise.all([
+    supabase.from("focus_goals").select(FOCUS_COLUMNS).eq("user_id", userId).eq("week_start", weekStart),
+    supabase
+      .from("focus_checkins")
+      .select("goal_id, date, moved")
+      .eq("user_id", userId)
+      .gte("date", weekStart)
+      .lte("date", addDays(weekStart, 6)),
+  ]);
+  if (goals.error) throw goals.error;
+  if (checkins.error) throw checkins.error;
+  const ids = new Set((goals.data ?? []).map((g) => g.id));
+  return { goals: goals.data ?? [], checkins: (checkins.data ?? []).filter((c) => ids.has(c.goal_id)) };
+}
+
+export async function addFocusGoal(userId, { weekStart, title, nodeId = null, carriedFrom = null, position = 0 }) {
+  const { data, error } = await supabase
+    .from("focus_goals")
+    .insert({ user_id: userId, week_start: weekStart, title, node_id: nodeId, carried_from: carriedFrom, position })
+    .select(FOCUS_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateFocusGoal(goalId, fields) {
+  const { error } = await supabase.from("focus_goals").update(fields).eq("id", goalId);
+  if (error) throw error;
+}
+
+// Its check-ins go with it.
+export async function deleteFocusGoal(goalId) {
+  const { error } = await supabase.from("focus_goals").delete().eq("id", goalId);
+  if (error) throw error;
+}
+
+// Sunday's verdict on last week's goal: kept, adjusted, let_go, or null to
+// take it back.
+export async function reviewFocusGoal(goalId, review) {
+  await updateFocusGoal(goalId, { review, reviewed_at: review ? new Date().toISOString() : null });
+}
+
+// "Did today move it?" true, false, or null to clear the answer.
+export async function setFocusCheckin(userId, goalId, date, moved) {
+  if (moved === null) {
+    const { error } = await supabase.from("focus_checkins").delete().eq("goal_id", goalId).eq("date", date);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase
+    .from("focus_checkins")
+    .upsert({ user_id: userId, goal_id: goalId, date, moved }, { onConflict: "goal_id,date" });
+  if (error) throw error;
 }

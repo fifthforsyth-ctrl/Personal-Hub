@@ -25,6 +25,7 @@ import {
   DAY_END_MIN,
   WINDOW_MINUTES,
 } from "../src/lib/ring.js";
+import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
 let pass = 0;
 let fail = 0;
@@ -406,6 +407,52 @@ ok("a clash when both changed the title", draftClashes(draft, { ...movedOn, titl
 const noon = new Date(2026, 9, 12, 12, 0);
 ok("a draft from today shows the time", !/Oct/.test(draftTime(new Date(2026, 9, 12, 9, 5), noon)), draftTime(new Date(2026, 9, 12, 9, 5), noon));
 ok("an older one shows the day too", /Oct/.test(draftTime(new Date(2026, 9, 10, 9, 5), noon)), draftTime(new Date(2026, 9, 10, 9, 5), noon));
+
+// --- weekly focus goals ------------------------------------------------------
+
+ok("a Wednesday belongs to the week starting Sunday", focusWeekOf("2026-10-14") === "2026-10-11");
+ok("a Sunday starts its own week", focusWeekOf("2026-10-11") === "2026-10-11");
+ok("a Saturday is the end of that week", focusWeekOf("2026-10-17") === "2026-10-11");
+
+const goalsWk = [
+  { id: "b", title: "Exercise", position: 1, created_at: "2026-10-11T10:00:00Z" },
+  { id: "a", title: "Patience", position: 0, created_at: "2026-10-11T11:00:00Z" },
+];
+const checks = [
+  { goal_id: "a", date: "2026-10-11", moved: true },
+  { goal_id: "a", date: "2026-10-12", moved: false },
+  { goal_id: "a", date: "2026-10-13", moved: true },
+  { goal_id: "b", date: "2026-10-12", moved: true },
+  { goal_id: "a", date: "2026-10-18", moved: true }, // next week: not counted
+];
+const sumWk = summarizeWeek(goalsWk, checks, "2026-10-11");
+ok("goals keep the order they were set in", sumWk[0].id === "a" && sumWk[1].id === "b");
+ok("each goal gets seven days", sumWk.every((g) => g.days.length === 7));
+ok("days that moved it are counted", sumWk[0].movedDays === 2, sumWk[0].movedDays);
+ok("a 'not today' counts as answered, not moved", sumWk[0].answeredDays === 3, sumWk[0].answeredDays);
+ok("a day nobody answered is null", sumWk[0].days[3].moved === null);
+ok("check-ins outside the week are ignored", sumWk[0].days.every((d) => d.date <= "2026-10-17"));
+ok("the label reads naturally", movedLabel(sumWk[0]) === "Moved it 2 of 3 days", movedLabel(sumWk[0]));
+ok("one answered day is singular", movedLabel(sumWk[1]) === "Moved it 1 of 1 day", movedLabel(sumWk[1]));
+ok("no answers says so", movedLabel({ answeredDays: 0, movedDays: 0 }) === "No check-ins");
+
+ok("today's answer is found", answerOn(checks, "a", "2026-10-13") === true);
+ok("'not today' is false, not null", answerOn(checks, "a", "2026-10-12") === false);
+ok("no answer is null", answerOn(checks, "b", "2026-10-13") === null);
+ok("a timestamp-shaped date still matches", answerOn([{ goal_id: "x", date: "2026-10-13T00:00:00", moved: true }], "x", "2026-10-13") === true);
+
+ok("only unreviewed goals wait for Sunday", awaitingReview([{ id: 1, review: "kept" }, { id: 2, review: null }, { id: 3 }]).map((g) => g.id).join() === "2,3");
+ok("the review shows on this week", showsReview("2026-10-11", "2026-10-11"));
+ok("and on next week, planned on a Saturday", showsReview("2026-10-18", "2026-10-17"));
+ok("but not on weeks already past", !showsReview("2026-10-04", "2026-10-13"));
+ok("nor two weeks ahead", !showsReview("2026-10-25", "2026-10-13"));
+
+ok("new goals go to the end", nextPosition([{ position: 0 }, { position: 3 }]) === 4);
+ok("the first goal is position 0", nextPosition([]) === 0);
+ok("titles are trimmed and squeezed", cleanTitle("  patience   with\nthe kids ") === "patience with the kids");
+ok("a blank title is empty", cleanTitle("   ") === "");
+ok("titles are capped at 200", cleanTitle("x".repeat(250)).length === 200);
+ok("ordering doesn't change the input", (() => { const g = [{ position: 2 }, { position: 1 }]; orderGoals(g); return g[0].position === 2; })());
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
