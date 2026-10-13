@@ -2310,3 +2310,69 @@ export async function rateQuote(quoteId, rating) {
   if (error) throw error;
   return data;
 }
+
+// Saving a quote pins it to the Board; taking it off unpins it.
+export async function saveQuote(quoteId, saved) {
+  const { data, error } = await supabase
+    .from("quotes")
+    .update({ saved_at: saved ? new Date().toISOString() : null })
+    .eq("id", quoteId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchSavedQuotes(userId) {
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("*")
+    .eq("user_id", userId)
+    .not("saved_at", "is", null)
+    .order("saved_at", { ascending: false })
+    .limit(300);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Quote shelves: top picks for the week, and shelves to browse by person,
+// theme or mood. The `quotes` function fills a shelf in the background; the
+// page reads the row until it's ready.
+// ---------------------------------------------------------------------------
+
+export async function fetchShelf(userId, key) {
+  const { data: row, error } = await supabase
+    .from("quote_collections")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row || row.quote_ids.length === 0) return { row, quotes: [] };
+  const { data: quotes, error: quotesError } = await supabase.from("quotes").select("*").in("id", row.quote_ids);
+  if (quotesError) throw quotesError;
+  return { row, quotes: quotes ?? [] };
+}
+
+// Every shelf you've opened, for the covers on the browse tiles.
+export async function fetchShelfCovers(userId) {
+  const { data: rows, error } = await supabase
+    .from("quote_collections")
+    .select("key, status, quote_ids")
+    .eq("user_id", userId)
+    .eq("status", "ready");
+  if (error) throw error;
+  const firsts = (rows ?? []).map((r) => r.quote_ids[0]).filter(Boolean);
+  if (firsts.length === 0) return {};
+  const { data: quotes, error: quotesError } = await supabase.from("quotes").select("id, image_url").in("id", firsts);
+  if (quotesError) throw quotesError;
+  const image = new Map((quotes ?? []).map((q) => [q.id, q.image_url]));
+  return Object.fromEntries((rows ?? []).map((r) => [r.key, image.get(r.quote_ids[0]) ?? null]));
+}
+
+// Starts filling a shelf (or adds to it with `more`, or replaces it with
+// `fresh`). Resolves at once to the shelf's row, usually still pending.
+export function requestShelf(shelf, { more = false, fresh = false } = {}) {
+  return callFunction("quotes", { action: "shelf", tz: localZone(), date: todayStr(), ...shelf, more, fresh }, "Finding quotes");
+}

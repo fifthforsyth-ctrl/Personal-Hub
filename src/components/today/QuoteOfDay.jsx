@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Quote as QuoteIcon, Sparkles, RotateCw, ExternalLink } from "lucide-react";
-import { fetchQuoteDay, pickQuote, rateQuote } from "../../lib/api";
+import { Quote as QuoteIcon, Sparkles, RotateCw, ExternalLink, Pin } from "lucide-react";
+import { fetchQuoteDay, pickQuote, rateQuote, saveQuote } from "../../lib/api";
+import { useToast } from "../ui/Feedback";
 import { useLoad } from "../../lib/useLoad";
 import { friendlyError, isOffline } from "../../lib/errors";
 import { todayStr } from "../../lib/planDates";
@@ -17,7 +18,8 @@ import { useBackOnline } from "./useBackOnline";
 //
 // A historical figure comes with their portrait when there's a public-domain
 // one; anyone else gets a name card. Rating it is the whole loop: "applies"
-// brings it back now and then and steers what comes next.
+// brings it back now and then and steers what comes next. "Save to board"
+// pins it up on the Board's cork.
 const asked = new Map();
 
 function triedKey(date) {
@@ -124,8 +126,25 @@ function QuoteCard({ day, onRated }) {
   const [saving, setSaving] = useState(false);
   const [rateError, setRateError] = useState(null);
   const [imageFailed, setImageFailed] = useState(false);
+  const [pinning, setPinning] = useState(false);
+  const toast = useToast();
+  const saved = Boolean(quote.saved_at);
 
   useEffect(() => setRating(quote.rating ?? null), [quote.id, quote.rating]);
+
+  async function pin() {
+    if (pinning) return;
+    setPinning(true);
+    try {
+      const row = await saveQuote(quote.id, !saved);
+      onRated(row);
+      toast.show(row.saved_at ? "Pinned to your board" : "Taken off your board");
+    } catch (err) {
+      toast.error(err, saved ? "Couldn't take it off the board." : "Couldn't save it to the board.");
+    } finally {
+      setPinning(false);
+    }
+  }
 
   async function rate(key) {
     if (saving) return;
@@ -201,6 +220,17 @@ function QuoteCard({ day, onRated }) {
           ))}
         </div>
         {rating && <span className="quote-card__rated">{ratedLine(rating)}</span>}
+        <button
+          type="button"
+          className={"btn btn--sm quote-card__save" + (saved ? " is-on" : "")}
+          onClick={pin}
+          disabled={pinning}
+          aria-pressed={saved}
+          title={saved ? "Take it off your board" : "Pin it to your Board"}
+        >
+          <Pin size={13} fill={saved ? "currentColor" : "none"} />
+          {saved ? "On your board" : "Save to board"}
+        </button>
       </div>
       {rateError && <div className="form-error">{rateError}</div>}
 

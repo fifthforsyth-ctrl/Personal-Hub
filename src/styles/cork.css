@@ -1,0 +1,596 @@
+/* ===========================================================================
+   The board: quotes as black-and-white prints, thoughts as index cards,
+   pinned square to a gridded board. Top picks and shelves are prints taped
+   down on the page; only what you've kept hangs on the board.
+
+   The look is disciplined on purpose: monochrome, straight lines, strong
+   type, with handwriting kept to a card's title. The app's ink and orange
+   are kept for anything you press.
+   =========================================================================== */
+
+:root {
+  --board: #e8e8e6;
+  --board-grid: rgba(20, 20, 22, 0.055);
+  --print-ink: #161618;
+  --print-paper: #fcfcfb;
+  --print-shadow: 0 1px 2px rgba(10, 10, 12, 0.14), 0 10px 20px -8px rgba(10, 10, 12, 0.35);
+  --charcoal-1: #1c1c1e;
+  --charcoal-2: #2a2a2d;
+  --charcoal-3: #3a3a3e;
+  --font-hand: Caveat, "Segoe Print", "Bradley Hand", cursive;
+}
+
+/* --- a print: picture, words, who said them ------------------------------- */
+
+.qprint {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 10px 10px 11px;
+  background: var(--print-paper);
+  border-radius: 2px;
+  box-shadow: var(--print-shadow);
+  transform: rotate(var(--tilt, 0deg));
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  color: var(--print-ink);
+  min-width: 0;
+}
+
+@media (hover: hover) {
+  .qprint:not(.qprint--waiting):hover {
+    transform: rotate(0deg) translateY(-3px);
+    box-shadow: 0 2px 4px rgba(10, 10, 12, 0.14), 0 18px 32px -10px rgba(10, 10, 12, 0.42);
+    z-index: 2;
+  }
+}
+
+.qprint__photo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 1px;
+  background: linear-gradient(135deg, var(--charcoal-3), var(--charcoal-1));
+}
+
+.qprint__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Portraits keep the face, which sits high. */
+  object-position: center 22%;
+  display: block;
+  /* Black and white, a little hard. */
+  filter: grayscale(1) contrast(1.12) brightness(0.98);
+}
+
+.qprint__initials {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-serif);
+  font-size: 40px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.qprint__text {
+  margin: 2px 2px 0;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.45;
+  font-weight: 450;
+  text-wrap: pretty;
+}
+
+.qprint__text::before { content: "\201C"; }
+.qprint__text::after { content: "\201D"; }
+
+.qprint__by {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px;
+  min-width: 0;
+}
+
+.qprint__author { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+
+.qprint__source {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-2);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+a.qprint__source:hover { color: var(--accent-text); }
+
+.qprint__why {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 6px 9px;
+  border-left: 2px solid var(--accent);
+  background: #f2f2f0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.qprint__why svg { flex: none; margin-top: 2px; color: var(--accent); }
+
+.qprint__foot { display: flex; justify-content: flex-start; margin: 1px 1px 0; }
+
+.qprint__save {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+
+@media (hover: hover) { .qprint__save:hover { border-color: var(--ink); } }
+.qprint__save.is-on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.qprint__save:disabled { opacity: 0.5; }
+
+/* On the cork, unpinning is quiet: it shows on hover, and always on touch. */
+.qprint--cork .qprint__save {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+  padding: 4px 6px;
+  font-weight: 550;
+}
+
+.qprint--cork .qprint__save.is-on { background: transparent; color: var(--text-2); }
+@media (hover: hover) {
+  .qprint--cork .qprint__foot { opacity: 0; transition: opacity 0.15s; }
+  .qprint--cork:hover .qprint__foot, .qprint--cork:focus-within .qprint__foot { opacity: 1; }
+}
+
+/* Taped down (picks and shelves) and pinned up (the cork). */
+.qprint__tape {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 78px;
+  height: 22px;
+  transform: translateX(-50%) rotate(-1.5deg);
+  /* Black gaffer tape. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 40%),
+    rgba(28, 28, 30, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  z-index: 1;
+}
+
+.qprint__pin,
+.paper__pin {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 17px;
+  height: 17px;
+  margin-left: -8.5px;
+  border-radius: 50%;
+  width: 15px;
+  height: 15px;
+  margin-left: -7.5px;
+  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.7) 0 12%, var(--pin, #2a2a2d) 36%, color-mix(in srgb, var(--pin, #2a2a2d) 60%, #000) 100%);
+  box-shadow: 0 4px 5px -1px rgba(0, 0, 0, 0.45);
+  z-index: 1;
+}
+
+.qprint.is-saved { outline: 2px solid var(--accent-line); outline-offset: 3px; }
+
+/* A print still being found. */
+.qprint--waiting { pointer-events: none; }
+.qprint--waiting .qprint__photo { background: #ececea; animation: print-wait 1.4s ease-in-out infinite; }
+.qprint__line { height: 11px; border-radius: 3px; background: #ececea; animation: print-wait 1.4s ease-in-out infinite; }
+.qprint__line--short { width: 55%; }
+.qprint__wait-label { margin: 2px; font-size: 12px; color: var(--text-2); }
+
+@keyframes print-wait { 50% { opacity: 0.55; } }
+
+/* --- top picks ------------------------------------------------------------ */
+
+.picks__head,
+.browse__head,
+.cork-wrap__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.picks__title,
+.browse__title,
+.cork-wrap__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.picks__title svg { color: var(--accent); }
+.picks__sub { margin: 3px 0 0; font-size: 13px; color: var(--text-2); }
+
+.picks__strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(236px, 262px);
+  gap: 22px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 22px 6px 26px;
+  margin: 0 -6px;
+  align-items: start;
+  scrollbar-width: thin;
+}
+
+.picks__strip > * { scroll-snap-align: start; }
+
+/* --- browse ---------------------------------------------------------------- */
+
+.browse {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.browse .seg-btn { display: inline-flex; align-items: center; gap: 5px; }
+
+.browse__people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 16px 10px;
+}
+
+.person-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  text-align: center;
+  color: var(--text);
+  min-width: 0;
+}
+
+.person-tile__photo {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-bottom: 5px;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 1px var(--line), 0 6px 14px -4px rgba(10, 10, 12, 0.35);
+  background: linear-gradient(135deg, var(--charcoal-3), var(--charcoal-1));
+  display: grid;
+  place-items: center;
+  transition: transform 0.18s;
+}
+
+.person-tile__photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; filter: grayscale(1) contrast(1.1); }
+.person-tile__initials { font-family: var(--font-serif); font-size: 22px; color: #fff; }
+.person-tile__name { font-size: 12.5px; font-weight: 650; line-height: 1.25; }
+.person-tile__kind { font-size: 9.5px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); }
+@media (hover: hover) { .person-tile:hover .person-tile__photo { transform: translateY(-2px) scale(1.04); } }
+
+.browse__themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 10px;
+}
+
+.theme-tile {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: none;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  padding: 12px;
+  text-align: left;
+  color: #fff;
+  isolation: isolate;
+}
+
+.theme-tile { background: linear-gradient(150deg, var(--charcoal-3), var(--charcoal-1)); }
+.theme-tile--1, .theme-tile--4 { background: linear-gradient(150deg, #4a4a4f, var(--charcoal-2)); }
+.theme-tile--2, .theme-tile--5 { background: linear-gradient(150deg, var(--charcoal-2), #111113); }
+
+.theme-tile__cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; filter: grayscale(1) contrast(1.1); }
+.theme-tile.has-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(10, 8, 6, 0.05) 30%, rgba(10, 8, 6, 0.7));
+}
+
+.theme-tile__name {
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3);
+}
+
+.theme-tile::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  bottom: 34px;
+  width: 18px;
+  height: 2px;
+  background: var(--accent);
+}
+
+@media (hover: hover) { .theme-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); } }
+.theme-tile { transition: transform 0.18s, box-shadow 0.18s; }
+
+.browse__moods {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.mood-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 14px 16px;
+  border: none;
+  border-radius: 10px;
+  text-align: left;
+  background: var(--charcoal-1);
+  color: #f4f4f2;
+  transition: transform 0.18s, background 0.18s;
+}
+
+@media (hover: hover) { .mood-tile:hover { transform: translateY(-2px); background: #000; } }
+
+.mood-tile__feel { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+.mood-tile__name { font-family: var(--font-serif); font-size: 21px; font-weight: 500; line-height: 1.15; }
+
+
+.browse__ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  color: var(--text-2);
+}
+
+.browse__ask .input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 8px 0;
+  box-shadow: none;
+}
+
+.browse__ask .input:focus { box-shadow: none; outline: none; }
+
+/* --- the board ---------------------------------------------------------------- */
+
+.cork-wrap { display: flex; flex-direction: column; gap: 14px; }
+
+.cork {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 28px 22px 12px;
+  background:
+    linear-gradient(var(--board-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--board-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--board);
+  box-shadow: inset 0 1px 4px rgba(10, 10, 12, 0.06);
+}
+
+.cork__items {
+  columns: 228px;
+  column-gap: 26px;
+}
+
+.cork__items > * {
+  break-inside: avoid;
+  margin: 0 0 18px;
+}
+
+/* Room above each card for its pin or tape: a column clips whatever pokes
+   out of its top, so they have to sit inside the slot. */
+.print-slot { padding-top: 12px; }
+
+.cork__empty {
+  margin: 10px auto 26px;
+  max-width: 34ch;
+  text-align: center;
+  font-family: var(--font-hand);
+  font-size: 25px;
+  line-height: 1.2;
+  color: var(--text-2);
+}
+
+.cork__more { display: flex; justify-content: center; padding: 0 0 16px; }
+.cork__more .btn { background: var(--card); }
+
+/* A thought on an index card: a hard rule across the top, the title in
+   your hand, the words in type. */
+.paper {
+  position: relative;
+  display: block;
+  padding: 0;
+  background: var(--print-paper);
+  border-top: 3px solid var(--charcoal-1);
+  border-radius: 1px;
+  transform: rotate(var(--tilt, 0deg));
+  box-shadow: var(--print-shadow);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+@media (hover: hover) {
+  .paper:hover { transform: rotate(0deg) translateY(-3px); z-index: 2; }
+}
+
+.paper__open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 18px 16px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--print-ink);
+}
+
+.paper.has-photo .paper__open { padding: 10px 10px 12px; }
+
+.paper__photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 1px;
+  margin-bottom: 4px;
+  filter: grayscale(1) contrast(1.1);
+}
+
+.paper__title {
+  font-family: var(--font-hand);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.05;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e2df;
+}
+.paper__text { font-family: var(--font-serif); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.paper__meta { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+
+.paper__tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.paper:hover .paper__tools,
+.paper:focus-within .paper__tools { opacity: 1; }
+@media (hover: none) { .paper__tools { opacity: 0.75; } }
+
+.paper__tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--print-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* --- a shelf, open ------------------------------------------------------------ */
+
+.shelf { display: flex; flex-direction: column; gap: 20px; }
+.shelf__bar { display: flex; }
+
+.shelf__head { display: flex; align-items: center; gap: 18px; }
+
+.shelf__face {
+  width: 92px;
+  height: 92px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 20%;
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 1px var(--line), 0 10px 20px -6px rgba(10, 10, 12, 0.35);
+  filter: grayscale(1) contrast(1.1);
+}
+
+.shelf__eyebrow {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.shelf__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(28px, 6vw, 40px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+
+.shelf__hint { margin: 6px 0 0; color: var(--text-2); font-size: 14px; max-width: 52ch; }
+
+.shelf__grid {
+  columns: 240px;
+  column-gap: 26px;
+}
+
+.shelf__grid > * { break-inside: avoid; margin: 0 0 20px; }
+
+.shelf__waiting-note { margin: 0; color: var(--text-2); font-size: 13.5px; max-width: 60ch; }
+
+.shelf__more { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 12px; }
+
+/* --- small screens ------------------------------------------------------------ */
+
+@media (max-width: 560px) {
+  .cork { padding: 22px 12px 6px; border-radius: 18px; }
+  .cork__items { columns: 2; column-gap: 14px; }
+  .cork__items > * { margin-bottom: 12px; }
+  .cork .qprint,
+  .shelf__grid .qprint { padding: 7px 7px 8px; gap: 7px; }
+  .cork .qprint__text,
+  .shelf__grid .qprint__text { font-size: 13.5px; line-height: 1.4; }
+  .cork .qprint__author,
+  .shelf__grid .qprint__author { font-size: 11.5px; }
+  .paper__open { padding: 14px 11px 10px; }
+  .paper__text { font-size: 13.5px; }
+  .paper__title { font-size: 20px; }
+  .browse { padding: 16px; }
+  .shelf__grid { columns: 2; column-gap: 14px; }
+  .shelf__grid > * { margin-bottom: 12px; }
+  .shelf__face { width: 72px; height: 72px; }
+  .picks__strip { grid-auto-columns: 64%; gap: 16px; }
+}

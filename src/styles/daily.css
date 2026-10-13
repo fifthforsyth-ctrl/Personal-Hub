@@ -448,6 +448,8 @@ a.quote-card__source:hover { text-decoration: underline; }
 .quote-card__rate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .quote-card__rate .seg-btn { padding: 7px 13px; font-size: 12.5px; }
 .quote-card__rated { font-size: 12px; color: var(--text-2); }
+.quote-card__save { margin-left: auto; }
+.quote-card__save.is-on { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-line); }
 
 .quote-card__credit { margin: -4px 0 0; font-size: 10.5px; color: var(--text-3); }
 .quote-card__credit-link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-decoration-thickness: 1px; }

@@ -27,6 +27,7 @@ import {
 } from "../src/lib/ring.js";
 import { initials, ratedLine, sourceLine, RATINGS } from "../src/lib/quotes.js";
 import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
+import { slug, shelfFor, topShelf, inShelfOrder, shelfState, tiltOf, pinOf, PIN_COLORS, PEOPLE, THEMES, MOODS, corkItems } from "../src/lib/quoteShelves.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
 let pass = 0;
@@ -488,6 +489,60 @@ ok("source gets its year", sourceLine({ source: "Mere Christianity", year: 1952 
 ok("a year already in the source isn't repeated", sourceLine({ source: "General conference, October 2018", year: 2018 }) === "General conference, October 2018");
 ok("only a year", sourceLine({ source: "", year: 1863 }) === "1863");
 ok("nothing at all", sourceLine({}) === "");
+
+// --- Quote shelves and the cork -------------------------------------------------
+
+const KEY = /^[a-z]+:[a-z0-9-]{1,80}$/;
+ok("names slug to dashes", slug("Russell M. Nelson") === "russell-m-nelson");
+ok("slugs drop accents", slug("Dieter F. Uchtdorf über") === "dieter-f-uchtdorf-uber");
+ok("a slug of punctuation still has something", slug("?!") === "x");
+ok("slugs stop at 80 without a trailing dash", slug("ab ".repeat(40)).length <= 80 && !slug("ab ".repeat(40)).endsWith("-"));
+ok("every built-in shelf has a key the database takes", [
+  ...PEOPLE.map((p) => shelfFor("person", p)),
+  ...THEMES.map((t) => shelfFor("theme", t)),
+  ...MOODS.map((m) => shelfFor("mood", m)),
+].every((s) => KEY.test(s.key) && s.label.length <= 80 && (s.hint ?? "").length <= 300));
+ok("built-in shelf keys are all different", (() => {
+  const keys = [...PEOPLE.map((p) => shelfFor("person", p).key), ...THEMES.map((t) => shelfFor("theme", t).key), ...MOODS.map((m) => shelfFor("mood", m).key)];
+  return new Set(keys).size === keys.length;
+})());
+ok("a person shelf asks for their quotes", shelfFor("person", { name: "C. S. Lewis" }).key === "person:c-s-lewis");
+ok("a mood shelf carries what helps", shelfFor("mood", MOODS[0]).hint.startsWith("For when"));
+ok("an ask shelf is what you typed, tidied", (() => {
+  const s = shelfFor("ask", { name: "  patience   with kids " });
+  return s.key === "ask:patience-with-kids" && s.label === "patience with kids" && s.facet === "ask";
+})());
+ok("a long ask still makes a valid key", KEY.test(shelfFor("ask", { name: "word ".repeat(40) }).key));
+ok("top picks are keyed by the week's Sunday", topShelf("2026-10-14").key === "top:2026-10-11");
+ok("a Sunday is its own week", topShelf("2026-10-11").key === "top:2026-10-11");
+ok("Saturday belongs to the week before", topShelf("2026-10-17").key === "top:2026-10-11");
+
+ok("shelf quotes come back in shelf order", inShelfOrder(["b", "a", "c"], [{ id: "a" }, { id: "b" }, { id: "c" }]).map((q) => q.id).join() === "b,a,c");
+ok("a quote that's gone is left out", inShelfOrder(["a", "gone"], [{ id: "a" }]).length === 1);
+ok("no ids, no quotes", inShelfOrder(null, [{ id: "a" }]).length === 0);
+
+const asked = "2026-10-13T12:00:00Z";
+ok("no row is missing", shelfState(null) === "missing");
+ok("a fresh pending shelf is pending", shelfState({ status: "pending", requested_at: asked }, Date.parse(asked) + 60_000) === "pending");
+ok("a pending shelf abandoned for 5 minutes reads as failed", shelfState({ status: "pending", requested_at: asked }, Date.parse(asked) + 6 * 60_000) === "failed");
+ok("ready is ready", shelfState({ status: "ready", requested_at: asked }) === "ready");
+
+ok("tilt is steady for a card", tiltOf("abc") === tiltOf("abc"));
+ok("tilt stays small", ["a", "b", "some-uuid-1234", "", null].every((id) => Math.abs(tiltOf(id)) <= 0.6));
+ok("pins are one of the colors", PIN_COLORS.includes(pinOf("abc")) && pinOf("abc") === pinOf("abc"));
+
+const cork = corkItems(
+  [{ id: "q1", saved_at: "2026-10-12T10:00:00Z" }, { id: "q2", saved_at: "2026-10-13T09:00:00Z" }],
+  [
+    { id: "n1", created_at: "2026-10-13T08:00:00Z", parent_note_id: null },
+    { id: "n2", created_at: "2026-09-01T08:00:00Z", parent_note_id: null, pinned: true },
+    { id: "n3", created_at: "2026-10-13T10:00:00Z", parent_note_id: "n1" },
+  ]
+);
+ok("pinned thoughts go to the top of the cork", cork[0].id === "n2");
+ok("then everything newest first", cork.map((i) => i.id).join() === "n2,q2,n1,q1");
+ok("thoughts cut from a passage stay folded on the cork", !cork.some((i) => i.id === "n3"));
+ok("the cork copes with nothing", corkItems(null, undefined).length === 0);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
