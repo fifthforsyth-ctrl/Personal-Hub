@@ -2278,3 +2278,35 @@ export async function setFocusCheckin(userId, goalId, date, moved) {
     .upsert({ user_id: userId, goal_id: goalId, date, moved }, { onConflict: "goal_id,date" });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Quotes: one a day, chosen for the week, and rated.
+// ---------------------------------------------------------------------------
+
+export async function fetchQuoteDay(userId, dateStr) {
+  const { data, error } = await supabase
+    .from("quote_days")
+    .select("date, reason, quote:quotes(*)")
+    .eq("user_id", userId)
+    .eq("date", dateStr)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
+}
+
+// Finds the day's quote when the nightly run didn't. It searches the web to
+// confirm the wording, so it can take a minute. Resolves to the day's row.
+export function pickQuote(dateStr) {
+  return callFunction("quotes", { tz: localZone(), date: dateStr }, "Finding a quote");
+}
+
+export async function rateQuote(quoteId, rating) {
+  const { data, error } = await supabase
+    .from("quotes")
+    .update({ rating, rated_at: rating ? new Date().toISOString() : null })
+    .eq("id", quoteId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
