@@ -528,7 +528,7 @@ ok("a pending shelf abandoned for 5 minutes reads as failed", shelfState({ statu
 ok("ready is ready", shelfState({ status: "ready", requested_at: asked }) === "ready");
 
 ok("tilt is steady for a card", tiltOf("abc") === tiltOf("abc"));
-ok("tilt stays small", ["a", "b", "some-uuid-1234", "", null].every((id) => Math.abs(tiltOf(id)) <= 1.8));
+ok("tilt stays small", ["a", "b", "some-uuid-1234", "", null].every((id) => Math.abs(tiltOf(id)) <= 0.6));
 ok("pins are one of the colors", PIN_COLORS.includes(pinOf("abc")) && pinOf("abc") === pinOf("abc"));
 
 const cork = corkItems(

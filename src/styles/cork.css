@@ -1,18 +1,22 @@
 /* ===========================================================================
-   The board: quotes as photo prints, thoughts as paper notes, pinned to a
-   soft pinboard. Top picks and shelves are prints taped down on the page;
-   only what you've kept hangs on the board.
+   The board: quotes as black-and-white prints, thoughts as index cards,
+   pinned square to a gridded board. Top picks and shelves are prints taped
+   down on the page; only what you've kept hangs on the board.
 
-   The prints and notes lean warm and tactile on purpose; the board behind
-   them stays light and quiet like the rest of the app, and the app's ink
-   and orange are kept for anything you press.
+   The look is disciplined on purpose: monochrome, straight lines, strong
+   type, with handwriting kept to a card's title. The app's ink and orange
+   are kept for anything you press.
    =========================================================================== */
 
 :root {
-  --board: #e9e7e2;
-  --board-dot: rgba(60, 50, 40, 0.09);
-  --print-ink: #1f1b16;
-  --print-shadow: 0 1px 2px rgba(40, 24, 8, 0.12), 0 10px 22px -6px rgba(40, 24, 8, 0.32);
+  --board: #e8e8e6;
+  --board-grid: rgba(20, 20, 22, 0.055);
+  --print-ink: #161618;
+  --print-paper: #fcfcfb;
+  --print-shadow: 0 1px 2px rgba(10, 10, 12, 0.14), 0 10px 20px -8px rgba(10, 10, 12, 0.35);
+  --charcoal-1: #1c1c1e;
+  --charcoal-2: #2a2a2d;
+  --charcoal-3: #3a3a3e;
   --font-hand: Caveat, "Segoe Print", "Bradley Hand", cursive;
 }
 
@@ -25,8 +29,8 @@
   gap: 9px;
   margin: 0;
   padding: 10px 10px 11px;
-  background: #fffefb;
-  border-radius: 3px;
+  background: var(--print-paper);
+  border-radius: 2px;
   box-shadow: var(--print-shadow);
   transform: rotate(var(--tilt, 0deg));
   transition: transform 0.22s ease, box-shadow 0.22s ease;
@@ -37,7 +41,7 @@
 @media (hover: hover) {
   .qprint:not(.qprint--waiting):hover {
     transform: rotate(0deg) translateY(-3px);
-    box-shadow: 0 2px 4px rgba(40, 24, 8, 0.12), 0 18px 34px -8px rgba(40, 24, 8, 0.38);
+    box-shadow: 0 2px 4px rgba(10, 10, 12, 0.14), 0 18px 32px -10px rgba(10, 10, 12, 0.42);
     z-index: 2;
   }
 }
@@ -46,8 +50,8 @@
   position: relative;
   aspect-ratio: 4 / 3;
   overflow: hidden;
-  border-radius: 2px;
-  background: linear-gradient(135deg, #f0a46a, #b65a2a 60%, #6e3518);
+  border-radius: 1px;
+  background: linear-gradient(135deg, var(--charcoal-3), var(--charcoal-1));
 }
 
 .qprint__photo img {
@@ -57,7 +61,8 @@
   /* Portraits keep the face, which sits high. */
   object-position: center 22%;
   display: block;
-  filter: saturate(0.92) contrast(1.02);
+  /* Black and white, a little hard. */
+  filter: grayscale(1) contrast(1.12) brightness(0.98);
 }
 
 .qprint__initials {
@@ -75,10 +80,9 @@
 .qprint__text {
   margin: 2px 2px 0;
   font-family: var(--font-serif);
-  font-style: italic;
   font-size: 15.5px;
   line-height: 1.45;
-  font-weight: 400;
+  font-weight: 450;
   text-wrap: pretty;
 }
 
@@ -93,7 +97,7 @@
   min-width: 0;
 }
 
-.qprint__author { font-size: 12.5px; font-weight: 650; letter-spacing: 0.01em; }
+.qprint__author { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
 
 .qprint__source {
   display: inline-flex;
@@ -113,10 +117,10 @@ a.qprint__source:hover { color: var(--accent-text); }
   gap: 6px;
   align-items: flex-start;
   margin: 0;
-  padding: 7px 9px;
-  border-radius: 7px;
-  background: #fff3e6;
-  color: #6a4a2c;
+  padding: 6px 9px;
+  border-left: 2px solid var(--accent);
+  background: #f2f2f0;
+  color: var(--text);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -165,11 +169,12 @@ a.qprint__source:hover { color: var(--accent-text); }
   left: 50%;
   width: 78px;
   height: 22px;
-  transform: translateX(-50%) rotate(-3deg);
+  transform: translateX(-50%) rotate(-1.5deg);
+  /* Black gaffer tape. */
   background:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.18) 0 3px, transparent 3px 7px),
-    rgba(250, 226, 176, 0.78);
-  box-shadow: 0 1px 2px rgba(60, 40, 10, 0.12);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 40%),
+    rgba(28, 28, 30, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   z-index: 1;
 }
 
@@ -182,8 +187,11 @@ a.qprint__source:hover { color: var(--accent-text); }
   height: 17px;
   margin-left: -8.5px;
   border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.85) 0 14%, var(--pin, #e2483d) 34%, color-mix(in srgb, var(--pin, #e2483d) 70%, #000) 100%);
-  box-shadow: 0 4px 5px -1px rgba(30, 15, 0, 0.45);
+  width: 15px;
+  height: 15px;
+  margin-left: -7.5px;
+  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.7) 0 12%, var(--pin, #2a2a2d) 36%, color-mix(in srgb, var(--pin, #2a2a2d) 60%, #000) 100%);
+  box-shadow: 0 4px 5px -1px rgba(0, 0, 0, 0.45);
   z-index: 1;
 }
 
@@ -191,8 +199,8 @@ a.qprint__source:hover { color: var(--accent-text); }
 
 /* A print still being found. */
 .qprint--waiting { pointer-events: none; }
-.qprint--waiting .qprint__photo { background: #efe9e1; animation: print-wait 1.4s ease-in-out infinite; }
-.qprint__line { height: 11px; border-radius: 4px; background: #efe9e1; animation: print-wait 1.4s ease-in-out infinite; }
+.qprint--waiting .qprint__photo { background: #ececea; animation: print-wait 1.4s ease-in-out infinite; }
+.qprint__line { height: 11px; border-radius: 3px; background: #ececea; animation: print-wait 1.4s ease-in-out infinite; }
 .qprint__line--short { width: 55%; }
 .qprint__wait-label { margin: 2px; font-size: 12px; color: var(--text-2); }
 
@@ -282,17 +290,17 @@ a.qprint__source:hover { color: var(--accent-text); }
   overflow: hidden;
   margin-bottom: 5px;
   border: 3px solid #fff;
-  box-shadow: 0 0 0 1px var(--line), 0 6px 14px -4px rgba(40, 24, 8, 0.35);
-  background: linear-gradient(135deg, #f0a46a, #8e4520);
+  box-shadow: 0 0 0 1px var(--line), 0 6px 14px -4px rgba(10, 10, 12, 0.35);
+  background: linear-gradient(135deg, var(--charcoal-3), var(--charcoal-1));
   display: grid;
   place-items: center;
   transition: transform 0.18s;
 }
 
-.person-tile__photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
+.person-tile__photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; filter: grayscale(1) contrast(1.1); }
 .person-tile__initials { font-family: var(--font-serif); font-size: 22px; color: #fff; }
-.person-tile__name { font-size: 12.5px; font-weight: 600; line-height: 1.25; }
-.person-tile__kind { font-size: 10.5px; color: var(--text-3); }
+.person-tile__name { font-size: 12.5px; font-weight: 650; line-height: 1.25; }
+.person-tile__kind { font-size: 9.5px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); }
 @media (hover: hover) { .person-tile:hover .person-tile__photo { transform: translateY(-2px) scale(1.04); } }
 
 .browse__themes {
@@ -305,7 +313,7 @@ a.qprint__source:hover { color: var(--accent-text); }
   position: relative;
   aspect-ratio: 4 / 3;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   overflow: hidden;
   display: flex;
   align-items: flex-end;
@@ -315,14 +323,11 @@ a.qprint__source:hover { color: var(--accent-text); }
   isolation: isolate;
 }
 
-.theme-tile--0 { background: linear-gradient(140deg, #f6b26b, #c8551f); }
-.theme-tile--1 { background: linear-gradient(140deg, #8fb7d8, #35618f); }
-.theme-tile--2 { background: linear-gradient(140deg, #b9c98f, #5b7a33); }
-.theme-tile--3 { background: linear-gradient(140deg, #d7a6c8, #8a4176); }
-.theme-tile--4 { background: linear-gradient(140deg, #e6c27a, #9a6a1c); }
-.theme-tile--5 { background: linear-gradient(140deg, #a7a3d9, #4d4793); }
+.theme-tile { background: linear-gradient(150deg, var(--charcoal-3), var(--charcoal-1)); }
+.theme-tile--1, .theme-tile--4 { background: linear-gradient(150deg, #4a4a4f, var(--charcoal-2)); }
+.theme-tile--2, .theme-tile--5 { background: linear-gradient(150deg, var(--charcoal-2), #111113); }
 
-.theme-tile__cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.theme-tile__cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; filter: grayscale(1) contrast(1.1); }
 .theme-tile.has-cover::before {
   content: "";
   position: absolute;
@@ -332,10 +337,21 @@ a.qprint__source:hover { color: var(--accent-text); }
 }
 
 .theme-tile__name {
-  font-family: var(--font-serif);
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3);
+}
+
+.theme-tile::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  bottom: 34px;
+  width: 18px;
+  height: 2px;
+  background: var(--accent);
 }
 
 @media (hover: hover) { .theme-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); } }
@@ -353,21 +369,18 @@ a.qprint__source:hover { color: var(--accent-text); }
   gap: 2px;
   padding: 14px 14px 16px;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   text-align: left;
-  transition: transform 0.18s;
+  background: var(--charcoal-1);
+  color: #f4f4f2;
+  transition: transform 0.18s, background 0.18s;
 }
 
-@media (hover: hover) { .mood-tile:hover { transform: translateY(-2px); } }
+@media (hover: hover) { .mood-tile:hover { transform: translateY(-2px); background: #000; } }
 
-.mood-tile__feel { font-size: 10.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
-.mood-tile__name { font-family: var(--font-serif); font-style: italic; font-size: 22px; line-height: 1.15; }
+.mood-tile__feel { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+.mood-tile__name { font-family: var(--font-serif); font-size: 21px; font-weight: 500; line-height: 1.15; }
 
-.mood-tile--0 { background: #fde7d6; color: #8a3b0c; }
-.mood-tile--1 { background: #e3eefa; color: #24507e; }
-.mood-tile--2 { background: #eaf2df; color: #3d6020; }
-.mood-tile--3 { background: #f6e4f0; color: #7b2f67; }
-.mood-tile--4 { background: #fbf0d0; color: #7a5a0e; }
 
 .browse__ask {
   display: flex;
@@ -399,9 +412,10 @@ a.qprint__source:hover { color: var(--accent-text); }
   border-radius: var(--r-lg);
   padding: 28px 22px 12px;
   background:
-    radial-gradient(var(--board-dot) 1px, transparent 1.6px) 0 0 / 18px 18px,
+    linear-gradient(var(--board-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--board-grid) 1px, transparent 1px) 0 0 / 24px 24px,
     var(--board);
-  box-shadow: inset 0 1px 4px rgba(40, 30, 20, 0.06);
+  box-shadow: inset 0 1px 4px rgba(10, 10, 12, 0.06);
 }
 
 .cork__items {
@@ -431,20 +445,19 @@ a.qprint__source:hover { color: var(--accent-text); }
 .cork__more { display: flex; justify-content: center; padding: 0 0 16px; }
 .cork__more .btn { background: var(--card); }
 
-/* A thought on paper. */
+/* A thought on an index card: a hard rule across the top, the title in
+   your hand, the words in type. */
 .paper {
   position: relative;
   display: block;
   padding: 0;
+  background: var(--print-paper);
+  border-top: 3px solid var(--charcoal-1);
+  border-radius: 1px;
   transform: rotate(var(--tilt, 0deg));
-  box-shadow: 0 1px 1px rgba(40, 24, 8, 0.08), 0 12px 18px -8px rgba(40, 24, 8, 0.45);
+  box-shadow: var(--print-shadow);
   transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
-
-.paper--cream { background: #fffaf0; }
-.paper--yellow { background: #fff2a8; }
-.paper--peach { background: #ffe1cc; }
-.paper--blue { background: #e1eefc; }
 
 @media (hover: hover) {
   .paper:hover { transform: rotate(0deg) translateY(-3px); z-index: 2; }
@@ -455,27 +468,34 @@ a.qprint__source:hover { color: var(--accent-text); }
   flex-direction: column;
   gap: 6px;
   width: 100%;
-  padding: 20px 16px 12px;
+  padding: 18px 16px 12px;
   border: none;
   background: transparent;
   text-align: left;
-  color: #2a241d;
+  color: var(--print-ink);
 }
 
-.paper.has-photo { background: #fffefb; }
 .paper.has-photo .paper__open { padding: 10px 10px 12px; }
 
 .paper__photo {
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  border-radius: 2px;
+  border-radius: 1px;
   margin-bottom: 4px;
+  filter: grayscale(1) contrast(1.1);
 }
 
-.paper__title { font-family: var(--font-hand); font-size: 24px; font-weight: 600; line-height: 1.05; }
-.paper__text { font-family: var(--font-hand); font-size: 21px; font-weight: 500; line-height: 1.15; overflow-wrap: anywhere; }
-.paper__meta { font-family: var(--font-mono); font-size: 10px; color: rgba(42, 36, 29, 0.6); }
+.paper__title {
+  font-family: var(--font-hand);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.05;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e2df;
+}
+.paper__text { font-family: var(--font-serif); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.paper__meta { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
 
 .paper__tools {
   position: absolute;
@@ -498,9 +518,9 @@ a.qprint__source:hover { color: var(--accent-text); }
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.85);
-  color: #2a241d;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--print-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
 /* --- a shelf, open ------------------------------------------------------------ */
@@ -518,7 +538,8 @@ a.qprint__source:hover { color: var(--accent-text); }
   object-fit: cover;
   object-position: center 20%;
   border: 4px solid #fff;
-  box-shadow: 0 0 0 1px var(--line), 0 10px 20px -6px rgba(40, 24, 8, 0.35);
+  box-shadow: 0 0 0 1px var(--line), 0 10px 20px -6px rgba(10, 10, 12, 0.35);
+  filter: grayscale(1) contrast(1.1);
 }
 
 .shelf__eyebrow {
@@ -564,9 +585,9 @@ a.qprint__source:hover { color: var(--accent-text); }
   .shelf__grid .qprint__text { font-size: 13.5px; line-height: 1.4; }
   .cork .qprint__author,
   .shelf__grid .qprint__author { font-size: 11.5px; }
-  .paper__open { padding: 18px 11px 10px; }
-  .paper__text { font-size: 18.5px; }
-  .paper__title { font-size: 21px; }
+  .paper__open { padding: 14px 11px 10px; }
+  .paper__text { font-size: 13.5px; }
+  .paper__title { font-size: 20px; }
   .browse { padding: 16px; }
   .shelf__grid { columns: 2; column-gap: 14px; }
   .shelf__grid > * { margin-bottom: 12px; }

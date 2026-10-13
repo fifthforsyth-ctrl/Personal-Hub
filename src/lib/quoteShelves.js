@@ -115,16 +115,18 @@ export function shelfState(row, now = Date.now()) {
   return row.status;
 }
 
-// A small, steady tilt for each card on the cork, from its id, so the board
-// looks pinned by hand but doesn't shuffle on every render.
+// A slight, steady tilt for each card on the board, from its id: enough to
+// read as pinned by hand, not enough to look messy. It doesn't shuffle on
+// every render.
 export function tiltOf(id) {
   let h = 0;
   for (const ch of String(id ?? "")) h = (h * 31 + ch.charCodeAt(0)) | 0;
-  return ((Math.abs(h) % 7) - 3) * 0.6; // -1.8deg .. 1.8deg
+  return ((Math.abs(h) % 5) - 2) * 0.3; // -0.6deg .. 0.6deg
 }
 
-// The pins come in a few colors; the same card always gets the same one.
-export const PIN_COLORS = ["#e2483d", "#f26a1b", "#2e7dd7", "#1f9d63", "#e0b100"];
+// The pins are black and steel, with the odd orange one; the same card
+// always gets the same one.
+export const PIN_COLORS = ["#1c1c1e", "#5a5a60", "#1c1c1e", "#8a8a90", "#f26a1b"];
 
 export function pinOf(id) {
   let h = 7;

@@ -11,8 +11,8 @@ import QuoteCard from "./QuoteCard";
 // The board itself: the quotes you've saved and the thoughts you've
 // kept, pinned up together, newest first. Pinned thoughts go to the top.
 //
-// Quotes hang as photo prints; your own thoughts are paper notes in your
-// hand, and any of them can carry a picture of its own.
+// Quotes hang as black-and-white prints; your own thoughts are index cards
+// titled in your hand, and any of them can carry a picture of its own.
 const PAGE = 18;
 
 const SHOW = [
@@ -85,8 +85,7 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
   );
 }
 
-// A thought on a scrap of paper, or a print if it has a picture.
-const PAPERS = ["cream", "yellow", "peach", "blue"];
+// A thought on an index card, or a print if it has a picture.
 
 function PaperNote({ note, onOpen, onChanged }) {
   const { user } = useAuth();
@@ -137,11 +136,10 @@ function PaperNote({ note, onOpen, onChanged }) {
   const photo = !removed && url;
   const hasPicture = Boolean(note.image_path) && !removed;
   const face = cardFace(note, 240);
-  const paper = PAPERS[Math.abs(Math.round(tiltOf(note.id) * 10)) % PAPERS.length];
 
   return (
     <div
-      className={`paper paper--${paper}` + (photo ? " has-photo" : "")}
+      className={"paper" + (photo ? " has-photo" : "")}
       style={{ "--tilt": `${tiltOf(note.id) * -1}deg`, "--pin": pinOf(note.id) }}
     >
       <span className="paper__pin" aria-hidden="true" />
