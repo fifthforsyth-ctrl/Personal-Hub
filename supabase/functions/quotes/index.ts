@@ -16,9 +16,10 @@
 // Every new quote is looked up on the web first, so the wording and the
 // source are the real ones; misattributed quotes are everywhere, and one you
 // can't trust is worse than none. Every quote also gets a picture from the
-// web: the person's photo or portrait when there is one, otherwise a
-// photograph that suits the words. These are for your own board, so any
-// picture will do.
+// web, and no two share one: the person's portrait the first time they
+// appear, and after that a photograph that stands for the words (a symbol,
+// a place, a scene), so a shelf of one person's quotes isn't the same face
+// six times. These are for your own board, so any picture will do.
 //
 // Two ways in, like the curator: the nightly job with the shared secret, and
 // the app with your own login. verify_jwt is off for the job's sake, and this
@@ -80,7 +81,7 @@ ${CONFIRM}
 
 Write your answer in plain prose, either:
 - BRING BACK <id>, and one sentence on why it fits this week; or
-- the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, a few words describing a photograph that would suit the quote (a scene, not a person), and one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
+- the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"), and one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
 
 const SHELF_SYSTEM = `You gather quotes for one shelf of a person's cork board. ${WHO}
 
@@ -101,9 +102,9 @@ Finding the quotes:
 ${CONFIRM}
 - Search before you answer, even for quotes you know well: every quote needs the URL of the page where you confirmed its wording. A search for a person's or a theme's quotes often confirms several at once.
 - Always give the full number asked for. If your searches run out first, fill the rest with quotes you are certain of, word for word, and leave their URL empty.
-- Choose different quotes from one another: different talks or books, different angles on the shelf.
+- Choose different quotes from one another: different talks or books, different angles on the shelf, and a different picture for each.
 
-Write your answer in plain prose, one quote after another. For each: the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, and a few words describing a photograph that would suit the quote (a scene, not a person). For the "top" shelf only, add one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
+Write your answer in plain prose, one quote after another. For each: the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, and two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"). For the "top" shelf only, add one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
 
 const QuoteFields = {
   text: z.string().describe("The quote word for word."),
@@ -113,7 +114,7 @@ const QuoteFields = {
   source_url: z.string().describe("The URL where it was confirmed. Empty if none."),
   year: z.number().describe("The year it was said or published, or 0 if unknown."),
   wikipedia_title: z.string().describe("The exact English Wikipedia article title for the speaker, or empty."),
-  image_query: z.string().describe("The few words describing a photograph to go with it, or empty."),
+  image_query: z.string().describe("The two to five words for a symbolic photograph to go with it, or empty."),
 };
 
 const PickSchema = z.object({
@@ -326,21 +327,34 @@ async function pagePicture(url: string): Promise<Picture | null> {
   return { image_url: image, image_credit: new URL(url).hostname.replace(/^www\./, ""), image_page: url };
 }
 
-// A photograph that suits the words, from Wikimedia Commons.
-async function scenePicture(query: string): Promise<Picture | null> {
+// A photograph that suits the words, from Wikimedia Commons: the best wide
+// match that isn't on the Board already.
+async function scenePicture(query: string, used: Set<string>): Promise<Picture | null> {
   if (!query.trim()) return null;
   const body = await getJson(
     "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2" +
-      `&generator=search&gsrnamespace=6&gsrlimit=6&gsrsearch=${encodeURIComponent(`${query} filetype:bitmap`)}` +
+      `&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=${encodeURIComponent(`${query} filetype:bitmap`)}` +
       "&prop=imageinfo&iiprop=url%7Csize&iiurlwidth=500"
   );
   const pages = (body?.query?.pages ?? []).sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0));
   const image = pages
     .map((p: any) => p.imageinfo?.[0])
-    .find((i: any) => i?.thumburl && i.width >= 600 && i.width >= i.height);
+    .find((i: any) => i?.thumburl && i.width >= 600 && i.width >= i.height && !used.has(String(i.thumburl)));
   if (!image) return null;
   return { image_url: String(image.thumburl), image_credit: "Wikimedia Commons", image_page: image.descriptionurl ?? null };
 }
+
+// Every picture already on the Board, quotes and notes alike.
+async function picturesInUse(db: any, userId: string): Promise<Set<string>> {
+  const [quotes, notes] = await Promise.all([
+    db.from("quotes").select("image_url").eq("user_id", userId).not("image_url", "is", null),
+    db.from("study_notes").select("image_url").eq("user_id", userId).not("image_url", "is", null),
+  ]);
+  return new Set([...(quotes.data ?? []), ...(notes.data ?? [])].map((r: any) => r.image_url));
+}
+
+// Quiet scenes for when the words gave nothing a search could find.
+const FALLBACK_SCENES = ["mountain sunrise landscape", "calm lake at dawn", "forest path morning light", "stone steps upward", "ocean horizon clouds"];
 
 async function attempt(step: () => Promise<Picture | null>) {
   try {
@@ -351,17 +365,94 @@ async function attempt(step: () => Promise<Picture | null>) {
   }
 }
 
-// The person first, then the page it came from, then a scene; and if the
-// model gave no scene, a quiet landscape. Any failure moves on to the next.
-async function pictureFor(q: { author: string; wikipedia_title: string; source_url: string; image_query: string }): Promise<Picture | null> {
-  return (
+// The person's portrait the first time they appear; after that the symbol
+// the words suggest, then the page it came from, then a quiet landscape;
+// and only if all of those are taken, the portrait again. Any failure moves
+// on to the next. The picture chosen is claimed in `used`, so call this one
+// quote at a time.
+async function pictureFor(
+  q: { author: string; wikipedia_title: string; source_url: string; image_query: string },
+  used: Set<string>
+): Promise<Picture | null> {
+  const fresh = (p: Picture | null) => (p && !used.has(p.image_url) ? p : null);
+  const portrait =
     (q.wikipedia_title.trim() && (await attempt(() => wikipediaPicture(q.wikipedia_title)))) ||
     (q.author.trim() && (await attempt(() => wikipediaByName(q.author)))) ||
-    (q.source_url.trim() && (await attempt(() => pagePicture(q.source_url.trim())))) ||
-    (await attempt(() => scenePicture(q.image_query))) ||
-    (await attempt(() => scenePicture("mountain sunrise landscape"))) ||
-    null
-  );
+    null;
+  let picture =
+    fresh(portrait) ||
+    (await attempt(() => scenePicture(q.image_query, used))) ||
+    (q.source_url.trim() && fresh(await attempt(() => pagePicture(q.source_url.trim())))) ||
+    null;
+  for (const scene of FALLBACK_SCENES) {
+    if (picture) break;
+    picture = await attempt(() => scenePicture(scene, used));
+  }
+  picture = picture || portrait;
+  if (picture) used.add(picture.image_url);
+  return picture;
+}
+
+// Quotes that came in before pictures were kept apart share one person's
+// portrait. Each after the first gets a symbol of its own instead.
+const RepictureSchema = z.object({
+  pictures: z.array(
+    z.object({
+      id: z.string().describe("The quote's id, copied exactly."),
+      image_query: z.string().describe("Two to five plain words for a photograph that stands for the quote."),
+    })
+  ),
+});
+
+const REPICTURE_SYSTEM = `For each quote below, give two to five plain words for a photograph that stands for it the way a symbol would: an object, a place or a scene, never a person. "lighthouse in a storm", "worn leather boots", "seedling through concrete", "empty road at dawn". Choose something concrete a photo search will find, fitting to that quote, and different for each quote.`;
+
+const REPICTURE_MAX = 12;
+
+async function repicture(db: any, anthropic: Anthropic, userId: string) {
+  const { data: quotes, error } = await db
+    .from("quotes")
+    .select("id, text, author, image_url")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1000);
+  if (error) throw new Error(`quotes: ${error.message}`);
+
+  const used = await picturesInUse(db, userId);
+  const first = new Set<string>();
+  const shared = (quotes ?? []).filter((q: any) => {
+    if (!q.image_url) return false;
+    if (!first.has(q.image_url)) {
+      first.add(q.image_url);
+      return false;
+    }
+    return true;
+  });
+  const batch = shared.slice(0, REPICTURE_MAX);
+  if (batch.length === 0) return { repictured: 0, more: false };
+
+  const response = await anthropic.messages.parse({
+    model: MODEL,
+    max_tokens: 3000,
+    system: REPICTURE_SYSTEM,
+    messages: [{ role: "user", content: JSON.stringify(batch.map((q: any) => ({ id: q.id, author: q.author, quote: q.text.slice(0, 400) })), null, 1) }],
+    output_config: { format: zodOutputFormat(RepictureSchema), effort: "low" },
+  });
+  const queries = new Map((response.parsed_output?.pictures ?? []).map((p) => [p.id, p.image_query]));
+
+  let repictured = 0;
+  for (const q of batch) {
+    let picture = await attempt(() => scenePicture(queries.get(q.id) ?? "", used));
+    for (const scene of FALLBACK_SCENES) {
+      if (picture) break;
+      picture = await attempt(() => scenePicture(scene, used));
+    }
+    if (!picture) continue;
+    used.add(picture.image_url);
+    const { error: updateError } = await db.from("quotes").update(picture).eq("id", q.id).eq("user_id", userId);
+    if (updateError) throw new Error(`quotes: ${updateError.message}`);
+    repictured++;
+  }
+  return { repictured, more: shared.length > batch.length };
 }
 
 function quoteRow(userId: string, q: Omit<Found, "why">, verified: boolean, picture: Picture | null) {
@@ -407,7 +498,7 @@ async function pickFor(db: any, anthropic: Anthropic, userId: string, tz: string
     quoteId = pick.bring_back_id;
   } else {
     if (!pick.text.trim() || !pick.author.trim()) throw new Error("No quote came back.");
-    const picture = await pictureFor(pick);
+    const picture = await pictureFor(pick, await picturesInUse(db, userId));
     const { data: row, error } = await db
       .from("quotes")
       .insert({ ...quoteRow(userId, pick, searched, picture), origin: "daily" })
@@ -518,7 +609,10 @@ async function fillShelf(db: any, anthropic: Anthropic, userId: string, tz: stri
   });
   if (found.length === 0) throw new Error("No quotes came back.");
 
-  const pictures = await Promise.all(found.map((q) => pictureFor(q)));
+  // One at a time, so no two of them take the same picture.
+  const used = await picturesInUse(db, userId);
+  const pictures = [];
+  for (const q of found) pictures.push(await pictureFor(q, used));
   const { data: rows, error: insertError } = await db
     .from("quotes")
     .insert(
@@ -604,6 +698,10 @@ Deno.serve(async (req) => {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date ?? ""))
       ? String(body.date)
       : new Date().toLocaleDateString("en-CA", { timeZone: tz });
+
+    if (body.action === "repicture") {
+      return json(await repicture(supabase, anthropic, userData.user.id));
+    }
 
     if (body.action === "shelf") {
       const out = await requestShelf(supabase, anthropic, userData.user.id, tz, date, body);

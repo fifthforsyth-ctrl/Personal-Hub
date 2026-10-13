@@ -1567,12 +1567,13 @@ export async function searchNotes(query, limit = 30) {
 }
 
 // The board's quiet filing: a one-line gist and a few tags for a thought,
-// so search and the curator can find it later. Never shown on the card.
+// so search and the curator can find it later (never shown on the card),
+// the shelves it belongs on, and a picture that stands for it.
 export function gistNote(noteId) {
   return callFunction("board", { action: "gist", note_id: noteId }, "The board");
 }
 
-// Thoughts kept before the filing existed, a few at a time. Resolves to
+// Thoughts not yet filed, a few at a time. Resolves to
 // { filed, failed, more }.
 export function gistBacklog() {
   return callFunction("board", { action: "gist_backlog" }, "The board");
@@ -1824,6 +1825,16 @@ export async function removeNoteImage(userId, noteId, path) {
     const { error: fileError } = await supabase.storage.from("note-images").remove([path]);
     if (fileError) console.warn(fileError);
   }
+}
+
+// A picture the board found for a note, taken off. It isn't looked for
+// again (pictured_at stays).
+export async function removeNoteWebImage(noteId) {
+  const { error } = await supabase
+    .from("study_notes")
+    .update({ image_url: null, image_credit: null, image_page: null })
+    .eq("id", noteId);
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------
@@ -2375,6 +2386,13 @@ export async function fetchShelfCovers(userId) {
 // `fresh`). Resolves at once to the shelf's row, usually still pending.
 export function requestShelf(shelf, { more = false, fresh = false } = {}) {
   return callFunction("quotes", { action: "shelf", tz: localZone(), date: todayStr(), ...shelf, more, fresh }, "Finding quotes");
+}
+
+// Quotes from before the pictures were kept apart share one portrait per
+// person; this gives each after the first a picture of its own, a dozen at a
+// time. Resolves to { repictured, more }.
+export function repictureQuotes() {
+  return callFunction("quotes", { action: "repicture" }, "Pictures");
 }
 
 // ---------------------------------------------------------------------------

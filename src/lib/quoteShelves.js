@@ -143,3 +143,55 @@ export function corkItems(quotes, notes) {
   ];
   return items.sort((a, b) => Number(b.top) - Number(a.top) || String(b.at).localeCompare(String(a.at)));
 }
+
+// --- your own notes on the shelves ------------------------------------------
+//
+// The board function reads each note you keep and files it under the
+// shelves it belongs on (its shelf_keys), so a shelf can show what you wrote
+// beside the quotes found for you.
+
+// Your notes on one shelf, newest first. Cards cut from a note go with it.
+export function notesOnShelf(notes, key) {
+  return boardNotes(notes ?? []).filter((n) => (n.shelf_keys ?? []).includes(key));
+}
+
+// How many of your notes are on each shelf.
+export function shelfCounts(notes) {
+  const counts = new Map();
+  for (const n of boardNotes(notes ?? [])) {
+    for (const key of new Set(n.shelf_keys ?? [])) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// The people your notes quote who aren't among the Board's own, so they get
+// shelves too: most-quoted first.
+export function notePeople(notes) {
+  const listed = new Set(PEOPLE.map((p) => slug(p.name)));
+  const found = new Map();
+  for (const n of boardNotes(notes ?? [])) {
+    for (const name of new Set(n.shelf_people ?? [])) {
+      const key = slug(name);
+      if (listed.has(key)) continue;
+      const seen = found.get(key);
+      found.set(key, { name: seen?.name ?? name, count: (seen?.count ?? 0) + 1 });
+    }
+  }
+  return [...found.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+// "All" on a shelf: the quotes found for you and your own notes, taking
+// turns, so yours aren't buried at the bottom.
+export function interleave(a, b) {
+  const out = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (i < a.length) out.push(a[i]);
+    if (i < b.length) out.push(b[i]);
+  }
+  return out;
+}
+
+// The shelves that can hold your notes: a person, a theme or a mood.
+export function holdsNotes(shelf) {
+  return shelf?.facet === "person" || shelf?.facet === "theme" || shelf?.facet === "mood";
+}

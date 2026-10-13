@@ -381,6 +381,19 @@ a.qprint__source:hover { color: var(--accent-text); }
 .mood-tile__feel { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
 .mood-tile__name { font-family: var(--font-serif); font-size: 21px; font-weight: 500; line-height: 1.15; }
 
+/* "3 of yours": your own notes filed on a shelf */
+.yours-count { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-text); }
+.mood-tile .yours-count { margin-top: 6px; color: #a9a9a6; }
+.theme-tile .yours-count {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 10, 12, 0.6);
+  color: #fff;
+}
+
 
 .browse__ask {
   display: flex;
@@ -568,6 +581,23 @@ a.qprint__source:hover { color: var(--accent-text); }
 }
 
 .shelf__grid > * { break-inside: avoid; margin: 0 0 20px; }
+
+/* All / For you / From you */
+.shelf__views { align-self: flex-start; }
+.shelf__views .seg-btn { display: inline-flex; align-items: center; gap: 6px; }
+.seg-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.shelf__mine-empty .empty { margin: 0; text-align: left; max-width: 52ch; }
 
 .shelf__waiting-note { margin: 0; color: var(--text-2); font-size: 13.5px; max-width: 60ch; }
 

@@ -19,6 +19,7 @@ import {
   promoteHighlight,
   gistNote,
   gistBacklog,
+  repictureQuotes,
   fetchSavedQuotes,
 } from "../lib/api";
 import NoteTree from "../components/study/NoteTree";
@@ -72,11 +73,24 @@ export default function Study() {
   const [editingId, setEditingId] = useState(null);
   const [creating, setCreating] = useState(false);
 
-  // Thoughts kept before the board filed things get their gist a few at a
-  // time, quietly, the first time the board opens in a session.
-  useEffect(() => {
-    fileBacklog();
-  }, []);
+  // Notes not yet filed get their gist, shelves and picture a few at a time,
+  // quietly, the first time the board opens in a session; the board reloads
+  // as they land so the shelves fill in. Quotes still sharing a portrait get
+  // pictures of their own the same way.
+  const reloadNotes = useRef(shelf.reload);
+  reloadNotes.current = shelf.reload;
+  const reloadSaved = useRef(saved.reload);
+  reloadSaved.current = saved.reload;
+  const [sorting, setSorting] = useState(backlogRunning);
+  useEffect(
+    () =>
+      fileBacklog({
+        filed: () => reloadNotes.current(),
+        pictured: () => reloadSaved.current(),
+        running: setSorting,
+      }),
+    []
+  );
 
   // One search box, answered on the server from every word of every note.
   const [query, setQuery] = useState("");
@@ -303,7 +317,17 @@ export default function Study() {
   if (openShelf && !selectedId) {
     return (
       <div className="page">
-        <ShelfView key={openShelf.key} userId={user.id} shelf={openShelf} onBack={() => browse(null)} onSaved={quoteChanged} />
+        <ShelfView
+          key={openShelf.key}
+          userId={user.id}
+          shelf={openShelf}
+          notes={notes}
+          sorting={sorting}
+          onBack={() => browse(null)}
+          onSaved={quoteChanged}
+          onOpenNote={(id) => select(id)}
+          onNotesChanged={shelf.reload}
+        />
       </div>
     );
   }
@@ -425,7 +449,7 @@ export default function Study() {
 
           <TopPicks userId={user.id} onSaved={quoteChanged} />
 
-          <Browse userId={user.id} onOpen={browse} />
+          <Browse userId={user.id} notes={notes} onOpen={browse} />
 
           {shelf.loading || saved.loading ? (
             <div className="card">
@@ -464,7 +488,7 @@ export default function Study() {
 
 // A shelf open on the page lives in the address, so Back works and a shelf
 // can be reopened: ?shelf=person:russell-m-nelson. A typed one carries its
-// words too.
+// words too, and so does someone only your notes quote.
 const LISTED = [
   ...PEOPLE.map((p) => shelfFor("person", p)),
   ...THEMES.map((t) => shelfFor("theme", t)),
@@ -478,11 +502,20 @@ function shelfFromParams(params) {
     const words = params.get("about");
     return words ? shelfFor("ask", { name: words }) : null;
   }
-  return LISTED.find((s) => s.key === key) ?? null;
+  const listed = LISTED.find((s) => s.key === key);
+  if (listed) return listed;
+  const who = params.get("who");
+  if (key.startsWith("person:") && who) {
+    const shelf = shelfFor("person", { name: who });
+    return shelf.key === key ? shelf : null;
+  }
+  return null;
 }
 
 function shelfParams(shelf) {
-  return shelf.facet === "ask" ? { shelf: shelf.key, about: shelf.label } : { shelf: shelf.key };
+  if (shelf.facet === "ask") return { shelf: shelf.key, about: shelf.label };
+  if (!LISTED.some((s) => s.key === shelf.key)) return { shelf: shelf.key, who: shelf.label };
+  return { shelf: shelf.key };
 }
 
 async function loadShelf(userId) {
@@ -509,20 +542,47 @@ function withoutGone(notes, gone) {
     .map((n) => (n.parent_note_id && gone.has(n.parent_note_id) ? { ...n, parent_note_id: lift(n.parent_note_id) } : n));
 }
 
-// Once per session, a few rounds of eight. Anything left waits for the next
-// visit; none of it is needed for the board to work.
+// Once per session, rounds of eight notes (and a dozen quotes) until it's
+// all done or the rounds run out; anything left waits for the next visit.
+// None of it is needed for the board to work. Whoever is showing the board
+// hears as things land; it can come and go while the rounds run.
+const BACKLOG_ROUNDS = 15;
+const REPICTURE_ROUNDS = 4;
 let backlogStarted = false;
-async function fileBacklog() {
-  if (backlogStarted) return;
-  backlogStarted = true;
-  try {
-    for (let round = 0; round < 4; round++) {
-      const result = await gistBacklog();
-      if (!result?.more) break;
-    }
-  } catch (err) {
-    console.warn(err);
+let backlogRunning = false;
+const backlogListeners = new Set();
+
+function tell(event, value) {
+  for (const l of backlogListeners) l[event]?.(value);
+}
+
+function fileBacklog(listener) {
+  backlogListeners.add(listener);
+  if (!backlogStarted) {
+    backlogStarted = true;
+    backlogRunning = true;
+    tell("running", true);
+    (async () => {
+      for (let round = 0; round < BACKLOG_ROUNDS; round++) {
+        const result = await gistBacklog();
+        if (result?.filed) tell("filed");
+        if (!result?.more) break;
+      }
+    })()
+      .catch((err) => console.warn(err))
+      .finally(() => {
+        backlogRunning = false;
+        tell("running", false);
+      });
+    (async () => {
+      for (let round = 0; round < REPICTURE_ROUNDS; round++) {
+        const result = await repictureQuotes();
+        if (result?.repictured) tell("pictured");
+        if (!result?.more) break;
+      }
+    })().catch((err) => console.warn(err));
   }
+  return () => backlogListeners.delete(listener);
 }
 
 function BackBar({ onBack }) {
