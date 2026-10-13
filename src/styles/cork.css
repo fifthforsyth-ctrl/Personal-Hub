@@ -1,19 +1,16 @@
 /* ===========================================================================
-   The cork board: quotes as photo prints, thoughts as paper notes, pinned to
-   cork in a wooden frame. Top picks and shelves are prints taped down on the
-   page; only what you've kept hangs on the cork.
+   The board: quotes as photo prints, thoughts as paper notes, pinned to a
+   soft pinboard. Top picks and shelves are prints taped down on the page;
+   only what you've kept hangs on the board.
 
-   The one place in the app that leans warm and tactile on purpose. It keeps
-   the app's ink and orange for anything you press.
+   The prints and notes lean warm and tactile on purpose; the board behind
+   them stays light and quiet like the rest of the app, and the app's ink
+   and orange are kept for anything you press.
    =========================================================================== */
 
 :root {
-  --cork: #c99c6c;
-  --cork-dark: rgba(92, 56, 24, 0.34);
-  --cork-light: rgba(255, 238, 210, 0.28);
-  --wood-1: #a9784d;
-  --wood-2: #7b4f2d;
-  --wood-3: #93623b;
+  --board: #e9e7e2;
+  --board-dot: rgba(60, 50, 40, 0.09);
   --print-ink: #1f1b16;
   --print-shadow: 0 1px 2px rgba(40, 24, 8, 0.12), 0 10px 22px -6px rgba(40, 24, 8, 0.32);
   --font-hand: Caveat, "Segoe Print", "Bradley Hand", cursive;
@@ -393,25 +390,18 @@ a.qprint__source:hover { color: var(--accent-text); }
 
 .browse__ask .input:focus { box-shadow: none; outline: none; }
 
-/* --- the cork ---------------------------------------------------------------- */
+/* --- the board ---------------------------------------------------------------- */
 
 .cork-wrap { display: flex; flex-direction: column; gap: 14px; }
 
 .cork {
-  border: 13px solid transparent;
-  border-radius: 18px;
-  padding: 30px 22px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 28px 22px 12px;
   background:
-    radial-gradient(var(--cork-dark) 0.9px, transparent 1.5px) 0 0 / 7px 7px padding-box,
-    radial-gradient(var(--cork-light) 0.9px, transparent 1.6px) 3px 4px / 11px 11px padding-box,
-    radial-gradient(rgba(70, 40, 12, 0.22) 1.3px, transparent 2.2px) 6px 1px / 17px 17px padding-box,
-    radial-gradient(ellipse at 30% 20%, rgba(255, 235, 200, 0.25), transparent 60%) padding-box,
-    linear-gradient(var(--cork), var(--cork)) padding-box,
-    linear-gradient(135deg, var(--wood-1), var(--wood-2) 35%, var(--wood-3) 60%, var(--wood-2)) border-box;
-  box-shadow:
-    inset 0 2px 14px rgba(40, 20, 0, 0.4),
-    0 1px 0 rgba(255, 255, 255, 0.4),
-    0 14px 30px -10px rgba(60, 35, 10, 0.45);
+    radial-gradient(var(--board-dot) 1px, transparent 1.6px) 0 0 / 18px 18px,
+    var(--board);
+  box-shadow: inset 0 1px 4px rgba(40, 30, 20, 0.06);
 }
 
 .cork__items {
@@ -435,12 +425,11 @@ a.qprint__source:hover { color: var(--accent-text); }
   font-family: var(--font-hand);
   font-size: 25px;
   line-height: 1.2;
-  color: #fff8ee;
-  text-shadow: 0 1px 3px rgba(40, 20, 0, 0.5);
+  color: var(--text-2);
 }
 
 .cork__more { display: flex; justify-content: center; padding: 0 0 16px; }
-.cork__more .btn { background: rgba(255, 250, 242, 0.92); }
+.cork__more .btn { background: var(--card); }
 
 /* A thought on paper. */
 .paper {
@@ -566,7 +555,7 @@ a.qprint__source:hover { color: var(--accent-text); }
 /* --- small screens ------------------------------------------------------------ */
 
 @media (max-width: 560px) {
-  .cork { border-width: 9px; padding: 24px 12px 6px; border-radius: 14px; }
+  .cork { padding: 22px 12px 6px; border-radius: 18px; }
   .cork__items { columns: 2; column-gap: 14px; }
   .cork__items > * { margin-bottom: 12px; }
   .cork .qprint,

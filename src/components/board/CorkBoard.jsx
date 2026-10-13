@@ -8,7 +8,7 @@ import { corkItems, pinOf, tiltOf } from "../../lib/quoteShelves";
 import { dayLabel } from "../study/dayLabel";
 import QuoteCard from "./QuoteCard";
 
-// The cork board itself: the quotes you've saved and the thoughts you've
+// The board itself: the quotes you've saved and the thoughts you've
 // kept, pinned up together, newest first. Pinned thoughts go to the top.
 //
 // Quotes hang as photo prints; your own thoughts are paper notes in your
