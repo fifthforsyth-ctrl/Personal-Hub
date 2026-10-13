@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, X, Pencil, Pin, ChevronLeft, CornerLeftUp, Layers, RotateCcw, Library, Plus, Highlighter, BookOpen } from "lucide-react";
+import { Search, X, Pencil, Pin, ChevronLeft, CornerLeftUp, Layers, Library, Plus, Highlighter, BookOpen } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
@@ -17,19 +17,18 @@ import {
   deleteHighlight,
   createSubNoteFromHighlight,
   promoteHighlight,
-  fetchNotesToResurface,
-  markNoteSurfaced,
+  gistNote,
+  gistBacklog,
 } from "../lib/api";
 import NoteTree from "../components/study/NoteTree";
 import NoteReader from "../components/study/NoteReader";
 import CaptureBar from "../components/study/CaptureBar";
 import QuoteWall from "../components/study/QuoteWall";
-import SourceMiner from "../components/study/SourceMiner";
-import { KindChip, KindFilter } from "../components/study/KindChip";
+import CuratedCards from "../components/curator/CuratedCards";
 import { dayLabel } from "../components/study/dayLabel";
 import { changesFrom, clearNoteDraft, draftClashes, draftOver, draftTime, editableFields, readNoteDraft, writeNoteDraft } from "../components/study/noteDraft";
 import { buildTree, resolveHighlights } from "../lib/noteText";
-import { NOTE_KINDS, STUDY_NOTE, boardKindOf, isStudyNote, kindOf } from "../lib/noteKinds";
+import { boardNotes } from "../lib/board";
 import { cardFace, cutAtWord, niceTitle, previewText, toPlainText, titleRepeats } from "../lib/markdown";
 import useIsMobile from "../lib/useIsMobile";
 import "../styles/board.css";
@@ -37,17 +36,18 @@ import "../styles/board.css";
 // The Board: what came, what you make of it, and what you're reading, kept
 // somewhere it can be found again.
 //
-// Your own notes come first: the box to record something, then what you've
-// kept, grouped by what it is. The machinery (notes worth seeing again, the
-// vault's long notes and what the nightly reading kept) sits below that.
-// Opening a note takes over the page; on a wide screen the list of all notes
-// can sit beside it.
+// One box to record something, then everything you've kept as one list,
+// newest first, each thought one card. Nothing is sorted into kinds: in the
+// background each new thought gets a one-line gist and a few quiet tags, so
+// search and the curator can find it again, and the curator brings old ones
+// back where they fit. Notes made from a passage of a longer note are folded
+// under that note rather than filling the board. Opening a note takes over
+// the page; on a wide screen the list of all notes can sit beside it.
 export default function Study() {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const touch = useIsMobile();
-  const narrow = useNarrow();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("note");
 
@@ -63,9 +63,13 @@ export default function Study() {
   const [treeOpen, setTreeOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [kindFilter, setKindFilter] = useState(null);
   const [view, setView] = useState("stream");
-  const [showOvernight, setShowOvernight] = useState(false);
+
+  // Thoughts kept before the board filed things get their gist a few at a
+  // time, quietly, the first time the board opens in a session.
+  useEffect(() => {
+    fileBacklog();
+  }, []);
 
   // One search box, answered on the server from every word of every note.
   const [query, setQuery] = useState("");
@@ -121,12 +125,14 @@ export default function Study() {
 
   // --- writes ---------------------------------------------------------------
 
-  async function capture({ text, kind }) {
+  async function capture({ text }) {
     const firstLine = text.split("\n").find((l) => l.trim())?.trim() ?? text;
     try {
-      await createNote(user.id, { title: cutAtWord(firstLine, 80), body: text, noteKind: kind });
+      const created = await createNote(user.id, { title: cutAtWord(firstLine, 80), body: text, noteKind: "thought" });
       shelf.reload();
-      toast.show(`Kept under ${kindOf(kind).label}`);
+      toast.show("Kept");
+      // Filed afterwards. If it fails, the next backlog pass picks it up.
+      gistNote(created.id).catch((err) => console.warn(err));
       return true;
     } catch (err) {
       toast.error(err, "Couldn't keep that. It's still in the box.");
@@ -221,7 +227,7 @@ export default function Study() {
     }
   }
 
-  async function makeSubNote(n, sel, kind) {
+  async function makeSubNote(n, sel) {
     try {
       const { child, highlight } = await createSubNoteFromHighlight(user.id, {
         noteId: n.id,
@@ -230,7 +236,7 @@ export default function Study() {
         endOffset: sel.end,
         title: cutAtWord(sel.text.replace(/\s+/g, " "), 70),
         sourceRef: n.source_ref,
-        noteKind: kind,
+        noteKind: "thought",
         position: (byParent.get(n.id) ?? []).length,
       });
       shelf.mutate((d) => d && { ...d, notes: [...d.notes, child], highlights: [...d.highlights, highlight] });
@@ -307,9 +313,8 @@ export default function Study() {
                 const row = await saveNote(note.id, { pinned: !note.pinned });
                 if (row) toast.show(row.pinned ? "Pinned. It comes back around more often." : "Unpinned");
               }}
-              onSetKind={(key) => saveNote(note.id, { noteKind: key }, "Couldn't change its kind.")}
               onHighlight={(sel) => addHighlight(note, sel)}
-              onCreateSubNote={(sel, kind) => makeSubNote(note, sel, kind)}
+              onCreateSubNote={(sel) => makeSubNote(note, sel)}
               onPromote={(h) => promote(note, h)}
               onForget={(h) => forgetHighlight(h, "Highlight removed")}
               onUnmark={(h) => forgetHighlight(h, "Passage unmarked. The note is kept.")}
@@ -334,8 +339,6 @@ export default function Study() {
       </div>
     );
   }
-
-  const overnightCount = notes.filter((n) => n.auto_kept).length;
 
   return (
     <div className="page">
@@ -409,22 +412,14 @@ export default function Study() {
               notes={notes}
               stale={shelf.error}
               onRetry={shelf.reload}
-              overnightCount={overnightCount}
-              showOvernight={showOvernight}
-              onToggleOvernight={() => setShowOvernight((v) => !v)}
-              kindFilter={kindFilter}
-              onKindFilter={setKindFilter}
               view={view}
               onView={setView}
-              perGroup={narrow ? 2 : 4}
               onOpen={(id) => select(id)}
               onChanged={shelf.reload}
             />
           )}
 
-          <Resurfaced onOpen={(id) => select(id)} />
-
-          <SourceMiner waiting={overnightCount} hidden={gone} onChanged={shelf.reload} onDrop={removeNotes} />
+          <CuratedCards slot="day" title="Back for today" />
         </div>
       )}
     </div>
@@ -455,16 +450,20 @@ function withoutGone(notes, gone) {
     .map((n) => (n.parent_note_id && gone.has(n.parent_note_id) ? { ...n, parent_note_id: lift(n.parent_note_id) } : n));
 }
 
-// A phone shows fewer cards per kind, so every kind fits in a screen or two.
-function useNarrow(query = "(max-width: 600px)") {
-  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = (e) => setNarrow(e.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-  return narrow;
+// Once per session, a few rounds of eight. Anything left waits for the next
+// visit; none of it is needed for the board to work.
+let backlogStarted = false;
+async function fileBacklog() {
+  if (backlogStarted) return;
+  backlogStarted = true;
+  try {
+    for (let round = 0; round < 4; round++) {
+      const result = await gistBacklog();
+      if (!result?.more) break;
+    }
+  } catch (err) {
+    console.warn(err);
+  }
 }
 
 function BackBar({ onBack }) {
@@ -484,39 +483,15 @@ function BackBar({ onBack }) {
 // What you've kept
 // ---------------------------------------------------------------------------
 
-// Notes grouped by what they are, newest first, a handful at a time — so a
-// revelation from March sits under Revelation, not at position 340 of
-// everything you've ever written. Cards the nightly reading kept stay out
-// until you've looked them over in From the vault (or ask to see them).
-function Kept({
-  notes,
-  stale,
-  onRetry,
-  overnightCount,
-  showOvernight,
-  onToggleOvernight,
-  kindFilter,
-  onKindFilter,
-  view,
-  onView,
-  perGroup,
-  onOpen,
-  onChanged,
-}) {
-  const visible = useMemo(() => (showOvernight ? notes : notes.filter((n) => !n.auto_kept)), [notes, showOvernight]);
-  const counts = useMemo(() => {
-    const m = new Map();
-    for (const n of visible) {
-      const key = boardKindOf(n).key;
-      m.set(key, (m.get(key) ?? 0) + 1);
-    }
-    return m;
-  }, [visible]);
+// Everything you've kept, newest first, one card each and a page at a time.
+// Notes made from a passage (yours, or the ones the nightly reading cut in
+// September) are folded under the note they came from: open that note to see
+// them in place. Search still finds every one.
+const PAGE = 12;
 
-  // A filter whose kind has nothing left in it lets go rather than showing
-  // an empty board.
-  const active = kindFilter && counts.get(kindFilter) ? kindFilter : null;
-  const filtered = active ? visible.filter((n) => boardKindOf(n).key === active) : visible;
+function Kept({ notes, stale, onRetry, view, onView, onOpen, onChanged }) {
+  const list = useMemo(() => boardNotes(notes), [notes]);
+  const [shown, setShown] = useState(PAGE);
 
   return (
     <section className="card board-kept">
@@ -527,7 +502,7 @@ function Kept({
         </h2>
         <div className="seg" role="group" aria-label="Show as">
           <button type="button" className={"seg-btn" + (view === "stream" ? " active" : "")} aria-pressed={view === "stream"} onClick={() => onView("stream")}>
-            By kind
+            Newest
           </button>
           <button type="button" className={"seg-btn" + (view === "wall" ? " active" : "")} aria-pressed={view === "wall"} onClick={() => onView("wall")}>
             Wall
@@ -538,76 +513,28 @@ function Kept({
       {stale && <LoadError stale error={stale} onRetry={onRetry} className="board-kept__filters" />}
 
       {view === "wall" ? (
-        <QuoteWall notes={visible} onOpen={onOpen} onChanged={onChanged} />
+        <QuoteWall notes={list} onOpen={onOpen} onChanged={onChanged} />
+      ) : list.length === 0 ? (
+        <p className="empty">Nothing here yet.</p>
       ) : (
         <>
-          <KindFilter counts={counts} active={active} onChange={onKindFilter} className="board-kept__filters" />
-          <Streams notes={filtered} kindFilter={active} perGroup={perGroup} onOpen={onOpen} />
+          <div className="board-cards">
+            {list.slice(0, shown).map((n) => (
+              <NoteCard key={n.id} note={n} onOpen={onOpen} />
+            ))}
+          </div>
+          {list.length > shown && (
+            <div className="board-more-row">
+              <span style={{ flex: 1, minWidth: 0 }}>
+                Showing {shown} of {list.length}
+              </span>
+              <button type="button" className="btn btn--sm" onClick={() => setShown((n) => n + PAGE * 2)}>
+                Show more
+              </button>
+            </div>
+          )}
         </>
       )}
-
-      {overnightCount > 0 && (
-        <div className="board-more-row">
-          <span style={{ flex: 1, minWidth: 0 }}>
-            {showOvernight
-              ? `Showing the ${overnightCount} kept overnight that you haven't looked over yet.`
-              : `${overnightCount} kept overnight from your vault aren't shown until you've looked them over (in From the vault, below).`}
-          </span>
-          <button type="button" className="btn btn--sm" onClick={onToggleOvernight}>
-            {showOvernight ? "Hide them" : "Show them"}
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Streams({ notes, kindFilter, perGroup, onOpen }) {
-  const groups = useMemo(() => {
-    const order = [...NOTE_KINDS, STUDY_NOTE];
-    const by = new Map(order.map((k) => [k.key, []]));
-    for (const n of notes) {
-      const key = boardKindOf(n).key;
-      if (!by.has(key)) by.set(key, []);
-      by.get(key).push(n);
-    }
-    return [...by.entries()]
-      .filter(([, items]) => items.length > 0)
-      .map(([key, items]) => ({
-        kind: key === STUDY_NOTE.key ? STUDY_NOTE : kindOf(key),
-        items: items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
-      }));
-  }, [notes]);
-
-  if (groups.length === 0) return <p className="empty">Nothing here yet.</p>;
-
-  return groups.map((g) => (
-    <Stream key={g.kind.key} kind={g.kind} items={g.items} perGroup={perGroup} expanded={Boolean(kindFilter)} onOpen={onOpen} />
-  ));
-}
-
-function Stream({ kind, items, perGroup, expanded, onOpen }) {
-  const [showAll, setShowAll] = useState(expanded);
-  const shown = showAll ? items : items.slice(0, perGroup);
-
-  return (
-    <section className="board-stream">
-      <div className="board-stream__head">
-        <span className="dot" style={{ background: kind.color, width: 8, height: 8 }} />
-        <h3 className="board-stream__label">{kind.label}</h3>
-        <span className="board-stream__count">{items.length}</span>
-        <span className="spacer" />
-        {items.length > perGroup && (
-          <button type="button" className="btn-link" onClick={() => setShowAll((v) => !v)} aria-expanded={showAll}>
-            {showAll ? "Fewer" : `All ${items.length}`}
-          </button>
-        )}
-      </div>
-      <div className="board-cards">
-        {shown.map((n) => (
-          <NoteCard key={n.id} note={n} onOpen={onOpen} />
-        ))}
-      </div>
     </section>
   );
 }
@@ -625,65 +552,6 @@ function NoteCard({ note, onOpen, meta }) {
         <span>{meta ?? [dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}</span>
       </span>
     </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Worth seeing again
-// ---------------------------------------------------------------------------
-
-// A note you wrote weeks ago and haven't thought about since, offered once —
-// not a feed, not a streak. Marking it seen is what puts it back into the
-// cooling-off period.
-function Resurfaced({ onOpen }) {
-  const toast = useToast();
-  const { data, error, reload } = useLoad(() => fetchNotesToResurface(2), []);
-  const [dismissed, setDismissed] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  if (error && !data) return <LoadError what="notes worth seeing again" error={error} onRetry={reload} />;
-  if (dismissed || !data?.length) return null;
-
-  async function markSeen() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await Promise.all(data.map((n) => markNoteSurfaced(n.id)));
-      setDismissed(true);
-    } catch (err) {
-      toast.error(err, "Couldn't mark them as seen.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="card">
-      <div className="card-head">
-        <h2 className="card-title">
-          <RotateCcw size={14} />
-          Worth seeing again
-        </h2>
-        <button type="button" className="btn btn--sm" onClick={markSeen} disabled={busy}>
-          {busy ? "Saving…" : "Mark as seen"}
-        </button>
-      </div>
-      <div className="board-cards">
-        {data.map((n) => (
-          <NoteCard
-            key={n.id}
-            note={n}
-            meta={[n.last_surfaced_at ? `Last seen ${dayLabel(n.last_surfaced_at)}` : `Kept ${dayLabel(n.created_at)}`, n.source_ref].filter(Boolean).join(" · ")}
-            onOpen={(id) => {
-              // Opening it counts as seeing it. If that doesn't save, it
-              // only means the note may be offered again.
-              markNoteSurfaced(id).catch((err) => console.warn(err));
-              onOpen(id);
-            }}
-          />
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -713,7 +581,6 @@ function SearchResults({ query, hits, error, onRetry, byId, onOpen }) {
       ) : (
         hits.map((h) => {
           const listed = byId.get(h.id);
-          const kind = boardKindOf(listed ?? h);
           // A note with a body shows its title and the words around the
           // match; a card shows its one text, with a title only if it adds
           // something.
@@ -721,7 +588,6 @@ function SearchResults({ query, hits, error, onRetry, byId, onOpen }) {
           return (
             <button key={h.id} type="button" className="board-result" onClick={() => onOpen(h.id)}>
               <span className="board-result__top">
-                <span className="dot" style={{ background: kind.color }} />
                 {face.title ? (
                   <span className="board-result__title">{markWords(face.title, words)}</span>
                 ) : (
@@ -729,7 +595,7 @@ function SearchResults({ query, hits, error, onRetry, byId, onOpen }) {
                 )}
               </span>
               {face.title && face.text && <span className="board-result__snippet">{markWords(face.text, words)}</span>}
-              <span className="board-result__meta">{[kind.label, h.source_ref, dayLabel(h.created_at)].filter(Boolean).join(" · ")}</span>
+              <span className="board-result__meta">{[h.source_ref, dayLabel(h.created_at)].filter(Boolean).join(" · ")}</span>
             </button>
           );
         })
@@ -787,7 +653,6 @@ function NoteView({
   onSave,
   onDelete,
   onPin,
-  onSetKind,
   onHighlight,
   onCreateSubNote,
   onPromote,
@@ -796,7 +661,6 @@ function NoteView({
 }) {
   const confirm = useConfirm();
   const [pinBusy, setPinBusy] = useState(false);
-  const [kindBusy, setKindBusy] = useState(false);
   const [promoting, setPromoting] = useState(() => new Set());
   const [, setDraftsSeen] = useState(0);
 
@@ -840,12 +704,6 @@ function NoteView({
     setPinBusy(true);
     await onPin();
     setPinBusy(false);
-  }
-
-  async function setKind(key) {
-    setKindBusy(true);
-    await onSetKind(key);
-    setKindBusy(false);
   }
 
   async function promote(h) {
@@ -935,7 +793,6 @@ function NoteView({
           <NoteEditor
             note={note}
             userId={userId}
-            studyNote={isStudyNote(note)}
             dirtyRef={editorDirty}
             onSave={async (fields) => {
               const row = await onSave(fields);
@@ -949,9 +806,10 @@ function NoteView({
           <>
             <h1 className={showTitle ? "board-note__title" : "board-sr"}>{title}</h1>
             <div className="board-note__meta">
-              <KindChip value={note.note_kind} onChange={setKind} studyNote={isStudyNote(note)} disabled={kindBusy} />
               {note.source_ref && <span className="chip">{note.source_ref}</span>}
               <span className="board-note__date">{dayLabel(note.studied_on || note.created_at)}</span>
+              {/* Filed by the board, for finding it again. Quiet on purpose. */}
+              {note.ai_tags?.length > 0 && <span className="board-note__tags">{note.ai_tags.map((t) => `#${t}`).join(" ")}</span>}
             </div>
 
             {/* A note made from a passage keeps the passage at the top, so it
@@ -1028,7 +886,7 @@ function openingLine(text) {
 // while you type. Changes left unsaved last time come back with it. Every
 // change is kept on the device as it's typed; Save sends only what changed,
 // and Cancel asks before throwing changes away.
-function NoteEditor({ note, userId, studyNote, dirtyRef, onSave, onCancel, onDelete }) {
+function NoteEditor({ note, userId, dirtyRef, onSave, onCancel, onDelete }) {
   const confirm = useConfirm();
   const [initial] = useState(() => editableFields(note));
   const [resumed] = useState(() => {
@@ -1041,7 +899,8 @@ function NoteEditor({ note, userId, studyNote, dirtyRef, onSave, onCancel, onDel
   const [title, setTitle] = useState(start.title);
   const [sourceRef, setSourceRef] = useState(start.sourceRef);
   const [body, setBody] = useState(start.body);
-  const [kind, setKind] = useState(start.kind);
+  // The kind isn't shown any more, but a note keeps the one it has.
+  const [kind] = useState(start.kind);
   const [saving, setSaving] = useState(false);
 
   const changes = changesFrom({ title, sourceRef, body, kind }, initial);
@@ -1101,9 +960,6 @@ function NoteEditor({ note, userId, studyNote, dirtyRef, onSave, onCancel, onDel
       }}
     >
       {resumed && <p className="board-draft__text board-draft__text--resumed">Your unsaved changes from {draftTime(resumed.at)} are back.</p>}
-      <div className="board-note__meta">
-        <KindChip value={kind} onChange={setKind} studyNote={studyNote} />
-      </div>
       <label className="board-field">
         <span>Title</span>
         <input className="input input--lg" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled" />

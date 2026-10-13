@@ -1,6 +1,6 @@
 # Scripts
 
-Two scripts that run on your Mac, in this order:
+Scripts that run on your Mac. The two that matter, in this order:
 
 1. **`sync-obsidian.mjs`** — reads your vault, pushes tagged notes to Personal Hub
 2. **`distill-notes.mjs`** — reads the notes that arrived, writes back a theme + core points
@@ -34,6 +34,26 @@ node scripts/distill-notes.mjs
 
 `set -a && source ... && set +a` loads the env file into the shell so both
 scripts can read it.
+
+### Syncing every hour on its own
+
+Run this once, with the same flags you'd sync with by hand:
+
+```bash
+cd "/Users/aaronforsyth/Desktop/Personal Hub"
+bash scripts/install-obsidian-sync.sh --vault ~/path/to/YourVault --tag hub
+```
+
+It checks the sync once (writing nothing), then installs a LaunchAgent that
+syncs every hour while the Mac is on. An hour missed while the Mac slept runs
+when it wakes. What it did is in `~/Library/Logs/personal-hub-obsidian-sync.log`.
+
+To stop it: `bash scripts/install-obsidian-sync.sh --uninstall`.
+
+If the log says `Operation not permitted`, macOS is keeping the job out of the
+folder your vault is in (Desktop, Documents and iCloud Drive are guarded). Open
+System Settings → Privacy & Security → Full Disk Access, add the `node` the log
+names, and the next hour's run will get through.
 
 ### Which notes get synced
 

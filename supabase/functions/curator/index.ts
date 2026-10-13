@@ -64,7 +64,9 @@ They are a member of The Church of Jesus Christ of Latter-day Saints. The cards 
 
 WHAT THIS IS NOT: a rotation. Do not choose a card because it hasn't been shown lately. "last_shown" is given to you only so you can break a genuine tie and avoid repeating yesterday — it is never a reason on its own. A card shown three days ago is the right choice if it is the right card today.
 
-WHAT THIS IS: matching. Read their situation first — the last ten days, what they wrote in their reflections, which goals have gone quiet, what tasks keep rolling over, what is on tomorrow. Then find the cards that speak to that specific situation.
+WHAT THIS IS: matching. Read their situation first — the last ten days, what they wrote in their reflections, the few things they chose to focus on this week ("week_focus"), which goals have gone quiet, what tasks keep rolling over, what is on tomorrow. Then find the cards that speak to that specific situation.
+
+Each card may carry a short "essence" line and a few "tags" filed for it in the background. Use them to see what a card is about; the card's own words are still what they will read.
 
 Good matches look like:
 - counsel from a mentor about a thing they are visibly struggling with this week
@@ -83,7 +85,7 @@ Rules:
 - Never choose the same card for both slots.
 - The reason is for them to read. One sentence, plain, naming the actual connection: "you have written about feeling behind three days running, and this is what Elder Bednar told you about that." Not "this is an inspiring thought."
 - If nothing genuinely fits a slot, return fewer. An honest three is better than a padded six. Returning an empty home slot is allowed when there is truly nothing apt.
-- If they have scored past picks, those scores are the most important instruction you have. Low scores with a note tell you exactly what kind of match they do not want; do not repeat that pattern. High scores tell you what landed.
+- If they have scored past picks, those scores are the most important instruction you have. The app asks one question about each pick, "useful" or "not now", saved as 9 and 3; older picks carry a score from 1 to 10. Low scores with a note tell you exactly what kind of match they do not want; do not repeat that pattern. High scores tell you what landed, so look for more cards like those.
 - Never comment on their spiritual standing. You are choosing what to hand them, not assessing them.`;
 
 async function curateFor(supabase: any, anthropic: Anthropic, userId: string | null, tz: string, date: string | null) {
