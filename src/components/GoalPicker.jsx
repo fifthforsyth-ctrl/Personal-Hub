@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, CornerDownLeft, Ban, Star } from "lucide-react";
+import { Search, X, CornerDownLeft, Ban, Star, Check } from "lucide-react";
+import "../styles/goals.css";
 
 // Finding one goal among eighty-six.
 //
@@ -11,6 +12,9 @@ import { Search, X, CornerDownLeft, Ban, Star } from "lucide-react";
 // So: type to filter, arrow keys to move, Enter to take it. With an empty
 // box it shows what you'd most likely want anyway — the goals you've marked
 // focused, then the pillars — rather than an alphabetical wall.
+//
+// The "no goal" row reads "No goal" unless the caller names it (`noneLabel`,
+// `noneHint`): in the goal form it's "Top level".
 
 function score(goal, q) {
   const title = goal.title.toLowerCase();
@@ -24,7 +28,16 @@ function score(goal, q) {
   return q.split(/\s+/).every((w) => path.includes(w)) ? 4 : Infinity;
 }
 
-export default function GoalPicker({ goals, value, onPick, onClose, allowNone = true }) {
+export default function GoalPicker({
+  goals,
+  value,
+  onPick,
+  onClose,
+  allowNone = true,
+  noneLabel = "No goal",
+  noneHint = "Doesn't feed a goal — driving, meals, idle time",
+  placeholder = "Search your goals…",
+}) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef(null);
@@ -62,7 +75,8 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
     el?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const options = allowNone ? [{ id: null, title: "Serves no goal", path: "Nothing on the tree — driving, meals, idle time" }, ...results] : results;
+  const options = allowNone ? [{ id: null, title: noneLabel, path: noneHint }, ...results] : results;
+  const name = placeholder.replace(/…$/, "");
 
   function onKeyDown(e) {
     if (e.key === "ArrowDown") {
@@ -76,14 +90,17 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
       const pick = options[cursor];
       if (pick) onPick(pick.id, pick.id ? pick.path : null);
     } else if (e.key === "Escape") {
+      // Only the picker closes: the sheet or form under it listens for
+      // Escape on the window too.
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   }
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ padding: 0, maxWidth: 560, display: "flex", flexDirection: "column", maxHeight: "72vh" }}>
+      <div className="modal goal-picker" role="dialog" aria-modal="true" aria-label={name}>
         <div className="row" style={{ gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--line)" }}>
           <Search size={16} style={{ color: "var(--text-3)", flexShrink: 0 }} />
           <input
@@ -91,10 +108,13 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search your goals…"
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 15 }}
+            placeholder={placeholder}
+            aria-label={name}
+            style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 16 }}
           />
-          <button className="btn-icon" onClick={onClose} title="Close"><X size={16} /></button>
+          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close" title="Close">
+            <X size={16} />
+          </button>
         </div>
 
         <div ref={listRef} style={{ overflowY: "auto", padding: 8 }}>
@@ -111,8 +131,10 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
 
             return (
               <button
+                type="button"
                 key={g.id ?? "__none__"}
                 data-i={i}
+                aria-current={selected ? "true" : undefined}
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => onPick(g.id, g.id ? g.path : null)}
                 style={{
@@ -129,9 +151,10 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
                 <span className="row" style={{ gap: 8 }}>
                   {isNone && <Ban size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />}
                   {g.is_focused && <Star size={12} style={{ color: "var(--accent)", flexShrink: 0 }} fill="var(--accent)" />}
-                  <span className="truncate" style={{ fontSize: 13.5, fontWeight: 570, color: selected ? "var(--accent)" : "var(--text)" }}>
+                  <span className="truncate" style={{ flex: 1, fontSize: 13.5, fontWeight: selected ? 680 : 570, color: "var(--text)" }}>
                     {leaf}
                   </span>
+                  {selected && <Check size={15} strokeWidth={2.5} style={{ flexShrink: 0 }} />}
                 </span>
                 {trail && (
                   <span className="truncate faint" style={{ display: "block", fontSize: 11.5, marginTop: 2, marginLeft: isNone || g.is_focused ? 21 : 0 }}>
@@ -144,9 +167,9 @@ export default function GoalPicker({ goals, value, onPick, onClose, allowNone = 
         </div>
 
         <div className="row" style={{ gap: 14, padding: "10px 16px", borderTop: "1px solid var(--line)" }}>
-          <span className="faint" style={{ fontSize: 11 }}>↑↓ to move</span>
-          <span className="faint row" style={{ fontSize: 11, gap: 4 }}><CornerDownLeft size={11} /> to choose</span>
-          <span className="faint" style={{ fontSize: 11 }}>esc to close</span>
+          <span className="faint goal-picker__keys" style={{ fontSize: 11 }}>↑↓ to move</span>
+          <span className="faint row goal-picker__keys" style={{ fontSize: 11, gap: 4 }}><CornerDownLeft size={11} /> to choose</span>
+          <span className="faint goal-picker__keys" style={{ fontSize: 11 }}>esc to close</span>
           <span className="spacer" />
           <span className="mono faint" style={{ fontSize: 11 }}>{results.length} of {goals.length}</span>
         </div>

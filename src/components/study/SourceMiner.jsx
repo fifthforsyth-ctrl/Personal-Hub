@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { Pickaxe, Check, X, ChevronRight, Sparkles, FileText, ArrowRight, Moon, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Library, Check, ChevronRight, ChevronDown, ChevronLeft, Sparkles, FileText, Moon } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
+import { useLoad } from "../../lib/useLoad";
 import {
   fetchMiningStats,
   fetchUnminedSources,
@@ -9,272 +12,309 @@ import {
   markSourceMined,
   fetchUnreviewedCards,
   markCardsReviewed,
-  deleteNote,
 } from "../../lib/api";
 import { KindChip } from "./KindChip";
-import { kindOf } from "../../lib/noteKinds";
+import { cutAtWord } from "../../lib/markdown";
+import { dayLabel } from "./dayLabel";
 
-// Working through the vault.
+// From the vault: the long study notes, read for the lines worth keeping.
 //
-// Sixty-eight morning study notes are sixty-eight things you'll never reread.
-// This reads one at a time and proposes the two-to-six lines actually worth
-// keeping; you take the ones that are right and the rest are forgotten. What
-// you accept becomes a card — indistinguishable afterwards from one you
-// highlighted by hand — and the curator can start choosing from it.
+// One row on the Board until you open it, because this is the machinery and
+// your own notes come first. Inside are two jobs:
 //
-// One note per press, never a bulk run over all of them. Sixty-eight
-// unreviewed cards would be a worse pile than the one you started with.
-export default function SourceMiner({ onChanged }) {
+// - What the nightly reading kept. Those cards stay off the Board until
+//   you've looked at them; keep or drop each and they move on.
+// - The long notes nobody has read through yet. One at a time: it proposes
+//   the two-to-six lines worth keeping, you take the ones that are right, and
+//   the rest are forgotten. What you take becomes a card, the same as one you
+//   highlighted by hand.
+//
+// `waiting` is how many overnight cards are still unseen (the page counts
+// them from the whole shelf; this only fetches a batch). `hidden` holds notes
+// deleted and waiting out their Undo, so a dropped card doesn't reappear.
+export default function SourceMiner({ waiting = null, hidden, onChanged, onDrop }) {
+  const [open, setOpen] = useState(false);
+  const { data, error, loading, reload } = useLoad(loadVault, []);
+
+  const stats = data?.stats;
+  const remaining = stats ? Math.max(0, Number(stats.sources) - Number(stats.mined)) : 0;
+  const overnight = (data?.overnight ?? []).filter((c) => !hidden?.has(c.id));
+  const unseen = Math.max(waiting ?? 0, overnight.length);
+
+  if (data && Number(stats.sources) === 0 && unseen === 0) return null;
+
+  const parts = [];
+  if (unseen > 0) parts.push(`${unseen} ${unseen === 1 ? "line" : "lines"} kept overnight to look over`);
+  if (remaining > 0) parts.push(`${remaining} long ${remaining === 1 ? "note" : "notes"} not read yet`);
+  const sub = loading
+    ? "Loading…"
+    : error && !data
+      ? "Couldn't load what's waiting."
+      : parts.length > 0
+        ? parts.join(" · ")
+        : "Everything from your vault has been read and looked over.";
+
+  return (
+    <section className="card board-vault">
+      <button type="button" className="board-vault__toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Library size={18} className="board-vault__icon" aria-hidden="true" />
+        <span className="board-vault__text">
+          <span className="board-vault__title">
+            From the vault{unseen + remaining > 0 ? ` (${unseen + remaining})` : ""}
+          </span>
+          <span className="board-vault__sub">{sub}</span>
+        </span>
+        {open ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}
+      </button>
+
+      {open && (
+        <div className="board-vault__body">
+          {error && !data ? (
+            <LoadError what="the vault" error={error} onRetry={reload} />
+          ) : !data ? (
+            <p className="empty">Loading…</p>
+          ) : (
+            <>
+              {error && <LoadError stale error={error} onRetry={reload} />}
+              {overnight.length > 0 && (
+                <div className="board-vault__section">
+                  <Overnight
+                    key={overnight.map((c) => c.id).join()}
+                    cards={overnight}
+                    more={Math.max(0, unseen - overnight.length)}
+                    onDone={async () => {
+                      await reload();
+                      onChanged?.();
+                    }}
+                    onDrop={onDrop}
+                  />
+                </div>
+              )}
+              <div className="board-vault__section">
+                <Reader
+                  stats={stats}
+                  remaining={remaining}
+                  queue={data.queue}
+                  onFinished={async () => {
+                    await reload();
+                    onChanged?.();
+                  }}
+                  onKept={onChanged}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+async function loadVault() {
+  const [stats, queue, overnight] = await Promise.all([fetchMiningStats(), fetchUnminedSources(25), fetchUnreviewedCards(30)]);
+  return { stats, queue, overnight };
+}
+
+// The long notes not read through yet, and the one being read.
+function Reader({ stats, remaining, queue, onFinished, onKept }) {
   const { user } = useAuth();
-  const [stats, setStats] = useState(null);
-  const [queue, setQueue] = useState([]);
+  const toast = useToast();
   const [current, setCurrent] = useState(null);
   const [result, setResult] = useState(null);
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState(null);
   const [taken, setTaken] = useState(() => new Set());
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [taking, setTaking] = useState(() => new Set()); // in flight, per line
+  const [finishing, setFinishing] = useState(false);
+  const seq = useRef(0);
 
-  const [overnight, setOvernight] = useState([]);
-
-  const load = useCallback(async () => {
-    try {
-      const [s, q, o] = await Promise.all([
-        fetchMiningStats(),
-        fetchUnminedSources(25),
-        fetchUnreviewedCards(30).catch(() => []),
-      ]);
-      setStats(s);
-      setQueue(q);
-      setOvernight(o);
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function mine(source) {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setTaken(new Set());
+  async function read(source) {
+    const mine = ++seq.current;
     setCurrent(source);
+    setResult(null);
+    setReadError(null);
+    setTaken(new Set());
+    setReading(true);
     try {
-      setResult(await mineSource(source.id));
+      const r = await mineSource(source.id);
+      if (seq.current === mine) setResult(r);
     } catch (err) {
-      setError(err.message);
+      if (seq.current === mine) setReadError(err);
     } finally {
-      setLoading(false);
+      if (seq.current === mine) setReading(false);
     }
   }
 
+  function back() {
+    seq.current++; // a late answer for the note you left is dropped
+    setCurrent(null);
+    setResult(null);
+    setReadError(null);
+    setReading(false);
+  }
+
+  // One tap, one card: the line is busy until the answer is back, and the
+  // database hands back the same card if the same line is kept twice anyway.
   async function take(snippet, index) {
+    if (taking.has(index) || taken.has(index)) return;
+    setTaking((prev) => new Set(prev).add(index));
     try {
       await acceptSnippet(user.id, current, snippet);
       setTaken((prev) => new Set(prev).add(index));
-      await onChanged?.();
+      onKept?.();
     } catch (err) {
-      setError(err.message);
+      toast.error(err, "Couldn't keep that line. Try again.");
+    } finally {
+      setTaking((prev) => {
+        const next = new Set(prev);
+        next.delete(index);
+        return next;
+      });
     }
   }
 
   async function finish() {
-    await markSourceMined(current.id, taken.size);
-    setCurrent(null);
-    setResult(null);
-    setTaken(new Set());
-    await load();
-    await onChanged?.();
+    if (finishing || taking.size > 0) return;
+    setFinishing(true);
+    try {
+      await markSourceMined(current.id, taken.size);
+      toast.show(taken.size > 0 ? `Kept ${taken.size} from “${cutAtWord(current.title, 40)}”` : "Marked as read");
+      back();
+      await onFinished();
+    } catch (err) {
+      toast.error(err, "Couldn't mark it read. Try again.");
+    } finally {
+      setFinishing(false);
+    }
   }
 
-  const remaining = stats ? Number(stats.sources) - Number(stats.mined) : 0;
+  if (!current) {
+    return (
+      <>
+        <div className="board-vault__label">
+          <FileText size={14} />
+          Not read yet
+          {stats && (
+            <span className="mono muted" style={{ fontSize: 11, fontWeight: 400, marginLeft: "auto" }}>
+              {stats.mined} of {stats.sources} read
+            </span>
+          )}
+        </div>
+        <p className="card-note" style={{ marginBottom: 12 }}>
+          {remaining > 0
+            ? "Open one and it suggests the lines worth keeping. You decide which."
+            : "Every long note has been read through. New ones show up here when they sync."}
+        </p>
+        {queue.slice(0, 6).map((s) => (
+          <button key={s.id} type="button" className="board-source" onClick={() => read(s)}>
+            <FileText size={14} style={{ color: "var(--text-3)", flexShrink: 0 }} aria-hidden="true" />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="truncate" style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{s.title}</span>
+              <span className="mono" style={{ fontSize: 10.5, color: "var(--text-2)" }}>
+                {[s.source_ref, dayLabel(s.studied_on), `${Math.max(1, Math.round(s.body_length / 1000))}k characters`].filter(Boolean).join(" · ")}
+              </span>
+            </span>
+            <ChevronRight size={15} style={{ color: "var(--text-3)", flexShrink: 0 }} aria-hidden="true" />
+          </button>
+        ))}
+        {queue.length > 6 && (
+          <p className="card-note" style={{ marginTop: 8 }}>
+            {queue.length - 6} more after these, oldest first.
+          </p>
+        )}
+      </>
+    );
+  }
 
-  if (stats && Number(stats.sources) === 0 && overnight.length === 0) return null;
+  const snippets = result?.snippets ?? [];
 
   return (
     <>
-      {overnight.length > 0 && (
-        <Overnight
-          cards={overnight}
-          onDone={async (keepIds, dropIds) => {
-            for (const id of dropIds) await deleteNote(id).catch(() => {});
-            await markCardsReviewed(keepIds);
-            await load();
-            await onChanged?.();
-          }}
-        />
-      )}
-
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title"><Pickaxe size={14} />What's in the vault</span>
-        {stats && (
-          <span className="mono faint" style={{ fontSize: 11.5 }}>
-            {stats.mined}/{stats.sources} read · {stats.cards_from_sources} kept
-          </span>
-        )}
+      <div className="row" style={{ gap: 8, marginBottom: 10, minWidth: 0 }}>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={back} disabled={finishing}>
+          <ChevronLeft size={14} />
+          Back
+        </button>
+        <span className="truncate" style={{ fontSize: 13.5, fontWeight: 620, flex: 1 }}>{current.title}</span>
       </div>
 
-      {!current && (
+      {reading && <p className="empty">Reading it for what's worth keeping…</p>}
+
+      {readError && (
+        <LoadError what="suggestions for this note" error={readError} onRetry={() => read(current)} />
+      )}
+
+      {result && snippets.length === 0 && (
         <>
-          <p className="card-note" style={{ marginBottom: 14 }}>
-            {remaining > 0 ? (
-              <>
-                {remaining} long {remaining === 1 ? "note" : "notes"} from your morning study haven't been read for
-                keepable lines yet. One at a time — it proposes what's worth keeping, you decide.
-              </>
-            ) : (
-              <>Every long note has been read through. New ones will appear here as they sync.</>
-            )}
+          <p className="card-note" style={{ marginBottom: 12 }}>
+            Nothing in this one stands on its own. That's a real answer: most study notes are working-out, and a line
+            that only makes sense in place would just move the clutter.
+          </p>
+          <button type="button" className="btn" onClick={finish} disabled={finishing}>
+            <Check size={14} />
+            {finishing ? "Saving…" : "Mark it read, keep nothing"}
+          </button>
+        </>
+      )}
+
+      {snippets.length > 0 && (
+        <>
+          <p className="card-note" style={{ marginBottom: 12 }}>
+            {snippets.length} {snippets.length === 1 ? "line" : "lines"} worth keeping. Take the ones that are right; the
+            rest are forgotten.
+            {result.dropped > 0 && ` (${result.dropped} more didn't match the note word for word, so they were left out.)`}
           </p>
 
-          {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
+          {snippets.map((s, i) => {
+            const isTaken = taken.has(i);
+            const isTaking = taking.has(i);
+            return (
+              <div key={i} className={"board-snippet" + (isTaken ? " is-kept" : "")}>
+                <div className="board-snippet__top">
+                  <KindChip value={s.kind} size="sm" />
+                  {isTaken && (
+                    <span className="board-snippet__kept">
+                      <Check size={13} />
+                      Kept
+                    </span>
+                  )}
+                </div>
+                <blockquote className="board-quote">{s.quote}</blockquote>
+                {s.essence && <div className="board-snippet__essence">{s.essence}</div>}
+                <div className="board-snippet__foot">
+                  {s.why && (
+                    <span className="board-snippet__why">
+                      <Sparkles size={12} aria-hidden="true" />
+                      <span>{s.why}</span>
+                    </span>
+                  )}
+                  {!isTaken && (
+                    <button type="button" className="btn btn--accent btn--sm" onClick={() => take(s, i)} disabled={isTaking || finishing}>
+                      <Check size={13} />
+                      {isTaking ? "Keeping…" : "Keep it"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
 
-          {queue.slice(0, 6).map((s) => (
-            <button
-              key={s.id}
-              onClick={() => mine(s)}
-              disabled={loading}
-              className="row"
-              style={{
-                gap: 10,
-                width: "100%",
-                textAlign: "left",
-                background: "transparent",
-                border: "1px solid var(--line)",
-                borderRadius: "var(--r)",
-                padding: "10px 12px",
-                marginBottom: 6,
-                color: "inherit",
-              }}
-            >
-              <FileText size={13} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span className="truncate" style={{ display: "block", fontSize: 13, fontWeight: 550 }}>{s.title}</span>
-                <span className="mono faint" style={{ fontSize: 10.5 }}>
-                  {s.studied_on ?? "undated"}
-                  {s.source_ref ? ` · ${s.source_ref}` : ""} · {Math.round(s.body_length / 100) / 10}k chars
-                </span>
-              </span>
-              <ChevronRight size={14} style={{ color: "var(--text-3)", flexShrink: 0 }} />
-            </button>
-          ))}
-
-          {queue.length > 6 && (
-            <p className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>
-              {queue.length - 6} more behind these, oldest first.
-            </p>
-          )}
+          <button type="button" className="btn btn--block" onClick={finish} disabled={finishing || taking.size > 0} style={{ marginTop: 6 }}>
+            {finishing ? "Saving…" : taken.size > 0 ? `Done, kept ${taken.size}` : "Done, kept nothing"}
+          </button>
         </>
       )}
-
-      {current && (
-        <>
-          <div className="row row--between" style={{ marginBottom: 12, gap: 10 }}>
-            <span className="truncate" style={{ fontSize: 13.5, fontWeight: 600 }}>{current.title}</span>
-            <button className="btn-link" onClick={() => { setCurrent(null); setResult(null); }}>
-              <X size={12} />
-              Back
-            </button>
-          </div>
-
-          {loading && <p className="empty">Reading it for what's worth keeping…</p>}
-          {error && <div className="form-error">{error}</div>}
-
-          {result && result.snippets.length === 0 && (
-            <>
-              <p className="empty" style={{ marginBottom: 12 }}>
-                Nothing in this one stands on its own. That's a real answer — most study notes are working-out, and
-                keeping a line that only makes sense in place would just move the clutter.
-              </p>
-              <button className="btn" onClick={finish}>
-                <Check size={14} />
-                Mark it read, keep nothing
-              </button>
-            </>
-          )}
-
-          {result && result.snippets.length > 0 && (
-            <>
-              <p className="card-note" style={{ marginBottom: 12 }}>
-                {result.snippets.length} {result.snippets.length === 1 ? "passage" : "passages"} worth keeping.
-                Take the ones that are right; the rest are forgotten.
-                {result.dropped > 0 && (
-                  <span className="faint"> ({result.dropped} dropped for not matching the note exactly.)</span>
-                )}
-              </p>
-
-              {result.snippets.map((s, i) => {
-                const kind = kindOf(s.kind);
-                const isTaken = taken.has(i);
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      border: `1px solid ${isTaken ? kind.color : "var(--line)"}`,
-                      borderRadius: "var(--r)",
-                      padding: 13,
-                      marginBottom: 8,
-                      background: isTaken ? `${kind.color}12` : "transparent",
-                    }}
-                  >
-                    <div className="row row--between" style={{ marginBottom: 8, gap: 8 }}>
-                      <KindChip value={s.kind} size="sm" />
-                      {isTaken && (
-                        <span className="row" style={{ gap: 5, fontSize: 11.5, color: kind.color }}>
-                          <Check size={12} />
-                          Kept
-                        </span>
-                      )}
-                    </div>
-
-                    <blockquote
-                      className="prose prose--sm"
-                      style={{ margin: "0 0 9px", paddingLeft: 11, borderLeft: `2px solid ${kind.color}66`, color: "var(--text-2)" }}
-                    >
-                      {s.quote}
-                    </blockquote>
-
-                    <div className="prose" style={{ fontSize: 14, marginBottom: 8 }}>{s.essence}</div>
-
-                    <div className="row row--between" style={{ gap: 10, flexWrap: "wrap" }}>
-                      <span className="faint row" style={{ fontSize: 11.5, gap: 5, minWidth: 0 }}>
-                        <Sparkles size={11} style={{ flexShrink: 0 }} />
-                        <span className="truncate">{s.why}</span>
-                      </span>
-                      {!isTaken && (
-                        <button className="btn btn--accent" style={{ padding: "6px 12px", fontSize: 12.5 }} onClick={() => take(s, i)}>
-                          <Check size={13} />
-                          Keep it
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              <button className="btn btn--block" onClick={finish} style={{ marginTop: 4 }}>
-                {taken.size > 0 ? `Done — kept ${taken.size}` : "Done — kept nothing"}
-                <ArrowRight size={14} />
-              </button>
-            </>
-          )}
-        </>
-      )}
-    </div>
     </>
   );
 }
 
-// What the nightly run kept while you were asleep.
-//
-// These are already on the shelf and already usable by the curator — this is
-// only the short pass so nothing arrives unseen. Drop is a real delete,
-// because a card you have looked at and rejected should not linger.
-function Overnight({ cards, onDone }) {
+// What the nightly reading kept while you were asleep: a short pass so
+// nothing reaches the Board unseen. Drop goes through the page's Undo, since
+// a card you've looked at and rejected should go, but not on one tap.
+function Overnight({ cards, more, onDone, onDrop }) {
+  const toast = useToast();
   const [dropped, setDropped] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
 
   function toggle(id) {
     setDropped((prev) => {
@@ -286,59 +326,66 @@ function Overnight({ cards, onDone }) {
 
   const keeping = cards.filter((c) => !dropped.has(c.id));
 
+  async function done() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await markCardsReviewed(keeping.map((c) => c.id));
+      if (dropped.size > 0) {
+        onDrop([...dropped], keeping.length > 0 ? `${keeping.length} kept, ${dropped.size} dropped` : `${dropped.size} dropped`);
+      } else {
+        toast.show(`${keeping.length} kept`);
+      }
+      await onDone();
+    } catch (err) {
+      toast.error(err, "Couldn't save that. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="card card--accent" style={{ marginBottom: 14 }}>
-      <div className="card-head">
-        <span className="card-title"><Moon size={14} />Kept from your vault overnight</span>
-        <span className="mono faint" style={{ fontSize: 11.5 }}>{cards.length}</span>
+    <>
+      <div className="board-vault__label">
+        <Moon size={14} />
+        Kept overnight
       </div>
-      <p className="card-note" style={{ marginBottom: 14 }}>
-        Mined from your study notes while you slept. They're already in play — mark the ones that shouldn't have been
-        kept and they'll go.
+      <p className="card-note" style={{ marginBottom: 12 }}>
+        The nightly reading kept these from your study notes. They stay off the Board until you've looked them over.
+        Drop any that shouldn't have been kept.
       </p>
 
       {cards.map((c) => {
-        const kind = kindOf(c.note_kind);
         const isDropped = dropped.has(c.id);
         return (
-          <div
-            key={c.id}
-            style={{
-              border: `1px solid ${isDropped ? "var(--line)" : `${kind.color}55`}`,
-              borderRadius: "var(--r)",
-              padding: 12,
-              marginBottom: 7,
-              opacity: isDropped ? 0.45 : 1,
-              background: isDropped ? "transparent" : `${kind.color}0f`,
-            }}
-          >
-            <div className="row row--between" style={{ gap: 10, marginBottom: 7 }}>
+          <div key={c.id} className={"board-overnight" + (isDropped ? " is-dropped" : "")}>
+            <div className="board-overnight__top">
               <KindChip value={c.note_kind} size="sm" />
               <button
-                className="btn-icon"
+                type="button"
+                className={"btn btn--sm" + (isDropped ? "" : " btn--ghost")}
                 onClick={() => toggle(c.id)}
-                title={isDropped ? "Keep it after all" : "Drop this one"}
-                style={{ width: 26, height: 26, color: isDropped ? "var(--accent)" : "var(--text-3)" }}
+                aria-pressed={isDropped}
+                disabled={busy}
               >
-                {isDropped ? <ArrowRight size={13} /> : <Trash2 size={13} />}
+                {isDropped ? "Keep it" : "Drop"}
               </button>
             </div>
-            <div className="prose prose--sm" style={{ textDecoration: isDropped ? "line-through" : "none" }}>
-              {c.essence || c.excerpt}
-            </div>
-            {c.source_ref && <div className="mono faint" style={{ fontSize: 10.5, marginTop: 6 }}>{c.source_ref}</div>}
+            <div className="board-overnight__text">{c.essence || c.excerpt || c.title}</div>
+            {c.source_ref && <div className="board-overnight__ref">{c.source_ref}</div>}
           </div>
         );
       })}
 
-      <button
-        className="btn btn--accent btn--block"
-        style={{ marginTop: 4 }}
-        onClick={() => onDone(keeping.map((c) => c.id), [...dropped])}
-      >
+      <button type="button" className="btn btn--accent btn--block" style={{ marginTop: 6 }} onClick={done} disabled={busy}>
         <Check size={14} />
-        {dropped.size > 0 ? `Keep ${keeping.length}, drop ${dropped.size}` : `Keep all ${cards.length}`}
+        {busy ? "Saving…" : dropped.size > 0 ? `Keep ${keeping.length}, drop ${dropped.size}` : `Keep all ${cards.length}`}
       </button>
-    </div>
+      {more > 0 && (
+        <p className="card-note" style={{ marginTop: 8 }}>
+          {more} more after these.
+        </p>
+      )}
+    </>
   );
 }

@@ -10,7 +10,9 @@
 
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours } from "../src/lib/workReport.js";
-import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus } from "../src/lib/money.js";
+import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
+import { withTaps, waitingTaps, isUnnamed, KEEP_MS } from "../src/components/today/tapRows.js";
+import { editableFields, changesFrom, draftOver, draftClashes, draftTime } from "../src/components/study/noteDraft.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
 import {
   resolveRing,
@@ -201,8 +203,6 @@ const orphanBright = computeMinuteBrightness(
 );
 ok("a cycle resolves instead of hanging", orphanBright.size === 2);
 
-
-
 // ---------------------------------------------------------------------------
 
 console.log("\nthe day ring");
@@ -328,6 +328,84 @@ ok("over reports a negative remainder", budgetStatus({ spent: 410, limit: 400 },
 ok("a quarter gone on the 2nd is still fine", budgetStatus({ spent: 112, limit: 400 }, 2 / 31).state === "fine");
 ok("most of it gone on the 2nd is ahead", budgetStatus({ spent: 97, limit: 120 }, 2 / 31).state === "ahead");
 ok("no limit is untracked, not divided by zero", budgetStatus({ spent: 50, limit: null }, 0.5).state === "untracked");
+
+ok("days left counts today", daysLeftInMonth(new Date(2026, 9, 12)) === 20, String(daysLeftInMonth(new Date(2026, 9, 12))));
+ok("the last day has one left", daysLeftInMonth(new Date(2026, 9, 31)) === 1);
+ok("a leap February has 29 on the 1st", daysLeftInMonth(new Date(2028, 1, 1)) === 29);
+
+// The purchase question asks only for the budget; the kind follows from it.
+ok("a budget named like a kind gives that kind", kindForBudget(" groceries ") === "Groceries");
+ok("otherwise last time's kind, when the budget is the same as last time",
+   kindForBudget("Household", { suggestedKind: "Shopping", suggestedBudgetId: "b1", budgetId: "b1" }) === "Shopping");
+ok("but not when the budget changed", kindForBudget("Household", { suggestedKind: "Shopping", suggestedBudgetId: "b1", budgetId: "b2" }) === null);
+ok("no budget then and none now is the same budget", kindForBudget(null, { suggestedKind: "Gas" }) === "Gas");
+ok("nothing is guessed beyond that", kindForBudget("Household") === null);
+
+// ---------------------------------------------------------------------------
+
+console.log("\nwins kept on the phone");
+
+// A page shows what it loaded plus this phone's taps for the same day, each
+// once. A tap the database already has is matched by id, so a reload landing
+// mid-send never counts a win twice or drops one.
+const localAt = (h, m, dayOffset = 0) => new Date(2026, 9, 12 + dayOffset, h, m).toISOString();
+const loaded = [
+  { id: "r1", kind: "win", habit_label: "Prayed", occurred_at: localAt(10, 0) },
+  { id: "r2", kind: "loss", habit_label: "Loss", occurred_at: localAt(11, 0) },
+];
+const outbox = {
+  taps: [
+    { id: "r1", user_id: "u", kind: "win", habit_label: "Prayed", occurred_at: localAt(10, 0), status: "sent" },
+    { id: "t2", user_id: "u", kind: "win", habit_label: "Win", occurred_at: localAt(9, 30), status: "waiting" },
+    { id: "t3", user_id: "someone else", kind: "win", habit_label: "Win", occurred_at: localAt(9, 45), status: "waiting" },
+    { id: "t4", user_id: "u", kind: "win", habit_label: "Win", occurred_at: localAt(9, 0, -1), status: "waiting" },
+  ],
+  removing: new Set(["r2"]),
+  renamed: new Map([["t2", { label: "Ran", at: Date.now() }]]),
+};
+const shown = withTaps(loaded, outbox, { userId: "u", date: "2026-10-12" });
+ok("loaded rows and taps merge, each once, oldest first", shown.map((r) => r.id).join() === "t2,r1", shown.map((r) => r.id).join());
+ok("a rename shows before the database has it", shown[0].habit_label === "Ran");
+ok("a row being deleted is already gone", !shown.some((r) => r.id === "r2"));
+ok("another day's tap stays on its own day", !shown.some((r) => r.id === "t4"));
+ok("kind narrows to losses", withTaps(loaded, outbox, { userId: "u", date: "2026-10-12", kind: "loss" }).length === 0);
+const oldRename = { ...outbox, renamed: new Map([["t2", { label: "Ran", at: Date.now() - KEEP_MS - 1 }]]) };
+ok("an old rename gives way to what was loaded", withTaps(loaded, oldRename, { userId: "u", date: "2026-10-12" })[0].habit_label === "Win");
+
+const waitingOut = { taps: [{ user_id: "u", status: "waiting" }, { user_id: "u", status: "waiting", offline: false }, { user_id: "u", status: "sending" }] };
+ok("waiting taps are counted", waitingTaps(waitingOut, "u").count === 2);
+ok("one from storage counts as waiting for a signal", waitingTaps(waitingOut, "u").offline === true);
+ok("all failing with a signal is not offline", waitingTaps({ taps: [{ user_id: "u", status: "waiting", offline: false }] }, "u").offline === false);
+
+ok("a plain Win is unnamed", isUnnamed({ habit_label: " Win " }) && isUnnamed({ habit_label: "" }) && isUnnamed(null));
+ok("a named win is named", !isUnnamed({ habit_label: "Ran 5k" }));
+
+// ---------------------------------------------------------------------------
+
+console.log("\nBoard drafts");
+
+const fromNote = editableFields({ title: "Untitled note", body: null, source_ref: null, note_kind: null });
+ok("a placeholder title starts empty", fromNote.title === "" && fromNote.body === "" && fromNote.kind === "thought");
+
+const base = { title: "Alma 32", sourceRef: "", body: "Faith is like a seed.", kind: "thought" };
+ok("spaces around the title aren't a change", Object.keys(changesFrom({ ...base, title: " Alma 32 " }, base)).length === 0);
+ok("the source is saved trimmed", changesFrom({ ...base, sourceRef: " Alma 32:28 " }, base).sourceRef === "Alma 32:28");
+ok("a body change is sent whole", changesFrom({ ...base, body: "Faith is like a seed. It grows." }, base).body === "Faith is like a seed. It grows.");
+ok("the kind goes as noteKind", changesFrom({ ...base, kind: "insight" }, base).noteKind === "insight");
+
+// A draft that changed only the title, over a note whose body changed on
+// another device since: the title comes from the draft, the body from now.
+const draft = { base, fields: { ...base, title: "Alma 32: the seed" }, at: Date.now() };
+const movedOn = { ...base, body: "Faith is like a seed. Written on the computer." };
+const resumed = draftOver(draft, movedOn);
+ok("a resumed draft keeps its own change", resumed.title === "Alma 32: the seed");
+ok("and the note's newer body", resumed.body === movedOn.body);
+ok("no clash when they changed different fields", !draftClashes(draft, movedOn));
+ok("a clash when both changed the title", draftClashes(draft, { ...movedOn, title: "Alma 32, again" }));
+
+const noon = new Date(2026, 9, 12, 12, 0);
+ok("a draft from today shows the time", !/Oct/.test(draftTime(new Date(2026, 9, 12, 9, 5), noon)), draftTime(new Date(2026, 9, 12, 9, 5), noon));
+ok("an older one shows the day too", /Oct/.test(draftTime(new Date(2026, 9, 10, 9, 5), noon)), draftTime(new Date(2026, 9, 10, 9, 5), noon));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

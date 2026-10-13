@@ -5,7 +5,7 @@
 
 export const RING_THICKNESS = 130;
 export const CENTER_RADIUS = 90; // radius of the ring-0 (root) hub
-export const MIN_LABEL_ANGLE = (4 * Math.PI) / 180; // wedges thinner than this skip their label entirely
+export const MIN_LABEL_ANGLE = (4 * Math.PI) / 180; // the least a hovered wedge grows to, so it can show a title
 
 // Builds { byId: Map<id, {ringIndex, angleStart, angleEnd}>, maxRing }.
 // `centerNodeId`, if set, re-roots the wheel on that node ("zoomed in") —
@@ -23,8 +23,18 @@ export const MIN_LABEL_ANGLE = (4 * Math.PI) / 180; // wedges thinner than this 
 // minAngleFn(nodeId) lets the caller (which knows about font/text sizing,
 // not this module) enforce "grow at least enough to be legible" on top of
 // the flat percentage growth.
-export function computeWheel(nodes, edges, centerNodeId, hover) {
+//
+// `weights` (Map<id, number>), if given, gives those goals that many times
+// their equal share of their parent's span — the phone dial narrows the
+// section facing up so it can be drawn tall enough to read.
+export function computeWheel(nodes, edges, centerNodeId, hover, weights) {
   const { hoveredId = null, growFactor = 1.08, minAngleFn = () => 0 } = hover ?? {};
+  const shares = (ids, total) => {
+    if (!weights) return ids.map(() => total / ids.length);
+    const w = ids.map((id) => weights.get(id) ?? 1);
+    const sum = w.reduce((a, b) => a + b, 0);
+    return w.map((x) => (total * x) / sum);
+  };
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const firstParentOf = new Map();
   const childrenOf = new Map();
@@ -75,7 +85,11 @@ export function computeWheel(nodes, edges, centerNodeId, hover) {
       return;
     }
 
-    kids.forEach((kid, i) => place(kid, ring + 1, angleStart + i * naturalSlice, angleStart + (i + 1) * naturalSlice, id));
+    let cursor = angleStart;
+    shares(kids, totalSpan).forEach((width, i) => {
+      place(kids[i], ring + 1, cursor, cursor + width, id);
+      cursor += width;
+    });
   }
 
   const hasVirtualHub = roots.length > 1;
@@ -95,7 +109,11 @@ export function computeWheel(nodes, edges, centerNodeId, hover) {
         cursor += width;
       }
     } else {
-      roots.forEach((r, i) => place(r.id, 1, i * slice, (i + 1) * slice, null));
+      let cursor = 0;
+      shares(roots.map((r) => r.id), Math.PI * 2).forEach((width, i) => {
+        place(roots[i].id, 1, cursor, cursor + width, null);
+        cursor += width;
+      });
     }
   }
 
@@ -255,6 +273,18 @@ function roundedPieSlicePath(outerR, angleStart, angleEnd, cornerRadius) {
   ].join(" ");
 }
 
+// The outline of any placed wedge. A goal that fills its whole ring (an
+// only child of the center) is an annulus — drawn even-odd so it doesn't
+// paint over the disc inside it.
+export function wedgeOutline(ringIndex, angleStart, angleEnd) {
+  const { inner, outer } = ringRadii(ringIndex);
+  if (angleEnd - angleStart >= Math.PI * 2 - 1e-3) {
+    const circle = (r) => `M ${r} 0 A ${r} ${r} 0 1 1 ${-r} 0 A ${r} ${r} 0 1 1 ${r} 0 Z`;
+    return { d: inner > 0.01 ? `${circle(outer)} ${circle(inner)}` : circle(outer), fillRule: "evenodd" };
+  }
+  return { d: roundedWedgePath(inner, outer, angleStart, angleEnd), fillRule: undefined };
+}
+
 // true when a wedge centered at this angle sits on the lower half of the
 // circle, where text would render upside down without correction.
 export function isLowerHalf(midAngleRad) {
@@ -303,4 +333,246 @@ export function radialLabelTransform(innerR, outerR, angleStart, angleEnd, flipA
   const normalized = ((effectiveDeg % 360) + 360) % 360;
   if (normalized > 90 && normalized < 270) deg += 180;
   return { x, y, rotateDeg: deg };
+}
+
+// ---------------------------------------------------------------------------
+// Labels. Both wheels draw titles the same way, so the fitting rules live
+// here once: how big, curved or straight, how many lines, in what order,
+// and whether there's room to draw one at all.
+// ---------------------------------------------------------------------------
+
+// Smallest a title may be on screen. A wedge that can't hold one this big
+// shows none; its title is in the wedge's tooltip and in the goal panel.
+export const LABEL_MIN_PX = 10;
+
+const CHAR_EM = 0.58; // average glyph width of the bold label face
+const LINE_EM = 1.15;
+const BASELINE_EM = 0.35; // from a line's baseline to the middle of its letters
+const PAD = 10; // clear space kept at each end of a line
+
+// Scales with how big the wedge reads (its arc length at mid-radius),
+// square-rooted so a giant root wedge gets a bigger label than a sliver
+// three rings out without the range turning extreme.
+export function labelFontSize(arcLength) {
+  return Math.min(22, Math.max(10, 15 * Math.sqrt(Math.max(0, arcLength) / 200)));
+}
+
+// Greedy word wrap into at most `maxLines` lines of `maxChars`. When the
+// title doesn't fit, the last line ends in "…" and `complete` is false.
+export function wrapWords(text, maxChars, maxLines) {
+  const width = Math.floor(maxChars);
+  const words = String(text ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { lines: [], complete: true };
+  if (width < 2 || maxLines < 1) return { lines: [], complete: false };
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= width) {
+      current = candidate;
+    } else if (current && lines.length < maxLines - 1 && word.length <= width) {
+      lines.push(current);
+      current = word;
+    } else {
+      lines.push(candidate.slice(0, width - 1).trimEnd() + "…");
+      return { lines, complete: false };
+    }
+  }
+  lines.push(current);
+  return { lines, complete: true };
+}
+
+// The fewest lines (up to maxLines) the title wraps into completely, where
+// `charsFor(n)` is how many characters fit on a line when there are n of
+// them. Falls back to the most lines, cut short.
+function wrapInto(title, maxLines, charsFor) {
+  let best = null;
+  for (let n = 1; n <= maxLines; n++) {
+    const chars = charsFor(n);
+    if (chars < Math.min(4, title.length)) break;
+    best = wrapWords(title, chars, n);
+    if (best.complete) break;
+  }
+  return best?.lines.length ? best : null;
+}
+
+// How to draw a wedge's title at `fontSize`, or null when it doesn't fit.
+//   curved: lines along the ring, { text, d } — d is the arc a <textPath> follows
+//   radial: straight lines along the radius, { text, x, y, rotate }
+//   flat:   level lines across the center disc, { text, x, y, rotate }
+// Line one always reads first: on the upper half of a curved label that's
+// the outermost arc, on the lower half (where the text is turned to stay
+// upright) the innermost; a radial label stacks along its own "down".
+// `flipOffset` is how far the whole wheel is turned on screen (radians), so
+// "upright" means upright where the wedge actually is.
+export function fitLabel(title, { inner, outer, angleStart, angleEnd }, fontSize, curved, flipOffset = 0) {
+  const text = String(title ?? "").trim();
+  if (!text) return null;
+  const lineHeight = fontSize * LINE_EM;
+  const charWidth = fontSize * CHAR_EM;
+  const span = angleEnd - angleStart;
+
+  if (inner < 1) {
+    // The center disc: level lines, as many as the circle has room for.
+    const fit = wrapInto(text, 3, (n) => {
+      const halfHeight = ((n - 1) / 2) * lineHeight + fontSize / 2;
+      if (halfHeight >= outer) return 0;
+      return (2 * Math.sqrt(outer * outer - halfHeight * halfHeight) - 2 * PAD) / charWidth;
+    });
+    if (!fit) return null;
+    const n = fit.lines.length;
+    const turn = -flipOffset; // stays level however the wheel is turned
+    const lines = fit.lines.map((line, i) => {
+      const offset = (i - (n - 1) / 2) * lineHeight;
+      return { text: line, x: offset * Math.sin(flipOffset), y: offset * Math.cos(flipOffset), rotate: (turn * 180) / Math.PI };
+    });
+    return { kind: "flat", fontSize, complete: fit.complete, lines };
+  }
+
+  // No angle cut-off: a thin wedge far out (or on the zoomed phone dial) can
+  // still have room for a line, and the room checks below decide.
+  if (!(span > 0)) return null;
+  const mid = (inner + outer) / 2;
+
+  if (curved) {
+    // A whole ring has no ends to center between, so its title runs across the top.
+    const full = span >= Math.PI * 2 - 1e-3;
+    const a0 = full ? -Math.PI * 0.8 : angleStart;
+    const a1 = full ? Math.PI * 0.8 : angleEnd;
+    const maxLines = Math.min(3, Math.floor((outer - inner - 8 - fontSize) / lineHeight) + 1);
+    const fit = wrapInto(text, maxLines, (n) => ((a1 - a0) * (mid - ((n - 1) / 2) * lineHeight) - 2 * PAD) / charWidth);
+    if (!fit) return null;
+    const flip = isLowerHalf((a0 + a1) / 2 + flipOffset);
+    const n = fit.lines.length;
+    const lines = fit.lines.map((line, i) => {
+      const slot = flip ? i : n - 1 - i;
+      const r = mid + (slot - (n - 1) / 2) * lineHeight + (flip ? 1 : -1) * BASELINE_EM * fontSize;
+      return { text: line, d: labelArcPath(r, a0, a1, flipOffset) };
+    });
+    return { kind: "curved", fontSize, complete: fit.complete, lines };
+  }
+
+  // Radial: the text runs out along the radius, so its length is the ring's
+  // thickness and its line count is however many fit side by side where the
+  // wedge is narrowest.
+  const room = span * (inner + PAD);
+  const maxLines = Math.min(2, Math.floor((room - fontSize) / lineHeight) + 1);
+  if (maxLines < 1) return null;
+  const chars = (outer - inner - 2 * PAD) / charWidth;
+  const fit = wrapInto(text, maxLines, () => chars);
+  if (!fit) return null;
+  const { x, y, rotateDeg } = radialLabelTransform(inner, outer, angleStart, angleEnd, flipOffset);
+  const rot = (rotateDeg * Math.PI) / 180;
+  const n = fit.lines.length;
+  const lines = fit.lines.map((line, i) => {
+    const offset = (i - (n - 1) / 2) * lineHeight;
+    return { text: line, x: x - Math.sin(rot) * offset, y: y + Math.cos(rot) * offset, rotate: rotateDeg };
+  });
+  return { kind: "radial", fontSize, complete: fit.complete, lines };
+}
+
+// A placed wedge's label size in wheel units: what its arc calls for, but
+// never under LABEL_MIN_PX on screen at `scale` (screen px per wheel unit).
+export function labelFontFor(pos, scale) {
+  const { inner, outer } = ringRadii(pos.ringIndex);
+  const natural = labelFontSize((pos.angleEnd - pos.angleStart) * ((inner + outer) / 2));
+  return Math.max(natural, LABEL_MIN_PX / Math.max(scale, 0.01));
+}
+
+function wedgeGeometry(pos) {
+  return { ...ringRadii(pos.ringIndex), angleStart: pos.angleStart, angleEnd: pos.angleEnd };
+}
+
+const groupKey = (pos) => pos.parentId ?? "__root__";
+
+// Siblings share one orientation — curved when every one of them fits on
+// two lines or fewer along its arc, otherwise radial — so a fan of children
+// never reads as a jumble of directions. Keyed by parent id.
+export function labelOrientations(layout, titleById, scale, flipOffset = 0) {
+  const curved = new Map();
+  for (const [id, pos] of layout.entries()) {
+    const key = groupKey(pos);
+    if (curved.get(key) === false) continue;
+    const fit = fitLabel(titleById.get(id) ?? "", wedgeGeometry(pos), labelFontFor(pos, scale), true, flipOffset);
+    curved.set(key, Boolean(fit && fit.complete && fit.lines.length <= 2));
+  }
+  return curved;
+}
+
+export function isCurvedLabel(orientations, pos) {
+  return orientations.get(groupKey(pos)) ?? true;
+}
+
+// Every wedge's label for one frame of a wheel, as a Map of id -> fitLabel
+// result (wedges with no room are left out). Pass `orientations` from a
+// steadier layout when this one is in motion, as under a hover, so labels
+// don't flip direction mid-gesture.
+export function layoutLabels(layout, titleById, scale, { flipOffset = 0, orientations } = {}) {
+  const orient = orientations ?? labelOrientations(layout, titleById, scale, flipOffset);
+  const labels = new Map();
+  for (const [id, pos] of layout.entries()) {
+    const label = fitLabel(titleById.get(id) ?? "", wedgeGeometry(pos), labelFontFor(pos, scale), isCurvedLabel(orient, pos), flipOffset);
+    if (label) labels.set(id, label);
+  }
+  return labels;
+}
+
+// The narrowest a wedge can be and still show a few letters of its title —
+// how far a hovered sliver grows.
+export function minLabelSpan(title, ringIndex, fontSize, curved) {
+  const { inner, outer } = ringRadii(ringIndex);
+  if (curved) return (Math.min(String(title ?? "").length, 8) * fontSize * CHAR_EM + 2 * PAD) / ((inner + outer) / 2);
+  return Math.max(MIN_LABEL_ANGLE, (fontSize * 1.1) / (inner + PAD));
+}
+
+// ---------------------------------------------------------------------------
+// Tree helpers for pickers and forms.
+// ---------------------------------------------------------------------------
+
+// The parent each goal is drawn under (its first edge), as a Map.
+export function firstParents(edges) {
+  const parentOf = new Map();
+  for (const e of edges) if (!parentOf.has(e.child_id)) parentOf.set(e.child_id, e.parent_id);
+  return parentOf;
+}
+
+// Every goal with its path ("In tune with God › Prayer › Morning prayer"),
+// the shape GoalPicker takes. Titles repeat across the tree; paths don't.
+export function goalPaths(nodes, edges) {
+  const parentOf = firstParents(edges);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return nodes
+    .map((n) => {
+      const parts = [n.title];
+      const seen = new Set([n.id]);
+      let cur = n.id;
+      while (parentOf.has(cur)) {
+        cur = parentOf.get(cur);
+        if (seen.has(cur) || !byId.has(cur)) break;
+        seen.add(cur);
+        parts.unshift(byId.get(cur).title);
+      }
+      return { id: n.id, title: n.title, path: parts.join(" › "), depth: parts.length - 1, is_focused: Boolean(n.is_focused) };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+// A goal and everything under it, by any edge — what it can't be moved under.
+export function subtreeIds(edges, rootId) {
+  const kids = new Map();
+  for (const e of edges) {
+    if (!kids.has(e.parent_id)) kids.set(e.parent_id, []);
+    kids.get(e.parent_id).push(e.child_id);
+  }
+  const out = new Set([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    for (const k of kids.get(stack.pop()) ?? []) {
+      if (!out.has(k)) {
+        out.add(k);
+        stack.push(k);
+      }
+    }
+  }
+  return out;
 }

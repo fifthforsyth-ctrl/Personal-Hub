@@ -1,5 +1,3 @@
-import { Fragment } from "react";
-
 // Renderer for the Obsidian-flavored markdown in the vault.
 //
 // Hand-rolled rather than pulled from a library for two reasons: the syntax
@@ -19,38 +17,34 @@ import { Fragment } from "react";
 //   # headings                          ~246
 //   --- horizontal rules                ~188
 //   <mark ...>text</mark>               ~112
-//   ![[embed]]                          rare — shown as a muted placeholder
+//   ![[embed]]                          rare — shown as a quiet "picture" tag
 
 // The vault's own annotation vocabulary, written as <span class="...">.
 // These are not decoration — "law" and "blessing" are the working pair the
 // whole vault is organized around, and "insight" marks the writer's own
-// thought inside quoted scripture. Styled so the distinction survives the
-// trip out of Obsidian, using the app's existing ramp rather than new hues.
+// thought inside quoted scripture. The distinction survives in weight and
+// slant rather than in five shades of orange, which made a note read as a
+// paint chart and failed as small text.
 const SPAN_STYLES = {
-  insight: { color: "#d8933b", fontStyle: "italic" },
-  law: { color: "#c0743b", fontWeight: 600 },
-  blessing: { color: "var(--accent-strong)", fontWeight: 600 },
-  context: { color: "var(--text-muted)" },
-  doctrine: { color: "#a8553a", fontWeight: 600 },
-  translation: { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-muted)" },
-  "original-language": { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-muted)" },
+  insight: { color: "var(--text-2)", fontStyle: "italic" },
+  law: { fontWeight: 650 },
+  blessing: { color: "var(--good-text)", fontWeight: 650 },
+  context: { color: "var(--text-2)" },
+  doctrine: { fontWeight: 650 },
+  translation: { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-2)" },
+  "original-language": { fontFamily: "var(--font-mono)", fontSize: "0.9em", color: "var(--text-2)" },
 };
 
+// Callouts are quiet grey boxes with their label; only the warning kinds keep
+// a colour, because there the colour is the message.
 const CALLOUT_ACCENT = {
-  tip: "var(--accent-strong)",
-  christ: "var(--accent-strong)",
-  quote: "var(--text-muted)",
-  abstract: "var(--text-muted)",
-  info: "var(--text-muted)",
-  note: "var(--text-muted)",
-  faq: "var(--text-muted)",
-  application: "var(--accent-strong)",
-  success: "var(--accent-strong)",
   warning: "var(--danger)",
   danger: "var(--danger)",
   failure: "var(--danger)",
   bug: "var(--danger)",
 };
+
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|heic|avif)$/i;
 
 // ---------------------------------------------------------------------------
 // Inline
@@ -139,6 +133,8 @@ function renderInline(text, keyPrefix = "i", marks = null) {
     const hlBody = m[16];
 
     if (hlId !== undefined) {
+      // A passage you marked is the one place the reader uses orange. One
+      // made into a note is underlined too, and opens that note's card below.
       const mark = marks?.get(hlId);
       out.push(
         <mark
@@ -147,9 +143,9 @@ function renderInline(text, keyPrefix = "i", marks = null) {
           onClick={mark?.onClick}
           title={mark?.title}
           style={{
-            background: mark ? `${mark.color}26` : "var(--accent-soft)",
+            background: "var(--accent-soft)",
             color: "inherit",
-            borderBottom: `2px solid ${mark ? mark.color : "var(--accent)"}`,
+            borderBottom: mark?.linked ? "2px solid var(--accent)" : "none",
             borderRadius: 2,
             padding: "1px 0",
             cursor: mark?.onClick ? "pointer" : "text",
@@ -161,9 +157,12 @@ function renderInline(text, keyPrefix = "i", marks = null) {
     } else if (code !== undefined) {
       out.push(<code key={key} style={codeStyle}>{code}</code>);
     } else if (embed !== undefined) {
+      // The file lives in the vault, not here, so say what was there rather
+      // than printing the raw link syntax in the middle of the prose.
+      const file = embed.split("|")[0].split("/").pop();
       out.push(
-        <span key={key} style={{ color: "var(--text-faint)", fontStyle: "italic" }}>
-          [embedded: {embed.split("|")[0]}]
+        <span key={key} style={embedStyle} title={`In your vault: ${embed.split("|")[0]}`}>
+          {IMAGE_FILE.test(file) ? "Picture" : "Embedded note"} · {file}
         </span>
       );
     } else if (wiki !== undefined) {
@@ -215,12 +214,21 @@ function renderInline(text, keyPrefix = "i", marks = null) {
 // Block
 // ---------------------------------------------------------------------------
 
-export function MarkdownNote({ text, marks = null }) {
+// `hideTitle`: a vault note usually opens with "# <its own title>", which the
+// page already shows as its heading, so that first heading is skipped when it
+// says the same thing. Only the very first block, and only an exact repeat.
+export function MarkdownNote({ text, marks = null, hideTitle = null }) {
   if (!text) return null;
   const lines = stripFrontmatter(text).split("\n");
   const blocks = [];
   let i = 0;
   let key = 0;
+
+  if (hideTitle) {
+    while (i < lines.length && !lines[i].trim()) i += 1;
+    const first = lines[i]?.match(/^#{1,6}\s+(.*)$/);
+    if (first && sameWords(first[1], hideTitle)) i += 1;
+  }
 
   while (i < lines.length) {
     const line = lines[i];
@@ -324,22 +332,22 @@ export function MarkdownNote({ text, marks = null }) {
 function Callout({ lines, marks = null }) {
   const header = lines[0]?.match(/^\s*\[!([^\]]+)\]\s*(.*)$/);
   const type = header ? header[1].trim().toLowerCase() : null;
-  const accent = type ? CALLOUT_ACCENT[type] ?? "var(--text-muted)" : "var(--border-strong)";
+  const accent = (type && CALLOUT_ACCENT[type]) ?? null;
   const bodyLines = header ? lines.slice(1) : lines;
   const label = header ? (header[2].trim() || header[1].trim()) : null;
 
   return (
     <div
       style={{
-        borderLeft: `3px solid ${accent}`,
-        background: "var(--bg-inset)",
+        borderLeft: `3px solid ${accent ?? "var(--line-strong)"}`,
+        background: "var(--inset)",
         borderRadius: "0 6px 6px 0",
         padding: "10px 14px",
         margin: "10px 0",
       }}
     >
       {label && (
-        <div style={{ fontSize: 11, fontWeight: 800, color: accent, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: bodyLines.some((l) => l.trim()) ? 6 : 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: accent ?? "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: bodyLines.some((l) => l.trim()) ? 6 : 0 }}>
           {label}
         </div>
       )}
@@ -363,8 +371,24 @@ function Callout({ lines, marks = null }) {
 // Strips every bit of markup down to readable prose — used wherever a note
 // appears as a one-or-two-line preview and the markup would be pure noise.
 export function toPlainText(text, maxLength = null) {
+  return plain(text, maxLength, false);
+}
+
+// For a card or a list row: the same, minus the lines that only label
+// something — headings, and a callout's "[!quote] Alma 32:21" header — which
+// otherwise run straight into the sentence after them ("Alma 32 — faith as a
+// seed Alma 32:21 And now as I said…").
+export function previewText(text, maxLength = null) {
+  return plain(text, maxLength, true);
+}
+
+function plain(text, maxLength, dropLabels) {
   if (!text) return "";
   let out = stripFrontmatter(text);
+
+  if (dropLabels) {
+    out = out.replace(/^#{1,6}\s+.*$/gm, " ").replace(/^\s*>\s?\[![^\]]+\].*$/gm, " ");
+  }
 
   out = out
     .replace(/```[\s\S]*?```/g, " ")
@@ -401,12 +425,81 @@ function stripFrontmatter(text) {
   return end === -1 ? text : text.slice(end + 4).replace(/^\n/, "");
 }
 
+// Cut at the last whole word that fits, with an ellipsis, never mid-word.
+export function cutAtWord(text, max) {
+  const s = String(text ?? "").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  const base = lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut;
+  return base.replace(/[\s,;:.–—-]+$/, "") + "…";
+}
+
+const squash = (s) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[*_=~`#>[\]|]/g, "")
+    .replace(/…$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function sameWords(a, b) {
+  const x = squash(a);
+  return x.length > 0 && x === squash(b);
+}
+
+// Kept lines used to get a title cut at exactly 90 characters, mid-word and
+// with no ellipsis ("…the experiment itself, and"). When the full sentence is
+// right there in the note, the title is shown cut at a word instead.
+export function niceTitle(note) {
+  const title = String(note?.title ?? "").trim();
+  const full = String(note?.essence || note?.excerpt || "").trim();
+  if (title.length >= 80 && !title.endsWith("…") && full.length > title.length && full.startsWith(title)) {
+    return cutAtWord(full, 90);
+  }
+  return title || "Untitled";
+}
+
+// A card's face: one text, cut at a word, and a title only when it says
+// something the text doesn't. A captured thought takes its title from its
+// first line and a kept line from its essence, so for most cards the title is
+// the start of the text, and printing both showed every sentence twice.
+export function cardFace(note, max = 180) {
+  const title = niceTitle(note);
+  const source = note?.essence || note?.excerpt || note?.body_preview || note?.body || "";
+  const text = previewText(source, max);
+  if (!squash(text)) return { title: null, text: title };
+  return { title: titleRepeats(title, text) ? null : title, text };
+}
+
+// Whether a title says nothing the text under it doesn't: it's the text's
+// own first words (cut short or not), or a placeholder. False when there's
+// no text, since then the title is all there is.
+export function titleRepeats(title, text) {
+  const t = squash(title);
+  const x = squash(text);
+  if (!x) return false;
+  return !t || t.startsWith("untitled") || x.startsWith(t) || t.startsWith(x);
+}
+
 // ---------------------------------------------------------------------------
 
 const paraStyle = { margin: "0 0 10px" };
 const listStyle = { margin: "0 0 10px", paddingLeft: 20 };
 const hrStyle = { border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" };
-const wikiStyle = { color: "var(--accent-strong)", borderBottom: "1px dotted var(--accent-dim)", cursor: "help" };
+// A vault reference, not a link (the note it names may not be in the hub), so
+// it reads as text with a dotted underline rather than as an orange link.
+const wikiStyle = { borderBottom: "1px dotted var(--text-3)", cursor: "help", overflowWrap: "anywhere" };
+const embedStyle = {
+  display: "inline-block",
+  padding: "1px 8px",
+  borderRadius: 999,
+  background: "var(--inset)",
+  color: "var(--text-2)",
+  fontFamily: "var(--font)",
+  fontSize: 12,
+  overflowWrap: "anywhere",
+};
 const markStyle = { background: "rgba(224, 165, 69, 0.22)", color: "var(--text)", padding: "0 2px", borderRadius: 2 };
 const codeStyle = {
   fontFamily: "var(--font-mono)",

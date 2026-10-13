@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { intensityColor } from "../../lib/nodeStyle";
 
 // Hand-rolled SVG charts. No library: the app needs three forms, all of them
 // small, and a charting dependency would cost more bytes than the whole
@@ -161,13 +162,13 @@ export function RankedBars({ rows, format = (v) => String(v), activeKey, onHover
   const max = maxProp ?? Math.max(...rows.map((r) => r.value), 1);
 
   return (
-    <div className="stack stack--tight">
+    <div className="stack stack--tight ranked-bars">
       {rows.map((r) => {
         const dim = activeKey != null && activeKey !== r.key;
         return (
           <button
             key={r.key}
-            className="btn-link"
+            className="btn-link ranked-bar"
             style={{ display: "block", width: "100%", textAlign: "left", color: "inherit", opacity: dim ? 0.4 : 1, transition: "opacity 0.12s" }}
             onMouseEnter={() => onHover?.(r.key)}
             onMouseLeave={() => onHover?.(null)}
@@ -217,7 +218,7 @@ export function LineChart({
   const H = height;
   const pad = { top: 14, right: 14, bottom: 26, left: 46 };
 
-  const { xs, yMax, yMin, paths, ticks } = useMemo(() => {
+  const { xs, paths, ticks } = useMemo(() => {
     const allX = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
     const allY = series.flatMap((s) => s.points.map((p) => p.y));
     let hi = Math.max(...allY, 0);
@@ -245,7 +246,7 @@ export function LineChart({
       return { v, y: yAt(v) };
     });
 
-    return { xs: allX, yMax: hi, yMin: lo, paths: built, ticks: t, xAt, yAt };
+    return { xs: allX, paths: built, ticks: t };
   }, [series, H]);
 
   const xAt = paths[0]?.xAt;
@@ -410,6 +411,24 @@ export function Legend({ items, format, activeKey, onHover }) {
           {format && <span className="mono faint">{format(it.value)}</span>}
         </button>
       ))}
+    </div>
+  );
+}
+
+// What a shaded grid's shading means: the same ramp the squares use, from
+// empty to full. "More" is a fuller hour or day, not a better one.
+export function IntensityLegend({ note }) {
+  return (
+    <div className="intensity-legend">
+      <span>Less</span>
+      <span className="intensity-legend__swatches" aria-hidden="true">
+        <i style={{ background: "var(--inset)" }} />
+        {[0.25, 0.5, 0.75, 1].map((t) => (
+          <i key={t} style={{ background: intensityColor(t) }} />
+        ))}
+      </span>
+      <span>More</span>
+      {note && <span className="intensity-legend__note">{note}</span>}
     </div>
   );
 }

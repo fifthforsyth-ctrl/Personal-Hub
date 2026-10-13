@@ -27,7 +27,7 @@ const SUPABASE_URL = "https://bfednxteqhjljqdfdvsq.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmZWRueHRlcWhqbGpxZGZkdnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NTM1NTgsImV4cCI6MjEwMzQyOTU1OH0.Tft8vrFtjWnM-gVWD40IZVnrRqS99ivPq8W7H4qi50M";
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -125,7 +125,7 @@ async function main() {
               .join("\n"),
           },
         ],
-        output_config: { format: zodOutputFormat(DistillationSchema) },
+        output_config: { format: zodOutputFormat(DistillationSchema), effort: "high" },
       });
 
       const parsed = response.parsed_output;

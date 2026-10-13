@@ -1,129 +1,86 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { computeWheel, ringRadii, roundedWedgePath, labelArcPath, radialLabelTransform, MIN_LABEL_ANGLE, CENTER_RADIUS, RING_THICKNESS } from "../../lib/wheel";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Plus, Minus } from "lucide-react";
+import {
+  computeWheel,
+  wedgeOutline,
+  labelOrientations,
+  layoutLabels,
+  isCurvedLabel,
+  minLabelSpan,
+  LABEL_MIN_PX,
+  CENTER_RADIUS,
+  RING_THICKNESS,
+} from "../../lib/wheel";
 import { getWedgeVisual, HOVER_COLOR, FOCUS_COLOR } from "../../lib/nodeStyle";
+import WedgeLabel from "./WedgeLabel";
+import "../../styles/goals.css";
 
 const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 3;
-const HOVER_TRANSITION = "d 130ms ease-out, transform 130ms ease-out";
+const MAX_ZOOM = 4;
+const FIT_SHARE = 0.47; // the framed wheel's radius, as a share of the shorter side
+const TAP_SLOP = 4; // px a press can wander and still be a tap rather than a pan
+const HOVER_TRANSITION = "d 130ms ease-out";
 
-// Label font size scales with how big the wedge actually reads on screen
-// (its arc length at mid-radius), not a fixed size for every wedge — a
-// giant root wedge gets a bigger label than a sliver three rings deep.
-// Square-root keeps the range graduated instead of extreme.
-const MIN_FONT = 10;
-const MAX_FONT = 22;
-const BASE_FONT = 15;
-const REFERENCE_ARC = 200; // arc length (px) that maps to BASE_FONT
-function fontSizeFor(arcLength) {
-  const raw = BASE_FONT * Math.sqrt(arcLength / REFERENCE_ARC);
-  return Math.min(MAX_FONT, Math.max(MIN_FONT, raw));
-}
-
-// Word-wraps into at most maxLines lines of at most maxCharsPerLine each,
-// ellipsis-truncating the last line if the title still doesn't fit.
-function wrapTitle(title, maxCharsPerLine, maxLines) {
-  const width = Math.max(3, Math.floor(maxCharsPerLine));
-  const words = title.split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= width) {
-      current = candidate;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-      if (lines.length >= maxLines) break;
-    }
-  }
-  if (current && lines.length < maxLines) lines.push(current);
-  if (lines.length > maxLines) lines.length = maxLines;
-
-  const consumed = lines.join(" ").length;
-  const truncated = consumed < title.replace(/\s+/g, " ").length;
-  if (lines.length === 0) {
-    lines.push(title.slice(0, width - 1) + (title.length > width ? "…" : ""));
-  } else if (truncated) {
-    const last = lines[lines.length - 1].replace(/\s+$/, "").slice(0, Math.max(1, width - 1));
-    lines[lines.length - 1] = last + "…";
-  }
-  return lines;
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
 }
 
 // A hand-rolled pan/zoom SVG sunburst — deliberately not React Flow, since
 // wedges are geometric arcs (sized purely by ring + angle), not measured
 // rectangular cards, and clicking one just selects it rather than dragging it.
 // `wheel` ({layout, maxRing, hasVirtualHub}) is the BASE (non-hover) layout
-// from lib/wheel's computeWheel, computed once in Pyramid.jsx and shared
-// with the detail panel. This component derives its own hover-adjusted
-// layout from `edges` on top of that whenever something's hovered.
-export default function PyramidWheel({ nodes, edges, wheel, brightnessById, centerNodeId, onSelectNode }) {
+// from lib/wheel's computeWheel, computed once by the page and shared with
+// the detail panel. This component derives its own hover-adjusted layout
+// from `edges` on top of that whenever something's hovered.
+//
+// One finger or the mouse pans, two fingers pinch, the mouse wheel zooms.
+// `controls` adds + / − / Fit buttons; `selectedId` rims the goal whose
+// panel is open; `reserveRight` is how much of the right edge that panel
+// covers, so the wheel slides over to stay in sight beside it.
+export default function PyramidWheel({
+  nodes,
+  edges,
+  wheel,
+  brightnessById,
+  centerNodeId,
+  onSelectNode,
+  selectedId = null,
+  controls = false,
+  reserveRight = 0,
+}) {
+  const uid = useId().replace(/:/g, "");
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-
-  // Static per-wedge facts from the BASE layout: ring geometry and which
-  // text orientation this wedge's whole sibling group uses. Orientation is
-  // decided once, per sibling group, so a fan of children never reads as a
-  // jumble of different directions — and it doesn't change just because one
-  // of them is being hovered.
-  const wedgeInfo = useMemo(() => {
-    const info = new Map();
-    for (const [id, pos] of wheel.layout.entries()) {
-      const node = nodeById.get(id);
-      if (!node) continue;
-      const { inner, outer } = ringRadii(pos.ringIndex);
-      const angleSpan = pos.angleEnd - pos.angleStart;
-      const midRadius = (inner + outer) / 2;
-      const arcLength = angleSpan * midRadius;
-      const fontSize = fontSizeFor(arcLength);
-      const avgCharWidth = fontSize * 0.58;
-      const estCurvedWidth = node.title.length * avgCharWidth;
-      const fitsCurved = angleSpan >= MIN_LABEL_ANGLE * 2.5 && arcLength >= estCurvedWidth;
-      info.set(id, { ringIndex: pos.ringIndex, inner, outer, midRadius, parentId: pos.parentId, fitsCurved });
-    }
-    const siblingGroups = new Map();
-    for (const [id, v] of info.entries()) {
-      const key = v.parentId ?? "__root__";
-      if (!siblingGroups.has(key)) siblingGroups.set(key, []);
-      siblingGroups.get(key).push(id);
-    }
-    const groupCurved = new Map();
-    for (const [key, ids] of siblingGroups.entries()) {
-      groupCurved.set(key, ids.every((id) => info.get(id).fitsCurved));
-    }
-    for (const [id, v] of info.entries()) v.useCurved = groupCurved.get(v.parentId ?? "__root__");
-    return info;
-  }, [wheel.layout, nodeById]);
-
+  const titleById = useMemo(() => new Map(nodes.map((n) => [n.id, n.title])), [nodes]);
   const totalRadius = CENTER_RADIUS + wheel.maxRing * RING_THICKNESS + 60;
 
   const wrapRef = useRef(null);
-  const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
-  const [isDragging, setIsDragging] = useState(false);
+  // `glide` animates the moves the app makes (fit, the zoom buttons); the
+  // ones your fingers or mouse make follow them directly.
+  const [view, setView] = useState({ x: 0, y: 0, scale: 1, glide: false });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [dragging, setDragging] = useState(false);
   const [hoveredId, setHoveredId] = useState(null);
+  const userMoved = useRef(false); // once you've panned or zoomed, a resize leaves the view alone
+  const fitted = useRef(false);
+  const reserveRef = useRef(reserveRight);
+  reserveRef.current = reserveRight;
 
-  // Minimum angle a hovered wedge needs to show a short, legible label in
-  // its own orientation — not its full title, just enough to read something.
-  // Curved wedges need arc length for a handful of characters; radial ones
-  // barely need any extra angle at all, since their text runs along the
-  // ring's thickness, not around it — "just enough to show vertical text."
+  // Which way each sibling group's titles run, decided on the resting
+  // layout so a hover never flips them.
+  const orientations = useMemo(() => labelOrientations(wheel.layout, titleById, view.scale), [wheel.layout, titleById, view.scale]);
+
+  // How wide a hovered wedge needs to be to show a few letters of its title
+  // at the smallest size allowed on screen. Radial titles run along the
+  // ring's thickness, so they only need the angle for one line's height.
   const minAngleFn = useCallback(
     (id) => {
-      const v = wedgeInfo.get(id);
-      const node = nodeById.get(id);
-      if (!v || !node) return 0;
-      if (v.useCurved) {
-        const fontSize = MIN_FONT + 2;
-        const avgCharWidth = fontSize * 0.58;
-        const shortLabelWidth = Math.min(node.title.length, 8) * avgCharWidth + 16;
-        return shortLabelWidth / v.midRadius;
-      }
-      // Radial text length is bounded by ring thickness, not angle — so
-      // growing the angle doesn't actually buy more room for the text
-      // itself, it only needs to clear the "show any label at all"
-      // threshold. A small margin over that threshold, not a big multiple.
-      return MIN_LABEL_ANGLE * 1.5;
+      const pos = wheel.layout.get(id);
+      if (!pos) return 0;
+      const font = Math.max(10, LABEL_MIN_PX / view.scale);
+      return minLabelSpan(titleById.get(id), pos.ringIndex, font, isCurvedLabel(orientations, pos));
     },
-    [wedgeInfo, nodeById]
+    [wheel.layout, titleById, view.scale, orientations]
   );
 
   // Hover-adjusted layout: the hovered wedge grows, its siblings shrink to
@@ -135,46 +92,124 @@ export default function PyramidWheel({ nodes, edges, wheel, brightnessById, cent
     return computeWheel(nodes, edges, centerNodeId, { hoveredId, growFactor: 1.025, minAngleFn }).layout;
   }, [hoveredId, nodes, edges, centerNodeId, wheel.layout, minAngleFn]);
 
-  // Frame the whole wheel in view whenever the root we're centered on changes
-  // (initial load, or "center on this" from the detail panel).
-  useEffect(() => {
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-    const fitScale = Math.min(1, (Math.min(wrap.clientWidth, wrap.clientHeight) * 0.42) / totalRadius);
-    setView({ x: wrap.clientWidth / 2, y: wrap.clientHeight / 2, scale: fitScale });
-  }, [centerNodeId, totalRadius]);
-
-  const dragRef = useRef({ dragging: false, moved: false, startX: 0, startY: 0, startViewX: 0, startViewY: 0 });
-
-  const onMouseDown = useCallback(
-    (e) => {
-      if (e.button !== 0) return;
-      dragRef.current = { dragging: true, moved: false, startX: e.clientX, startY: e.clientY, startViewX: view.x, startViewY: view.y };
-      setIsDragging(true);
-    },
-    [view]
+  const labels = useMemo(
+    () => layoutLabels(displayLayout, titleById, view.scale, { orientations }),
+    [displayLayout, titleById, view.scale, orientations]
   );
 
+  // Frame the whole wheel in view, beside the open panel when it sits next
+  // to the wheel rather than over it (wider screens; see goals.css).
+  const fit = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !wrap.clientWidth || !wrap.clientHeight) return;
+    userMoved.current = false;
+    const reserve = reserveRef.current && window.matchMedia?.("(min-width: 901px)").matches ? reserveRef.current : 0;
+    const width = wrap.clientWidth - reserve;
+    const scale = Math.min(1, (Math.min(width, wrap.clientHeight) * FIT_SHARE) / totalRadius);
+    setView({ x: width / 2, y: wrap.clientHeight / 2, scale, glide: fitted.current });
+    fitted.current = true;
+  }, [totalRadius]);
+
+  // On load and whenever the wheel is re-centered.
   useEffect(() => {
-    function onMouseMove(e) {
-      const d = dragRef.current;
-      if (!d.dragging) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
-      setView((v) => ({ ...v, x: d.startViewX + dx, y: d.startViewY + dy }));
-    }
-    function onMouseUp() {
-      dragRef.current.dragging = false;
-      setIsDragging(false);
-    }
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
+    fit();
+  }, [fit, centerNodeId]);
+
+  // When a panel opens or closes, unless you've moved the wheel yourself.
+  useEffect(() => {
+    if (!userMoved.current) fit();
+  }, [fit, reserveRight]);
+
+  // And when the space changes size (a phone turned sideways, the header
+  // wrapping), unless you've already moved the wheel yourself.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => {
+      if (!userMoved.current) fit();
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [fit]);
+
+  // Pointer gestures. Every pointer down on the wheel is tracked until it
+  // lifts; one is a pan, two are a pinch around their midpoint. Moves are
+  // read on the window so a drag that leaves the wheel still ends cleanly.
+  const pointers = useRef(new Map());
+  const gesture = useRef(null);
+  const moved = useRef(false);
+
+  const localPoint = useCallback((clientX, clientY) => {
+    const rect = wrapRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
+
+  const beginGesture = useCallback(() => {
+    const pts = [...pointers.current.values()];
+    const v = viewRef.current;
+    if (pts.length === 1) {
+      gesture.current = { kind: "pan", x: pts[0].x, y: pts[0].y, view: v };
+    } else if (pts.length >= 2) {
+      const [a, b] = pts;
+      gesture.current = { kind: "pinch", dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mid: localPoint((a.x + b.x) / 2, (a.y + b.y) / 2), view: v };
+    } else {
+      gesture.current = null;
+    }
+  }, [localPoint]);
+
+  function onPointerDown(e) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.target.closest?.(".wheel-controls")) return;
+    if (pointers.current.size === 0) moved.current = false;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    beginGesture();
+  }
+
+  useEffect(() => {
+    function onMove(e) {
+      if (!pointers.current.has(e.pointerId)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = gesture.current;
+      if (!g) return;
+      if (g.kind === "pan") {
+        const dx = e.clientX - g.x;
+        const dy = e.clientY - g.y;
+        if (!moved.current && Math.hypot(dx, dy) < TAP_SLOP) return;
+        if (!moved.current) {
+          moved.current = true;
+          setDragging(true);
+        }
+        userMoved.current = true;
+        setView({ ...g.view, x: g.view.x + dx, y: g.view.y + dy, glide: false });
+        return;
+      }
+      const [a, b] = [...pointers.current.values()];
+      if (!b) return;
+      moved.current = true;
+      userMoved.current = true;
+      setDragging(true);
+      const mid = localPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
+      const scale = clamp(g.view.scale * ((Math.hypot(a.x - b.x, a.y - b.y) || 1) / g.dist), MIN_ZOOM, MAX_ZOOM);
+      // The point under the fingers when the pinch began stays under them.
+      const wx = (g.mid.x - g.view.x) / g.view.scale;
+      const wy = (g.mid.y - g.view.y) / g.view.scale;
+      setView({ scale, x: mid.x - wx * scale, y: mid.y - wy * scale, glide: false });
+    }
+    function onUp(e) {
+      if (!pointers.current.delete(e.pointerId)) return;
+      // A pinch that loses a finger carries on as a pan from where it is.
+      beginGesture();
+      if (pointers.current.size === 0) setDragging(false);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [beginGesture, localPoint]);
 
   // React's JSX onWheel is always registered passive for this event type, so
   // e.preventDefault() inside it is silently ignored (and logs a warning) —
@@ -182,240 +217,129 @@ export default function PyramidWheel({ nodes, edges, wheel, brightnessById, cent
   // attached, non-passive listener is the only way to actually claim it.
   useEffect(() => {
     const wrap = wrapRef.current;
-    if (!wrap) return;
+    if (!wrap) return undefined;
     function onWheel(e) {
       e.preventDefault();
-      const rect = wrap.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+      userMoved.current = true;
+      const { x: mouseX, y: mouseY } = localPoint(e.clientX, e.clientY);
       setView((v) => {
-        const factor = Math.exp(-e.deltaY * 0.0015);
-        const nextScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.scale * factor));
+        const nextScale = clamp(v.scale * Math.exp(-e.deltaY * 0.0015), MIN_ZOOM, MAX_ZOOM);
         const worldX = (mouseX - v.x) / v.scale;
         const worldY = (mouseY - v.y) / v.scale;
-        return { scale: nextScale, x: mouseX - worldX * nextScale, y: mouseY - worldY * nextScale };
+        return { scale: nextScale, x: mouseX - worldX * nextScale, y: mouseY - worldY * nextScale, glide: false };
       });
     }
     wrap.addEventListener("wheel", onWheel, { passive: false });
     return () => wrap.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [localPoint]);
+
+  function zoomBy(factor) {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const cx = wrap.clientWidth / 2;
+    const cy = wrap.clientHeight / 2;
+    userMoved.current = true;
+    setView((v) => {
+      const scale = clamp(v.scale * factor, MIN_ZOOM, MAX_ZOOM);
+      const wx = (cx - v.x) / v.scale;
+      const wy = (cy - v.y) / v.scale;
+      return { scale, x: cx - wx * scale, y: cy - wy * scale, glide: true };
+    });
+  }
 
   function handleWedgeClick(id) {
-    if (dragRef.current.moved) return; // that was a pan, not a tap
+    if (moved.current) return; // that was a pan, not a tap
     onSelectNode(id);
   }
+
+  // Hover only means something with a mouse; a finger's "hover" would stick
+  // after the tap and reshape the wheel under it.
+  const hoverIn = (id) => (e) => e.pointerType === "mouse" && setHoveredId(id);
+  const hoverOut = (id) => (e) => e.pointerType === "mouse" && setHoveredId((cur) => (cur === id ? null : cur));
+
+  const rim = (id, stroke, width, opacity = 1) => {
+    const pos = displayLayout.get(id);
+    if (!pos) return null;
+    const shape = wedgeOutline(pos.ringIndex, pos.angleStart, pos.angleEnd);
+    return (
+      <path
+        key={`${id}-${stroke}`}
+        d={shape.d}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={width}
+        strokeOpacity={opacity}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        style={{ transition: HOVER_TRANSITION, pointerEvents: "none" }}
+      />
+    );
+  };
 
   return (
     <div
       ref={wrapRef}
-      onMouseDown={onMouseDown}
-      style={{ width: "100%", height: "100%", overflow: "hidden", cursor: isDragging ? "grabbing" : "grab", touchAction: "none" }}
+      className="wheel-pan"
+      onPointerDown={onPointerDown}
+      style={{ cursor: dragging ? "grabbing" : "grab" }}
     >
       <svg
         width={totalRadius * 2}
         height={totalRadius * 2}
         viewBox={`${-totalRadius} ${-totalRadius} ${totalRadius * 2} ${totalRadius * 2}`}
         style={{
+          display: "block",
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale}) translate(${-totalRadius}px, ${-totalRadius}px)`,
           transformOrigin: "0 0",
+          transition: view.glide ? "transform 280ms cubic-bezier(0.2, 0.7, 0.2, 1)" : "none",
         }}
       >
-        <defs>
-          <filter id="wedge-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="7" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        {wheel.hasVirtualHub && (
-          <circle r={CENTER_RADIUS} fill="var(--bg-elevated)" stroke="#050609" strokeWidth={2.5} strokeLinejoin="round" />
-        )}
+        {wheel.hasVirtualHub && <circle r={CENTER_RADIUS} fill="var(--surface)" stroke="#ffffff" strokeWidth={2.5} />}
 
         {[...displayLayout.entries()].map(([id, pos]) => {
           const node = nodeById.get(id);
-          const v = wedgeInfo.get(id);
-          if (!node || !v) return null;
-          const brightness = brightnessById.get(id) ?? 0;
-          const visual = getWedgeVisual(v.ringIndex, brightness);
-          const angleSpan = pos.angleEnd - pos.angleStart;
-          const isFullCircle = angleSpan >= Math.PI * 2 - 0.001;
-          const shapeD = isFullCircle ? null : roundedWedgePath(v.inner, v.outer, pos.angleStart, pos.angleEnd);
-          const showLabel = angleSpan >= MIN_LABEL_ANGLE;
-
-          const midRadius = v.midRadius;
-          const arcLength = angleSpan * midRadius;
-          const fontSize = fontSizeFor(arcLength);
-          const lineHeight = fontSize * 1.15;
-
+          if (!node) return null;
+          const visual = getWedgeVisual(pos.ringIndex, brightnessById.get(id) ?? 0);
+          const shape = wedgeOutline(pos.ringIndex, pos.angleStart, pos.angleEnd);
           return (
-            <g
-              key={id}
-              onClick={() => handleWedgeClick(id)}
-              onMouseEnter={() => setHoveredId(id)}
-              onMouseLeave={() => setHoveredId((cur) => (cur === id ? null : cur))}
-              style={{ cursor: "pointer" }}
-            >
-              {isFullCircle ? (
-                <circle
-                  r={v.outer}
-                  fill={visual.fill}
-                  stroke={visual.stroke}
-                  strokeWidth={visual.strokeWidth}
-                  strokeLinejoin="round"
-                  filter={visual.glowFilter !== "none" ? visual.glowFilter : undefined}
-                  style={{ transition: HOVER_TRANSITION }}
-                />
-              ) : (
-                <path
-                  d={shapeD}
-                  fill={visual.fill}
-                  stroke={visual.stroke}
-                  strokeWidth={visual.strokeWidth}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  filter={visual.glowFilter !== "none" ? visual.glowFilter : undefined}
-                  style={{ transition: HOVER_TRANSITION }}
-                />
-              )}
-
-              {showLabel &&
-                (v.useCurved ? (
-                  <CurvedLabel id={id} node={node} inner={v.inner} outer={v.outer} pos={pos} fontSize={fontSize} lineHeight={lineHeight} color={visual.labelColor} />
-                ) : (
-                  <RadialLabel node={node} inner={v.inner} outer={v.outer} pos={pos} fontSize={fontSize} lineHeight={lineHeight} color={visual.labelColor} />
-                ))}
+            <g key={id} className="wheel-wedge" onClick={() => handleWedgeClick(id)} onPointerEnter={hoverIn(id)} onPointerLeave={hoverOut(id)}>
+              <title>{node.title}</title>
+              <path
+                d={shape.d}
+                fillRule={shape.fillRule}
+                fill={visual.fill}
+                stroke={visual.stroke}
+                strokeWidth={visual.strokeWidth}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                style={{ transition: HOVER_TRANSITION }}
+              />
+              <WedgeLabel id={`${uid}-${id}`} label={labels.get(id)} color={visual.labelColor} />
             </g>
           );
         })}
 
-        {/* Focus rims — rendered in their own pass, after every wedge, so a
-            later-drawn neighbor sharing an edge with a focused wedge never
-            paints over part of its rim (that was "sitting under the goal"). */}
-        {[...displayLayout.entries()]
-          .filter(([id]) => nodeById.get(id)?.is_focused)
-          .map(([id, pos]) => {
-            const v = wedgeInfo.get(id);
-            if (!v) return null;
-            const angleSpan = pos.angleEnd - pos.angleStart;
-            const isFullCircle = angleSpan >= Math.PI * 2 - 0.001;
-            return (
-              <g key={id} style={{ pointerEvents: "none" }}>
-                {isFullCircle ? (
-                  <circle r={v.outer} fill="none" stroke={FOCUS_COLOR} strokeWidth={3} strokeLinejoin="round" style={{ transition: HOVER_TRANSITION }} />
-                ) : (
-                  <path
-                    d={roundedWedgePath(v.inner, v.outer, pos.angleStart, pos.angleEnd)}
-                    fill="none"
-                    stroke={FOCUS_COLOR}
-                    strokeWidth={3}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    style={{ transition: HOVER_TRANSITION }}
-                  />
-                )}
-              </g>
-            );
-          })}
-
-        {/* Hover rim — topmost of all, its own pass for the same reason, and
-            drawn after focus rims so it's never covered by them either. */}
-        {hoveredId &&
-          !isDragging &&
-          (() => {
-            const pos = displayLayout.get(hoveredId);
-            const v = wedgeInfo.get(hoveredId);
-            if (!pos || !v) return null;
-            const angleSpan = pos.angleEnd - pos.angleStart;
-            const isFullCircle = angleSpan >= Math.PI * 2 - 0.001;
-            return (
-              <g style={{ pointerEvents: "none" }}>
-                {isFullCircle ? (
-                  <circle r={v.outer} fill="none" stroke={HOVER_COLOR} strokeWidth={2.5} strokeOpacity={0.9} strokeLinejoin="round" style={{ transition: HOVER_TRANSITION }} />
-                ) : (
-                  <path
-                    d={roundedWedgePath(v.inner, v.outer, pos.angleStart, pos.angleEnd)}
-                    fill="none"
-                    stroke={HOVER_COLOR}
-                    strokeWidth={2.5}
-                    strokeOpacity={0.9}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    style={{ transition: HOVER_TRANSITION }}
-                  />
-                )}
-              </g>
-            );
-          })()}
+        {/* Rims go in their own passes, after every wedge, so a later-drawn
+            neighbor sharing an edge never paints over part of one: focus
+            (orange), then the open goal (ink), then the hovered one. */}
+        {[...displayLayout.keys()].filter((id) => nodeById.get(id)?.is_focused).map((id) => rim(id, FOCUS_COLOR, 3))}
+        {selectedId && displayLayout.has(selectedId) && rim(selectedId, HOVER_COLOR, 3.5)}
+        {hoveredId && !dragging && hoveredId !== selectedId && rim(hoveredId, HOVER_COLOR, 2.5, 0.9)}
       </svg>
+
+      {controls && (
+        <div className="wheel-controls" role="group" aria-label="Zoom">
+          <button type="button" className="btn-icon btn-icon--bordered" onClick={() => zoomBy(1.3)} aria-label="Zoom in" title="Zoom in">
+            <Plus size={16} />
+          </button>
+          <button type="button" className="btn-icon btn-icon--bordered" onClick={() => zoomBy(1 / 1.3)} aria-label="Zoom out" title="Zoom out">
+            <Minus size={16} />
+          </button>
+          <button type="button" className="btn btn--sm wheel-controls__fit" onClick={fit} title="Fit the whole wheel on screen">
+            Fit
+          </button>
+        </div>
+      )}
     </div>
-  );
-}
-
-function CurvedLabel({ id, node, inner, outer, pos, fontSize, lineHeight, color }) {
-  const avgCharWidth = fontSize * 0.58;
-  const arcLength = (pos.angleEnd - pos.angleStart) * ((inner + outer) / 2);
-  const maxCharsPerLine = Math.max(4, Math.floor((arcLength - 20) / avgCharWidth));
-  const maxLines = Math.max(1, Math.min(3, Math.floor((outer - inner) / lineHeight)));
-  const lines = wrapTitle(node.title, maxCharsPerLine, maxLines);
-  const midRadius = (inner + outer) / 2;
-
-  return (
-    <>
-      {lines.map((line, i) => {
-        const offset = (i - (lines.length - 1) / 2) * lineHeight;
-        const radius = midRadius + offset;
-        const pathId = `wedge-arc-${id}-${i}`;
-        return (
-          <g key={i}>
-            <path id={pathId} d={labelArcPath(radius, pos.angleStart, pos.angleEnd)} fill="none" style={{ transition: "d 130ms ease-out" }} />
-            <text fontSize={fontSize} fontWeight={700} fill={color} style={{ pointerEvents: "none" }}>
-              <textPath href={`#${pathId}`} startOffset="50%" textAnchor="middle">
-                {line}
-              </textPath>
-            </text>
-          </g>
-        );
-      })}
-    </>
-  );
-}
-
-function RadialLabel({ node, inner, outer, pos, fontSize, lineHeight, color }) {
-  const avgCharWidth = fontSize * 0.58;
-  const available = outer - inner - 16;
-  const maxCharsPerLine = Math.max(3, Math.floor(available / avgCharWidth));
-  const lines = wrapTitle(node.title, maxCharsPerLine, 2);
-  const label = radialLabelTransform(inner, outer, pos.angleStart, pos.angleEnd);
-  const screenAngle = (pos.angleStart + pos.angleEnd) / 2 - Math.PI / 2;
-  const tangentX = -Math.sin(screenAngle);
-  const tangentY = Math.cos(screenAngle);
-
-  return (
-    <>
-      {lines.map((line, i) => {
-        const offset = (i - (lines.length - 1) / 2) * lineHeight;
-        const x = label.x + tangentX * offset;
-        const y = label.y + tangentY * offset;
-        return (
-          <text
-            key={i}
-            x={x}
-            y={y}
-            transform={`rotate(${label.rotateDeg}, ${x}, ${y})`}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fontSize={fontSize}
-            fontWeight={700}
-            fill={color}
-            style={{ pointerEvents: "none", transition: "x 130ms ease-out, y 130ms ease-out" }}
-          >
-            {line}
-          </text>
-        );
-      })}
-    </>
   );
 }

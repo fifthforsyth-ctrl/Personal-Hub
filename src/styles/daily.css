@@ -1,0 +1,374 @@
+/* ===========================================================================
+   The daily path, continued: Today, the capture sheet, the evening and the
+   day page. The older rules for these screens live in index.css under
+   "Today, capture and the evening"; these are the pieces that came with
+   undo, renaming, the phone's outbox and fixing logged time.
+   =========================================================================== */
+
+.today__error,
+.evening__error,
+.day-page__error { margin-bottom: 14px; }
+
+/* --- Today: yesterday still open ---------------------------------------- */
+
+.yesterday-banner {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.yesterday-banner__link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 8px 14px 18px;
+  color: var(--text);
+}
+.yesterday-banner__link > svg:first-child { color: var(--accent); flex-shrink: 0; }
+.yesterday-banner__link > svg:last-child { color: var(--text-3); flex-shrink: 0; }
+.yesterday-banner__title { display: block; font-weight: 650; font-size: 14.5px; line-height: 1.3; }
+.yesterday-banner__sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+.yesterday-banner__close { margin-right: 8px; flex-shrink: 0; }
+
+/* Just after midnight it's the evening you're still in: the dark banner. */
+.yesterday-banner--urgent { background: var(--ink); box-shadow: none; }
+.yesterday-banner--urgent .yesterday-banner__link { color: var(--on-ink); padding: 17px 20px; }
+.yesterday-banner--urgent .yesterday-banner__link > svg:last-child { color: var(--on-ink); }
+.yesterday-banner--urgent .yesterday-banner__sub { color: rgba(255, 255, 255, 0.72); }
+
+/* --- Today: wins ----------------------------------------------------------- */
+
+/* The count before it's known: a light dash, not a heavy black bar. */
+.win-count__unknown { color: var(--text-3); font-weight: 400; }
+
+.win-sync {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.win-sync svg { flex-shrink: 0; margin-top: 2px; color: var(--text-3); }
+
+.win-name__label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+
+.win-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.win-chips--log { margin-top: 14px; }
+
+/* Naming chips: white and outlined, with no ＋, because they name the win
+   you just logged rather than log another. Readable on the sheet's grey. */
+.name-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.name-chip:active { background: var(--inset); }
+@media (hover: hover) { .name-chip:hover { border-color: var(--text-3); } }
+.name-chip--on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+
+.win-list__more { align-self: center; min-height: 36px; padding: 0 4px; }
+
+/* Rename or remove, inline where the win was tapped. */
+.tap-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--inset);
+  animation: fade-in 0.16s ease-out;
+}
+.tap-editor .input { background: var(--card); border-color: var(--line); }
+.tap-editor__actions { display: flex; align-items: center; gap: 8px; }
+.tap-editor__actions .btn-link { min-height: 36px; padding: 0 4px; font-size: 13px; }
+.list > .tap-editor { margin: 6px 0; }
+
+/* --- Today: minutes and the walk ------------------------------------------ */
+
+.minutes-note { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.running-row__time { display: flex; flex-wrap: wrap; column-gap: 8px; font-size: 12px; color: var(--text-2); margin-top: 1px; }
+.running-row__since { white-space: nowrap; }
+
+.walk-card__new { min-height: 36px; padding: 0 2px; }
+
+.noted { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.noted__row { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; }
+.noted__text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 8px;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.noted__actions { display: flex; gap: 14px; flex-shrink: 0; }
+.noted__actions .btn-link { min-height: 36px; padding: 0 7px; margin: 0 -5px; }
+
+/* --- The week strip's key ------------------------------------------------- */
+
+.week-strip-wrap { margin-bottom: 16px; max-width: 460px; }
+.week-strip-wrap .week-strip { margin-bottom: 0; }
+.week-strip__key { margin: 8px 0 0; font-size: 11.5px; color: var(--text-2); text-align: center; }
+
+/* --- Capture sheet --------------------------------------------------------- */
+
+.capture-back { min-height: 36px; font-size: 13px; }
+
+.logged-banner__undo {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 7px 15px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+/* "Saved to your Board. [Open]" inside a toast, ahead of its Undo. */
+.toast-split { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* --- Minutes: picking, logging, fixing ------------------------------------ */
+
+/* Wide enough that "Working for Parker" fits whole: two across in the sheet,
+   more on a wide page. */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.cat-cell { position: relative; min-width: 0; }
+.cat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 10px;
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+  background: var(--inset);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+}
+.cat-toggle--on { color: var(--text); font-weight: 650; }
+.cat-toggle--managing { cursor: default; padding-right: 30px; }
+
+/* "Log past time" and the categories' Edit are text buttons, but thumb-sized,
+   without making the row they sit in any taller. */
+.btn-link.minutes-link { min-height: 36px; padding: 0 6px; margin: -9px -6px; }
+
+/* The hide button sits on the corner while editing, with a 40px hit area
+   around a smaller mark. */
+.cat-hide {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(214, 59, 48, 0.35);
+  background: var(--card);
+  color: var(--danger);
+}
+.cat-hide::after { content: ""; position: absolute; inset: -7px; }
+
+.cat-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--danger-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cat-hidden { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cat-hidden__row { display: flex; align-items: center; gap: 9px; padding: 4px 0; font-size: 13px; }
+
+.manual-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
+.manual-entry__field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.manual-entry__field > span { font-size: 12px; font-weight: 600; color: var(--text-2); }
+
+.minutes-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-2); }
+
+.running-card__elapsed {
+  margin: 4px 0 8px;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-row-x { padding: 6px 0; }
+.entry-row-x__action { width: 40px; height: 40px; flex-shrink: 0; color: var(--text-2); }
+
+.entry-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--inset);
+}
+.entry-editor .manual-entry { margin-bottom: 0; }
+.entry-editor .input { background: var(--card); border-color: var(--line); }
+.entry-editor__cats { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* --- The evening ----------------------------------------------------------- */
+
+.evening-nav { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; }
+.evening-nav .btn-link { min-height: 36px; font-size: 13px; }
+.evening-nav__day { margin-left: auto; }
+
+.evening-wl__count--win { color: var(--accent-text); }
+.evening-wl__mark { flex-shrink: 0; margin-top: 3px; }
+.evening-wl__row:not(.muted) .evening-wl__mark,
+.day-win .evening-wl__mark { color: var(--accent); }
+.evening-wl__unnamed { color: var(--text-2); }
+.evening-wl__hint { margin: 12px 0 0; font-size: 12px; color: var(--text-2); }
+
+/* --- The day page ---------------------------------------------------------- */
+
+.day-win {
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  gap: 9px;
+}
+@media (hover: hover) { .day-win:hover { background: var(--card-hover); } }
+
+/* "Goal links for this day": closed until asked for. */
+.day-fold__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 13px 18px;
+  border: none;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+.day-fold__toggle svg { color: var(--text-3); flex-shrink: 0; }
+.day-fold__chev { transition: transform 0.15s; }
+.day-fold__chev--open { transform: rotate(180deg); }
+
+/* --- The curator's cards --------------------------------------------------- */
+
+.curated__again,
+.curated__link { min-height: 36px; }
+
+.curated__scores { display: grid; grid-template-columns: repeat(10, 40px); gap: 5px; margin-bottom: 10px; }
+@media (max-width: 560px) {
+  .curated__scores { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+.curated__score {
+  height: 40px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--inset);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.curated__score--on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.curated__score:disabled { cursor: default; }
+
+/* --- Big picture ----------------------------------------------------------- */
+
+.overview-today { grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); align-items: start; }
+@media (max-width: 700px) {
+  .overview-today { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- Reflection, close-out and the banked card ----------------------------- */
+
+/* Four steps, each a 4px bar inside a 24px-tall target, so jumping back to a
+   card is a tap rather than an aim. */
+.reflection-steps { display: flex; gap: 4px; margin: -6px 0 12px; }
+.reflection-step {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.reflection-step::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 10px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+}
+.reflection-step--done::before { background: var(--accent-line); }
+.reflection-step--here::before { background: var(--accent); }
+
+.close-out__skip { display: flex; margin: 12px auto 0; min-height: 36px; padding: 0 6px; font-size: 13px; }
+
+.banked-fold { border-bottom: 1px solid var(--line); }
+.banked-fold__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+/* On a phone the entry list keeps the words and drops the tag chips. */
+@media (max-width: 520px) {
+  .banked-entry__tags { display: none; }
+}

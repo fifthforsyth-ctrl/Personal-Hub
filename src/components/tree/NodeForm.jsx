@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { X, CheckSquare, Hash, NotebookPen, ChevronDown, ChevronRight } from "lucide-react";
+import GoalPicker from "../GoalPicker";
 
 function emptyFields() {
   return {
-    tracking_method: null,
+    tracking_method: "checkbox",
     title: "",
     description: "",
-    has_target_number: false,
-    target_number: "",
+    has_target_number: true,
+    target_number: "1",
     is_daily: false,
     has_deadline: false,
     deadline_date: "",
@@ -16,19 +17,24 @@ function emptyFields() {
 }
 
 const METHOD_OPTIONS = [
-  { value: "checkbox", label: "Checkbox", Icon: CheckSquare, blurb: "Tap to check off — once, or daily." },
-  { value: "counter", label: "Counter", Icon: Hash, blurb: "Log a number toward a target." },
-  { value: "note", label: "Note", Icon: NotebookPen, blurb: "Reflection, for goals that resist numbers — writing the note is the action." },
+  { value: "checkbox", label: "Checkbox", Icon: CheckSquare, blurb: "Tap to check it off, once or every day." },
+  { value: "counter", label: "Counter", Icon: Hash, blurb: "Log a number toward a target, like pages read or runs this week." },
+  { value: "note", label: "Note", Icon: NotebookPen, blurb: "For goals that resist numbers: writing a note on it is the check-in." },
 ];
 
-// Every goal picks a tracking method. A goal you never break down works like
-// a leaf; break it down later and it just also shows what's under it.
-export default function NodeForm({ node, presetParent, onSave, onDelete, onClose }) {
+// Every goal picks a tracking method (Checkbox unless you choose another) and
+// a place on the wheel. A goal you never break down works like a leaf;
+// break it down later and it just also shows what's under it.
+//
+// `parentId` is where it goes now (null = top level); `goals` are the paths
+// it may go under (the page leaves out the goal itself and everything under
+// it); `pathById` names the current one.
+export default function NodeForm({ node, parentId: startParentId = null, goals = [], pathById, onSave, onDelete, onClose }) {
   const isEditing = Boolean(node);
   const [fields, setFields] = useState(() =>
     node
       ? {
-          tracking_method: node.tracking_method,
+          tracking_method: node.tracking_method ?? "checkbox",
           title: node.title,
           description: node.description ?? "",
           has_target_number: node.has_target_number,
@@ -40,219 +46,247 @@ export default function NodeForm({ node, presetParent, onSave, onDelete, onClose
         }
       : emptyFields()
   );
-  const [showMore, setShowMore] = useState(false);
+  const [parentId, setParentId] = useState(startParentId);
+  const [picking, setPicking] = useState(false);
+  const [showMore, setShowMore] = useState(() => Boolean(node?.has_deadline || node?.is_repeatable));
   const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false); // "asking" while the confirm is up, then "deleting"
+  const [problem, setProblem] = useState(null);
+
+  const titleId = useId();
+  const backdropRef = useRef(null);
+
+  // Escape closes the form, unless the goal picker or a confirm is open on
+  // top of it (a confirm is the last sheet on the page while it's up).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || picking) return;
+      const open = document.querySelectorAll(".sheet-backdrop");
+      if (open[open.length - 1] !== backdropRef.current) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking, onClose]);
 
   function set(key, value) {
+    setProblem(null);
     setFields((f) => ({ ...f, [key]: value }));
   }
 
   function chooseMethod(method) {
+    setProblem(null);
     setFields((f) => ({
       ...f,
       tracking_method: method,
       has_target_number: method !== "note",
-      target_number: method === "checkbox" ? "1" : f.target_number,
+      target_number: method === "checkbox" ? "1" : method === "counter" && Number(f.target_number) > 1 ? f.target_number : "",
     }));
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!fields.title.trim()) return;
-    if (!fields.tracking_method) return;
+    if (saving || deleting) return;
+    const title = fields.title.trim();
+    if (!title) {
+      document.getElementById("goal-title")?.focus();
+      return setProblem("Give the goal a title.");
+    }
+    const isCounter = fields.tracking_method === "counter";
+    if (isCounter && !(Number(fields.target_number) > 0)) return setProblem("Set a target above zero.");
+    if (fields.has_deadline && !fields.deadline_date) return setProblem("Pick the target date, or untick it.");
+
+    const isNote = fields.tracking_method === "note";
+    const payload = {
+      tracking_method: fields.tracking_method,
+      title,
+      description: fields.description.trim() || null,
+      has_target_number: !isNote,
+      target_number: isNote ? null : Number(fields.target_number) || 1,
+      is_daily: isNote ? false : fields.is_daily,
+      has_deadline: fields.has_deadline,
+      deadline_date: fields.has_deadline ? fields.deadline_date || null : null,
+      is_repeatable: fields.is_repeatable,
+    };
     setSaving(true);
     try {
-      const payload = {
-        tracking_method: fields.tracking_method,
-        title: fields.title.trim(),
-        description: fields.description.trim() || null,
-        has_target_number: fields.has_target_number,
-        target_number: fields.has_target_number ? Number(fields.target_number) || 0 : null,
-        is_daily: fields.is_daily,
-        has_deadline: fields.has_deadline,
-        deadline_date: fields.has_deadline ? fields.deadline_date || null : null,
-        is_repeatable: fields.is_repeatable,
-      };
-      await onSave(payload);
+      await onSave(payload, parentId);
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleDelete() {
+    if (saving || deleting) return;
+    setDeleting("asking");
+    try {
+      await onDelete(node, () => setDeleting("deleting"));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const method = METHOD_OPTIONS.find((m) => m.value === fields.tracking_method) ?? METHOD_OPTIONS[0];
+  const parentPath = parentId ? pathById?.get(parentId) ?? "A goal" : null;
+  const heading = isEditing ? "Edit goal" : startParentId ? "New sub-goal" : "New goal";
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal-card" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <h3 style={{ margin: 0 }}>
-            {isEditing ? "Edit goal" : presetParent ? `New goal under "${presetParent.title}"` : "New goal"}
-          </h3>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)" }}>
-            <X size={18} />
-          </button>
-        </div>
+    <>
+      {/* A sheet like every other editor: it rises from the bottom on a phone
+          and sits in the middle on a desk. */}
+      <div ref={backdropRef} className="sheet-backdrop" onClick={onClose}>
+        <div className="sheet goal-form" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+          <form onSubmit={handleSubmit} noValidate>
+            <div className="goal-form__head">
+              <h3 id={titleId}>{heading}</h3>
+              <button type="button" className="btn-icon" onClick={onClose} aria-label="Close" title="Close">
+                <X size={18} />
+              </button>
+            </div>
 
-        <div className="field">
-          <label>How is progress tracked?</label>
-          <MethodPicker value={fields.tracking_method} onChange={chooseMethod} />
-        </div>
-
-        {fields.tracking_method === "checkbox" && (
-          <div className="check-row">
-            <input type="checkbox" checked={fields.is_daily} onChange={(e) => set("is_daily", e.target.checked)} />
-            <span>Repeats daily (otherwise: one-time)</span>
-          </div>
-        )}
-
-        {fields.tracking_method === "counter" && (
-          <>
             <div className="field">
-              <label>Target</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={fields.target_number}
-                onChange={(e) => set("target_number", e.target.value)}
-                placeholder="e.g. 100"
-                required
-              />
+              <label htmlFor="goal-title">Title</label>
+              <input id="goal-title" value={fields.title} onChange={(e) => set("title", e.target.value)} autoFocus autoComplete="off" />
             </div>
-            <div className="check-row">
-              <input type="checkbox" checked={fields.is_daily} onChange={(e) => set("is_daily", e.target.checked)} />
-              <span>Target resets daily</span>
+
+            <div className="field">
+              <label id="goal-parent-label">Goes under</label>
+              <button type="button" className="goal-form__parent" onClick={() => setPicking(true)} aria-labelledby="goal-parent-label goal-parent-value">
+                <span id="goal-parent-value" className="truncate">
+                  {parentPath ?? "Top level"}
+                </span>
+                <span className="goal-form__change">Change</span>
+              </button>
             </div>
-            <p className="placeholder-note" style={{ fontSize: 11.5, margin: "-6px 0 14px" }}>
-              This target still counts even if you break this goal down into sub-goals later.
-            </p>
-          </>
-        )}
 
-        {fields.tracking_method === "note" && (
-          <p className="placeholder-note" style={{ margin: "-4px 0 14px" }}>
-            No target or number needed — jot a note on the goal whenever you've reflected on it. That's the whole action.
-          </p>
-        )}
+            <div className="field">
+              <label id="goal-method-label">How is progress tracked?</label>
+              <div className="goal-form__methods" role="radiogroup" aria-labelledby="goal-method-label">
+                {METHOD_OPTIONS.map(({ value, label, Icon }) => {
+                  const active = fields.tracking_method === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`goal-form__method ${active ? "is-active" : ""}`}
+                      onClick={() => chooseMethod(value)}
+                    >
+                      <Icon size={18} />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="goal-form__blurb">{method.blurb}</p>
+            </div>
 
-        <div className="field">
-          <label>Title</label>
-          <input value={fields.title} onChange={(e) => set("title", e.target.value)} required autoFocus />
-        </div>
+            {fields.tracking_method === "checkbox" && (
+              <label className="check-row">
+                <input type="checkbox" checked={fields.is_daily} onChange={(e) => set("is_daily", e.target.checked)} />
+                <span>Every day (otherwise it's done once)</span>
+              </label>
+            )}
 
-        <div className="field">
-          <label>Description</label>
-          <textarea value={fields.description} onChange={(e) => set("description", e.target.value)} />
-        </div>
+            {fields.tracking_method === "counter" && (
+              <>
+                <div className="field">
+                  <label htmlFor="goal-target">Target</label>
+                  <input
+                    id="goal-target"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="any"
+                    value={fields.target_number}
+                    onChange={(e) => set("target_number", e.target.value)}
+                    placeholder="e.g. 100"
+                  />
+                </div>
+                <label className="check-row">
+                  <input type="checkbox" checked={fields.is_daily} onChange={(e) => set("is_daily", e.target.checked)} />
+                  <span>Target resets every day</span>
+                </label>
+                <p className="goal-form__blurb">This target still counts if you break the goal down into sub-goals later.</p>
+              </>
+            )}
 
-        <button
-          type="button"
-          onClick={() => setShowMore((v) => !v)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 12.5,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
-            padding: "4px 0 14px",
-          }}
-        >
-          {showMore ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          More options
-        </button>
+            <div className="field" style={{ marginTop: 14 }}>
+              <label htmlFor="goal-description">Description</label>
+              <textarea id="goal-description" value={fields.description} onChange={(e) => set("description", e.target.value)} />
+            </div>
 
-        {showMore && (
-          <>
-            <div className="check-row">
-              <input type="checkbox" checked={fields.has_deadline} onChange={(e) => set("has_deadline", e.target.checked)} />
-              <span>Has a target date</span>
-              {fields.has_deadline && (
-                <input
-                  type="date"
-                  value={fields.deadline_date}
-                  onChange={(e) => set("deadline_date", e.target.value)}
-                  style={{ marginLeft: "auto", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", padding: "4px 8px" }}
-                />
+            <button type="button" className="btn-link goal-form__more" onClick={() => setShowMore((v) => !v)} aria-expanded={showMore}>
+              {showMore ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              More options
+            </button>
+
+            {showMore && (
+              <>
+                <div className="check-row goal-form__date-row">
+                  <label className="goal-form__inline">
+                    <input type="checkbox" checked={fields.has_deadline} onChange={(e) => set("has_deadline", e.target.checked)} />
+                    <span>Has a target date</span>
+                  </label>
+                  {fields.has_deadline && (
+                    <input
+                      type="date"
+                      className="input goal-form__date"
+                      value={fields.deadline_date}
+                      onChange={(e) => set("deadline_date", e.target.value)}
+                      aria-label="Target date"
+                    />
+                  )}
+                </div>
+                <label className="check-row">
+                  <input type="checkbox" checked={fields.is_repeatable} onChange={(e) => set("is_repeatable", e.target.checked)} />
+                  <span>Repeatable — starts again from zero after it's completed (like reading the Book of Mormon again)</span>
+                </label>
+              </>
+            )}
+
+            {problem && (
+              <p className="goal-form__problem" role="alert">
+                {problem}
+              </p>
+            )}
+
+            <div className="modal-actions goal-form__actions">
+              {isEditing && (
+                <button type="button" className="btn btn--danger" onClick={handleDelete} disabled={saving || deleting}>
+                  {deleting === "deleting" ? "Deleting…" : "Delete"}
+                </button>
               )}
+              <span className="spacer" />
+              <button type="button" className="btn" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn--accent" disabled={saving || deleting}>
+                {saving ? "Saving…" : isEditing ? "Save" : "Add goal"}
+              </button>
             </div>
-
-            <div className="check-row">
-              <input type="checkbox" checked={fields.is_repeatable} onChange={(e) => set("is_repeatable", e.target.checked)} />
-              <span>Repeatable — cycles back to 0 after completing (e.g. "read the Book of Mormon again")</span>
-            </div>
-          </>
-        )}
-
-        {confirmingDelete && (
-          <p style={{ color: "var(--danger-text)", fontSize: 12.5, marginBottom: 10 }}>
-            Delete "{node?.title}" and everything under it? This can't be undone.
-          </p>
-        )}
-
-        <div className="modal-actions">
-          {isEditing && !confirmingDelete && (
-            <button type="button" className="btn-danger" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </button>
-          )}
-          {isEditing && confirmingDelete && (
-            <button type="button" className="btn-danger" onClick={() => onDelete(node)}>
-              Confirm delete
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => (confirmingDelete ? setConfirmingDelete(false) : onClose())}
-          >
-            Cancel
-          </button>
-          {!confirmingDelete && (
-            <button type="submit" className="btn-primary" style={{ width: "auto", flex: 1 }} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-          )}
+          </form>
         </div>
-      </form>
-    </div>
-  );
-}
+      </div>
 
-function MethodPicker({ value, onChange }) {
-  return (
-    <div style={{ display: "flex", gap: 8 }}>
-      {METHOD_OPTIONS.map(({ value: v, label, Icon, blurb }) => {
-        const active = value === v;
-        return (
-          <button
-            key={v}
-            type="button"
-            onClick={() => onChange(v)}
-            title={blurb}
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 6,
-              padding: "12px 8px",
-              borderRadius: 8,
-              border: `1.5px solid ${active ? "var(--accent-strong)" : "var(--border)"}`,
-              background: active ? "var(--accent-dim)" : "var(--bg-inset)",
-              color: active ? "var(--text)" : "var(--text-muted)",
-              boxShadow: active ? "var(--glow-accent)" : "none",
-              transition: "border-color 0.15s, box-shadow 0.15s, background 0.15s, color 0.15s",
-            }}
-          >
-            <Icon size={18} />
-            <span style={{ fontSize: 12, fontWeight: 700 }}>{label}</span>
-          </button>
-        );
-      })}
-    </div>
+      {/* Outside the form on purpose: the picker's rows are buttons, and
+          inside a <form> a tap on one would submit it. */}
+      {picking && (
+        <GoalPicker
+          goals={goals}
+          value={parentId}
+          allowNone
+          noneLabel="Top level"
+          noneHint="Not under another goal"
+          placeholder="Find the goal it goes under…"
+          onPick={(id) => {
+            setParentId(id);
+            setPicking(false);
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </>
   );
 }

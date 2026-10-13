@@ -25,11 +25,11 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -116,10 +116,13 @@ async function mineAndKeep(supabase: any, anthropic: Anthropic, userId: string |
         if (keepError) throw new Error(`keep_snippet: ${keepError.message}`);
       }
 
-      await supabase
+      // If the stamp doesn't land, the note is mined again tomorrow, so say
+      // so in the run's results rather than reporting a clean pass.
+      const { error: stampError } = await supabase
         .from("study_notes")
         .update({ mined_at: new Date().toISOString(), mined_count: mined.snippets.length })
         .eq("id", source.id);
+      if (stampError) throw new Error(`marking it mined: ${stampError.message}`);
 
       done.push({ source: source.title, kept: mined.snippets.length, dropped: mined.dropped });
     } catch (err) {
@@ -227,7 +230,7 @@ async function anthropicMine(anthropic: Anthropic, note: any) {
         }\n\n---\n${note.body}\n---`,
       },
     ],
-    output_config: { format: zodOutputFormat(MineSchema) },
+    output_config: { format: zodOutputFormat(MineSchema), effort: "high" },
   });
 
   if (!response.parsed_output) throw new Error("The model returned nothing parsable.");
@@ -240,7 +243,7 @@ async function anthropicMine(anthropic: Anthropic, note: any) {
       const at = findQuote(note.body, s.quote);
       return at ? { ...s, quote: note.body.slice(at.start, at.end), start_offset: at.start, end_offset: at.end } : null;
     })
-    .filter(Boolean);
+    .filter((s): s is NonNullable<typeof s> => s !== null);
 
   return {
     note_id: note.id,

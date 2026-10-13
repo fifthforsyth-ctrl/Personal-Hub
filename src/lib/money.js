@@ -107,10 +107,31 @@ export function budgetStatus({ spent, limit }, progress) {
   return { share, remaining, state };
 }
 
+// "Ahead of the month" read like good news. It means the money is going
+// faster than the month is.
 export const STATE_LABEL = {
   fine: "On track",
-  ahead: "Ahead of the month",
+  ahead: "Spending fast",
   close: "Nearly spent",
   over: "Over",
   untracked: "No limit set",
 };
+
+// Days left in the month, counting today.
+export function daysLeftInMonth(today = new Date()) {
+  const days = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  return days - today.getDate() + 1;
+}
+
+// The question asks only for the budget, so the kind of purchase comes from
+// it when the budget is named like one ("Groceries", "Eating out"), and
+// otherwise from what was said about this place last time, as long as the
+// budget is the same as last time (or there was none then and none now).
+// Nothing is guessed beyond that.
+export function kindForBudget(budgetName, { suggestedKind = null, suggestedBudgetId = null, budgetId = null } = {}) {
+  const name = String(budgetName ?? "").trim().toLowerCase();
+  const match = PURCHASE_KINDS.find((k) => k.toLowerCase() === name);
+  if (match) return match;
+  if (suggestedKind && (suggestedBudgetId || null) === (budgetId || null)) return suggestedKind;
+  return null;
+}

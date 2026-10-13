@@ -1,48 +1,123 @@
-import { NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Link, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard,
-  CalendarDays,
+  Sun,
+  Moon,
   CalendarRange,
+  CalendarDays,
   GitBranch,
   BarChart3,
   Link2,
   LogOut,
   Flame,
   BookOpen,
-  GraduationCap,
   Briefcase,
   Wallet,
+  StickyNote,
+  Plus,
+  Menu,
+  X,
+  Compass,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { todayStr } from "../lib/planDates";
+import { useCapture } from "./CaptureSheet";
+import { todayStr, addDays } from "../lib/planDates";
 
-// Home is the same route on both, and deliberately so: on a desktop it opens
-// the wheel and the lifetime pie, on a phone it opens the capture surface.
-// One address, the thing you actually reach for on that device.
+// Four places you go, one thing you do from anywhere.
+//
+// The app used to have ten destinations side by side, and the thing you do
+// most (log a win) was three taps down. Now the tabs are the four places
+// you actually spend time (Today, Week, Board, Money), the ＋ opens capture
+// from wherever you are, and everything else lives under More. Nothing was
+// removed; it was moved out of the way of the daily path.
 export const NAV = [
-  { to: "/", label: "Home", Icon: LayoutDashboard, end: true },
-  { to: "/day", label: "Day", Icon: CalendarDays },
-  { to: "/plan", label: "Plan", Icon: CalendarRange },
-  { to: "/study", label: "Study", Icon: GraduationCap },
-  { to: "/work", label: "Work", Icon: Briefcase },
+  { to: "/", label: "Today", Icon: Sun, end: true },
+  { to: "/plan", label: "Week", Icon: CalendarRange },
+  { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
-  // desk: reachable everywhere, but dropped from a narrow phone's tab bar
-  // rather than squeezing eight labels into 375px.
-  { to: "/tree", label: "Goals", Icon: GitBranch, desk: true },
-  { to: "/reflect", label: "Reflect", Icon: BarChart3, desk: true },
 ];
 
-// `/day` alone means today; the sidebar link has to say so explicitly or it
-// would sit un-highlighted while you're looking straight at today's card.
-function dayHref() {
-  return `/day/${todayStr()}`;
+// The evening is a desk ritual, so it sits in the sidebar; on a phone it's
+// reached from the banner Today shows after dark, or from More.
+const EVENING = { to: "/evening", label: "Evening", Icon: Moon };
+
+// Each place has one name, the same here as on its page.
+export const MORE = [
+  { to: "/evening", label: "Evening", Icon: Moon },
+  { to: "/day", label: "Past days", Icon: CalendarDays },
+  { to: "/overview", label: "Big picture", Icon: Compass },
+  { to: "/tree", label: "Goal wheel", Icon: GitBranch },
+  { to: "/work", label: "Work", Icon: Briefcase },
+  { to: "/reflect", label: "Charts", Icon: BarChart3 },
+  { to: "/spirit", label: "Promptings & prayer", Icon: BookOpen },
+  { to: "/links", label: "Goal links", Icon: Link2 },
+];
+
+// "Past days" opens yesterday, the latest day that's over; today is on the
+// tab bar already. It stays lit on whichever day you page to from there.
+function hrefFor(to) {
+  return to === "/day" ? `/day/${addDays(todayStr(), -1)}` : to;
+}
+
+function isActive(to, pathname) {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+// The sidebar leaves out the evening: it already has it up top.
+function MoreLinks({ className, iconSize, withEvening = true }) {
+  const { pathname } = useLocation();
+  return MORE.filter((m) => withEvening || m.to !== "/evening").map(({ to, label, Icon }) => (
+    <Link key={to} to={hrefFor(to)} className={className + (isActive(to, pathname) ? " active" : "")} aria-current={isActive(to, pathname) ? "page" : undefined}>
+      <Icon size={iconSize} strokeWidth={2} />
+      {label}
+    </Link>
+  ));
+}
+
+// Signing out asks first, in place: it's one tap from every page, and a
+// slip on a phone means typing the password back in with one thumb.
+function SignOut({ className, iconSize }) {
+  const { signOut } = useAuth();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (!asking) {
+    return (
+      <button type="button" className={className} onClick={() => setAsking(true)}>
+        <LogOut size={iconSize} strokeWidth={2} />
+        Sign out
+      </button>
+    );
+  }
+
+  return (
+    <div className="signout-ask" role="group" aria-label="Sign out">
+      <span>Sign out on this device?</span>
+      <div className="signout-ask__actions">
+        <button type="button" className="btn btn--sm" onClick={() => setAsking(false)} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn--sm btn--accent"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await signOut();
+          }}
+        >
+          {busy ? "Signing out…" : "Sign out"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function Sidebar() {
-  const { signOut } = useAuth();
+  const capture = useCapture();
 
   return (
-    <nav className="sidebar">
+    <nav className="sidebar" aria-label="Main">
       <div className="brand">
         <span className="brand-mark">
           <Flame size={16} strokeWidth={2.4} />
@@ -50,66 +125,98 @@ export function Sidebar() {
         Personal Hub
       </div>
 
-      {NAV.map(({ to, label, Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to === "/day" ? dayHref() : to}
-          end={end}
-          className={({ isActive }) => "side-link" + (isActive ? " active" : "")}
-        >
+      <button className="btn btn--accent side-capture" onClick={() => capture.open()}>
+        <Plus size={15} strokeWidth={2.6} />
+        Capture
+      </button>
+
+      {[NAV[0], EVENING, ...NAV.slice(1)].map(({ to, label, Icon, end }) => (
+        <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "side-link" + (on ? " active" : "")}>
           <Icon size={17} strokeWidth={2} />
           {label}
         </NavLink>
       ))}
 
       <div className="side-foot">
-        <NavLink to="/spirit" className={({ isActive }) => "side-link" + (isActive ? " active" : "")}>
-          <BookOpen size={17} strokeWidth={2} />
-          Promptings &amp; prayer
-        </NavLink>
-        <NavLink to="/links" className={({ isActive }) => "side-link" + (isActive ? " active" : "")}>
-          <Link2 size={17} strokeWidth={2} />
-          What feeds what
-        </NavLink>
-        <button className="side-link" onClick={signOut} style={{ width: "100%", background: "none", border: "none" }}>
-          <LogOut size={17} strokeWidth={2} />
-          Sign out
-        </button>
+        <div className="eyebrow" style={{ padding: "0 11px 6px" }}>More</div>
+        <MoreLinks className="side-link side-link--sm" iconSize={15} withEvening={false} />
+        <div className="side-signout">
+          <SignOut className="side-link side-link--sm side-link--quiet" iconSize={15} />
+        </div>
       </div>
     </nav>
   );
 }
 
 export function TopBar() {
-  const { signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+
+  // Following a link out of the menu should close it.
+  useEffect(() => setOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
-    <header className="topbar">
-      <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 8 }}>
-        <Flame size={14} strokeWidth={2.4} />
-      </span>
-      <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
-      <span className="spacer" />
-      <button className="btn-icon" onClick={signOut} title="Sign out">
-        <LogOut size={16} />
-      </button>
-    </header>
+    <>
+      <header className="topbar">
+        <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 8 }}>
+          <Flame size={14} strokeWidth={2.4} />
+        </span>
+        <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
+        <span className="spacer" />
+        <button className="btn-icon" onClick={() => setOpen(true)} aria-label="More" title="More" aria-expanded={open}>
+          <Menu size={18} />
+        </button>
+      </header>
+
+      {open && (
+        <div className="sheet-backdrop" onClick={() => setOpen(false)}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="More" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <span className="card-title">More</span>
+              <button className="btn-icon" onClick={() => setOpen(false)} aria-label="Close" title="Close">
+                <X size={17} />
+              </button>
+            </div>
+            <nav className="more-list" aria-label="More">
+              <MoreLinks className="more-link" iconSize={17} />
+            </nav>
+            <div className="more-signout">
+              <SignOut className="more-link more-link--quiet" iconSize={17} />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
+// Round icons with their names under them: the icon is quick once you know
+// it, and the word is there until you do.
 export function BottomTabs() {
+  const capture = useCapture();
+  const tab = ({ to, label, Icon, end }) => (
+    <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "bottom-tab" + (on ? " active" : "")}>
+      <span className="bottom-tab__icon">
+        <Icon size={19} strokeWidth={1.8} />
+      </span>
+      <span className="bottom-tab__label">{label}</span>
+    </NavLink>
+  );
+
   return (
-    <nav className="bottom-tabs">
-      {NAV.map(({ to, label, Icon, end, desk }) => (
-        <NavLink
-          key={to}
-          to={to === "/day" ? dayHref() : to}
-          end={end}
-          className={({ isActive }) => "bottom-tab" + (isActive ? " active" : "") + (desk ? " bottom-tab--desk" : "")}
-        >
-          <Icon size={19} strokeWidth={2} />
-          <span>{label}</span>
-        </NavLink>
-      ))}
+    <nav className="bottom-tabs" aria-label="Main">
+      {NAV.slice(0, 2).map(tab)}
+      <button className="bottom-plus" onClick={() => capture.open()} aria-label="Capture" title="Capture">
+        <Plus size={24} strokeWidth={2.6} />
+      </button>
+      {NAV.slice(2).map(tab)}
     </nav>
   );
 }

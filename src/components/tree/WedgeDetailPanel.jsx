@@ -1,22 +1,35 @@
-import { X, CheckSquare, Hash, NotebookPen, Star, Pencil, Plus, RotateCcw, ZoomIn } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, CheckSquare, Hash, NotebookPen, Star, Pencil, Plus, RotateCcw, Crosshair } from "lucide-react";
 import { getNodeVisual, TRACKING_LABEL, FOCUS_COLOR } from "../../lib/nodeStyle";
+import { timeAgo } from "../../lib/dates";
 import CompletionControl from "./CompletionControl";
 import GoalLedger from "./GoalLedger";
 
 const METHOD_ICON = { checkbox: CheckSquare, counter: Hash, note: NotebookPen };
 const TIER_LABEL = { bright: "Active", medium: "Ticking along", dull: "Gone quiet" };
 
+// "Dec 31", or "Dec 31, 2027" when it isn't this year.
+function fmtTargetDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const opts = { month: "short", day: "numeric", ...(y !== new Date().getFullYear() && { year: "numeric" }) };
+  return date.toLocaleDateString(undefined, opts);
+}
+
 // The wheel is purely the map — this panel is where you actually act on a
 // goal: check it off, log a count, add a note, focus it, break it down,
-// edit it, or zoom the whole wheel in to make it the new center.
+// edit it, or turn the whole wheel to make it the new center. The check-in
+// comes first and is the one ink button; everything else is quieter.
 export default function WedgeDetailPanel({
   node,
   tier,
   ringIndex,
   hasChildren,
   childCount,
+  parentPath,
   onClose,
   onLogProgress,
+  onUndo,
   onAddNote,
   onToggleFocus,
   onEdit,
@@ -29,131 +42,93 @@ export default function WedgeDetailPanel({
 }) {
   const Icon = METHOD_ICON[node.tracking_method] ?? NotebookPen;
   const visual = getNodeVisual(ringIndex, tier);
+  const [busy, setBusy] = useState(null);
+
+  // Escape closes the panel, unless it's closing something on top of it.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || document.querySelector(".modal-backdrop, .sheet-backdrop")) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function run(what, fn) {
+    if (busy) return;
+    setBusy(what);
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const facts = [];
+  if (node.is_repeatable) facts.push(`Cycle ${(node.cycle_count || 0) + 1}`);
+  if (node.has_deadline && node.deadline_date) facts.push(`Target date ${fmtTargetDate(node.deadline_date)}`);
+  if (hasChildren) facts.push(`${childCount} ${childCount === 1 ? "sub-goal" : "sub-goals"}`);
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: 340,
-        maxWidth: "92vw",
-        background: "var(--bg-card)",
-        borderLeft: "1px solid var(--border-strong)",
-        boxShadow: "-8px 0 30px rgba(0,0,0,0.4)",
-        zIndex: 30,
-        overflowY: "auto",
-        padding: 20,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-        <div
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 8,
-            background: visual.background,
-            border: node.is_focused ? `1.5px solid ${FOCUS_COLOR}` : `1.5px solid ${visual.border}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Icon size={16} color={visual.hue} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+    <aside className="goal-panel" aria-label={node.title}>
+      <div className="goal-panel__head">
+        <span className="goal-panel__icon" style={{ background: visual.background, borderColor: node.is_focused ? FOCUS_COLOR : visual.border }}>
+          <Icon size={16} color={visual.text} />
+        </span>
+        <div className="goal-panel__names">
+          <div className="goal-panel__eyebrow">
             {TRACKING_LABEL[node.tracking_method] ?? "Goal"}
+            {node.is_daily ? " · daily" : ""}
+            {node.is_focused ? " · in Focus" : ""}
           </div>
-          <div style={{ fontWeight: 700, fontSize: 16, marginTop: 2, lineHeight: 1.3, fontFamily: "var(--font-display)" }}>{node.title}</div>
+          <h2 className="goal-panel__title">{node.title}</h2>
+          {parentPath && <div className="goal-panel__path">Under {parentPath}</div>}
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", flexShrink: 0 }}>
+        <button type="button" className="btn-icon" onClick={onClose} aria-label="Close" title="Close">
           <X size={18} />
         </button>
       </div>
 
-      {node.description && <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.5 }}>{node.description}</div>}
+      {node.description && <p className="goal-panel__desc">{node.description}</p>}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, fontSize: 12, fontFamily: "var(--font-mono)" }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: visual.hue, opacity: tier === "dull" ? 0.3 : 1 }} />
-        <span style={{ color: "var(--text-muted)" }}>{TIER_LABEL[tier]}</span>
+      <div className="goal-panel__status">
+        <span className="dot" style={{ background: tier === "dull" ? "var(--line-strong)" : visual.hue }} />
+        {TIER_LABEL[tier] ?? "Gone quiet"} · {node.last_activity_at ? `last touched ${timeAgo(node.last_activity_at)}` : "not touched yet"}
+      </div>
+      {facts.length > 0 && <div className="goal-panel__facts">{facts.join(" · ")}</div>}
+
+      <div className="goal-panel__check">
+        <CompletionControl node={node} onLogProgress={onLogProgress} onUndo={onUndo} onAddNote={onAddNote} />
       </div>
 
-      {node.has_target_number && node.tracking_method === "counter" && (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700, marginTop: 6 }}>
-          {node.current_number ?? 0} / {node.target_number}
-          {node.is_daily ? " today" : ""}
-        </div>
-      )}
-
-      {node.is_repeatable && (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, opacity: 0.6, marginTop: 4 }}>Cycle {(node.cycle_count || 0) + 1}</div>
-      )}
-
-      {node.has_deadline && node.deadline_date && (
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, opacity: 0.6, marginTop: 4 }}>Target date {node.deadline_date}</div>
-      )}
-
-      {hasChildren && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-          {childCount} {childCount === 1 ? "sub-goal" : "sub-goals"}
-        </div>
-      )}
-
-      <div style={{ marginTop: 16 }}>
-        <CompletionControl node={node} onLogProgress={onLogProgress} onAddNote={onAddNote} />
-      </div>
-
-      {ledgerStart && (
-        <GoalLedger key={node.id} nodeId={node.id} start={ledgerStart} end={ledgerEnd} windowLabel={windowLabel} />
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
-        <button onClick={() => onToggleFocus(node)} style={actionBtnStyle}>
+      <div className="goal-panel__actions">
+        <button type="button" className="btn btn--sm" disabled={busy === "focus"} onClick={() => run("focus", () => onToggleFocus(node))}>
           <Star size={14} fill={node.is_focused ? FOCUS_COLOR : "none"} color={node.is_focused ? FOCUS_COLOR : "currentColor"} />
           {node.is_focused ? "Remove from Focus" : "Add to Focus"}
         </button>
-
         {node.is_repeatable && node.is_completed && !node.is_daily && (
-          <button onClick={() => onRepeat(node)} style={actionBtnStyle}>
+          <button type="button" className="btn btn--sm" disabled={busy === "repeat"} onClick={() => run("repeat", () => onRepeat(node))}>
             <RotateCcw size={14} />
-            Repeat this cycle
+            {busy === "repeat" ? "Starting…" : "Start the next cycle"}
           </button>
         )}
-
-        <button onClick={() => onAddChild(node)} style={actionBtnStyle}>
+        <button type="button" className="btn btn--sm" onClick={() => onAddChild(node)}>
           <Plus size={14} />
-          Break this down further
+          Add a sub-goal
         </button>
-
         {hasChildren && (
-          <button onClick={() => onRecenter(node)} style={actionBtnStyle}>
-            <ZoomIn size={14} />
+          <button type="button" className="btn btn--sm" onClick={() => onRecenter(node)}>
+            <Crosshair size={14} />
             Center the wheel here
           </button>
         )}
-
-        <button onClick={() => onEdit(node)} style={actionBtnStyle}>
+        <button type="button" className="btn btn--sm" onClick={() => onEdit(node)}>
           <Pencil size={14} />
           Edit
         </button>
       </div>
-    </div>
+
+      {ledgerStart && <GoalLedger key={node.id} nodeId={node.id} start={ledgerStart} end={ledgerEnd} windowLabel={windowLabel} />}
+    </aside>
   );
 }
-
-const actionBtnStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid var(--border)",
-  borderRadius: 6,
-  padding: "9px 12px",
-  color: "inherit",
-  fontSize: 13,
-  fontWeight: 600,
-  textAlign: "left",
-};

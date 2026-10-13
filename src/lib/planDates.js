@@ -85,6 +85,21 @@ export function fmtTime(t) {
   return `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+// "9:00–11:00 AM", or "11:00 AM–1:00 PM" when the block crosses noon.
+export function fmtTimeRange(start, end) {
+  const a = fmtTime(start);
+  const b = fmtTime(end);
+  return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -3)}–${b}` : `${a}–${b}`;
+}
+
+// "Oct 2" — with the year only when it isn't this year's.
+export function fmtShortDate(dateStr) {
+  const d = parseDateStr(dateStr);
+  const opts = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
+}
+
 // How "lit up" a day reads in the month/year grids, 0..1 — blends planning
 // (blocks laid out), follow-through (tasks completed), and time actually
 // logged, so a day that was planned but not lived doesn't glow the same as

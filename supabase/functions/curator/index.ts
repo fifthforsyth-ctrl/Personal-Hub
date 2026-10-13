@@ -21,7 +21,7 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -106,7 +106,7 @@ async function curateFor(supabase: any, anthropic: Anthropic, userId: string | n
         content: `Choose what should come back to this person on ${context.today} (${context.weekday}).\n\n${JSON.stringify(context, null, 1)}`,
       },
     ],
-    output_config: { format: zodOutputFormat(SelectionSchema) },
+    output_config: { format: zodOutputFormat(SelectionSchema), effort: "high" },
   });
 
   const out = response.parsed_output;

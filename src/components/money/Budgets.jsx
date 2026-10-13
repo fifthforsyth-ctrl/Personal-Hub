@@ -1,210 +1,171 @@
 import { useState } from "react";
-import { Target, Plus, Pencil, Archive, Check, X } from "lucide-react";
+import { Target, Plus, ChevronRight, ChevronDown, RotateCcw, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { saveBudget, archiveBudget } from "../../lib/api";
-import { fmtMoney, budgetStatus, monthProgress, BUDGET_COLORS, STATE_LABEL } from "../../lib/money";
+import { fetchArchivedBudgets, restoreBudget } from "../../lib/api";
+import { fmtMoney } from "../../lib/money";
+import { useLoad } from "../../lib/useLoad";
+import { useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
+import BudgetSheet, { BudgetMeter } from "./BudgetSheet";
+import { useReloadOn, monthName } from "./shared";
 
 // The month's budgets, judged against how much of the month is gone.
 //
 // Each bar carries a thin marker at today's position in the month. If the fill
 // is past the marker, you're spending faster than the month is passing — which
 // is the only question a mid-month budget glance is really asking.
-export default function Budgets({ overview, isCurrentMonth, onChanged }) {
-  const { user } = useAuth();
-  const [editing, setEditing] = useState(null); // budget object, or {} for new
+//
+// Tap a budget for its purchases and how it compares with last month; editing
+// and archiving are in there too.
+export default function Budgets({ overview, monthKey, isCurrentMonth, version, hidden, onChanged, onOpenTxn }) {
+  const [open, setOpen] = useState(null); // a budget's id, or "new"
   const budgets = overview?.budgets ?? [];
-  const progress = isCurrentMonth ? monthProgress() : 1;
   const unsorted = Number(overview?.unsorted_this_month) || 0;
+  const month = monthName(monthKey);
+  // The open sheet follows the latest numbers, so changing a purchase inside
+  // it moves the figures at the top too.
+  const openBudget = open === "new" ? {} : budgets.find((b) => b.id === open);
 
   return (
     <div className="card">
       <div className="card-head">
-        <span className="card-title"><Target size={14} />Budgets this month</span>
-        <button className="btn-link" onClick={() => setEditing({})}>
-          <Plus size={12} />
+        <span className="card-title"><Target size={14} />{isCurrentMonth ? "Budgets this month" : `Budgets in ${month}`}</span>
+        <button type="button" className="btn-link" style={{ minHeight: 36 }} onClick={() => setOpen("new")}>
+          <Plus size={13} />
           New budget
         </button>
       </div>
 
-      {editing && (
-        <BudgetForm
-          budget={editing}
-          onCancel={() => setEditing(null)}
-          onSave={async (b) => {
-            await saveBudget(user.id, b);
-            setEditing(null);
-            await onChanged();
-          }}
-          onArchive={
-            editing.id
-              ? async () => {
-                  await archiveBudget(editing.id);
-                  setEditing(null);
-                  await onChanged();
-                }
-              : null
-          }
-        />
-      )}
-
-      {budgets.length === 0 && !editing && (
+      {budgets.length === 0 && (
         <p className="card-note">
           No budgets yet. Make one for each thing you want to keep an eye on — groceries, eating out, a trip you're
           saving toward — with a monthly limit, and every purchase you sort lands in one.
         </p>
       )}
 
-      <div className="stack" style={{ gap: 16 }}>
-        {budgets.map((b) => {
-          const st = budgetStatus({ spent: b.spent, limit: b.limit }, progress);
-          const fill = Math.min(1, st.share);
-          const over = st.state === "over";
-          return (
-            <div key={b.id}>
-              <div className="row row--between" style={{ alignItems: "baseline", marginBottom: 6, gap: 10 }}>
-                <span className="row" style={{ gap: 7, minWidth: 0 }}>
-                  <span className="dot" style={{ background: b.color }} />
-                  <span className="truncate" style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</span>
-                  {b.kind === "business" && <span className="chip" style={{ fontSize: 10, padding: "1px 6px" }}>Business</span>}
-                  <button className="btn-icon" style={{ width: 22, height: 22 }} onClick={() => setEditing(b)} title="Edit">
-                    <Pencil size={11} />
-                  </button>
-                </span>
-                <span className="mono" style={{ fontSize: 12.5, flexShrink: 0 }}>
-                  <span style={{ color: over ? "var(--danger-text)" : "var(--text)" }}>{fmtMoney(b.spent, { round: true })}</span>
-                  {b.limit != null && <span className="faint"> / {fmtMoney(b.limit, { round: true })}</span>}
-                </span>
-              </div>
-
-              {b.limit != null ? (
-                <>
-                  <div style={{ position: "relative", height: 10, background: "var(--inset)", borderRadius: 999, overflow: "visible" }}>
-                    <div
-                      style={{
-                        width: `${fill * 100}%`,
-                        height: "100%",
-                        borderRadius: 999,
-                        background: over ? "var(--danger)" : b.color,
-                        transition: "width 0.3s",
-                      }}
-                    />
-                    {isCurrentMonth && (
-                      <div
-                        title="Today, as a share of the month"
-                        style={{
-                          position: "absolute",
-                          left: `${progress * 100}%`,
-                          top: -3,
-                          bottom: -3,
-                          width: 2,
-                          borderRadius: 1,
-                          background: "var(--text-2)",
-                        }}
-                      />
-                    )}
-                  </div>
-                  <div className="row row--between" style={{ marginTop: 5 }}>
-                    <span className="faint" style={{ fontSize: 11 }}>{STATE_LABEL[st.state]}</span>
-                    <span className="faint mono" style={{ fontSize: 11 }}>
-                      {st.remaining >= 0 ? `${fmtMoney(st.remaining, { round: true })} left` : `${fmtMoney(-st.remaining, { round: true })} over`}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <div className="faint" style={{ fontSize: 11 }}>No limit set · {b.count} {b.count === 1 ? "purchase" : "purchases"}</div>
-              )}
-            </div>
-          );
-        })}
+      <div className="money-budgets">
+        {budgets.map((b) => (
+          <BudgetRow key={b.id} budget={b} isCurrentMonth={isCurrentMonth} onOpen={() => setOpen(b.id)} />
+        ))}
       </div>
 
       {/* So the bars can't look better than the month really is. */}
       {unsorted > 0 && (
-        <div className="row" style={{ gap: 8, marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+        <div className="money-unsorted">
           <span className="dot" style={{ background: "var(--text-3)" }} />
-          <span className="muted" style={{ fontSize: 12.5, flex: 1 }}>
-            {fmtMoney(unsorted, { round: true })} spent this month isn't in a budget yet
+          <span>
+            {fmtMoney(unsorted, { round: true })} spent {isCurrentMonth ? "this month" : `in ${month}`} isn't in a budget yet
           </span>
         </div>
+      )}
+
+      <Archived version={version} onChanged={onChanged} />
+
+      {openBudget && (
+        <BudgetSheet
+          key={open}
+          budget={openBudget}
+          monthKey={monthKey}
+          isCurrentMonth={isCurrentMonth}
+          version={version}
+          hidden={hidden}
+          onClose={() => setOpen(null)}
+          onChanged={onChanged}
+          onOpenTxn={onOpenTxn}
+        />
       )}
     </div>
   );
 }
 
-function BudgetForm({ budget, onSave, onCancel, onArchive }) {
-  const [name, setName] = useState(budget.name ?? "");
-  const [limit, setLimit] = useState(budget.limit ?? "");
-  const [color, setColor] = useState(budget.color ?? BUDGET_COLORS[0]);
-  const [kind, setKind] = useState(budget.kind ?? "personal");
+function BudgetRow({ budget, isCurrentMonth, onOpen }) {
+  const limit = Number(budget.limit) > 0 ? Number(budget.limit) : null;
+  const over = limit != null && Number(budget.spent) > limit;
+  const count = Number(budget.count) || 0;
 
   return (
-    <form
-      className="stack stack--tight"
-      style={{ padding: 12, marginBottom: 16, background: "var(--inset)", borderRadius: "var(--r)" }}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!name.trim()) return;
-        onSave({ id: budget.id, name, limit, color, kind });
-      }}
-    >
-      <div className="row" style={{ gap: 8 }}>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name — e.g. Groceries" autoFocus />
-        <input
-          className="input"
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="1"
-          value={limit}
-          onChange={(e) => setLimit(e.target.value)}
-          placeholder="Monthly limit"
-          style={{ width: 150 }}
-        />
+    <button type="button" className="money-budget" onClick={onOpen}>
+      <span className="money-budget__top">
+        <span className="money-budget__name">
+          <span className="dot" style={{ background: budget.color }} />
+          <span className="truncate">{budget.name}</span>
+          {budget.kind === "business" && <span className="money-tag">Business</span>}
+        </span>
+        <span className="row" style={{ gap: 6, flexShrink: 0 }}>
+          <span className="money-budget__figure mono">
+            <span className={over ? "is-over" : undefined}>{fmtMoney(budget.spent, { round: true })}</span>
+            {limit != null && <span className="muted"> / {fmtMoney(limit, { round: true })}</span>}
+          </span>
+          <ChevronRight size={15} className="money-budget__chev" aria-hidden="true" />
+        </span>
+      </span>
+      {limit != null ? (
+        <BudgetMeter budget={budget} isCurrentMonth={isCurrentMonth} />
+      ) : (
+        <span className="money-budget__foot">
+          <span>
+            No limit set · {count} {count === 1 ? "purchase" : "purchases"}
+          </span>
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Archived budgets keep last month's spending labelled; this is the way
+// back for one archived by mistake, or a trip budget that's needed again.
+function Archived({ version, onChanged }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const { data, error, reload } = useLoad(() => fetchArchivedBudgets(user.id), [user?.id]);
+  useReloadOn(version, reload);
+
+  if (error && !data) {
+    return (
+      <div className="money-archived">
+        <LoadError what="the archived budgets" error={error} onRetry={reload} />
       </div>
-      <div className="row row--between" style={{ gap: 8, flexWrap: "wrap" }}>
-        <div className="row" style={{ gap: 5 }}>
-          {BUDGET_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setColor(c)}
-              title={c}
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: "50%",
-                background: c,
-                border: color === c ? "2px solid var(--text)" : "2px solid transparent",
-                padding: 0,
-              }}
-            />
+    );
+  }
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  async function restore(b) {
+    if (busyId) return;
+    setBusyId(b.id);
+    try {
+      await restoreBudget(b.id);
+      toast.show(`Restored “${b.name}”`);
+      onChanged();
+    } catch (err) {
+      toast.error(err, "Couldn't restore it. Try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="money-archived">
+      <button type="button" className="btn-link money-archived__toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        Archived budgets ({rows.length})
+      </button>
+      {open && (
+        <div className="list">
+          {rows.map((b) => (
+            <div key={b.id} className="list-row money-row">
+              <span className="dot" style={{ background: b.color }} />
+              <span className="truncate" style={{ flex: 1 }}>{b.name}</span>
+              <button type="button" className="btn btn--sm" disabled={Boolean(busyId)} onClick={() => restore(b)}>
+                {busyId === b.id ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />}
+                {busyId === b.id ? "Restoring…" : "Restore"}
+              </button>
+            </div>
           ))}
         </div>
-        <div className="seg" style={{ padding: 2 }}>
-          {["personal", "business"].map((k) => (
-            <button key={k} type="button" className={"seg-btn" + (kind === k ? " active" : "")} style={{ padding: "3px 10px", fontSize: 11.5 }} onClick={() => setKind(k)}>
-              {k === "personal" ? "Personal" : "Business"}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="row row--between" style={{ gap: 8 }}>
-        {onArchive ? (
-          <button type="button" className="btn btn--ghost" onClick={onArchive} title="Archive — last month's spending keeps its label">
-            <Archive size={13} />
-            Archive
-          </button>
-        ) : (
-          <span />
-        )}
-        <div className="row" style={{ gap: 6 }}>
-          <button type="button" className="btn" onClick={onCancel}><X size={13} /></button>
-          <button type="submit" className="btn btn--accent" disabled={!name.trim()}>
-            <Check size={13} />
-            Save
-          </button>
-        </div>
-      </div>
-    </form>
+      )}
+    </div>
   );
 }

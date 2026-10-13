@@ -1,8 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Sparkles, CornerDownLeft, X, RotateCcw } from "lucide-react";
 import { askChart } from "../lib/api";
 import { LineChart, ColumnChart, RankedBars, Donut, Legend } from "./charts";
-import { colorFor } from "../lib/categories";
+import { colorFor, fmtMinutes } from "../lib/categories";
+import { fmtMoney, BUDGET_COLORS } from "../lib/money";
+import { friendlyError } from "../lib/errors";
+import useIsMobile from "../lib/useIsMobile";
+import "../styles/ask.css";
 
 // "Ask Claude to map my data on a chart" — the open-ended question the fixed
 // rollups on /reflect can't answer. You type it in your own words; the
@@ -13,64 +17,113 @@ import { colorFor } from "../lib/categories";
 // way to learn what a box like this can do is to press one and watch.
 const EXAMPLES = [
   "Map out my sleep over the past 6 months, night by night",
+  "How much did I spend on eating out each month this year?",
   "How much time went to Serve each week this year?",
   "Which habits do I lose most often?",
   "What hours of the day do I actually study?",
 ];
 
-function fmtHours(minutes) {
-  const m = Number(minutes) || 0;
-  if (m < 60) return `${Math.round(m)}m`;
-  const h = Math.floor(m / 60);
-  const rem = Math.round(m % 60);
-  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
-}
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
 
-function formatterFor(unit) {
+// Whole dollars on an axis, and "$1.3K" once they pass a thousand so a
+// label still fits beside the plot on a phone.
+const usdCompact = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
+const moneyTick = (v) => (Math.abs(Number(v)) >= 1000 ? usdCompact.format(Number(v)) : fmtMoney(v, { round: true }));
+
+// How a value reads: `exact` wherever you're reading one number (tooltips,
+// the table, legends), `tick` on an axis.
+function formattersFor(unit) {
   switch (unit) {
+    case "dollars":
+      return { exact: (v) => fmtMoney(v), tick: moneyTick };
     case "minutes":
-      return fmtHours;
-    case "hours":
-      return (v) => `${Math.round(Number(v) * 10) / 10}h`;
-    case "percent":
-      return (v) => `${Math.round(Number(v))}%`;
-    default:
-      return (v) => {
+      return { exact: fmtMinutes, tick: fmtMinutes };
+    case "hours": {
+      const f = (v) => `${Math.round(Number(v) * 10) / 10}h`;
+      return { exact: f, tick: f };
+    }
+    case "percent": {
+      const f = (v) => `${Math.round(Number(v))}%`;
+      return { exact: f, tick: f };
+    }
+    default: {
+      const f = (v) => {
         const n = Number(v);
         if (!Number.isFinite(n)) return String(v ?? "");
         return Math.abs(n) >= 1000 ? n.toLocaleString() : String(Math.round(n * 100) / 100);
       };
+      return { exact: f, tick: f };
+    }
   }
 }
 
-function parseDateish(v) {
-  const t = Date.parse(v);
+// "2026-01-01" is a calendar day, read where you are; so is that day at UTC
+// midnight, which is how a date_trunc'd timestamp comes back. Parsing either
+// as an instant puts January 1st on December 31st in Denver.
+function parseDay(value) {
+  const s = String(value ?? "");
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00(?::?00)?)?)?$/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  const t = Date.parse(s);
   return Number.isFinite(t) ? t : null;
+}
+
+// Labels for a run of dates: months when every point is the 1st ("Jan",
+// "January"), days otherwise ("Oct 2"), with the year only when it's needed.
+function dateLabels(times, xKey) {
+  const ds = times.map((t) => new Date(t));
+  const monthly = ds.length > 0 && ds.every((d) => d.getDate() === 1);
+  const years = new Set(ds.map((d) => d.getFullYear()));
+  const withYear = years.size > 1 || !years.has(new Date().getFullYear());
+  const weekly = !monthly && /week/i.test(xKey ?? "");
+  const year = withYear ? { year: "numeric" } : {};
+  const fmt = (t, opts) => new Date(t).toLocaleDateString(undefined, opts);
+  return {
+    long: (t) => (monthly ? fmt(t, { month: "long", ...year }) : `${weekly ? "Week of " : ""}${fmt(t, { month: "short", day: "numeric", ...year })}`),
+    short: (t) => (monthly ? fmt(t, { month: "short", ...(withYear ? { year: "2-digit" } : {}) }) : fmt(t, { month: "short", day: "numeric", ...year })),
+  };
+}
+
+// "total_spent" → "Total spent": the column alias as a heading.
+function heading(key, fallback) {
+  const words = String(key ?? "").replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : fallback;
+}
+
+// Category names have their own colours; anything else (a budget, a
+// merchant) takes the next one from a fixed set so slices stay apart.
+function colorOf(label, i) {
+  const c = colorFor(label);
+  return c === colorFor("\u0000") ? BUDGET_COLORS[i % BUDGET_COLORS.length] : c;
 }
 
 export default function AskClaude({ open, onOpenChange }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
+  const touch = useIsMobile();
 
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const asked = useRef(0);
 
   async function ask(q) {
     const text = (q ?? question).trim();
     if (!text || loading) return;
+    const mine = ++asked.current;
     setQuestion(text);
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      setResult(await askChart(text));
+      const answer = await askChart(text);
+      if (mine === asked.current) setResult(answer);
     } catch (err) {
-      setError(err.message);
+      if (mine === asked.current) setError(friendlyError(err, "Couldn't chart that. Try asking it another way."));
     } finally {
-      setLoading(false);
+      if (mine === asked.current) setLoading(false);
     }
   }
 
@@ -84,10 +137,15 @@ export default function AskClaude({ open, onOpenChange }) {
   }
 
   return (
-    <div className="card card--accent" style={{ gridColumn: "1 / -1" }}>
+    <div className="card card--accent ask" style={{ gridColumn: "1 / -1" }}>
       <div className="card-head">
-        <span className="card-title"><Sparkles size={14} style={{ color: "var(--accent)" }} />Ask Claude</span>
-        <button className="btn-icon" onClick={() => setOpen(false)} title="Close"><X size={16} /></button>
+        <span className="card-title">
+          <Sparkles size={14} style={{ color: "var(--accent)" }} />
+          Ask Claude
+        </span>
+        <button type="button" className="btn-icon" onClick={() => setOpen(false)} aria-label="Close Ask Claude" title="Close">
+          <X size={16} />
+        </button>
       </div>
 
       <form
@@ -100,9 +158,10 @@ export default function AskClaude({ open, onOpenChange }) {
           className="textarea"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask anything about your own record — “map out my sleep over the past 6 months based on how much sleep I got each night”"
+          aria-label="Your question"
+          placeholder="Ask anything about your own record: sleep, time, habits, spending…"
           style={{ minHeight: 72 }}
-          autoFocus
+          autoFocus={!touch}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -110,8 +169,10 @@ export default function AskClaude({ open, onOpenChange }) {
             }
           }}
         />
-        <div className="row row--between" style={{ marginTop: 10, flexWrap: "wrap", gap: 8 }}>
-          <span className="faint" style={{ fontSize: 11.5 }}>Reads only your own data. ⌘↵ to send.</span>
+        <div className="ask__foot">
+          <span className="ask__hint">
+            Reads only your own data.{!touch && (IS_MAC ? " ⌘↵ to send." : " Ctrl+Enter to send.")}
+          </span>
           <button type="submit" className="btn btn--accent" disabled={loading || !question.trim()}>
             <CornerDownLeft size={14} />
             {loading ? "Working…" : "Chart it"}
@@ -120,22 +181,26 @@ export default function AskClaude({ open, onOpenChange }) {
       </form>
 
       {!result && !loading && !error && (
-        <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 14 }}>
+        <div className="ask-examples">
           {EXAMPLES.map((ex) => (
-            <button key={ex} className="chip" onClick={() => ask(ex)} style={{ cursor: "pointer" }}>
+            <button key={ex} type="button" className="chip chip--tap" onClick={() => ask(ex)}>
               {ex}
             </button>
           ))}
         </div>
       )}
 
-      {loading && <p className="empty" style={{ marginTop: 14 }}>Writing the query and reading your record…</p>}
-      {error && <div className="form-error" style={{ marginTop: 14 }}>{error}</div>}
+      {loading && <p className="empty ask__status">Writing the query and reading your record…</p>}
+      {error && (
+        <div className="form-error ask__status" role="alert">
+          {error}
+        </div>
+      )}
 
       {result && (
-        <div style={{ marginTop: 18 }}>
+        <div className="ask__result">
           <ChartResult result={result} />
-          <button className="btn-link" style={{ marginTop: 12 }} onClick={() => setResult(null)}>
+          <button type="button" className="btn-link ask__again" onClick={() => setResult(null)}>
             <RotateCcw size={12} />
             Ask something else
           </button>
@@ -147,108 +212,127 @@ export default function AskClaude({ open, onOpenChange }) {
 
 function ChartResult({ result }) {
   const { spec, rows } = result;
-  const format = formatterFor(spec.y_unit);
+  const [active, setActive] = useState(null);
+  const isDate = spec.x_kind === "date";
 
   const points = useMemo(() => {
     return (rows ?? [])
-      .map((r) => ({ raw: r, label: String(r[spec.x_key] ?? ""), value: Number(r[spec.y_key]) }))
+      .map((r) => {
+        const raw = r[spec.x_key];
+        return { label: String(raw ?? ""), t: isDate ? parseDay(raw) : null, value: Number(r[spec.y_key]) };
+      })
       .filter((p) => Number.isFinite(p.value));
-  }, [rows, spec.x_key, spec.y_key]);
+  }, [rows, spec.x_key, spec.y_key, isDate]);
 
-  const [active, setActive] = useState(null);
+  const { exact, tick } = useMemo(() => formattersFor(spec.y_unit), [spec.y_unit]);
+
+  const labels = useMemo(
+    () => (isDate ? dateLabels(points.map((p) => p.t).filter((t) => t != null), spec.x_key) : null),
+    [isDate, points, spec.x_key]
+  );
+  const longLabel = (p) => (labels && p.t != null ? labels.long(p.t) : p.label);
+
+  // The line chart has one formatter for its axis and its tooltip. A value
+  // that is one of the answers gets the exact reading; the gridline values in
+  // between get the axis one.
+  const lineFormat = useMemo(() => {
+    if (exact === tick) return exact;
+    const answers = new Set(points.map((p) => p.value));
+    return (v) => (answers.has(v) ? exact(v) : tick(v));
+  }, [points, exact, tick]);
 
   if (spec.chart_type === "none" || points.length === 0) {
     return (
       <>
-        <h3 style={{ fontSize: 16, marginBottom: 6 }}>{spec.title}</h3>
+        <h3 className="ask__title">{spec.title}</h3>
         <p className="card-note">{spec.answer}</p>
-        {points.length === 0 && spec.chart_type !== "none" && (
-          <p className="empty" style={{ marginTop: 8 }}>Nothing in your record matched that question.</p>
-        )}
+        {points.length === 0 && spec.chart_type !== "none" && <p className="empty ask__status">Nothing in your record matched that question.</p>}
       </>
     );
   }
 
-  const isDate = spec.x_kind === "date";
-  const formatX = isDate
-    ? (t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-    : (v) => String(v);
+  // Column keys must be unique; two points that read the same keep apart.
+  const seen = new Set();
+  const columns = points.map((p, i) => {
+    let key = longLabel(p);
+    if (seen.has(key)) key = `${key} (${i + 1})`;
+    seen.add(key);
+    return { key, shortKey: labels && p.t != null ? labels.short(p.t) : undefined, value: p.value };
+  });
 
   return (
     <>
-      <h3 style={{ fontSize: 16, marginBottom: 6 }}>{spec.title}</h3>
+      <h3 className="ask__title">{spec.title}</h3>
       <p className="card-note" style={{ marginBottom: 16 }}>{spec.answer}</p>
 
-      {spec.chart_type === "line" && (
-        <LineChart
-          series={[
-            {
-              key: spec.y_key,
-              color: "var(--accent)",
-              points: points
-                .map((p) => ({ x: isDate ? parseDateish(p.label) : Number(p.label), y: p.value }))
-                .filter((p) => Number.isFinite(p.x)),
-            },
-          ]}
-          format={format}
-          formatX={formatX}
-        />
-      )}
-
-      {spec.chart_type === "column" && (
-        <ColumnChart rows={points.map((p) => ({ key: p.label, value: p.value }))} format={format} />
-      )}
-
-      {spec.chart_type === "bars" && (
-        <RankedBars
-          rows={[...points]
-            .sort((a, b) => b.value - a.value)
-            .map((p) => ({ key: p.label, value: p.value, color: colorFor(p.label) }))}
-          format={format}
-        />
-      )}
-
-      {spec.chart_type === "donut" && (
-        <div className="row" style={{ gap: 24, alignItems: "center", flexWrap: "wrap" }}>
-          <Donut
-            slices={points.map((p) => ({ key: p.label, value: p.value, color: colorFor(p.label) }))}
-            size={220}
-            thickness={26}
-            format={format}
-            centerLabel="Total"
-            centerValue={format(points.reduce((s, p) => s + p.value, 0))}
-            activeKey={active}
-            onHover={setActive}
+      <div className="ask-chart">
+        {spec.chart_type === "line" && (
+          <LineChart
+            series={[
+              {
+                key: spec.y_key,
+                color: "var(--accent)",
+                points: points.map((p) => ({ x: isDate ? p.t : Number(p.label), y: p.value })).filter((p) => Number.isFinite(p.x)),
+              },
+            ]}
+            format={lineFormat}
+            formatX={isDate ? (t) => labels.long(t) : (v) => String(v)}
           />
-          <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-            <Legend
-              items={points.map((p) => ({ key: p.label, value: p.value, color: colorFor(p.label) }))}
-              format={format}
+        )}
+
+        {spec.chart_type === "column" && <ColumnChart rows={columns} format={exact} />}
+
+        {spec.chart_type === "bars" && (
+          <RankedBars
+            rows={[...points]
+              .sort((a, b) => b.value - a.value)
+              .map((p) => ({ key: longLabel(p), value: p.value, color: colorFor(p.label) }))}
+            format={exact}
+          />
+        )}
+
+        {spec.chart_type === "donut" && (
+          <div className="row" style={{ gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+            <Donut
+              slices={points.map((p, i) => ({ key: longLabel(p), value: p.value, color: colorOf(p.label, i) }))}
+              size={220}
+              thickness={26}
+              format={exact}
+              centerLabel="Total"
+              centerValue={exact(points.reduce((s, p) => s + p.value, 0))}
               activeKey={active}
               onHover={setActive}
             />
+            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+              <Legend
+                items={points.map((p, i) => ({ key: longLabel(p), value: p.value, color: colorOf(p.label, i) }))}
+                format={exact}
+                activeKey={active}
+                onHover={setActive}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* The table is not a fallback — it's the accessible reading of the same
           numbers, and for long series it's the only way to read an exact value
           without hunting with the pointer. */}
-      <details style={{ marginTop: 14 }}>
-        <summary className="btn-link" style={{ cursor: "pointer" }}>Show the numbers ({points.length} rows)</summary>
-        <div style={{ maxHeight: 260, overflowY: "auto", marginTop: 8 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+      <details className="ask-numbers">
+        <summary className="btn-link">Show the numbers ({points.length} rows)</summary>
+        <div className="ask-numbers__scroll">
+          <table className="ask-numbers__table">
             <thead>
               <tr>
-                <th style={thStyle}>{spec.x_key}</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>{spec.y_key}</th>
+                <th>{heading(spec.x_key, isDate ? "Date" : "Item")}</th>
+                <th className="is-num">{heading(spec.y_key, "Value")}</th>
               </tr>
             </thead>
             <tbody>
               {points.map((p, i) => (
                 <tr key={i}>
-                  <td style={tdStyle}>{isDate ? formatX(parseDateish(p.label) ?? p.label) : p.label}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }} className="mono">{format(p.value)}</td>
+                  <td>{longLabel(p)}</td>
+                  <td className="is-num mono">{exact(p.value)}</td>
                 </tr>
               ))}
             </tbody>
@@ -258,16 +342,3 @@ function ChartResult({ result }) {
     </>
   );
 }
-
-const thStyle = {
-  textAlign: "left",
-  padding: "6px 8px",
-  borderBottom: "1px solid var(--line)",
-  color: "var(--text-3)",
-  fontWeight: 500,
-  fontSize: 11,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-};
-
-const tdStyle = { padding: "6px 8px", borderBottom: "1px solid var(--line)" };
