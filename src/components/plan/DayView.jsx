@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
-  RotateCcw,
-  RotateCw,
   LayoutTemplate,
   Bookmark,
-  Archive,
   Briefcase,
   MoreHorizontal,
   Pencil,
@@ -29,9 +26,6 @@ import {
   updateTask,
   deleteTask,
   deleteTasks,
-  rolloverIncompleteTasks,
-  fetchStalledTasks,
-  reviveTask,
   fetchTemplates,
   applyTemplate,
   saveDayAsTemplate,
@@ -40,10 +34,9 @@ import {
   setTaskWork,
   fetchCategories,
 } from "../../lib/api";
-import { todayStr, fmtTimeRange, fmtShortDate, minutesOf } from "../../lib/planDates";
+import { fmtTimeRange, minutesOf } from "../../lib/planDates";
 import { colorFor } from "../../lib/categories";
 import { useLoad } from "../../lib/useLoad";
-import { friendlyError } from "../../lib/errors";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import ChunkNotes from "../day/ChunkNotes";
@@ -74,41 +67,17 @@ function namesOf(list, max = 3) {
 export default function DayView({ userId, date, goalOptions = [], onDataChanged }) {
   const toast = useToast();
   const [choose, choiceSheet] = useChoiceSheet();
-  const isToday = date === todayStr();
 
-  // Unfinished tasks from earlier days move onto today once per visit, and
-  // before the day's tasks are read, so they're in the first answer. The
-  // promise lives in a ref so a refresh after a checkbox tap doesn't run it
-  // again, and so StrictMode's double effect shares one call.
-  const rollover = useRef({ key: null, promise: null });
-
+  // An unfinished task stays on the day it was planned; nothing carries it
+  // forward. Move it yourself if you still want it.
   const { data, error, reload, mutate } = useLoad(async () => {
     if (!userId) return null;
-    let rolled = null;
-    if (isToday) {
-      const key = `${userId}|${date}`;
-      if (rollover.current.key !== key) {
-        rollover.current = {
-          key,
-          promise: rolloverIncompleteTasks().then(
-            (n) => ({ key, n: Number(n) || 0 }),
-            (err) => ({ key, n: 0, error: err })
-          ),
-        };
-      }
-      rolled = await rollover.current.promise;
-    }
-    const [plan, chunks, tasks, stalled] = await Promise.all([
+    const [plan, chunks, tasks] = await Promise.all([
       fetchDayPlan(userId, date),
       fetchTimeChunks(userId, date),
       fetchTasks(userId, date),
-      // Stalled means "past and not rolling" — until a rollover has run,
-      // that list would also hold everything about to move, so skip it.
-      isToday && !rolled?.error
-        ? fetchStalledTasks().then((rows) => ({ rows }), (err) => ({ rows: [], error: err }))
-        : { rows: [] },
     ]);
-    return { date, plan, chunks, tasks, stalled, rolled };
+    return { date, plan, chunks, tasks };
   }, [userId, date]);
 
   const presets = useLoad(() => (userId ? fetchTemplates(userId) : []), [userId]);
@@ -123,22 +92,6 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
     notifyTimer.current = setTimeout(() => changedRef.current?.(), 400);
   }, []);
   useEffect(() => () => clearTimeout(notifyTimer.current), []);
-
-  // Tasks that rolled onto today change the page's counts, which it read
-  // before the rollover finished.
-  const notifiedRollover = useRef(null);
-  useEffect(() => {
-    const r = data?.rolled;
-    if (r && r.n > 0 && notifiedRollover.current !== r.key) {
-      notifiedRollover.current = r.key;
-      notifyPage();
-    }
-  }, [data, notifyPage]);
-
-  function retryRollover() {
-    rollover.current = { key: null, promise: null };
-    reload();
-  }
 
   // Deletes wait six seconds for Undo; until then the row is only hidden.
   const [hidden, setHidden] = useState(() => new Set());
@@ -199,8 +152,6 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
     }
     return { byChunk, unscheduled, subsByParent };
   }, [data, chunks, hidden]);
-
-  const stalled = (data?.stalled?.rows ?? []).filter((t) => !hidden.has(t.id));
 
   const patchTask = (id, fields) =>
     mutate((d) => d && { ...d, tasks: d.tasks.map((t) => (t.id === id ? { ...t, ...fields } : t)) });
@@ -480,60 +431,6 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
     });
   }
 
-  // --- stalled -------------------------------------------------------------
-
-  const revive = (t) =>
-    once(`task:${t.id}`, async () => {
-      try {
-        await reviveTask(t.id, date);
-      } catch (err) {
-        toast.error(err, "Couldn't move that to today.");
-        return;
-      }
-      const moved = { ...t, date, rollover_count: 0, time_chunk_id: null };
-      mutate(
-        (d) =>
-          d && {
-            ...d,
-            stalled: { ...d.stalled, rows: d.stalled.rows.filter((x) => x.id !== t.id) },
-            tasks: d.date === date ? [...d.tasks.filter((x) => x.id !== t.id), moved] : d.tasks,
-          }
-      );
-      notifyPage();
-      toast.show(`Moved ${quote(t.title)} to today`, {
-        actionLabel: "Undo",
-        onAction: async () => {
-          try {
-            await updateTask(t.id, { date: t.date, rollover_count: t.rollover_count ?? 0, time_chunk_id: t.time_chunk_id ?? null });
-            mutate(
-              (d) =>
-                d && {
-                  ...d,
-                  tasks: d.tasks.filter((x) => x.id !== t.id),
-                  stalled: { ...d.stalled, rows: [...d.stalled.rows, t].sort((a, b) => (a.date < b.date ? -1 : 1)) },
-                }
-            );
-            notifyPage();
-          } catch (err) {
-            toast.error(err, "Couldn't undo that.");
-          }
-        },
-      });
-    });
-
-  function dropStalled(t) {
-    hide([t.id]);
-    toast.undoable({
-      message: `Deleted ${quote(t.title)}`,
-      run: async () => {
-        await deleteTask(t.id);
-        mutate((d) => d && { ...d, stalled: { ...d.stalled, rows: d.stalled.rows.filter((x) => x.id !== t.id) } });
-        unhide([t.id]);
-      },
-      onUndo: () => unhide([t.id]),
-    });
-  }
-
   // --- render ----------------------------------------------------------------
 
   if (!data) {
@@ -548,26 +445,6 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
   return (
     <div className="plan-day">
       {error && <LoadError stale error={error} onRetry={reload} />}
-
-      {data.rolled?.error && (
-        <div className="load-error" role="alert">
-          <span>
-            Couldn't move unfinished tasks here from earlier days.
-            <span className="load-error__why"> {friendlyError(data.rolled.error, "")}</span>
-          </span>
-          <button type="button" className="btn btn--sm" onClick={retryRollover}>
-            <RotateCw size={13} />
-            Try again
-          </button>
-        </div>
-      )}
-
-      {data.rolled?.n > 0 && (
-        <div className="plan-notice">
-          <RotateCcw size={14} />
-          <span>Moved {plural(data.rolled.n, "unfinished task")} here from earlier days.</span>
-        </div>
-      )}
 
       <PresetCard
         userId={userId}
@@ -648,9 +525,6 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
         ))}
         <InlineAdd placeholder="Add a task without a time…" onAdd={(title) => act.add({ title })} />
       </div>
-
-      {isToday && data.stalled?.error && <LoadError what="stalled tasks" error={data.stalled.error} onRetry={reload} />}
-      {isToday && stalled.length > 0 && <StalledCard rows={stalled} onRevive={revive} onDelete={dropStalled} />}
 
       {choiceSheet}
     </div>
@@ -847,7 +721,7 @@ function TaskRow({ task, subtasks = [], chunks, isSub = false, openRow, setOpenR
   const open = openRow === task.id;
   const [renaming, setRenaming] = useState(false);
   const [addingSub, setAddingSub] = useState(false);
-  const meta = !isSub && (task.is_work || task.rollover_count > 0);
+  const meta = !isSub && task.is_work;
   const moveTargets = chunks.filter((c) => c.id !== task.time_chunk_id);
 
   return (
@@ -881,11 +755,6 @@ function TaskRow({ task, subtasks = [], chunks, isSub = false, openRow, setOpenR
                 <span className="plan-tag" title="On the work report">
                   <Briefcase size={11} />
                   Work
-                </span>
-              )}
-              {task.rollover_count > 0 && (
-                <span className="plan-tag" title="Unfinished on earlier days and carried forward">
-                  Carried over {plural(task.rollover_count, "time")}
                 </span>
               )}
             </div>
@@ -1054,50 +923,6 @@ function InlineAdd({ placeholder, onAdd, small, autoFocus, onCancel }) {
         </button>
       )}
     </form>
-  );
-}
-
-// Tasks that stopped rolling. Kept off today's plan on purpose — the point
-// is that they need a decision, and leaving them mixed in with today makes
-// them invisible again. Only three show until asked, so a long backlog
-// doesn't become the loudest thing on the page.
-function StalledCard({ rows, onRevive, onDelete }) {
-  const [open, setOpen] = useState(false);
-  const shown = open ? rows : rows.slice(0, 3);
-
-  return (
-    <div className="card">
-      <div className="section-label">
-        <Archive size={12} />
-        Stalled · {rows.length}
-      </div>
-      <p className="card-note" style={{ marginBottom: 6 }}>
-        These carried over for two weeks and stopped moving on their own. Move one to today, or delete it.
-      </p>
-
-      {shown.map((t) => (
-        <div key={t.id} className="stalled-row">
-          <div className="stalled-row__what">
-            {t.title}
-            <span className="stalled-row__when">from {fmtShortDate(t.date)}</span>
-          </div>
-          <div className="stalled-row__acts">
-            <button type="button" className="btn btn--sm" onClick={() => onRevive(t)}>
-              Move to today
-            </button>
-            <button type="button" className="btn btn--sm btn--danger" onClick={() => onDelete(t)}>
-              Delete
-            </button>
-          </div>
-        </div>
-      ))}
-
-      {rows.length > 3 && (
-        <button type="button" className="btn-link" style={{ marginTop: 8, minHeight: 36 }} onClick={() => setOpen((v) => !v)}>
-          {open ? "Show fewer" : `Show all ${rows.length}`}
-        </button>
-      )}
-    </div>
   );
 }
 

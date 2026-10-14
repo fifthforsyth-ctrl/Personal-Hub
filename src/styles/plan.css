@@ -126,19 +126,6 @@
 .plan-day > form.card + .card,
 .plan-day > .card + form.card { margin-top: 0; }
 
-.plan-notice {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 14px;
-  border-radius: var(--r);
-  background: var(--inset);
-  color: var(--text-2);
-  font-size: 13px;
-  line-height: 1.45;
-}
-.plan-notice svg { flex-shrink: 0; color: var(--text-3); }
-
 .plan-card-toggle {
   display: flex;
   align-items: center;
@@ -322,19 +309,6 @@
 .plan-add { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
 .plan-add .input { flex: 1; min-width: 0; padding: 9px 12px; font-size: 13.5px; }
 .plan-add--small .input { padding: 7px 11px; font-size: 12.5px; }
-
-/* Stalled tasks: a quiet list that wants a decision. */
-.stalled-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 8px 0;
-}
-.stalled-row + .stalled-row { border-top: 1px solid var(--line); }
-.stalled-row__what { flex: 1 1 180px; min-width: 0; font-size: 13.5px; }
-.stalled-row__when { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.stalled-row__acts { display: flex; gap: 6px; }
 
 .preset-manage { margin-top: 10px; }
 .preset-manage__row {
