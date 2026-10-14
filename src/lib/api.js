@@ -387,32 +387,6 @@ export async function deleteTasks(taskIds) {
   if (error) throw error;
 }
 
-// Moves incomplete past tasks onto today (unscheduled), bumping
-// rollover_count — call once when the Plan page lands on "today". Tasks
-// past the rollover cap stop moving and become stalled instead; see
-// fetchStalledTasks. "Today" is the phone's date: the database clock is
-// UTC, which is already tomorrow on a Mountain-time evening.
-export async function rolloverIncompleteTasks() {
-  const { data, error } = await supabase.rpc("rollover_incomplete_tasks", { p_today: todayStr() });
-  if (error) throw error;
-  return data; // number of tasks rolled
-}
-
-// Unfinished, in the past, and no longer rolling — these want a decision
-// (do it, reschedule it, or admit it isn't happening) rather than another
-// silent move to tomorrow.
-export async function fetchStalledTasks() {
-  const { data, error } = await supabase.rpc("stalled_tasks", { p_today: todayStr() });
-  if (error) throw error;
-  return data ?? [];
-}
-
-// Pull a stalled task back onto a live day, resetting its roll counter so
-// it gets a fresh run rather than immediately stalling again.
-export async function reviveTask(taskId, date) {
-  return updateTask(taskId, { date, rollover_count: 0, time_chunk_id: null });
-}
-
 // ---------------------------------------------------------------------------
 // Plan presets (reusable blocks and whole days) + overview rollups.
 // ---------------------------------------------------------------------------
