@@ -20,3 +20,11 @@ export function isEvening(now = new Date()) {
 export function isLateNight(now = new Date()) {
   return now.getHours() < LATE_NIGHT_HOUR;
 }
+
+// From eight in the evening until the small hours, the timer offers Going
+// to bed: stop what's running and start Sleep in one tap.
+export const BEDTIME_HOUR = 20;
+
+export function isBedtime(now = new Date()) {
+  return now.getHours() >= BEDTIME_HOUR || now.getHours() < LATE_NIGHT_HOUR;
+}

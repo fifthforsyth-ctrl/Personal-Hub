@@ -14,6 +14,8 @@ import WeekStrip from "../components/today/WeekStrip";
 import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
+import MorningCheckin from "../components/today/MorningCheckin";
+import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
@@ -26,6 +28,10 @@ import "../styles/daily.css";
 // goals, and one action that matters most (Win) sits at the top where a
 // thumb finds it. Below the fold: a quote chosen for this week, the
 // curator's cards, and a one-line note about purchases to sort.
+//
+// Two things are asked here at the right moment and only then: a timer
+// that ran away (at the very top, once), and in the morning, how last night
+// went (just under the wins, until noon).
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -81,6 +87,7 @@ export default function Today() {
   const lateNight = isLateNight();
   const yesterday = addDays(date, -1);
   const yesterdayOpen = Boolean(data) && !data.yesterdayBanked;
+  const runaway = data?.running && runawayFor(data.running) ? data.running : null;
 
   return (
     <div className="page today">
@@ -93,12 +100,15 @@ export default function Today() {
 
       {error && <LoadError what="today" error={error} onRetry={reload} stale={Boolean(data)} className="today__error" />}
 
+      {runaway && <RunawayCard key={runaway.id} userId={userId} entry={runaway} onDone={reload} />}
+
       <div className="today-grid">
         <div className="stack">
           {yesterdayOpen && lateNight && <YesterdayBanner date={yesterday} urgent />}
           {(evening || banked) && <EveningBanner banked={banked} date={date} className="today-evening--phone" />}
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
+          {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
         </div>
         <div className="stack">

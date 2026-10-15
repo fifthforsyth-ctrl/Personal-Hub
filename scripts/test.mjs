@@ -48,6 +48,24 @@ import {
   interleave,
   holdsNotes,
 } from "../src/lib/quoteShelves.js";
+import {
+  runawayOf,
+  usualLightsOut,
+  suggestedSleepStart,
+  resolveTimeAfter,
+  resolveTimeBefore,
+  lastNightSleep,
+  rememberedAlarm,
+  habitsToAsk,
+  keptByWake,
+  reasonChips,
+  namesInText,
+  peopleChips,
+  tidyName,
+  followUpKinds,
+  fmtClock as clockText,
+  isMorning,
+} from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
 let pass = 0;
@@ -607,6 +625,77 @@ ok("an answered question isn't waiting", !stillWorking({ working_since: null, me
 ok("no conversation, nothing waiting", !stillWorking(null) && !unanswered(null));
 const cr = chartResult({ n: 1, title: "T", caption: "C", chart_type: "line", x_key: "week", y_key: "minutes", series_key: "category", x_kind: "date", y_unit: "minutes", rows: [{}] });
 ok("a saved chart draws with its caption and series", cr.spec.answer === "C" && cr.spec.series_key === "category" && cr.rows.length === 1);
+
+// Honest tracking: runaway timers, the morning, misses and people.
+{
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
+const prepEntry = { id: "p", tags: ["Prep"], started_at: at(2026, 10, 13, 21, 46).toISOString(), ended_at: null };
+ok("a timer that crossed midnight is a runaway", runawayOf(prepEntry, { now: at(2026, 10, 14, 5, 0) })?.overnight === true);
+ok("a short evening timer isn't", runawayOf(prepEntry, { now: at(2026, 10, 13, 22, 30) }) === null);
+const workEntry = { id: "w", tags: ["Forsyth Media LLC"], started_at: at(2026, 10, 14, 8, 0).toISOString() };
+ok("four hours of work is fine", runawayOf(workEntry, { now: at(2026, 10, 14, 12, 0), isWork: true }) === null);
+ok("four hours of anything else isn't", runawayOf(workEntry, { now: at(2026, 10, 14, 12, 0) })?.overnight === false);
+ok("six hours of work is a runaway", runawayOf(workEntry, { now: at(2026, 10, 14, 14, 0), isWork: true }) !== null);
+ok("Sleep is never a runaway", runawayOf({ tags: ["Sleep"], started_at: at(2026, 10, 13, 22).toISOString() }, { now: at(2026, 10, 14, 9) }) === null);
+ok("a stopped timer is never a runaway", runawayOf({ ...prepEntry, ended_at: at(2026, 10, 13, 22).toISOString() }, { now: at(2026, 10, 14, 9) }) === null);
+
+const sleeps = [at(2026, 10, 10, 22, 0), at(2026, 10, 11, 22, 10), at(2026, 10, 12, 23, 50), at(2026, 10, 13, 0, 40), at(2026, 10, 9, 14, 0)].map((d) => ({ started_at: d.toISOString(), tags: ["Sleep"] }));
+ok("usual lights-out is the median night, naps left out", usualLightsOut(sleeps) === "23:50");
+ok("no sleep, no usual", usualLightsOut([]) === null);
+ok("the split starts at your usual lights-out", suggestedSleepStart(prepEntry, "22:10", at(2026, 10, 14, 5)).getHours() === 22);
+ok("an early-hours usual still lands that night", suggestedSleepStart(prepEntry, "00:30", at(2026, 10, 14, 5)).getDate() === 14);
+ok("a usual long after the start falls back to half an hour in",
+  suggestedSleepStart({ started_at: at(2026, 10, 13, 13, 0).toISOString() }, "22:10", at(2026, 10, 14, 5)).getHours() === 13);
+ok("a time after the start that's on its clock is that day", resolveTimeAfter(at(2026, 10, 13, 21, 46).toISOString(), "22:10").getDate() === 13);
+ok("an earlier clock time is the next day", resolveTimeAfter(at(2026, 10, 13, 21, 46).toISOString(), "01:30").getDate() === 14);
+ok("lights out at 22:10 before a 4:31 wake is the night before", resolveTimeBefore(at(2026, 10, 14, 4, 31).toISOString(), "22:10").getDate() === 13);
+ok("lights out at 00:20 before a 4:31 wake is the same day", resolveTimeBefore(at(2026, 10, 14, 4, 31).toISOString(), "00:20").getDate() === 14);
+
+const nights = [
+  { id: "old", tags: ["Sleep"], started_at: at(2026, 10, 12, 22).toISOString() },
+  { id: "last", tags: ["Sleep"], started_at: at(2026, 10, 13, 21, 52).toISOString() },
+  { id: "nap", tags: ["Sleep"], started_at: at(2026, 10, 14, 13).toISOString() },
+];
+ok("last night's sleep is the one that started between noon and noon", lastNightSleep(nights, "2026-10-14")?.id === "last");
+ok("the alarm set last night wins", rememberedAlarm("06:00:00", "04:30:00") === "06:00");
+ok("otherwise the last one used", rememberedAlarm(null, "04:30:00") === "04:30");
+ok("and 4:30 when there's none", rememberedAlarm(null, null) === "04:30");
+ok("clock times read plainly", clockText("04:30:00") === "4:30" && clockText("18:05", { ampm: true }) === "6:05 pm");
+
+const watched = [{ id: "a", label: "Up at 4:30", due_by: "04:45:00", on_alarm: "04:30:00", active: true }];
+const asked = habitsToAsk(watched, { alarm: "04:30" });
+ok("a 4:30 day asks about Up at 4:30", asked.length === 1 && asked[0].label === "Up at 4:30" && asked[0].wake);
+ok("a 6:00 day asks about Up at 6:00, due 6:15", habitsToAsk(watched, { alarm: "06:00" })[0].label === "Up at 6:00" && habitsToAsk(watched, { alarm: "06:00" })[0].due_by === "06:15");
+ok("a wake-up already logged by hand isn't asked again", habitsToAsk(watched, { alarm: "04:30", handWins: [{ habit_label: "Up on time" }] }).length === 0);
+ok("up by 4:45 is kept", keptByWake(asked[0], at(2026, 10, 14, 4, 31)) === true);
+ok("up at 6:10 is a miss", keptByWake(asked[0], at(2026, 10, 14, 6, 10)) === false);
+ok("no wake time, no guess", keptByWake(asked[0], null) === null);
+ok("reason chips: defaults first, then yours, once each", reasonChips(["Late night", "Kids up early", "late NIGHT"]).join("|") === "Late night|Date ran late|Snoozed|Sick|Chose rest|Kids up early");
+
+ok("names follow 'with'", namesInText("Date with Zimi").join() === "Zimi" && namesInText("Gym with my brother").join() === "Brother");
+ok("short all-caps names stay as written", namesInText("Lunch with AJ").join() === "AJ" && tidyName("aj") === "Aj");
+ok("known names are found as words", namesInText("Minister to mom", ["Mom"]).join() === "Mom");
+ok("not every word after 'with' is a person", namesInText("Done with work").length === 0 && namesInText("Chess with him").length === 0);
+const chipsP = peopleChips([
+  { people: ["Zimi"], started_at: "2026-10-12T10:00:00Z" },
+  { people: ["AJ", "zimi"], started_at: "2026-10-14T10:00:00Z" },
+  { description: "Gym with brother", started_at: "2026-10-01T10:00:00Z" },
+]);
+ok("people chips: newest picks first, then names from descriptions, then Family", chipsP.join() === "AJ,Zimi,Brother,Family");
+const fam = (t) => ({ "Forsyth Media LLC": "Work", Meet: "People", Date: "People", Prep: "Upkeep" })[t] ?? "Other";
+ok("work asks deep or shallow", followUpKinds({ tags: ["Forsyth Media LLC"] }, fam).join() === "work");
+ok("people time asks who", followUpKinds({ tags: ["Meet"] }, fam).join() === "people");
+ok("a work meeting with people asks both", followUpKinds({ tags: ["Forsyth Media LLC", "Meet"] }, fam).join() === "work,people");
+ok("prep asks nothing", followUpKinds({ tags: ["Prep"] }, fam).length === 0);
+ok("the morning is three to noon", isMorning(at(2026, 10, 14, 4, 31)) && !isMorning(at(2026, 10, 14, 12, 1)) && !isMorning(at(2026, 10, 14, 2, 0)));
+
+const askFnT1 = readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8");
+const assistantFnT1 = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+for (const col of ["woke_at", "lights_out_at", "sleep_quality", "energy text", "depth", "people_feel", "reason text", "watched_habits"]) {
+  ok(`Ask's schema notes know ${col}`, askFnT1.includes(col));
+  ok(`the assistant's schema notes know ${col}`, assistantFnT1.includes(col));
+}
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

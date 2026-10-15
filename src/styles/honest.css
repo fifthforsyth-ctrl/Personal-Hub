@@ -1,0 +1,105 @@
+/* Honest tracking: the morning check-in, a runaway timer, the row of chips
+   after a stop, and Going to bed. Same parts as the rest of the app (cards,
+   ink pills, the grey segmented control, outlined name chips); nothing red,
+   no badges. */
+
+.honest-label {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.honest-label .faint { font-weight: 500; }
+
+.honest-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.name-chip--add { border-style: dashed; color: var(--text-2); }
+.honest-add { display: flex; gap: 6px; align-items: center; flex: 1 1 180px; min-width: 0; }
+.honest-add .input { min-width: 0; padding: 8px 12px; font-size: 13px; }
+
+/* One to five, round and thumb-sized. */
+.honest-scale { display: flex; gap: 6px; }
+.honest-scale__n {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: var(--inset);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.14s, color 0.14s;
+}
+@media (hover: hover) { .honest-scale__n:hover { color: var(--text); } }
+.honest-scale__n.is-on { background: var(--ink); color: var(--on-ink); }
+
+/* --- After a stop ------------------------------------------------------------ */
+
+.stop-followup {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: var(--r);
+  background: var(--accent-soft);
+  animation: fade-in 0.16s ease-out;
+}
+.stop-followup__head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.stop-followup__title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.stop-followup__close { margin: -6px -6px -6px 0; flex-shrink: 0; }
+.stop-followup .seg { background: var(--card); }
+.stop-followup .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.stop-followup .honest-scale__n { background: var(--card); }
+.stop-followup .honest-scale__n.is-on { background: var(--ink); }
+.stop-followup .honest-label:first-of-type { margin-top: 10px; }
+
+/* --- Going to bed ------------------------------------------------------------- */
+
+.bed-btn { margin-top: 8px; }
+.card .running-row + .bed-btn { margin-top: 8px; }
+
+/* --- A runaway timer ----------------------------------------------------------- */
+
+.runaway { margin-bottom: 14px; }
+.runaway__text { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.runaway__text strong { color: var(--text); font-weight: 650; }
+.runaway__time { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.runaway__time .input { width: auto; padding: 8px 12px; }
+.runaway__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.runaway__keep { min-height: 36px; padding: 0 8px; }
+.runaway__note { margin: 10px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+
+/* --- The morning ------------------------------------------------------------- */
+
+.morning__alarm-tag { font-size: 11.5px; }
+.morning__fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.morning__field { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.morning__field em { font-style: normal; font-weight: 500; color: var(--text-3); }
+.morning__field .input { padding: 9px 12px; font-family: var(--font-mono); font-size: 14px; }
+.morning__slept { margin: 8px 0 0; font-size: 12px; color: var(--text-2); }
+.morning__other-alarm { width: auto; padding: 7px 12px; font-family: var(--font-mono); font-size: 13px; }
+.morning__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.morning__pair > div { min-width: 0; }
+.morning__pair .seg-btn { padding-left: 8px; padding-right: 8px; }
+.morning__habit { margin-top: 4px; padding-top: 2px; }
+.morning__actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.morning__actions .btn-link { min-height: 36px; padding: 0 4px; font-size: 13px; }
+.morning__actions .btn { min-width: 110px; }
+
+@media (max-width: 380px) {
+  .morning__pair { grid-template-columns: 1fr; }
+}
+
+/* Done: one quiet line. */
+.morning-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: var(--r);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.morning-summary__mark { color: var(--accent); flex-shrink: 0; }
+.morning-summary__text { flex: 1; min-width: 0; color: var(--text-2); }
+.morning-summary__edit { min-height: 32px; padding: 0 4px; flex-shrink: 0; }

@@ -164,15 +164,69 @@ export async function logPastTimeEntry(userId, { categories, description, minute
   return data;
 }
 
-export async function stopTimeEntry(entryId) {
+// `endedBy` says how it ended: a plain stop, the Going to bed button, or a
+// runaway timer ended after the fact. `at` ends it earlier than now.
+export async function stopTimeEntry(entryId, { endedBy = "stop", at } = {}) {
   const { data, error } = await supabase
     .from("time_log_entries")
-    .update({ ended_at: new Date().toISOString() })
+    .update({ ended_at: (at ? new Date(at) : new Date()).toISOString(), ended_by: endedBy })
     .eq("id", entryId)
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+// Going to bed: whatever is running stops, and Sleep starts, in one tap.
+export async function goToBed(userId, runningId) {
+  if (runningId) await stopTimeEntry(runningId, { endedBy: "bedtime" });
+  return startTimeEntry(userId, { categories: ["Sleep"] });
+}
+
+// A timer that ran through the night, split where sleep began: the entry
+// ends there, and Sleep carries on from that moment (still running, so the
+// morning check-in's "I'm up" ends it).
+export async function splitIntoSleep(userId, entry, sleepAt) {
+  const at = new Date(sleepAt).toISOString();
+  await stopTimeEntry(entry.id, { endedBy: "overnight_fix", at });
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .insert({ user_id: userId, category: "Sleep", tags: ["Sleep"], started_at: at, split_from: entry.id })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Sleep entries since a moment, newest first: last night for the morning
+// check-in, the last month for your usual lights-out.
+export async function fetchSleepEntries(userId, sinceISO) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("id, started_at, ended_at, duration_minutes, tags, category")
+    .eq("user_id", userId)
+    .contains("tags", ["Sleep"])
+    .gte("started_at", sinceISO)
+    .order("started_at", { ascending: false })
+    .limit(80);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Recent stretches that can name people: what's been picked before, and
+// descriptions to find names in ("Date with Zimi").
+export async function fetchPeopleHistory(userId) {
+  const since = new Date(Date.now() - 120 * 86400000).toISOString();
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("id, people, description, started_at, tags, category")
+    .eq("user_id", userId)
+    .gte("started_at", since)
+    .or("people.not.is.null,description.not.is.null")
+    .order("started_at", { ascending: false })
+    .limit(400);
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function updateTimeEntry(entryId, fields) {
@@ -278,6 +332,45 @@ export async function fetchTopWinLabels(userId, { days = 30, limit = 4 } = {}) {
     .map((g) => g.label);
 }
 
+// Reasons given for past misses, most recent first, for the reason chips.
+export async function fetchLossReasons(userId) {
+  const { data, error } = await supabase
+    .from("win_losses")
+    .select("reason, occurred_at")
+    .eq("user_id", userId)
+    .not("reason", "is", null)
+    .order("occurred_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.reason);
+}
+
+// The rows a morning check-in wrote replace the ones it wrote before (an
+// edited check-in), and never touch anything tapped by hand.
+export async function replaceCheckinWinLosses(userId, sinceISO, rows) {
+  const { error: delError } = await supabase
+    .from("win_losses")
+    .delete()
+    .eq("user_id", userId)
+    .eq("source", "checkin")
+    .gte("occurred_at", sinceISO);
+  if (delError) throw delError;
+  if (rows.length === 0) return;
+  const { error } = await supabase.from("win_losses").insert(rows.map((r) => ({ ...r, user_id: userId, source: "checkin" })));
+  if (error) throw error;
+}
+
+export async function fetchWatchedHabits(userId) {
+  const { data, error } = await supabase
+    .from("watched_habits")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("position", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function fetchWinLosses(userId, { sinceISO, limit = 100 } = {}) {
   let query = supabase.from("win_losses").select("*").eq("user_id", userId).order("occurred_at", { ascending: false }).limit(limit);
   if (sinceISO) query = query.gte("occurred_at", sinceISO);
@@ -304,6 +397,32 @@ export async function fetchDayPlan(userId, date) {
   const { data, error } = await supabase.from("day_plans").select("*").eq("user_id", userId).eq("date", date).maybeSingle();
   if (error) throw error;
   return data;
+}
+
+// The morning check-in's answers, on the day they belong to.
+export async function saveMorning(userId, date, fields) {
+  const { data, error } = await supabase
+    .from("day_plans")
+    .upsert({ user_id: userId, date, ...fields }, { onConflict: "user_id,date" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// The alarm used most recently before a day, to offer it again.
+export async function fetchLastAlarm(userId, beforeDate) {
+  const { data, error } = await supabase
+    .from("day_plans")
+    .select("date, alarm_at")
+    .eq("user_id", userId)
+    .lt("date", beforeDate)
+    .not("alarm_at", "is", null)
+    .order("date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.alarm_at ?? null;
 }
 
 export async function setDayEnergyTag(userId, date, energyTag) {

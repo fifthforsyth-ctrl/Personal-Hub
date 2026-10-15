@@ -4,6 +4,7 @@ import {
   fetchOpenTimeEntry,
   startTimeEntry,
   stopTimeEntry,
+  goToBed,
   logPastTimeEntry,
   fetchTimeEntriesForDate,
   updateTimeEntry,
@@ -22,6 +23,10 @@ import LoadError from "./ui/LoadError";
 import { announceChange } from "./today/announce";
 import { trackedMinutes, fmtElapsed, timeOf } from "./today/minutes";
 import { useBackOnline } from "./today/useBackOnline";
+import { isBedtime } from "./today/dayParts";
+import BedButton from "./today/BedButton";
+import StopFollowUp, { needsFollowUp } from "./today/StopFollowUp";
+import { isSleep } from "../lib/honest";
 
 // Minutes: start a timer, log time after the fact, and fix what's logged.
 //
@@ -69,6 +74,7 @@ export function MinutesView({ userId, date = todayStr() }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [deleted, setDeleted] = useState(() => new Set());
   const [stoppedId, setStoppedId] = useState(null);
+  const [followUp, setFollowUp] = useState(null);
 
   // Anything logged elsewhere (Today's stop button, another sheet) shows here.
   useEffect(() => {
@@ -118,7 +124,21 @@ export function MinutesView({ userId, date = todayStr() }) {
   async function stop() {
     if (!open) return;
     const id = open.id;
-    if (await write(() => stopTimeEntry(id), "Couldn't stop the timer. Try again.")) setStoppedId(id);
+    let stopped = null;
+    if (await write(async () => (stopped = await stopTimeEntry(id)), "Couldn't stop the timer. Try again.")) {
+      setStoppedId(id);
+      if (needsFollowUp(stopped)) setFollowUp(stopped);
+    }
+  }
+
+  // Stop whatever is running and start Sleep.
+  async function bed() {
+    const id = open?.id;
+    if (await write(() => goToBed(userId, id), "Couldn't start Sleep. Try again.")) {
+      if (id) setStoppedId(id);
+      setFollowUp(null);
+      await reload();
+    }
   }
 
   function removeEntry(entry) {
@@ -146,8 +166,10 @@ export function MinutesView({ userId, date = todayStr() }) {
     <div className="stack">
       {error && <LoadError what="your minutes" error={error} onRetry={reload} stale />}
 
+      {followUp && !open && <StopFollowUp key={followUp.id} userId={userId} entry={followUp} onClose={() => setFollowUp(null)} />}
+
       {open ? (
-        <RunningCard entry={open} onStop={stop} busy={busy} />
+        <RunningCard entry={open} onStop={stop} onBed={isToday && isBedtime() && !isSleep(open) ? bed : null} busy={busy} />
       ) : (
         <div className="card">
           <div className="card-head">
@@ -209,6 +231,7 @@ export function MinutesView({ userId, date = todayStr() }) {
             </button>
           )}
           {picked.length === 0 && <p className="minutes-hint">Pick at least one category.</p>}
+          {isToday && isBedtime() && <BedButton onClick={bed} busy={busy} />}
         </div>
       )}
 
@@ -233,7 +256,7 @@ export function MinutesView({ userId, date = todayStr() }) {
   );
 }
 
-function RunningCard({ entry, onStop, busy }) {
+function RunningCard({ entry, onStop, onBed, busy }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 15000);
@@ -252,9 +275,10 @@ function RunningCard({ entry, onStop, busy }) {
         ))}
       </div>
       <button className="btn btn--accent btn--lg" onClick={onStop} disabled={busy}>
-        <Square size={14} />
-        {busy ? "Stopping…" : "Stop timer"}
+        {!isSleep(entry) && <Square size={14} />}
+        {busy ? "Stopping…" : isSleep(entry) ? "I'm up" : "Stop timer"}
       </button>
+      {onBed && <BedButton onClick={onBed} busy={busy} />}
     </div>
   );
 }
