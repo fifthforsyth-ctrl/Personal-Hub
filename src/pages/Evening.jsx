@@ -151,7 +151,10 @@ function WinsAndLosses({ userId, date, rows }) {
               {isUnnamed(w) ? (
                 <span className="evening-wl__unnamed">{kind === "win" ? "Win" : "Loss"} (tap to name)</span>
               ) : (
-                <span>{w.habit_label}</span>
+                <span>
+                  {w.habit_label}
+                  {w.reason && <span className="faint"> · {w.reason}</span>}
+                </span>
               )}
             </button>
           )
