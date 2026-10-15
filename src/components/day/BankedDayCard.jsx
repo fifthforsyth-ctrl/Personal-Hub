@@ -352,8 +352,20 @@ function DayInALine({ plan }) {
   if (plan.mood) parts.push(`mood ${plan.mood}`);
   if (plan.stress) parts.push(`stress ${plan.stress}${plan.stress_source ? ` (${plan.stress_source.toLowerCase()})` : ""}`);
   if (plan.off_plan_reason) parts.push(`off plan: ${plan.off_plan_reason.toLowerCase()}`);
-  if (!parts.length) return null;
-  return <p className="banked-line">{parts.join(" · ")}</p>;
+  if (plan.fast_sunday) parts.push("fast Sunday");
+  const lines = [
+    parts.length ? parts.join(" · ") : null,
+    plan.shipped ? `Shipped: ${plan.shipped}` : null,
+    plan.sabbath_note ? `Sabbath: ${plan.sabbath_note}` : null,
+  ].filter(Boolean);
+  if (!lines.length) return null;
+  return (
+    <>
+      {lines.map((l) => (
+        <p key={l} className="banked-line">{l}</p>
+      ))}
+    </>
+  );
 }
 
 function TaskLine({ task, subtasks }) {
@@ -364,6 +376,7 @@ function TaskLine({ task, subtasks }) {
         <span style={{ color: task.status ? "var(--text-2)" : "var(--text)", textDecoration: task.status ? "line-through" : "none" }}>
           {task.title}
         </span>
+        {!task.status && task.left_reason && <span className="faint" style={{ fontSize: 12 }}>· {task.left_reason}</span>}
       </div>
       {subtasks.map((s) => (
         <div key={s.id} className="row" style={{ gap: 7, fontSize: 12, marginLeft: 16, marginTop: 2 }}>

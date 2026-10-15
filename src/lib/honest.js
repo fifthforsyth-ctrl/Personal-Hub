@@ -74,13 +74,218 @@ export function isSleep(entry) {
   return tagsOf(entry).includes(SLEEP);
 }
 
-// Which follow-up a stopped timer gets, from its categories' families.
+// A nap: Sleep that started between 9 am and 7 pm. The database works this
+// out for every entry (is_nap); the same rule covers a row that doesn't
+// carry it.
+export function isNap(entry) {
+  if (!isSleep(entry)) return false;
+  if (typeof entry.is_nap === "boolean") return entry.is_nap;
+  const h = new Date(entry.started_at).getHours();
+  return h >= 9 && h <= 18;
+}
+
+export const EXERCISE = "Exercise";
+export const STUDY = "Study";
+export const WASTE = "Waste";
+export const TEMPLE = "Temple";
+
+const hasTag = (entry, name) => tagsOf(entry).some((t) => String(t).toLowerCase() === name.toLowerCase());
+
+// Which follow-up a stopped timer gets: work and people from the categories'
+// families, exercise and study from the categories themselves.
 export function followUpKinds(entry, familyOf) {
   const families = new Set(tagsOf(entry).map((t) => familyOf(t)));
   const kinds = [];
   if (families.has("Work")) kinds.push("work");
   if (families.has("People")) kinds.push("people");
+  if (hasTag(entry, EXERCISE)) kinds.push("exercise");
+  if (hasTag(entry, STUDY)) kinds.push("study");
   return kinds;
+}
+
+// --- Exercise, study and work, when the timer stops ---------------------------
+
+export const EXERCISE_KINDS = [
+  { value: "run", label: "Run" },
+  { value: "gym", label: "Gym" },
+  { value: "other", label: "Other" },
+];
+
+// The units the one optional number can be in, the usual one first.
+export const EXERCISE_UNITS = { run: ["mi", "km"], gym: ["lb", "reps"], other: ["min", "reps", "mi"] };
+
+// "Run", "Quick morning jog" → run; "Gym with AJ" → gym; anything else is
+// left for you to pick.
+export function exerciseKindFrom(text) {
+  const s = String(text ?? "").toLowerCase();
+  if (/\b(run|ran|runs|running|jog|jogged|jogging)\b/.test(s)) return "run";
+  if (/\b(gym|lift|lifted|lifting|weights)\b/.test(s)) return "gym";
+  return null;
+}
+
+// Morning, afternoon or evening, from when it started. Not stored: it's
+// always there in started_at.
+export function dayPart(startedAt) {
+  const h = new Date(startedAt).getHours();
+  return h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+}
+
+export const ALERTNESS = [
+  { value: "alert", label: "Alert" },
+  { value: "drowsy", label: "Drowsy" },
+];
+
+export const DEFAULT_CLIENTS = ["Parker", "Scripture Central"];
+
+// Who a category already names: "Client work (Parker)" and "Working for
+// Parker" are Parker's, "Scripture central work" is Scripture Central's.
+export function clientFromTags(tags) {
+  for (const t of tags ?? []) {
+    const s = String(t).toLowerCase();
+    if (s.includes("parker")) return "Parker";
+    if (s.includes("scripture central")) return "Scripture Central";
+  }
+  return null;
+}
+
+// The client to pick for a stopped work timer: the category's own client,
+// else a client you've used before named in the description.
+export function clientFor(entry, known = []) {
+  if (entry?.client) return entry.client;
+  const fromTags = clientFromTags(tagsOf(entry));
+  if (fromTags) return fromTags;
+  const desc = String(entry?.description ?? "");
+  for (const k of known) {
+    const first = k.split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (first && new RegExp(`\\b${first}\\b`, "i").test(desc)) return k;
+  }
+  return null;
+}
+
+// Chips for the client picker: the usual two, then any others you've used
+// (newest first), once each regardless of case.
+export function clientChips(pastClients, limit = 6) {
+  return reasonChips(pastClients, limit, DEFAULT_CLIENTS);
+}
+
+// The client an entry's hours count toward, for comparing hours with what
+// came in: the one picked when it stopped, or the one its category names.
+export function clientOfEntry(entry) {
+  return entry?.client || clientFromTags(tagsOf(entry)) || null;
+}
+
+// Who a deposit came from, when the bank's words name a client you know
+// ("PARKER WALBECK PAYROLL" is Parker's).
+export function depositClient(txn, known = []) {
+  if (txn?.client) return txn.client;
+  const text = `${txn?.payee ?? ""} ${txn?.description ?? ""}`;
+  for (const k of reasonChips(known, 50, DEFAULT_CLIENTS)) {
+    const first = k.split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (first && new RegExp(`\\b${first}\\b`, "i").test(text)) return k;
+  }
+  return null;
+}
+
+// --- Weight -------------------------------------------------------------------
+
+// "Weigh myself" and "Weighed myself" both offer the number.
+export function isWeighIn(label) {
+  return /^\s*weigh(ed)?\b/i.test(String(label ?? ""));
+}
+
+// What a weigh-in says next to the last one: "down 1.2 lb since Oct 8".
+// Readings are { value, measured_at }, newest first.
+export function weightChange(readings, value) {
+  const prev = (readings ?? []).find((r) => Number(r.value) > 0);
+  if (!prev || !(Number(value) > 0)) return null;
+  const diff = Math.round((Number(value) - Number(prev.value)) * 10) / 10;
+  return { diff, since: prev.measured_at };
+}
+
+// --- Close-out: tasks left undone, and Sunday ------------------------------------
+
+export const TASK_REASONS = ["Ran out of time", "Waiting on someone", "Not important after all", "Low energy", "Forgot"];
+
+// The day's own unfinished tasks: top level only (a subtask goes with its
+// parent), never examples.
+export function leftUndone(tasks) {
+  return (tasks ?? []).filter((t) => !t.status && !t.parent_task_id && !t.is_example);
+}
+
+export function isSunday(date) {
+  return new Date(`${date}T12:00:00`).getDay() === 0;
+}
+
+// --- Money ----------------------------------------------------------------------
+
+export const INTENTS = [
+  { value: "planned", label: "Planned" },
+  { value: "impulse", label: "Impulse" },
+];
+
+// What share of what came in was kept: null with no income to judge it by.
+export function savingsRate(income, spending) {
+  const inc = Number(income) || 0;
+  if (inc <= 0) return null;
+  return (inc - (Number(spending) || 0)) / inc;
+}
+
+// What came in from each client next to the hours worked for them that
+// month. Deposits are { client, amount }; entries are time entries. Hours
+// with no client yet are reported on their own line rather than guessed.
+export function earningsByClient(deposits, entries) {
+  const rows = new Map();
+  const row = (name) => {
+    const key = name.toLowerCase();
+    if (!rows.has(key)) rows.set(key, { client: name, amount: 0, minutes: 0 });
+    return rows.get(key);
+  };
+  for (const d of deposits ?? []) {
+    if (!d.client || !(Number(d.amount) > 0)) continue;
+    row(d.client).amount += Number(d.amount);
+  }
+  let untagged = 0;
+  for (const e of entries ?? []) {
+    if (e.is_example) continue;
+    const mins = Number(e.duration_minutes) || 0;
+    if (mins <= 0) continue;
+    const c = clientOfEntry(e);
+    if (c) row(c).minutes += mins;
+    else untagged += mins;
+  }
+  const list = [...rows.values()]
+    .map((r) => ({ ...r, perHour: r.amount > 0 && r.minutes > 0 ? r.amount / (r.minutes / 60) : null }))
+    .sort((a, b) => b.amount - a.amount || b.minutes - a.minutes);
+  return { rows: list, untaggedMinutes: untagged };
+}
+
+// --- A range at a glance (Charts) ---------------------------------------------------
+
+// Temple visits (days with a Temple entry), workouts by kind and time of
+// day, naps, and study by how awake you were. Examples are left out.
+export function practiceSummary(entries) {
+  const templeDays = new Set();
+  const exercise = { total: 0, run: 0, gym: 0, other: 0, unsaid: 0, morning: 0, afternoon: 0, evening: 0 };
+  const naps = { count: 0, minutes: 0 };
+  const study = { sessions: 0, alert: 0, drowsy: 0 };
+  for (const e of entries ?? []) {
+    if (e.is_example) continue;
+    if (hasTag(e, TEMPLE)) templeDays.add(toDateStr(new Date(e.started_at)));
+    if (hasTag(e, EXERCISE)) {
+      exercise.total += 1;
+      exercise[EXERCISE_UNITS[e.exercise_kind] ? e.exercise_kind : "unsaid"] += 1;
+      exercise[dayPart(e.started_at)] += 1;
+    }
+    if (isNap(e)) {
+      naps.count += 1;
+      naps.minutes += Number(e.duration_minutes) || 0;
+    }
+    if (hasTag(e, STUDY)) {
+      study.sessions += 1;
+      if (e.alertness === "alert" || e.alertness === "drowsy") study[e.alertness] += 1;
+    }
+  }
+  return { templeVisits: templeDays.size, exercise, naps, study };
 }
 
 // --- Runaway timers -------------------------------------------------------------
@@ -106,6 +311,7 @@ export function runawayOf(entry, { now = new Date(), isWork = false } = {}) {
 // doesn't move it. Times after midnight count as late, not early.
 export function usualLightsOut(sleepEntries) {
   const mins = (sleepEntries ?? [])
+    .filter((e) => !isNap(e))
     .map((e) => new Date(e.started_at))
     .map((d) => d.getHours() * 60 + d.getMinutes())
     .filter((m) => m >= 18 * 60 || m < 4 * 60)
@@ -138,7 +344,7 @@ export function isMorning(now = new Date()) {
 }
 
 // Last night's sleep: the latest Sleep entry that started between noon
-// yesterday and noon today (running or not).
+// yesterday and noon today (running or not), never a nap.
 export function lastNightSleep(sleepEntries, date) {
   const [y, m, d] = date.split("-").map(Number);
   const from = new Date(y, m - 1, d - 1, 12);
@@ -147,7 +353,7 @@ export function lastNightSleep(sleepEntries, date) {
     [...(sleepEntries ?? [])]
       .filter((e) => {
         const s = new Date(e.started_at);
-        return s >= from && s < to && isSleep(e);
+        return s >= from && s < to && isSleep(e) && !isNap(e);
       })
       .sort((a, b) => b.started_at.localeCompare(a.started_at))[0] ?? null
   );

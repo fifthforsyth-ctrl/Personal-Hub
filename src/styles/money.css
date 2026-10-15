@@ -144,6 +144,8 @@
 /* --- Chips: selected is ink with white text --------------------------------- */
 
 .money-chips { flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.money-add-client { gap: 6px; flex: 1 1 200px; min-width: 0; }
+.money-add-client .input { min-width: 0; padding: 8px 12px; font-size: 13px; }
 
 .chip.money-chip {
   min-height: 36px;
@@ -409,3 +411,21 @@
   .money-tile--wide .money-tile__foot { grid-column: 1; grid-row: 2; }
   .money-tile--wide .money-tile__value { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
 }
+
+/* --- Income by client --------------------------------------------------------- */
+
+.money-clients { display: flex; flex-direction: column; }
+.money-clients__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.money-clients__row > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.money-clients__row .mono { font-size: 13px; }
+.money-clients__row--head { border-top: none; padding-top: 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.money-clients__name { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.money-clients__note { margin: 10px 0 0; }

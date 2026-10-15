@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
-import { todayStr, addDays } from "./planDates";
+import { todayStr, addDays, toDateStr } from "./planDates";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -203,7 +203,7 @@ export async function splitIntoSleep(userId, entry, sleepAt) {
 export async function fetchSleepEntries(userId, sinceISO) {
   const { data, error } = await supabase
     .from("time_log_entries")
-    .select("id, started_at, ended_at, duration_minutes, tags, category")
+    .select("id, started_at, ended_at, duration_minutes, tags, category, is_nap")
     .eq("user_id", userId)
     .contains("tags", ["Sleep"])
     .gte("started_at", sinceISO)
@@ -232,6 +232,43 @@ export async function fetchPeopleHistory(userId) {
 export async function updateTimeEntry(entryId, fields) {
   const { error } = await supabase.from("time_log_entries").update(fields).eq("id", entryId);
   if (error) throw error;
+}
+
+// One tap from whatever is running to something else (Waste, a temple
+// visit): the running timer ends now and the new one starts. Returns both,
+// so the one that stopped can still be asked about.
+export async function switchTimer(userId, runningId, { categories, description }) {
+  const stopped = runningId ? await stopTimeEntry(runningId) : null;
+  const started = await startTimeEntry(userId, { categories, description });
+  return { stopped, started };
+}
+
+// Clients you've picked before, newest first: on work time and on deposits.
+export async function fetchClientHistory(userId) {
+  const [entries, deposits] = await Promise.all([
+    supabase
+      .from("time_log_entries")
+      .select("client, started_at")
+      .eq("user_id", userId)
+      .not("client", "is", null)
+      .order("started_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("bank_transactions")
+      .select("client, posted_at")
+      .eq("user_id", userId)
+      .not("client", "is", null)
+      .order("posted_at", { ascending: false })
+      .limit(50),
+  ]);
+  if (entries.error) throw entries.error;
+  if (deposits.error) throw deposits.error;
+  return [
+    ...(entries.data ?? []).map((r) => ({ client: r.client, at: r.started_at })),
+    ...(deposits.data ?? []).map((r) => ({ client: r.client, at: r.posted_at })),
+  ]
+    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))
+    .map((r) => r.client);
 }
 
 export async function deleteTimeEntry(entryId) {
@@ -379,6 +416,80 @@ export async function fetchWinLosses(userId, { sinceISO, limit = 100 } = {}) {
   return data ?? [];
 }
 
+// Weight (and later steps and resting heart rate), one row per reading.
+export async function saveBodyMetric(userId, { kind = "weight", value, unit = "lb", date, measuredAt }) {
+  const n = Number(value);
+  if (!(n > 0)) throw new Error("Enter a number.");
+  const at = measuredAt ? new Date(measuredAt) : new Date();
+  const { data, error } = await supabase
+    .from("body_metrics")
+    .insert({ user_id: userId, kind, value: n, unit, date: date ?? toDateStr(at), measured_at: at.toISOString() })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBodyMetric(id, value) {
+  const n = Number(value);
+  if (!(n > 0)) throw new Error("Enter a number.");
+  const { error } = await supabase.from("body_metrics").update({ value: n }).eq("id", id);
+  if (error) throw error;
+}
+
+// A range's practice for Charts: temple visits, workouts, naps and study
+// (the entries), with the weight readings taken in it. Examples are left out.
+export async function fetchPractice(userId, startDate, endDate) {
+  const from = new Date(`${startDate}T00:00:00`).toISOString();
+  const to = new Date(`${addDays(endDate, 1)}T00:00:00`).toISOString();
+  // The range's ended, real entries, narrowed one way or the other: naps,
+  // or anything tagged Temple, Exercise or Study.
+  const ended = (narrow) =>
+    narrow(
+      supabase
+        .from("time_log_entries")
+        .select("id, started_at, duration_minutes, tags, category, is_nap, exercise_kind, alertness, is_example")
+        .eq("user_id", userId)
+        .eq("is_example", false)
+        .not("ended_at", "is", null)
+        .gte("started_at", from)
+        .lt("started_at", to)
+    ).limit(3000);
+  const [naps, tagged, weights] = await Promise.all([
+    ended((q) => q.eq("is_nap", true)),
+    ended((q) => q.overlaps("tags", ["Temple", "Exercise", "Study"])),
+    supabase
+      .from("body_metrics")
+      .select("id, date, measured_at, value, unit")
+      .eq("user_id", userId)
+      .eq("kind", "weight")
+      .eq("is_example", false)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("measured_at", { ascending: true }),
+  ]);
+  for (const r of [naps, tagged, weights]) if (r.error) throw r.error;
+  // A nap tagged Study as well comes back from both; it counts once.
+  const entries = new Map([...(naps.data ?? []), ...(tagged.data ?? [])].map((e) => [e.id, e]));
+  return { entries: [...entries.values()], weights: weights.data ?? [] };
+}
+
+// Readings of one kind, newest first. Examples are left out.
+export async function fetchBodyMetrics(userId, { kind = "weight", sinceISO, limit = 400 } = {}) {
+  let q = supabase
+    .from("body_metrics")
+    .select("id, date, measured_at, value, unit")
+    .eq("user_id", userId)
+    .eq("kind", kind)
+    .eq("is_example", false)
+    .order("measured_at", { ascending: false })
+    .limit(limit);
+  if (sinceISO) q = q.gte("measured_at", sinceISO);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function logPrayer(userId, { context, content, feltResponse, tags, prayedAt }) {
   const row = { user_id: userId, context: context || null, content, felt_response: feltResponse || null, tags: tags ?? [] };
   if (prayedAt) row.prayed_at = prayedAt;
@@ -514,6 +625,19 @@ export async function createTask(userId, fields) {
 export async function updateTask(taskId, fields) {
   const { error } = await supabase.from("tasks").update({ ...fields, updated_at: new Date().toISOString() }).eq("id", taskId);
   if (error) throw error;
+}
+
+// Why tasks were left undone before, newest first, to come back as chips.
+export async function fetchTaskReasons(userId) {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("left_reason, date")
+    .eq("user_id", userId)
+    .not("left_reason", "is", null)
+    .order("date", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.left_reason);
 }
 
 export async function toggleTask(taskId, done) {
@@ -2078,6 +2202,46 @@ export async function fetchMoneyOverview(monthDate) {
   return data;
 }
 
+// What came in during a month (not transfers) and the work time logged in
+// it, to set earnings beside hours. Work time is any entry with a category
+// in the Work family or marked as work. Examples are left out.
+export async function fetchMonthEarnings(userId, monthStart, monthEnd) {
+  const from = new Date(`${monthStart}T00:00:00`).toISOString();
+  const to = new Date(`${monthEnd}T00:00:00`).toISOString();
+  const [cats, deposits] = await Promise.all([
+    supabase.from("user_categories").select("name, family, is_work").eq("user_id", userId),
+    supabase
+      .from("bank_transactions")
+      .select("id, posted_at, amount, payee, description, client")
+      .eq("user_id", userId)
+      .gt("amount", 0)
+      .eq("is_transfer", false)
+      .gte("posted_at", from)
+      .lt("posted_at", to)
+      .order("posted_at", { ascending: false }),
+  ]);
+  if (cats.error) throw cats.error;
+  if (deposits.error) throw deposits.error;
+  const work = (cats.data ?? []).filter((c) => c.family === "Work" || c.is_work).map((c) => c.name);
+  let entries = [];
+  if (work.length) {
+    const { data, error } = await supabase
+      .from("time_log_entries")
+      .select("id, category, tags, client, description, duration_minutes, is_example")
+      .eq("user_id", userId)
+      .eq("is_example", false)
+      .not("ended_at", "is", null)
+      // Quoted by hand: category names can hold commas and brackets.
+      .overlaps("tags", `{${work.map((w) => `"${w.replace(/["\\]/g, "\\$&")}"`).join(",")}}`)
+      .gte("started_at", from)
+      .lt("started_at", to)
+      .limit(2000);
+    if (error) throw error;
+    entries = data ?? [];
+  }
+  return { deposits: deposits.data ?? [], entries };
+}
+
 // By default only what you've bought since about a week before connecting —
 // the 90-day backfill is history, not a to-do list. includeHistory opens it.
 export async function fetchPurchaseInbox(limit = 25, includeHistory = false) {
@@ -2130,6 +2294,21 @@ export async function updateTransactionNote(id, note) {
 
 export async function setTransfer(id, isTransfer) {
   const { error } = await supabase.from("bank_transactions").update({ is_transfer: isTransfer }).eq("id", id);
+  if (error) throw error;
+}
+
+// Planned or impulse, for a purchase; null takes the answer back.
+export async function setPurchaseIntent(id, intent) {
+  const { error } = await supabase.from("bank_transactions").update({ intent: intent || null }).eq("id", id);
+  if (error) throw error;
+}
+
+// Who a deposit came from, and its note, in one save.
+export async function saveIncome(id, { note, client }) {
+  const { error } = await supabase
+    .from("bank_transactions")
+    .update({ note: note?.trim() || null, client: client?.trim() || null, updated_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw error;
 }
 

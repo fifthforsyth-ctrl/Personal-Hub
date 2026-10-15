@@ -4,6 +4,7 @@ import {
   fetchOpenTimeEntry,
   startTimeEntry,
   stopTimeEntry,
+  switchTimer,
   goToBed,
   logPastTimeEntry,
   fetchTimeEntriesForDate,
@@ -16,7 +17,7 @@ import {
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { friendlyError } from "../lib/errors";
-import { colorFor, fmtMinutes, setCategoryColors, PALETTE } from "../lib/categories";
+import { colorFor, familyFor, fmtMinutes, setCategoryColors, PALETTE } from "../lib/categories";
 import { todayStr, parseDateStr, toDateStr } from "../lib/planDates";
 import { useToast } from "./ui/Feedback";
 import LoadError from "./ui/LoadError";
@@ -25,8 +26,8 @@ import { trackedMinutes, fmtElapsed, timeOf } from "./today/minutes";
 import { useBackOnline } from "./today/useBackOnline";
 import { isBedtime } from "./today/dayParts";
 import BedButton from "./today/BedButton";
-import StopFollowUp, { needsFollowUp } from "./today/StopFollowUp";
-import { isSleep } from "../lib/honest";
+import StopFollowUp, { needsFollowUp, ClientPicker } from "./today/StopFollowUp";
+import { isSleep, isNap, tagsOf, WASTE, TEMPLE } from "../lib/honest";
 
 // Minutes: start a timer, log time after the fact, and fix what's logged.
 //
@@ -62,6 +63,13 @@ function shortDay(date) {
   return parseDateStr(date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+// One tap, no category to pick: idle time logged as it happens, and a
+// temple visit counted the moment you walk in.
+const QUICK = [
+  { key: "waste", label: "Waste", category: WASTE, description: null },
+  { key: "temple", label: "Temple visit", category: TEMPLE, description: "Temple visit" },
+];
+
 export function MinutesView({ userId, date = todayStr() }) {
   const toast = useToast();
   const isToday = date === todayStr();
@@ -88,6 +96,7 @@ export function MinutesView({ userId, date = todayStr() }) {
   const hiddenCategories = allCategories.filter((c) => c.archived);
   const entries = (data?.entries ?? []).filter((e) => e.ended_at && !deleted.has(e.id));
   const open = data?.open && data.open.id !== stoppedId ? data.open : null;
+  const quick = QUICK.filter((q) => categories.some((c) => c.name === q.category));
   const total = trackedMinutes(entries);
   const lastEnd = entries.length ? new Date(entries[entries.length - 1].ended_at) : null;
 
@@ -118,7 +127,23 @@ export function MinutesView({ userId, date = todayStr() }) {
     if (ok) {
       setDescription("");
       setPicked([]);
+      setFollowUp(null);
     }
+  }
+
+  // Waste or a temple visit, in one tap. Whatever was running stops, and
+  // can still be asked about.
+  async function startQuick(q) {
+    const id = open?.id;
+    let stopped = null;
+    const ok = await write(async () => {
+      ({ stopped } = await switchTimer(userId, id, { categories: [q.category], description: q.description }));
+    }, `Couldn't start ${q.label}. Try again.`);
+    if (!ok) return;
+    if (id) setStoppedId(id);
+    setFollowUp(stopped && needsFollowUp(stopped) ? stopped : null);
+    setDescription("");
+    setPicked([]);
   }
 
   async function stop() {
@@ -166,10 +191,17 @@ export function MinutesView({ userId, date = todayStr() }) {
     <div className="stack">
       {error && <LoadError what="your minutes" error={error} onRetry={reload} stale />}
 
-      {followUp && !open && <StopFollowUp key={followUp.id} userId={userId} entry={followUp} onClose={() => setFollowUp(null)} />}
+      {followUp && followUp.id !== open?.id && <StopFollowUp key={followUp.id} userId={userId} entry={followUp} onClose={() => setFollowUp(null)} />}
 
       {open ? (
-        <RunningCard entry={open} onStop={stop} onBed={isToday && isBedtime() && !isSleep(open) ? bed : null} busy={busy} />
+        <RunningCard
+          entry={open}
+          onStop={stop}
+          onBed={isToday && isBedtime() && !isSleep(open) ? bed : null}
+          switches={isSleep(open) ? [] : quick.filter((q) => !tagsOf(open).includes(q.category))}
+          onSwitch={startQuick}
+          busy={busy}
+        />
       ) : (
         <div className="card">
           <div className="card-head">
@@ -180,6 +212,8 @@ export function MinutesView({ userId, date = todayStr() }) {
               </button>
             )}
           </div>
+
+          {isToday && !manualOpen && quick.length > 0 && <QuickRow items={quick} onPick={startQuick} busy={busy} />}
 
           <input
             className="input input--lg"
@@ -245,7 +279,7 @@ export function MinutesView({ userId, date = todayStr() }) {
           </div>
           <div className="list">
             {entries.map((e) => (
-              <EntryRow key={e.id} entry={e} categories={categories} onDelete={() => removeEntry(e)} />
+              <EntryRow key={e.id} userId={userId} entry={e} categories={categories} onDelete={() => removeEntry(e)} />
             ))}
           </div>
         </div>
@@ -256,7 +290,22 @@ export function MinutesView({ userId, date = todayStr() }) {
   );
 }
 
-function RunningCard({ entry, onStop, onBed, busy }) {
+// The one-tap starts, as a row of chips that each start their timer now.
+function QuickRow({ items, onPick, busy, label }) {
+  return (
+    <div className="quick-track" role="group" aria-label={label ?? "Start in one tap"}>
+      {label && <span className="quick-track__label">{label}</span>}
+      {items.map((q) => (
+        <button key={q.key} type="button" className="name-chip quick-track__chip" onClick={() => onPick(q)} disabled={busy} title={`Start ${q.label} now`}>
+          <Play size={11} />
+          {q.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RunningCard({ entry, onStop, onBed, switches = [], onSwitch, busy }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 15000);
@@ -279,6 +328,7 @@ function RunningCard({ entry, onStop, onBed, busy }) {
         {busy ? "Stopping…" : isSleep(entry) ? "I'm up" : "Stop timer"}
       </button>
       {onBed && <BedButton onClick={onBed} busy={busy} />}
+      {switches.length > 0 && <QuickRow items={switches} onPick={onSwitch} busy={busy} label="Switch to" />}
     </div>
   );
 }
@@ -452,16 +502,17 @@ function ManualEntry({ date, isToday, defaultStart, picked, busy, onLog }) {
   );
 }
 
-function EntryRow({ entry, categories, onDelete }) {
+function EntryRow({ userId, entry, categories, onDelete }) {
   const [editing, setEditing] = useState(false);
   const tags = entry.tags?.length ? entry.tags : [entry.category];
+  const name = entry.description || (isNap(entry) ? "Nap" : "Untitled");
 
-  if (editing) return <EntryEditor entry={entry} tags={tags} categories={categories} onDone={() => setEditing(false)} />;
+  if (editing) return <EntryEditor userId={userId} entry={entry} tags={tags} categories={categories} onDone={() => setEditing(false)} />;
 
   return (
     <div className="entry-row-x">
       <div className="row row--between" style={{ alignItems: "center", gap: 6 }}>
-        <span className="truncate" style={{ fontSize: 13.5, fontWeight: 570, flex: 1 }}>{entry.description || "Untitled"}</span>
+        <span className="truncate" style={{ fontSize: 13.5, fontWeight: 570, flex: 1 }}>{name}</span>
         <span className="mono" style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 600, flexShrink: 0 }}>{fmtMinutes(entry.duration_minutes)}</span>
         <button className="btn-icon entry-row-x__action" onClick={() => setEditing(true)} aria-label={`Edit ${entry.description || "this entry"}`} title="Edit">
           <Pencil size={14} />
@@ -477,24 +528,28 @@ function EntryRow({ entry, categories, onDelete }) {
         {tags.map((t) => (
           <TagChip key={t} tag={t} />
         ))}
+        {entry.client && <span className="list-row__meta">· {entry.client}</span>}
       </div>
     </div>
   );
 }
 
 // Everything about an entry can be fixed: what it was, when it started, how
-// long it ran, and which categories it counts toward.
-function EntryEditor({ entry, tags, categories, onDone }) {
+// long it ran, which categories it counts toward, and for work, who it was
+// for.
+function EntryEditor({ userId, entry, tags, categories, onDone }) {
   const started = new Date(entry.started_at);
   const day = toDateStr(started);
   const [desc, setDesc] = useState(entry.description ?? "");
   const [mins, setMins] = useState(String(Math.round(Number(entry.duration_minutes) || 0)));
   const [start, setStart] = useState(hhmm(started));
   const [chosen, setChosen] = useState(tags);
+  const [client, setClient] = useState(entry.client ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   // Categories that have since been hidden still show here while the entry has them.
   const options = [...categories.map((c) => c.name), ...tags.filter((t) => !categories.some((c) => c.name === t))];
+  const isWork = chosen.some((c) => familyFor(c) === "Work");
 
   async function save(e) {
     e.preventDefault();
@@ -510,6 +565,7 @@ function EntryEditor({ entry, tags, categories, onDone }) {
         ended_at: new Date(new Date(startedAt).getTime() + n * 60000).toISOString(),
         tags: chosen,
         category: chosen[0],
+        client: isWork ? client : null,
       });
       announceChange();
       onDone();
@@ -550,6 +606,17 @@ function EntryEditor({ entry, tags, categories, onDone }) {
         })}
       </div>
       {chosen.length === 0 && <p className="minutes-hint">Pick at least one category.</p>}
+      {isWork && (
+        <div>
+          <div className="honest-label" style={{ marginTop: 0 }}>For <span className="faint">(optional)</span></div>
+          <ClientPicker
+            userId={userId}
+            entry={entry}
+            value={client}
+            onPick={(name) => setClient((c) => (c?.toLowerCase() === name.toLowerCase() ? null : name))}
+          />
+        </div>
+      )}
       {error && <div className="form-error">{error}</div>}
       <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
         <button type="button" className="btn" onClick={onDone}>Cancel</button>

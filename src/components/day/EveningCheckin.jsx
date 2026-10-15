@@ -5,6 +5,8 @@ import {
   fetchDayPlan,
   fetchLastAlarm,
   fetchEveningHistory,
+  fetchTaskReasons,
+  updateTask,
   logPrayer,
   updatePrayer,
   deletePrayer,
@@ -23,8 +25,11 @@ import {
   eveningStamp,
   fmtClock,
   rememberedAlarm,
+  leftUndone,
+  isSunday,
   STRESS_SOURCES,
   OFF_PLAN_REASONS,
+  TASK_REASONS,
   SLEEP_HOURS,
 } from "../../lib/honest";
 import { Scale } from "../today/StopFollowUp";
@@ -34,9 +39,14 @@ import "../../styles/honest.css";
 // The evening check-in: the day in a few taps, just before banking it.
 //
 // Mood and stress (with where the stress came from), why the day went off
-// plan when planned blocks didn't happen, a line of prayer, whether there
-// was a prompting, and when tomorrow starts. Every answer saves the moment
-// it's tapped and every one can be left blank; banking never waits on it.
+// plan when planned blocks didn't happen, why any task was left undone, a
+// line of prayer, on Sundays a line about the Sabbath and whether it was a
+// fast Sunday, whether there was a prompting, and when tomorrow starts.
+// Every answer saves the moment it's tapped and every one can be left
+// blank; banking never waits on it.
+//
+// An unfinished task stays on its day: the reason is kept on it, and
+// nothing moves to tomorrow.
 //
 // The prayer goes into your prayer log (context "Evening") and a prompting
 // into your promptings, so both show up where they always have. One you
@@ -51,18 +61,22 @@ const PROMPTING_CONTEXT = "Evening check-in";
 
 async function loadEvening(userId, date) {
   const tomorrow = addDays(date, 1);
-  const [next, lastAlarm, history] = await Promise.all([
+  const [next, lastAlarm, history, taskReasons] = await Promise.all([
     fetchDayPlan(userId, tomorrow),
     fetchLastAlarm(userId, tomorrow),
     fetchEveningHistory(userId).catch((err) => {
       console.warn(err);
       return { stressSources: [], offPlanReasons: [] };
     }),
+    fetchTaskReasons(userId).catch((err) => {
+      console.warn(err);
+      return [];
+    }),
   ]);
-  return { tomorrow, nextAlarm: next?.alarm_at?.slice(0, 5) ?? null, lastAlarm, history };
+  return { tomorrow, nextAlarm: next?.alarm_at?.slice(0, 5) ?? null, lastAlarm, history, taskReasons };
 }
 
-export default function EveningCheckin({ userId, date, dayPlan, chunks, entries, prayers, experiences }) {
+export default function EveningCheckin({ userId, date, dayPlan, chunks, entries, tasks, prayers, experiences }) {
   const { data } = useLoad(() => loadEvening(userId, date), [userId, date]);
 
   const [mood, setMood] = useState(dayPlan?.mood ?? null);
@@ -80,6 +94,10 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
     const e = (experiences ?? []).find((x) => x.trigger_context === PROMPTING_CONTEXT && !x.is_example);
     return e && e.what_came !== "A prompting" ? e.what_came : "";
   });
+  const [leftReasons, setLeftReasons] = useState({});
+  const [fast, setFast] = useState(dayPlan?.fast_sunday ?? null);
+  const [sabbath, setSabbath] = useState(dayPlan?.sabbath_note ?? "");
+  const savedSabbath = useRef(dayPlan?.sabbath_note ?? "");
   const [alarm, setAlarm] = useState(null);
   const [otherAlarm, setOtherAlarm] = useState(false);
   const [busy, setBusy] = useState(null);
@@ -100,6 +118,9 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
   const earlierPromptings = (experiences ?? []).filter((e) => e.kind === "prompting" && !e.is_example && e.trigger_context !== PROMPTING_CONTEXT);
   const sources = reasonChips(data?.history.stressSources, 8, STRESS_SOURCES);
   const offReasons = reasonChips(data?.history.offPlanReasons, 8, OFF_PLAN_REASONS);
+  const undone = leftUndone(tasks);
+  const taskReasons = reasonChips(data?.taskReasons, 7, TASK_REASONS);
+  const sunday = isSunday(date);
 
   async function run(what, fn, fallback) {
     setBusy(what);
@@ -141,6 +162,28 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
     const next = v && offReason?.toLowerCase() === v.toLowerCase() ? null : v;
     setOffReason(next);
     saveDay({ off_plan_reason: next });
+  }
+
+  function pickLeftReason(task, v) {
+    const current = task.id in leftReasons ? leftReasons[task.id] : task.left_reason;
+    const next = v && current?.toLowerCase() === v.toLowerCase() ? null : v;
+    setLeftReasons((r) => ({ ...r, [task.id]: next }));
+    run("task", () => updateTask(task.id, { left_reason: next }), "Couldn't save that. Tap it again.");
+  }
+
+  // Sunday: a fast Sunday is one tap (tapping again says it wasn't), and
+  // the line beside it saves when you leave it.
+  function toggleFast() {
+    const next = !fast;
+    setFast(next);
+    saveDay({ fast_sunday: next });
+  }
+
+  function saveSabbath() {
+    const t = sabbath.trim();
+    if (t === savedSabbath.current) return;
+    savedSabbath.current = t;
+    saveDay({ sabbath_note: t || null });
   }
 
   // Prayed: one tap logs it; the line beside it is optional and saves when
@@ -285,6 +328,18 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
         </>
       )}
 
+      {undone.length > 0 && (
+        <>
+          <div className="honest-label">{undone.length === 1 ? "Why was this left undone?" : "Why were these left undone?"}</div>
+          <LeftUndone
+            tasks={undone}
+            reasonOf={(t) => (t.id in leftReasons ? leftReasons[t.id] : t.left_reason)}
+            options={taskReasons}
+            onPick={pickLeftReason}
+          />
+        </>
+      )}
+
       <div className="honest-label">Prayer</div>
       <div className="evening-checkin__line">
         <button type="button" className={"name-chip" + (prayer ? " name-chip--on" : "")} aria-pressed={Boolean(prayer)} onClick={togglePrayed} disabled={busy === "prayer"}>
@@ -301,6 +356,27 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
           maxLength={300}
         />
       </div>
+
+      {sunday && (
+        <>
+          <div className="honest-label">The Sabbath</div>
+          <div className="evening-checkin__line">
+            <button type="button" className={"name-chip" + (fast ? " name-chip--on" : "")} aria-pressed={Boolean(fast)} onClick={toggleFast}>
+              {fast && <Check size={12} />}
+              Fast Sunday
+            </button>
+            <input
+              className="input"
+              value={sabbath}
+              onChange={(e) => setSabbath(e.target.value)}
+              onBlur={saveSabbath}
+              placeholder="One line about today (optional)"
+              aria-label="A line about the Sabbath"
+              maxLength={300}
+            />
+          </div>
+        </>
+      )}
 
       <div className="honest-label">Any prompting today?</div>
       {earlierPromptings.length > 0 && (
@@ -362,6 +438,46 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
       </p>
 
       {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
+    </div>
+  );
+}
+
+// Each unfinished task with its reason chips. Once a reason is picked the
+// row folds to one line; tap it to change the reason.
+function LeftUndone({ tasks, reasonOf, options, onPick }) {
+  const [reopened, setReopened] = useState(null);
+  return (
+    <div className="evening-checkin__tasks">
+      {tasks.map((t) => {
+        const reason = reasonOf(t);
+        const open = !reason || reopened === t.id;
+        return (
+          <div key={t.id} className="evening-checkin__task">
+            {reason ? (
+              <button type="button" className="evening-checkin__task-title" onClick={() => setReopened(open ? null : t.id)} aria-expanded={open}>
+                <span className="truncate">{t.title}</span>
+                <span className="faint evening-checkin__task-reason">{reason}</span>
+              </button>
+            ) : (
+              <div className="evening-checkin__task-title">
+                <span className="truncate">{t.title}</span>
+              </div>
+            )}
+            {open && (
+              <Chips
+                options={options}
+                value={reason}
+                onPick={(v) => {
+                  setReopened(null);
+                  onPick(t, v);
+                }}
+                label={`Why ${t.title} was left`}
+                max={80}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

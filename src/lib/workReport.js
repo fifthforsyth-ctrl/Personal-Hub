@@ -43,9 +43,13 @@ export function buildReport(work) {
   const questions = notes.filter((n) => n.kind === "question");
   const asides = notes.filter((n) => n.kind === "note");
 
+  // "What I shipped": one line you write yourself, first in both versions.
+  const shipped = String(work?.shipped ?? "").trim() || null;
+
   return {
     date: work?.date,
     minutes: Number(work?.minutes) || 0,
+    shipped,
     done,
     open,
     extras,
@@ -54,6 +58,7 @@ export function buildReport(work) {
     asides,
     tomorrow: work?.tomorrow ?? [],
     hasAnything:
+      Boolean(shipped) ||
       done.length + open.length + extras.length + blocked.length + questions.length + asides.length + (work?.tomorrow?.length ?? 0) > 0 ||
       Number(work?.minutes) > 0,
   };
@@ -64,6 +69,8 @@ export function reportToText(work, { name } = {}) {
   const lines = [];
 
   lines.push(`${fmtReportDate(r.date)} — ${fmtHours(r.minutes)}`);
+
+  if (r.shipped) lines.push("", "SHIPPED", `· ${r.shipped}`);
 
   if (r.done.length || r.extras.length) {
     lines.push("", "DONE");

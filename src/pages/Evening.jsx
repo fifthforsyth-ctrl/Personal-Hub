@@ -121,12 +121,13 @@ export default function Evening() {
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
           <FocusDay userId={userId} date={date} variant="evening" />
           <EveningCheckin
-            key={date}
+            key={`checkin-${date}`}
             userId={userId}
             date={date}
             dayPlan={data.dayPlan}
             chunks={data.chunks}
             entries={a.time_entries ?? []}
+            tasks={data.tasks}
             prayers={a.prayers ?? []}
             experiences={a.experiences ?? []}
           />

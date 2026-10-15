@@ -8,6 +8,7 @@ import IdealDays from "../components/plan/IdealDays";
 import CategoryKey from "../components/CategoryKey";
 import FocusWeek from "../components/focus/FocusWeek";
 import CuratedCards from "../components/curator/CuratedCards";
+import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import {
   todayStr,
   addDays,
@@ -140,7 +141,9 @@ export default function Plan() {
       {/* Sunday is when the week gets planned, so it's when the board brings
           back what fits the week ahead. */}
       {view === "Week" && isSundayReview(date) && (
-        <div style={{ marginBottom: 16 }}>
+        <div className="stack" style={{ marginBottom: 16 }}>
+          {/* Last week's purchases, sorted before the new week is planned. */}
+          <PurchaseNudge lead="Before you plan the week:" />
           <CuratedCards slot="day" title="From your board, for the week ahead" />
         </div>
       )}

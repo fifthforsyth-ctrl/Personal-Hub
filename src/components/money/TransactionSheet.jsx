@@ -3,26 +3,31 @@ import { Briefcase, Check, Loader2, Paperclip, ArrowLeftRight, RotateCcw, Trash2
 import { useAuth } from "../../context/AuthContext";
 import {
   fetchBudgets,
+  fetchClientHistory,
   classifyPurchase,
   setTransfer,
+  setPurchaseIntent,
   reopenTransaction,
   updateManualExpense,
-  updateTransactionNote,
+  saveIncome,
   uploadReceipt,
 } from "../../lib/api";
+import { clientChips, depositClient, tidyName } from "../../lib/honest";
 import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle, kindForBudget } from "../../lib/money";
 import { useLoad } from "../../lib/useLoad";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import { MoneySheet, Chip, Switch } from "./shared";
+import { IntentChips } from "./PurchaseQuestion";
 
 // One transaction, opened from the list: change what it was, straight here,
 // instead of sending it back to the question and waiting for it to come round.
 //
 // A purchase gets the same answer as the question (budget, business, and
 // under More detail the kind and a note). A cash expense can also have its
-// date, amount and words corrected, or be deleted. A deposit takes a note.
-// Anything marked "not a purchase" can be put back.
+// date, amount and words corrected, or be deleted. A deposit takes who it
+// came from (filled in when the bank's words name a client you know) and a
+// note. Anything marked "not a purchase" can be put back.
 export default function TransactionSheet({ txn, onClose, onChanged, onDelete }) {
   const out = Number(txn.amount) < 0;
   const title = merchantTitle(txn.description);
@@ -106,26 +111,76 @@ function TransferBody({ txn, out, onClose, onChanged }) {
 }
 
 function IncomeBody({ txn, onClose, onChanged }) {
+  const { user } = useAuth();
   const toast = useToast();
   const [note, setNote] = useState(txn.note ?? "");
+  const [known, setKnown] = useState([]);
+  const [picked, setPicked] = useState(undefined); // undefined until you tap
+  const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const toggle = useTransferToggle(txn, onClose, onChanged);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let live = true;
+    fetchClientHistory(user.id).then(
+      (list) => live && setKnown(list),
+      (err) => console.warn(err)
+    );
+    return () => {
+      live = false;
+    };
+  }, [user?.id]);
+
+  // The bank's words often name the client ("PARKER WALBECK PAYROLL"): that
+  // one is picked for you, and saved with the next Save.
+  const client = picked === undefined ? depositClient(txn, known) : picked;
+  const chips = clientChips(known);
+  const shownChips = client && !chips.some((c) => c.toLowerCase() === client.toLowerCase()) ? [client, ...chips] : chips;
+  const changed = note !== (txn.note ?? "") || (client ?? null) !== (txn.client ?? null);
 
   async function save() {
     if (busy) return;
     setBusy(true);
     try {
-      await updateTransactionNote(txn.id, note);
+      await saveIncome(txn.id, { note, client });
       onChanged();
       onClose();
     } catch (err) {
-      toast.error(err, "Couldn't save the note. Try again.");
+      toast.error(err, "Couldn't save that. Try again.");
       setBusy(false);
     }
   }
 
   return (
     <>
+      <div className="money-label">From</div>
+      <div className="row money-chips" role="group" aria-label="Who it came from">
+        {shownChips.map((c) => {
+          const on = client?.toLowerCase() === c.toLowerCase();
+          return (
+            <Chip key={c} active={on} onClick={() => setPicked(on ? null : c)}>
+              {c}
+            </Chip>
+          );
+        })}
+        {adding ? (
+          <form
+            className="row money-add-client"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = tidyName(e.currentTarget.elements.client.value);
+              if (name) setPicked(name);
+              setAdding(false);
+            }}
+          >
+            <input name="client" className="input" placeholder="Client" aria-label="Who it came from" maxLength={60} autoFocus />
+            <button type="submit" className="btn btn--sm">Add</button>
+          </form>
+        ) : (
+          <Chip onClick={() => setAdding(true)}>Other…</Chip>
+        )}
+      </div>
       <label className="money-field">
         <span>Note</span>
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for (optional)" />
@@ -135,7 +190,7 @@ function IncomeBody({ txn, onClose, onChanged }) {
           <ArrowLeftRight size={14} />
           It's a transfer
         </button>
-        <button type="button" className="btn btn--accent" disabled={busy || toggle.busy || note === (txn.note ?? "")} onClick={save}>
+        <button type="button" className="btn btn--accent" disabled={busy || toggle.busy || !changed} onClick={save}>
           {busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
           {busy ? "Saving…" : "Save"}
         </button>
@@ -161,6 +216,7 @@ function PurchaseBody({ txn, onClose, onChanged, onDelete }) {
   const [isBusiness, setIsBusiness] = useState(Boolean(txn.is_business));
   const [category, setCategory] = useState(txn.business_category ?? "");
   const [kind, setKind] = useState(null); // null until picked by hand
+  const [intent, setIntent] = useState(txn.intent ?? null);
   const [note, setNote] = useState(txn.note ?? "");
   const [moreOpen, setMoreOpen] = useState(Boolean(txn.note));
   const [remember, setRemember] = useState(true);
@@ -206,6 +262,7 @@ function PurchaseBody({ txn, onClose, onChanged, onDelete }) {
         // store's every future one.
         remember: !isCash && remember,
       });
+      if (intent !== (txn.intent ?? null)) await setPurchaseIntent(txn.id, intent);
       onChanged();
       onClose();
       toast.show(sorted ? "Saved" : "Sorted");
@@ -280,6 +337,8 @@ function PurchaseBody({ txn, onClose, onChanged, onDelete }) {
           ))}
         </div>
       )}
+
+      <IntentChips value={intent} onPick={setIntent} />
 
       <Switch on={isBusiness} onChange={setIsBusiness} icon={Briefcase}>Business expense</Switch>
 

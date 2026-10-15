@@ -10,7 +10,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
-import { reportToText, fmtHours } from "../src/lib/workReport.js";
+import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
 import { withTaps, waitingTaps, isUnnamed, KEEP_MS } from "../src/components/today/tapRows.js";
 import { editableFields, changesFrom, draftOver, draftClashes, draftTime } from "../src/components/study/noteDraft.js";
@@ -70,6 +70,22 @@ import {
   windDown,
   eveningStamp,
   STRESS_SOURCES,
+  isNap,
+  exerciseKindFrom,
+  dayPart,
+  clientFromTags,
+  clientFor,
+  clientChips,
+  depositClient,
+  isWeighIn,
+  weightChange,
+  leftUndone,
+  isSunday,
+  savingsRate,
+  earningsByClient,
+  practiceSummary,
+  TASK_REASONS,
+  DEFAULT_CLIENTS,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
@@ -748,6 +764,109 @@ for (const col of ["mood smallint", "stress smallint", "stress_source", "off_pla
   ok(`Ask's schema notes know ${col}`, askFnT2.includes(col));
   ok(`the assistant's schema notes know ${col}`, assistantFnT2.includes(col));
 }
+}
+
+// --- Honest tracking, tier 3: the rest of the day ------------------------------
+{
+console.log("\nhonest tracking, tier 3");
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
+const fam3 = (t) => ({ "Forsyth Media LLC": "Work", "Client work (Parker)": "Work", Meet: "People", Exercise: "Body", Study: "Spirit" })[t] ?? "Other";
+ok("exercise asks what kind", followUpKinds({ tags: ["Exercise"] }, fam3).join() === "exercise");
+ok("study asks how awake", followUpKinds({ tags: ["Study"] }, fam3).join() === "study");
+ok("the gym with a friend asks both", followUpKinds({ tags: ["Exercise", "Meet"] }, fam3).join() === "people,exercise");
+ok("a run is read from the description", exerciseKindFrom("Morning run") === "run" && exerciseKindFrom("Quick jog") === "run");
+ok("so is the gym", exerciseKindFrom("Gym with AJ") === "gym" && exerciseKindFrom("Lifting") === "gym");
+ok("anything else is left to pick", exerciseKindFrom("Hike") === null && exerciseKindFrom("Pruning") === null && exerciseKindFrom(null) === null);
+ok("morning, afternoon and evening from the start time",
+  dayPart(at(2026, 10, 14, 6).toISOString()) === "morning" && dayPart(at(2026, 10, 14, 13).toISOString()) === "afternoon" && dayPart(at(2026, 10, 14, 18).toISOString()) === "evening");
+
+ok("Parker's categories name Parker", clientFromTags(["Client work (Parker)"]) === "Parker" && clientFromTags(["Working for Parker"]) === "Parker");
+ok("Scripture Central's category names it", clientFromTags(["Scripture central work"]) === "Scripture Central");
+ok("a client in the description is picked", clientFor({ tags: ["Meeting"], description: "Call with Parker" }, DEFAULT_CLIENTS) === "Parker");
+ok("a client already picked stays", clientFor({ tags: ["Client work (Parker)"], client: "Acme" }) === "Acme");
+ok("no client is guessed from nothing", clientFor({ tags: ["Forsyth Media LLC"], description: "Edit" }, DEFAULT_CLIENTS) === null);
+ok("client chips: the usual two, then yours, once each", clientChips(["Acme", "parker", "Acme"]).join() === "Parker,Scripture Central,Acme");
+ok("a deposit's bank words name the client", depositClient({ payee: "Certificate of Origin Parker Walbeck P", description: "ORIG CO NAME:PARKER WALBECK P" }) === "Parker");
+ok("a client you added is found in a deposit too", depositClient({ payee: "ACME STUDIO LLC" }, ["Acme"]) === "Acme");
+ok("a deposit's own client wins", depositClient({ client: "Acme", payee: "PARKER WALBECK" }) === "Acme");
+ok("an unknown payer stays unnamed", depositClient({ payee: "Venmo" }) === null);
+
+ok("Sleep at 2 pm is a nap", isNap({ tags: ["Sleep"], started_at: at(2026, 10, 14, 14).toISOString() }));
+ok("Sleep at 10 pm isn't", !isNap({ tags: ["Sleep"], started_at: at(2026, 10, 14, 22).toISOString() }));
+ok("the database's answer wins", isNap({ tags: ["Sleep"], is_nap: true, started_at: at(2026, 10, 14, 22).toISOString() }));
+ok("only Sleep can be a nap", !isNap({ tags: ["Study"], started_at: at(2026, 10, 14, 14).toISOString() }));
+const withNap = [
+  { id: "night", tags: ["Sleep"], started_at: at(2026, 10, 13, 21, 50).toISOString() },
+  { id: "nap", tags: ["Sleep"], started_at: at(2026, 10, 14, 10).toISOString() },
+];
+ok("a morning nap is never last night's sleep", lastNightSleep(withNap, "2026-10-14")?.id === "night");
+ok("an early-evening nap doesn't move the usual lights-out",
+  usualLightsOut([...withNap, { tags: ["Sleep"], started_at: at(2026, 10, 12, 22, 10).toISOString() }, { tags: ["Sleep"], started_at: at(2026, 10, 11, 18, 30).toISOString() }]) === "22:10");
+
+ok("Weigh myself offers the number", isWeighIn("Weigh myself") && isWeighIn("Weighed myself") && isWeighIn(" weigh in"));
+ok("other wins don't", !isWeighIn("Workout") && !isWeighIn("Weight lifting") && !isWeighIn(null));
+const change = weightChange([{ value: 183.4, measured_at: "2026-10-08T12:00:00Z" }], 182.2);
+ok("weight change: down 1.2 since the last one", change.diff === -1.2 && change.since === "2026-10-08T12:00:00Z");
+ok("weight change: a first reading has nothing to compare", weightChange([], 182) === null);
+
+ok("left undone: unfinished top-level tasks, never examples",
+  leftUndone([{ id: 1, status: false }, { id: 2, status: true }, { id: 3, status: false, parent_task_id: 1 }, { id: 4, status: false, is_example: true }, { id: 5, status: null }]).map((t) => t.id).join() === "1,5");
+ok("task reasons: the usual ones, then yours", reasonChips(["Too tired", "forgot"], 7, TASK_REASONS).join("|") === [...TASK_REASONS, "Too tired"].join("|"));
+ok("Sunday is Sunday", isSunday("2026-10-18") && !isSunday("2026-10-15"));
+
+ok("savings rate: 43% of 6,000 kept", Math.round(savingsRate(6000, 3423.05) * 100) === 43);
+ok("savings rate: nothing came in, nothing to say", savingsRate(0, 500) === null);
+ok("savings rate: spending more than came in shows as negative", savingsRate(1000, 1500) === -0.5);
+const earned = earningsByClient(
+  [{ client: "Parker", amount: 6000 }, { client: "parker", amount: 500 }, { client: null, amount: 100 }, { client: "Acme", amount: -5 }],
+  [
+    { tags: ["Client work (Parker)"], duration_minutes: 600 },
+    { tags: ["Forsyth Media LLC"], client: "Parker", duration_minutes: 120 },
+    { tags: ["Scripture central work"], duration_minutes: 240 },
+    { tags: ["Forsyth Media LLC"], duration_minutes: 90 },
+    { tags: ["Forsyth Media LLC"], client: "Parker", duration_minutes: 60, is_example: true },
+  ]
+);
+ok("earnings: Parker's pay and hours together", earned.rows[0].client === "Parker" && earned.rows[0].amount === 6500 && earned.rows[0].minutes === 720);
+ok("earnings: what it comes to an hour", Math.round(earned.rows[0].perHour) === 542);
+ok("earnings: hours with no pay yet still show", earned.rows.some((r) => r.client === "Scripture Central" && r.minutes === 240 && r.perHour === null));
+ok("earnings: hours with no client are counted on their own", earned.untaggedMinutes === 90);
+
+const shippedText = reportToText({ ...work, shipped: "The new course intro" });
+ok("what I shipped heads the report", /— 7h 20m\n\nSHIPPED\n· The new course intro\n\nDONE/.test(shippedText));
+ok("no shipped line, no section", !reportToText(work).includes("SHIPPED") && buildReport({ ...work, shipped: "  " }).shipped === null);
+
+const prac = practiceSummary([
+  { tags: ["Temple"], started_at: at(2026, 10, 3, 9).toISOString() },
+  { tags: ["Temple"], started_at: at(2026, 10, 3, 14).toISOString() },
+  { tags: ["Temple"], started_at: at(2026, 10, 10, 9).toISOString() },
+  { tags: ["Exercise"], exercise_kind: "run", started_at: at(2026, 10, 4, 6).toISOString() },
+  { tags: ["Exercise"], exercise_kind: "gym", started_at: at(2026, 10, 5, 15).toISOString() },
+  { tags: ["Exercise"], started_at: at(2026, 10, 6, 6).toISOString() },
+  { tags: ["Sleep"], is_nap: true, started_at: at(2026, 10, 6, 13).toISOString(), duration_minutes: 25 },
+  { tags: ["Study"], alertness: "drowsy", started_at: at(2026, 10, 6, 21).toISOString() },
+  { tags: ["Study"], started_at: at(2026, 10, 7, 5).toISOString() },
+  { tags: ["Temple"], is_example: true, started_at: at(2026, 10, 12, 9).toISOString() },
+]);
+ok("temple visits are days with a Temple entry", prac.templeVisits === 2);
+ok("workouts by kind", prac.exercise.total === 3 && prac.exercise.run === 1 && prac.exercise.gym === 1 && prac.exercise.unsaid === 1);
+ok("workouts by time of day", prac.exercise.morning === 2 && prac.exercise.afternoon === 1);
+ok("naps with their minutes", prac.naps.count === 1 && prac.naps.minutes === 25);
+ok("study by how awake", prac.study.sessions === 2 && prac.study.drowsy === 1 && prac.study.alert === 0);
+
+const askFnT3 = readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8");
+const assistantFnT3 = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+for (const col of ["is_nap", "exercise_kind", "exercise_metric", "exercise_unit", "alertness", "client text", "shipped text", "sabbath_note", "fast_sunday", "left_reason", "intent text", "body_metrics"]) {
+  ok(`Ask's schema notes know ${col}`, askFnT3.includes(col));
+  ok(`the assistant's schema notes know ${col}`, assistantFnT3.includes(col));
+}
+ok("Ask counts temple visits as days", askFnT3.includes("distinct days with a Temple entry"));
+ok("Ask knows the savings rate", askFnT3.includes("savings rate"));
+const mig3 = readFileSync(new URL("../supabase/migrations/0071_honest_lightweight.sql", import.meta.url), "utf8")
+  .split("\n")
+  .filter((l) => !l.trim().startsWith("--"))
+  .join("\n");
+ok("tier 3's migration only adds", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b/i.test(mig3) && /add column if not exists is_nap/.test(mig3));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

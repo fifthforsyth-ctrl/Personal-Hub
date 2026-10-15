@@ -19,6 +19,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import {
   fetchWorkDay,
+  fetchDayPlan,
+  patchDayPlan,
   addWorkNote,
   deleteWorkNote,
   saveWorkReport,
@@ -61,7 +63,12 @@ export default function Work() {
   toastRef.current = toast;
   const [date, setDate] = useState(todayStr());
   const [view, setView] = useState("text");
-  const { data: work, error, reload, mutate } = useLoad(() => fetchWorkDay(date), [date]);
+  // The day's own line, "What I shipped", lives on the day plan and rides
+  // along with the work day so the report can put it first.
+  const { data: work, error, reload, mutate } = useLoad(async () => {
+    const [day, plan] = await Promise.all([fetchWorkDay(date), user?.id ? fetchDayPlan(user.id, date) : null]);
+    return day ? { ...day, shipped: plan?.shipped ?? null } : day;
+  }, [date, user?.id]);
 
   // The report text. It follows the list (notes and work tasks) until you
   // type in it; from then on your words stay, through new notes and
@@ -237,6 +244,15 @@ export default function Work() {
           <Stat label="Noted" value={String(notes.length || "—")} foot="to mention" />
         </div>
 
+        <Shipped
+          key={date}
+          userId={user?.id}
+          date={date}
+          value={work?.shipped ?? ""}
+          ready={Boolean(work)}
+          onSaved={(text) => patchWork(date, (w) => ({ ...w, shipped: text }))}
+        />
+
         <RunningList
           userId={user?.id}
           date={date}
@@ -324,6 +340,64 @@ export default function Work() {
         <WorkCategories userId={user?.id} onChanged={reload} />
       </div>
     </div>
+  );
+}
+
+// One line for the day's real output, written once, near the end of the
+// day. It saves when you leave the field (or press Enter) and heads the
+// report.
+function Shipped({ userId, date, value, ready, onSaved }) {
+  const toast = useToast();
+  const [text, setText] = useState(value);
+  const saved = useRef(value);
+  const typed = useRef(false);
+
+  // The saved line arrives after the page opens; it fills the field unless
+  // you've already started typing.
+  useEffect(() => {
+    saved.current = value;
+    if (!typed.current) setText(value);
+  }, [value]);
+
+  async function save() {
+    const t = text.trim();
+    if (!userId || t === (saved.current ?? "").trim()) return;
+    const was = saved.current;
+    saved.current = t;
+    onSaved(t || null);
+    try {
+      await patchDayPlan(userId, date, { shipped: t || null });
+    } catch (err) {
+      saved.current = was;
+      onSaved(was || null);
+      toast.error(err, "Couldn't save what you shipped. Try again.");
+    }
+  }
+
+  return (
+    <form
+      className="card work-shipped"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+        e.currentTarget.querySelector("input")?.blur();
+      }}
+    >
+      <label className="work-shipped__label" htmlFor="work-shipped">What I shipped</label>
+      <input
+        id="work-shipped"
+        className="input"
+        value={text}
+        onChange={(e) => {
+          typed.current = true;
+          setText(e.target.value);
+        }}
+        onBlur={save}
+        disabled={!ready}
+        placeholder="The one thing that went out today (optional)"
+        maxLength={300}
+      />
+    </form>
   );
 }
 
