@@ -65,6 +65,11 @@ import {
   followUpKinds,
   fmtClock as clockText,
   isMorning,
+  offPlan,
+  lightsOutFor,
+  windDown,
+  eveningStamp,
+  STRESS_SOURCES,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 
@@ -694,6 +699,54 @@ const assistantFnT1 = readFileSync(new URL("../supabase/functions/assistant/inde
 for (const col of ["woke_at", "lights_out_at", "sleep_quality", "energy text", "depth", "people_feel", "reason text", "watched_habits"]) {
   ok(`Ask's schema notes know ${col}`, askFnT1.includes(col));
   ok(`the assistant's schema notes know ${col}`, assistantFnT1.includes(col));
+}
+}
+
+// --- Honest tracking, tier 2: the evening ------------------------------------
+{
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
+const day = "2026-10-14";
+const chunks = [
+  { category: "Forsyth Media LLC", start_time: "09:00:00", end_time: "12:00:00" },
+  { category: "Forsyth Media LLC", start_time: "13:00:00", end_time: "16:00:00" },
+  { category: "Study", start_time: "06:00:00", end_time: "07:00:00" },
+  { category: "Exercise", start_time: "17:00:00", end_time: "18:00:00" },
+  { category: "Sleep", start_time: "20:00:00", end_time: "04:30:00" },
+  { category: null, start_time: "12:00:00", end_time: "13:00:00" },
+  { category: "Meet", start_time: "21:00:00", end_time: "22:00:00" },
+];
+const entries = [
+  { tags: ["Forsyth Media LLC"], started_at: at(2026, 10, 14, 9, 0).toISOString(), ended_at: at(2026, 10, 14, 11, 0).toISOString() },
+  { tags: ["Study"], started_at: at(2026, 10, 14, 19, 0).toISOString(), ended_at: at(2026, 10, 14, 19, 50).toISOString() },
+  { tags: ["Exercise"], started_at: at(2026, 10, 14, 17, 0).toISOString(), ended_at: at(2026, 10, 14, 17, 20).toISOString(), is_example: true },
+];
+const off = offPlan(chunks, entries, { date: day, now: at(2026, 10, 14, 20, 30) });
+ok("off plan: work with 2 of 6 hours is missed", off[0]?.category === "Forsyth Media LLC" && off[0].planned === 360 && off[0].tracked === 120);
+ok("off plan: study done later in the day isn't missed", !off.some((o) => o.category === "Study"));
+ok("off plan: sample rows don't count, so exercise is missed", off.some((o) => o.category === "Exercise" && o.tracked === 0));
+ok("off plan: blocks still ahead, Sleep and blocks with no category are left out", !off.some((o) => ["Meet", "Sleep"].includes(o.category)) && off.length === 2);
+ok("off plan: nothing planned, nothing asked", offPlan([], entries, { date: day, now: at(2026, 10, 14, 21) }).length === 0);
+
+const lo = lightsOutFor("2026-10-15", "04:30");
+ok("lights out for 4:30 is 8:00 the evening before", lo.getDate() === 14 && lo.getHours() === 20 && lo.getMinutes() === 0);
+ok("lights out for 6:00 is 9:30", lightsOutFor("2026-10-15", "06:00:00").getHours() === 21 && lightsOutFor("2026-10-15", "06:00").getMinutes() === 30);
+ok("wind-down: quiet before 7:15", windDown({ tomorrow: "2026-10-15", alarm: "04:30", now: at(2026, 10, 14, 19, 0) }) === null);
+ok("wind-down: shows from 7:15", windDown({ tomorrow: "2026-10-15", alarm: "04:30:00", now: at(2026, 10, 14, 19, 20) })?.alarm === "04:30");
+ok("wind-down: still shows past lights out", windDown({ tomorrow: "2026-10-15", alarm: "04:30", now: at(2026, 10, 14, 22, 0) })?.past === true);
+ok("wind-down: not once Sleep is running", windDown({ tomorrow: "2026-10-15", alarm: "04:30", now: at(2026, 10, 14, 20, 30), sleeping: true }) === null);
+ok("wind-down: gone at the alarm", windDown({ tomorrow: "2026-10-15", alarm: "04:30", now: at(2026, 10, 15, 4, 30) }) === null);
+ok("wind-down: nothing without an alarm", windDown({ tomorrow: "2026-10-15", alarm: null, now: at(2026, 10, 14, 20, 30) }) === null);
+
+ok("evening stamp: now, on the day itself", eveningStamp(day, at(2026, 10, 14, 21, 15)).getHours() === 21);
+const late = eveningStamp(day, at(2026, 10, 15, 0, 20));
+ok("evening stamp: past midnight it stays on the day", late.getDate() === 14 && late.getHours() === 23 && late.getMinutes() === 59);
+ok("stress chips: defaults, then yours", reasonChips(["Clients", "work"], 8, STRESS_SOURCES).join("|") === `${STRESS_SOURCES.join("|")}|Clients`);
+
+const askFnT2 = readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8");
+const assistantFnT2 = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+for (const col of ["mood smallint", "stress smallint", "stress_source", "off_plan_reason", "had_prompting"]) {
+  ok(`Ask's schema notes know ${col}`, askFnT2.includes(col));
+  ok(`the assistant's schema notes know ${col}`, assistantFnT2.includes(col));
 }
 }
 

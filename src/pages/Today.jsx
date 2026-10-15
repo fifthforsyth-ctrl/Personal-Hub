@@ -16,6 +16,7 @@ import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
 import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
+import WindDown from "../components/today/WindDown";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
@@ -31,7 +32,8 @@ import "../styles/daily.css";
 //
 // Two things are asked here at the right moment and only then: a timer
 // that ran away (at the very top, once), and in the morning, how last night
-// went (just under the wins, until noon).
+// went (just under the wins, until noon). In the evening the same spot
+// carries one line: when the lights go out for tomorrow's alarm.
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -40,12 +42,13 @@ import "../styles/daily.css";
 
 async function loadToday(userId, date) {
   const since = parseDateStr(date).toISOString();
-  const [wl, list, open, plan, yesterdayPlan, cats] = await Promise.all([
+  const [wl, list, open, plan, yesterdayPlan, tomorrowPlan, cats] = await Promise.all([
     fetchWinLosses(userId, { sinceISO: since, limit: 200 }),
     fetchTimeEntries(userId, { sinceISO: since, limit: 200 }),
     fetchOpenTimeEntry(userId),
     fetchDayPlan(userId, date),
     fetchDayPlan(userId, addDays(date, -1)),
+    fetchDayPlan(userId, addDays(date, 1)),
     // Only colours: Today still opens if these don't come.
     fetchCategories(userId).catch((err) => {
       console.warn(err);
@@ -59,6 +62,7 @@ async function loadToday(userId, date) {
     running: open,
     dayPlan: plan,
     yesterdayBanked: Boolean(yesterdayPlan?.banked_at),
+    tomorrowAlarm: tomorrowPlan?.alarm_at ?? null,
   };
 }
 
@@ -109,6 +113,9 @@ export default function Today() {
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
           {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
+          {data && (
+            <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
+          )}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
         </div>
         <div className="stack">

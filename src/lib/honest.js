@@ -207,10 +207,10 @@ export const DEFAULT_REASONS = ["Late night", "Date ran late", "Snoozed", "Sick"
 
 // The defaults, then reasons you've typed yourself (most recent first),
 // once each regardless of case.
-export function reasonChips(pastReasons, limit = 8) {
+export function reasonChips(pastReasons, limit = 8, defaults = DEFAULT_REASONS) {
   const seen = new Set();
   const out = [];
-  for (const r of [...DEFAULT_REASONS, ...(pastReasons ?? [])]) {
+  for (const r of [...defaults, ...(pastReasons ?? [])]) {
     const t = (r ?? "").trim();
     const k = t.toLowerCase();
     if (!t || seen.has(k)) continue;
@@ -270,3 +270,93 @@ export const FEELS = [
   { value: "neutral", label: "Neutral" },
   { value: "life_giving", label: "Life-giving" },
 ];
+
+// --- The evening ------------------------------------------------------------
+
+export const STRESS_SOURCES = ["Work", "Money", "Family", "Health", "Too much at once", "Short on sleep"];
+export const OFF_PLAN_REASONS = ["Ran long", "Interrupted", "Low energy", "Plans changed", "Chose something better"];
+
+// Lights out this long before the alarm.
+export const SLEEP_HOURS = 8.5;
+
+// A planned block as two moments. One whose end is earlier than its start
+// crosses midnight, the way sleep is written.
+export function chunkSpan(chunk, date) {
+  const start = clockMinutes(chunk.start_time);
+  const end = clockMinutes(chunk.end_time);
+  if (start == null || end == null) return null;
+  const day = new Date(`${date}T00:00:00`);
+  const from = new Date(day.getTime() + start * 60000);
+  const to = new Date(day.getTime() + (end > start ? end : end + 1440) * 60000);
+  return { from, to };
+}
+
+// The planned categories that didn't happen: for each category with
+// planned blocks that have ended by now, how much was planned and how much
+// was tracked under it that day. A category is off plan when less than half
+// of it happened and at least half an hour is missing; tracked time counts
+// wherever in the day it fell, so a block that moved isn't called missed.
+// Sleep and blocks with no category are left out.
+export function offPlan(chunks, entries, { date, now = new Date() } = {}) {
+  const planned = new Map();
+  for (const c of chunks ?? []) {
+    if (c.is_example) continue;
+    const cat = (c.category ?? "").trim();
+    if (!cat || cat.toLowerCase() === SLEEP.toLowerCase()) continue;
+    const span = chunkSpan(c, date);
+    if (!span || span.to > now) continue;
+    const key = cat.toLowerCase();
+    const p = planned.get(key) ?? { category: cat, planned: 0, tracked: 0 };
+    p.planned += (span.to - span.from) / 60000;
+    planned.set(key, p);
+  }
+  if (!planned.size) return [];
+  const dayStart = new Date(`${date}T00:00:00`);
+  const dayEnd = new Date(Math.min(dayStart.getTime() + 86400000, now.getTime()));
+  for (const e of entries ?? []) {
+    if (e.is_example) continue;
+    const from = Math.max(new Date(e.started_at).getTime(), dayStart.getTime());
+    const to = Math.min(new Date(e.ended_at ?? now).getTime(), dayEnd.getTime());
+    if (to <= from) continue;
+    const seen = new Set();
+    for (const t of tagsOf(e)) {
+      const key = String(t).toLowerCase();
+      if (seen.has(key) || !planned.has(key)) continue;
+      seen.add(key);
+      planned.get(key).tracked += (to - from) / 60000;
+    }
+  }
+  return [...planned.values()]
+    .filter((p) => p.tracked < p.planned / 2 && p.planned - p.tracked >= 30)
+    .sort((a, b) => b.planned - b.tracked - (a.planned - a.tracked));
+}
+
+// When the lights should go out for an alarm on `date` ("HH:MM"): the
+// evening before, SLEEP_HOURS ahead of it.
+export function lightsOutFor(date, alarm) {
+  const mins = clockMinutes(alarm);
+  if (mins == null) return null;
+  const at = new Date(new Date(`${date}T00:00:00`).getTime() + mins * 60000);
+  return new Date(at.getTime() - SLEEP_HOURS * 3600000);
+}
+
+// The quiet line on Today about tomorrow's start: shown from forty-five
+// minutes before lights out until the alarm, while Sleep isn't running.
+export const WIND_DOWN_MINUTES = 45;
+export function windDown({ tomorrow, alarm, now = new Date(), sleeping = false }) {
+  if (!alarm || sleeping) return null;
+  const lightsOut = lightsOutFor(tomorrow, alarm);
+  if (!lightsOut) return null;
+  const wake = new Date(lightsOut.getTime() + SLEEP_HOURS * 3600000);
+  if (now < new Date(lightsOut.getTime() - WIND_DOWN_MINUTES * 60000) || now >= wake) return null;
+  return { lightsOut, alarm: alarm.slice(0, 5), past: now >= lightsOut };
+}
+
+// The moment to stamp on something logged in the evening about `date`: now,
+// or the last minute of that day when the evening runs past midnight, so a
+// prayer written at 12:20 still belongs to the day it was about.
+export function eveningStamp(date, now = new Date()) {
+  if (toDateStr(now) === date) return now;
+  const end = new Date(`${date}T23:59:00`);
+  return now > end ? end : now;
+}

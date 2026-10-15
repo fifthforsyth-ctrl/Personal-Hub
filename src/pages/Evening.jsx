@@ -9,6 +9,7 @@ import { todayStr, addDays, fmtDayHeading } from "../lib/planDates";
 import LoadError from "../components/ui/LoadError";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import CloseOut from "../components/day/CloseOut";
+import EveningCheckin from "../components/day/EveningCheckin";
 import BankedDayCard from "../components/day/BankedDayCard";
 import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
@@ -22,7 +23,8 @@ import "../styles/daily.css";
 // The evening, on one page, in the order it actually goes: what went well
 // and what didn't, where the hours went, an old thought from the board that
 // fits the day, the four reflection cards, whether today moved this week's
-// focus goals, and then bank it. Nothing else on the page, so the only way forward is down.
+// focus goals, a few taps on how it felt and when tomorrow starts, and then
+// bank it. Nothing else on the page, so the only way forward is down.
 //
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
@@ -102,6 +104,7 @@ export default function Evening() {
           userId={userId}
           date={date}
           archive={{ ...a, synopsis: data.dayPlan?.synopsis, banked_at: data.dayPlan?.banked_at }}
+          plan={data.dayPlan}
           chunks={data.chunks}
           tasks={data.tasks}
           onReopen={async () => {
@@ -117,6 +120,16 @@ export default function Evening() {
           <CuratedCards slot="day" date={date} title="From your board" compact />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
           <FocusDay userId={userId} date={date} variant="evening" />
+          <EveningCheckin
+            key={date}
+            userId={userId}
+            date={date}
+            dayPlan={data.dayPlan}
+            chunks={data.chunks}
+            entries={a.time_entries ?? []}
+            prayers={a.prayers ?? []}
+            experiences={a.experiences ?? []}
+          />
           <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} />
         </div>
       )}
