@@ -52,6 +52,45 @@
 .stop-followup .honest-scale__n.is-on { background: var(--ink); }
 .stop-followup .honest-label:first-of-type { margin-top: 10px; }
 
+/* A workout's one number, with its unit beside it. */
+.stop-followup__metric { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stop-followup__metric .input {
+  width: 92px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  background: var(--card);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.stop-followup .honest-add .input { background: var(--card); }
+
+/* --- One tap: Waste, a temple visit ------------------------------------------ */
+
+.quick-track { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; }
+.quick-track__label { margin-right: 2px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.quick-track__chip { gap: 5px; }
+.quick-track__chip svg { color: var(--text-3); flex-shrink: 0; }
+.card--accent .quick-track { margin: 12px 0 0; }
+
+/* --- Weight, after "Weigh myself" ---------------------------------------------- */
+
+.weigh-in__row { display: flex; align-items: center; gap: 8px; }
+.weigh-in__row .input { width: 110px; flex: 0 0 auto; font-family: var(--font-mono); }
+.weigh-in--large .weigh-in__row .input { width: 140px; }
+.weigh-in__unit { margin-right: auto; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.weigh-in__skip { min-height: 32px; padding: 0 4px; font-size: 12.5px; }
+.weigh-in__last { margin: 8px 0 0; font-size: 12px; color: var(--text-2); }
+.weigh-in__done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  animation: fade-in 0.2s ease-out;
+}
+.weigh-in__mark { color: var(--accent); flex-shrink: 0; }
+
 /* --- Going to bed ------------------------------------------------------------- */
 
 .bed-btn { margin-top: 8px; }
@@ -118,8 +157,29 @@
 .evening-checkin__lights { margin: 8px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 .evening-checkin__lights .mono { font-size: 12px; color: var(--text); }
 
+.evening-checkin__tasks { display: flex; flex-direction: column; gap: 10px; }
+.evening-checkin__task-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  margin-bottom: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 570;
+  text-align: left;
+}
+button.evening-checkin__task-title { cursor: pointer; margin-bottom: 0; }
+.evening-checkin__task-reason { flex-shrink: 0; margin-left: auto; font-size: 12px; font-weight: 500; }
+
 /* The line on Today about tonight. */
 .wind-down .morning-summary__mark { color: var(--text-2); }
 
 /* A banked day's check-ins, under its summary. */
 .banked-line { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.banked-line + .banked-line { margin-top: 3px; }

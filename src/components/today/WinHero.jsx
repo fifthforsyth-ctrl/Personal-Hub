@@ -5,6 +5,8 @@ import { useToast } from "../ui/Feedback";
 import { knownWinLabels, loadWinLabels } from "./winLabels";
 import { useOutbox, withTaps, waitingTaps, logTap, renameTap, removeTap, isUnnamed } from "./tapOutbox";
 import TapEditor from "./TapEditor";
+import WeighIn from "./WeighIn";
+import { isWeighIn } from "../../lib/honest";
 
 // The first thing on Today, because wins are what keep you going.
 //
@@ -13,7 +15,8 @@ import TapEditor from "./TapEditor";
 // own encouragement, and never loses the win. Once it's logged you can name
 // it, or tap one of the wins you log most and it's named in one more tap.
 // Every tap can be undone for a few seconds, and any win on the list can be
-// renamed or removed later by tapping it.
+// renamed or removed later by tapping it. "Weigh myself" also offers the
+// number, so the weight is kept beside the win.
 //
 // Losses are deliberately quiet: a small grey link, no count, nothing red.
 // They're kept because logging them keeps you honest (and, in your own
@@ -29,6 +32,7 @@ export default function WinHero({ userId, date, rows, loaded }) {
   const [naming, setNaming] = useState(null);
   const [label, setLabel] = useState("");
   const [editing, setEditing] = useState(null);
+  const [weighing, setWeighing] = useState(false);
   const [chips, setChips] = useState(() => knownWinLabels(userId));
   const namingTimer = useRef(null);
   const labelRef = useRef("");
@@ -66,6 +70,7 @@ export default function WinHero({ userId, date, rows, loaded }) {
     const tap = logTap(userId, "win", chipLabel);
     setBump((b) => b + 1);
     setEditing(null);
+    setWeighing(Boolean(chipLabel && isWeighIn(chipLabel)));
     if (chipLabel) {
       closeNaming();
     } else {
@@ -93,6 +98,7 @@ export default function WinHero({ userId, date, rows, loaded }) {
     const t = text.trim();
     closeNaming();
     if (!id || !t) return;
+    if (isWeighIn(t)) setWeighing(true);
     renameTap(id, t).catch((err) => toast.error(err, "Couldn't name that win. Tap it in the list to try again."));
   }
 
@@ -129,7 +135,9 @@ export default function WinHero({ userId, date, rows, loaded }) {
         </p>
       )}
 
-      {naming ? (
+      {weighing ? (
+        <WeighIn key={bump} userId={userId} onDone={() => setWeighing(false)} />
+      ) : naming ? (
         <form
           className="win-name"
           onSubmit={(e) => {

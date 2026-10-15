@@ -10,8 +10,10 @@ import Budgets from "../components/money/Budgets";
 import Business from "../components/money/Business";
 import Transactions, { Pending } from "../components/money/Transactions";
 import TransactionSheet from "../components/money/TransactionSheet";
+import IncomeByClient from "../components/money/IncomeByClient";
 import { monthKey, shiftMonth, monthName } from "../components/money/shared";
 import { fmtMoney } from "../lib/money";
+import { savingsRate } from "../lib/honest";
 
 // Money — what's in the two accounts, where this month went, and what the
 // business spent.
@@ -107,6 +109,11 @@ export default function Money() {
           <div className="money-figures">
             <Figure label="Spent (personal)" value={fmtMoney(overview.spent_this_month, { round: true })} />
             <Figure label="Came in" value={fmtMoney(overview.income_this_month, { round: true })} />
+            <Figure
+              label="Savings rate"
+              value={fmtRate(savingsRate(overview.income_this_month, Number(overview.spent_this_month || 0) + Number(overview.business?.month_total || 0)))}
+              title="The share of what came in this month that wasn't spent, personal and business together."
+            />
           </div>
         )}
       </div>
@@ -177,6 +184,8 @@ export default function Money() {
             <Business overview={overview} {...cards} />
           </div>
 
+          <IncomeByClient monthKey={key} version={version} />
+
           <Transactions
             start={key}
             end={nextKey}
@@ -203,9 +212,16 @@ export default function Money() {
   );
 }
 
-function Figure({ label, value }) {
+// 0.43 → "43%"; spending more than came in shows plainly as a minus.
+function fmtRate(rate) {
+  if (rate == null) return "—";
+  const pct = Math.round(rate * 100);
+  return pct < 0 ? `\u2212${Math.abs(pct)}%` : `${pct}%`;
+}
+
+function Figure({ label, value, title }) {
   return (
-    <div>
+    <div title={title}>
       <div className="eyebrow">{label}</div>
       <div className="money-figure__value">{value}</div>
     </div>

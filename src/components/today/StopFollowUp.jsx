@@ -1,21 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Plus } from "lucide-react";
-import { updateTimeEntry, fetchPeopleHistory } from "../../lib/api";
+import { updateTimeEntry, fetchPeopleHistory, fetchClientHistory } from "../../lib/api";
 import { friendlyError } from "../../lib/errors";
 import { familyFor, fmtMinutes } from "../../lib/categories";
-import { followUpKinds, isSleep, peopleChips, namesInText, tidyName, tagsOf, FEELS } from "../../lib/honest";
+import {
+  followUpKinds,
+  isSleep,
+  peopleChips,
+  namesInText,
+  tidyName,
+  tagsOf,
+  FEELS,
+  EXERCISE_KINDS,
+  EXERCISE_UNITS,
+  exerciseKindFrom,
+  dayPart,
+  ALERTNESS,
+  clientFor,
+  clientChips,
+  DEFAULT_CLIENTS,
+} from "../../lib/honest";
 import { announceChange } from "./announce";
 import "../../styles/honest.css";
 
 // What a stopped timer can say about itself, asked the moment it stops.
 //
-// Work gets Deep or Shallow and an optional focus number; time with people
-// gets who it was with and an optional word for how it felt. Each tap saves
-// on its own, so there's no Save button to forget. Left alone, the row
-// folds away after twenty seconds and nothing is saved, which is fine.
+// Work gets Deep or Shallow, an optional focus number and who it was for;
+// time with people gets who it was with and an optional word for how it
+// felt; exercise gets run, gym or other and one optional number; study gets
+// alert or drowsy. Each tap saves on its own, so there's no Save button to
+// forget. Left alone, the row folds away after twenty seconds and nothing
+// more is saved, which is fine.
 //
-// Names you've picked before come back as chips, newest first. A name
-// already in the description ("Lunch with AJ") is picked for you.
+// Names and clients you've picked before come back as chips, newest first.
+// What the entry already says is picked for you: a name in the description
+// ("Lunch with AJ"), a run in "Morning run", Parker on "Client work (Parker)".
 
 const FOLD_MS = 20000;
 const MIN_MINUTES = 3;
@@ -40,10 +59,27 @@ function loadHistory(userId) {
   return history;
 }
 
+// Clients the same way.
+let clientHistory = null;
+function loadClients(userId) {
+  if (!clientHistory) {
+    clientHistory = fetchClientHistory(userId).catch((err) => {
+      clientHistory = null;
+      throw err;
+    });
+  }
+  return clientHistory;
+}
+function rememberClient(name) {
+  clientHistory = clientHistory?.then((list) => [name, ...list]) ?? null;
+}
+
 export default function StopFollowUp({ userId, entry, onClose }) {
   const kinds = followUpKinds(entry, familyFor);
   const work = kinds.includes("work");
   const people = kinds.includes("people");
+  const exercise = kinds.includes("exercise");
+  const study = kinds.includes("study");
 
   const [depth, setDepth] = useState(entry.depth ?? null);
   const [focus, setFocus] = useState(entry.focus ?? null);
@@ -52,6 +88,8 @@ export default function StopFollowUp({ userId, entry, onClose }) {
   const [chips, setChips] = useState([]);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [client, setClient] = useState(entry.client ?? null);
+  const [alertness, setAlertness] = useState(entry.alertness ?? null);
   const [error, setError] = useState(null);
   const foldTimer = useRef(null);
 
@@ -77,6 +115,41 @@ export default function StopFollowUp({ userId, entry, onClose }) {
     } catch (err) {
       setError(friendlyError(err, "Couldn't save that. Tap it again."));
     }
+  }
+
+  // The client the category or description already names is picked, unless
+  // you've already picked one by the time the list arrives.
+  const pickedClient = useRef(false);
+  useEffect(() => {
+    if (!work || entry.client || !userId) return;
+    let live = true;
+    const prefill = (known) => {
+      const named = clientFor(entry, known);
+      if (!live || !named || pickedClient.current) return;
+      setClient(named);
+      save({ client: named });
+    };
+    loadClients(userId).then(
+      (list) => prefill(clientChips(list, 50)),
+      () => prefill(DEFAULT_CLIENTS)
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [work, userId, entry.id]);
+
+  function pickClient(name) {
+    pickedClient.current = true;
+    const next = name && client?.toLowerCase() === name.toLowerCase() ? null : name;
+    setClient(next);
+    save({ client: next });
+  }
+
+  function pickAlertness(v) {
+    const next = alertness === v ? null : v;
+    setAlertness(next);
+    save({ alertness: next });
   }
 
   // Chips from history, and any name already in the description picked.
@@ -162,6 +235,8 @@ export default function StopFollowUp({ userId, entry, onClose }) {
           </div>
           <div className="honest-label">Focus <span className="faint">(optional)</span></div>
           <Scale value={focus} onPick={pickFocus} label="Focus" />
+          <div className="honest-label">For <span className="faint">(optional)</span></div>
+          <ClientPicker userId={userId} entry={entry} value={client} onPick={pickClient} onTyping={armFold} />
         </>
       )}
 
@@ -210,7 +285,180 @@ export default function StopFollowUp({ userId, entry, onClose }) {
         </>
       )}
 
+      {exercise && <ExerciseFields entry={entry} first={!work && !people} save={save} persist={(f) => updateTimeEntry(entry.id, f).then(announceChange)} onTyping={armFold} />}
+
+      {study && (
+        <>
+          <div className="honest-label" style={work || people || exercise ? undefined : { marginTop: 0 }}>How awake</div>
+          <div className="seg seg--block stop-followup__seg" role="group" aria-label="How awake">
+            {ALERTNESS.map((a) => (
+              <button key={a.value} type="button" className={"seg-btn" + (alertness === a.value ? " active" : "")} aria-pressed={alertness === a.value} onClick={() => pickAlertness(a.value)}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
+// Run, gym or other, and one optional number in a unit that fits it. A run
+// in the description is picked for you. The number saves a moment after you
+// stop typing (and as the row closes), so it never needs a Save button.
+function ExerciseFields({ entry, first, save, persist, onTyping }) {
+  const [kind, setKind] = useState(entry.exercise_kind ?? exerciseKindFrom(entry.description));
+  const [metric, setMetric] = useState(entry.exercise_metric != null ? String(entry.exercise_metric) : "");
+  const [unit, setUnit] = useState(entry.exercise_unit ?? EXERCISE_UNITS[kind ?? "other"][0]);
+  const pending = useRef(null);
+  const timer = useRef(null);
+  const units = EXERCISE_UNITS[kind ?? "other"];
+  const shownUnits = units.includes(unit) ? units : [unit, ...units];
+
+  useEffect(() => {
+    if (!entry.exercise_kind && kind) save({ exercise_kind: kind });
+    // Whatever is still being typed is saved when the row closes.
+    return () => {
+      clearTimeout(timer.current);
+      if (pending.current) persist(pending.current).catch((err) => console.warn(err));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function metricFields(text, u) {
+    const n = parseFloat(String(text).replace(",", "."));
+    return n > 0 ? { exercise_metric: n, exercise_unit: u } : { exercise_metric: null, exercise_unit: null };
+  }
+
+  function pickKind(v) {
+    const next = kind === v ? null : v;
+    setKind(next);
+    const nextUnits = EXERCISE_UNITS[next ?? "other"];
+    const nextUnit = nextUnits.includes(unit) ? unit : nextUnits[0];
+    setUnit(nextUnit);
+    save({ exercise_kind: next, ...(metric.trim() ? metricFields(metric, nextUnit) : {}) });
+  }
+
+  function typeMetric(text) {
+    setMetric(text);
+    onTyping();
+    pending.current = metricFields(text, unit);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const fields = pending.current;
+      pending.current = null;
+      if (fields) save(fields);
+    }, 700);
+  }
+
+  function pickUnit(u) {
+    setUnit(u);
+    if (!metric.trim()) return;
+    clearTimeout(timer.current);
+    pending.current = null;
+    save(metricFields(metric, u));
+  }
+
+  return (
+    <>
+      <div className="honest-label" style={first ? { marginTop: 0 } : undefined}>
+        {dayPart(entry.started_at) === "morning" ? "Morning" : dayPart(entry.started_at) === "afternoon" ? "Afternoon" : "Evening"} workout
+      </div>
+      <div className="seg seg--block stop-followup__seg" role="group" aria-label="What kind of workout">
+        {EXERCISE_KINDS.map((k) => (
+          <button key={k.value} type="button" className={"seg-btn" + (kind === k.value ? " active" : "")} aria-pressed={kind === k.value} onClick={() => pickKind(k.value)}>
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <div className="honest-label">One number <span className="faint">(optional)</span></div>
+      <div className="stop-followup__metric">
+        <input
+          className="input"
+          type="text"
+          inputMode="decimal"
+          value={metric}
+          onChange={(e) => typeMetric(e.target.value)}
+          placeholder={METRIC_HINT[unit] ?? "0"}
+          aria-label={`How far or how much, in ${unit}`}
+        />
+        <div className="honest-chips">
+          {shownUnits.map((u) => (
+            <button key={u} type="button" className={"name-chip" + (unit === u ? " name-chip--on" : "")} aria-pressed={unit === u} onClick={() => pickUnit(u)}>
+              {u}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+const METRIC_HINT = { mi: "3.1", km: "5", lb: "185", reps: "50", min: "30" };
+
+// Who the work was for: the usual clients and any you've added, one pick.
+// Shared with the entry editor, so an old entry can be given one too.
+export function ClientPicker({ userId, entry, value, onPick, onTyping }) {
+  const [chips, setChips] = useState(() => clientChips([]));
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  useEffect(() => {
+    if (!userId) return;
+    let live = true;
+    loadClients(userId).then(
+      (list) => live && setChips(clientChips(list)),
+      (err) => console.warn(err)
+    );
+    return () => {
+      live = false;
+    };
+  }, [userId, entry?.id]);
+
+  function add(e) {
+    e.preventDefault();
+    const name = tidyName(newName);
+    setAdding(false);
+    setNewName("");
+    if (!name) return;
+    rememberClient(name);
+    setChips((c) => mergeNames([name], c));
+    if (value?.toLowerCase() !== name.toLowerCase()) onPick(name);
+  }
+
+  return (
+    <div className="honest-chips">
+      {mergeNames(value ? [value] : [], chips).map((name) => {
+        const on = value?.toLowerCase() === name.toLowerCase();
+        return (
+          <button key={name} type="button" className={"name-chip" + (on ? " name-chip--on" : "")} aria-pressed={on} onClick={() => onPick(name)}>
+            {name}
+          </button>
+        );
+      })}
+      {adding ? (
+        <form onSubmit={add} className="honest-add">
+          <input
+            className="input"
+            value={newName}
+            onChange={(e) => {
+              setNewName(e.target.value);
+              onTyping?.();
+            }}
+            placeholder="Client or project"
+            aria-label="Add a client"
+            autoFocus
+          />
+          <button type="submit" className="btn btn--sm">Add</button>
+        </form>
+      ) : (
+        <button type="button" className="name-chip name-chip--add" onClick={() => setAdding(true)}>
+          <Plus size={12} />
+          client
+        </button>
+      )}
     </div>
   );
 }

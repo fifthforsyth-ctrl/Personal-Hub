@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Receipt, Check, ChevronRight, ChevronDown, Paperclip, Briefcase, ArrowLeftRight, Loader2, Wallet } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchPurchaseInbox, fetchBudgets, classifyPurchase, setTransfer, uploadReceipt } from "../../lib/api";
+import { fetchPurchaseInbox, fetchBudgets, classifyPurchase, setTransfer, setPurchaseIntent, uploadReceipt } from "../../lib/api";
 import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle, kindForBudget } from "../../lib/money";
 import { useLoad } from "../../lib/useLoad";
 import { friendlyError } from "../../lib/errors";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
+import { INTENTS } from "../../lib/honest";
 import { useReloadOn, Chip, Switch } from "./shared";
 
 // "What was this?"
@@ -131,12 +132,13 @@ export default function PurchaseQuestion({ compact = false, includeHistory = fal
 
 // One purchase's question. Only the budget is asked: what kind of purchase it
 // was follows from the budget (or from last time), and can be set under
-// "More detail" when it doesn't.
+// "More detail" when it doesn't. Planned or impulse is one optional tap.
 export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotPurchase }) {
   const [budgetId, setBudgetId] = useState(txn.suggested_budget_id ?? "");
   const [isBusiness, setIsBusiness] = useState(Boolean(txn.is_business));
   const [category, setCategory] = useState(txn.business_category ?? "");
   const [kind, setKind] = useState(null); // null until picked by hand
+  const [intent, setIntent] = useState(txn.intent ?? null);
   const [note, setNote] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [receipts, setReceipts] = useState(txn.receipts ?? 0);
@@ -175,6 +177,7 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotP
     setError(null);
     try {
       await classifyPurchase(txn.id, { budgetId: chosen, kind: shownKind, isBusiness, businessCategory: isBusiness ? category : "", note });
+      if (intent) await setPurchaseIntent(txn.id, intent);
       onDone();
     } catch (err) {
       setError(friendlyError(err, "Couldn't save that answer. Try again."));
@@ -251,6 +254,8 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotP
           ))}
         </div>
       )}
+
+      <IntentChips value={intent} onPick={setIntent} />
 
       {/* Business is a switch, not a third question — most purchases aren't,
           and the ones from the business account arrive with it already on. */}
@@ -347,11 +352,29 @@ function Label({ children }) {
   return <div className="money-label">{children}</div>;
 }
 
-// The small version for Today: one line that says how many purchases are
-// waiting and takes you to Money, or nothing at all when there are none. A
-// failed load also shows nothing; it's a nudge, not a page, and Money says
-// what went wrong if you go there.
-export function PurchaseNudge() {
+// Planned or impulse: one tap, or none. Tapping the chosen one clears it.
+export function IntentChips({ value, onPick }) {
+  return (
+    <>
+      <Label>
+        Planned or impulse? <span className="faint">(optional)</span>
+      </Label>
+      <div className="row money-chips" role="group" aria-label="Planned or impulse">
+        {INTENTS.map((i) => (
+          <Chip key={i.value} active={value === i.value} onClick={() => onPick(value === i.value ? null : i.value)}>
+            {i.label}
+          </Chip>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// The small version for Today (and Sunday's week review, with a lead-in):
+// one line that says how many purchases are waiting and takes you to Money,
+// or nothing at all when there are none. A failed load also shows nothing;
+// it's a nudge, not a page, and Money says what went wrong if you go there.
+export function PurchaseNudge({ lead }) {
   const [waiting, setWaiting] = useState(null);
 
   useEffect(() => {
@@ -370,6 +393,7 @@ export function PurchaseNudge() {
     <Link to="/money" className="card row money-nudge">
       <Wallet size={16} style={{ color: "var(--text-2)", flexShrink: 0 }} />
       <span style={{ flex: 1, fontSize: 13.5 }}>
+        {lead && <span className="muted">{lead} </span>}
         {waiting.count} {waiting.count === 1 ? "purchase" : "purchases"} to sort · {fmtMoney(waiting.total, { round: true })}
       </span>
       <ChevronRight size={15} style={{ color: "var(--text-2)" }} />

@@ -9,6 +9,8 @@ import { MinutesView } from "./MinutesView";
 import { announceChange } from "./today/announce";
 import { logTap, renameTap, removeTap, startOutbox, useOutbox } from "./today/tapOutbox";
 import { knownWinLabels, loadWinLabels } from "./today/winLabels";
+import WeighIn from "./today/WeighIn";
+import { isWeighIn } from "../lib/honest";
 
 // Capture, from anywhere.
 //
@@ -122,6 +124,7 @@ function LogNow({ kind, userId, onDone }) {
   const [tap, setTap] = useState(null);
   const [label, setLabel] = useState("");
   const [chips, setChips] = useState(() => (kind === "win" ? knownWinLabels(userId) : []));
+  const [weighing, setWeighing] = useState(false);
   const started = useRef(false);
   const isWin = kind === "win";
 
@@ -140,7 +143,9 @@ function LogNow({ kind, userId, onDone }) {
 
   function name(text) {
     const t = text.trim();
-    onDone();
+    // "Weigh myself" stays open for the number; everything else closes.
+    if (isWin && tap && isWeighIn(t)) setWeighing(true);
+    else onDone();
     if (!t || !tap) return;
     renameTap(tap.id, t).catch((err) => toast.error(err, `Couldn't name that ${isWin ? "win" : "loss"}. Tap it on ${isWin ? "Today" : "the evening"} to try again.`));
   }
@@ -171,36 +176,40 @@ function LogNow({ kind, userId, onDone }) {
         </p>
       )}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          name(label);
-        }}
-        className="stack stack--tight"
-      >
-        <input
-          className="input input--lg"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={isWin ? "Name it (optional)" : "What happened? (optional)"}
-          aria-label={isWin ? "Name this win" : "What happened"}
-          autoFocus
-        />
-        {isWin && chips.length > 0 && (
-          <div className="win-chips">
-            {chips.map((c) => (
-              <button key={c} type="button" className="name-chip" onClick={() => name(c)}>
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
-        {/* A loss closes quietly, but still on a button you can see: the sheet
-            is the page's colour, so the plain grey would vanish into it. */}
-        <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : " btn--on-page")}>
-          {label.trim() ? "Save" : "Done"}
-        </button>
-      </form>
+      {weighing ? (
+        <WeighIn userId={userId} onDone={onDone} large />
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            name(label);
+          }}
+          className="stack stack--tight"
+        >
+          <input
+            className="input input--lg"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={isWin ? "Name it (optional)" : "What happened? (optional)"}
+            aria-label={isWin ? "Name this win" : "What happened"}
+            autoFocus
+          />
+          {isWin && chips.length > 0 && (
+            <div className="win-chips">
+              {chips.map((c) => (
+                <button key={c} type="button" className="name-chip" onClick={() => name(c)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* A loss closes quietly, but still on a button you can see: the sheet
+              is the page's colour, so the plain grey would vanish into it. */}
+          <button type="submit" className={"btn btn--lg" + (isWin ? " btn--accent" : " btn--on-page")}>
+            {label.trim() ? "Save" : "Done"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

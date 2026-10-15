@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { intensityColor } from "../../lib/nodeStyle";
 
 // Hand-rolled SVG charts. No library: the app needs three forms, all of them
@@ -33,6 +33,19 @@ export function useTooltip() {
   ) : null;
 
   return { wrapRef, show, hide: () => setTip(null), node };
+}
+
+// The width a chart is shown at, kept up to date as the page resizes.
+function useShownWidth(ref, on) {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!on || !el || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, on]);
+  return width;
 }
 
 function Tip({ label, value, sub }) {
@@ -210,22 +223,36 @@ export function LineChart({
   formatX = (v) => String(v),
   yLabel,
   area = true,
+  // Off zero, the axis hugs the values: a weight moving between 181 and
+  // 184 is a line with a shape, not a flat one at the top of the frame.
+  zero = true,
+  dots = false,
+  // Drawn at the width it's shown at, so the labels and the line keep their
+  // real size on a phone instead of shrinking with the frame.
+  fit = false,
 }) {
   const { wrapRef, show, hide, node } = useTooltip();
   const [hoverIndex, setHoverIndex] = useState(null);
+  const shownWidth = useShownWidth(wrapRef, fit && series.length > 0);
 
-  const W = 720;
+  const W = fit && shownWidth > 0 ? shownWidth : 720;
   const H = height;
   const pad = { top: 14, right: 14, bottom: 26, left: 46 };
 
   const { xs, paths, ticks } = useMemo(() => {
     const allX = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
     const allY = series.flatMap((s) => s.points.map((p) => p.y));
-    let hi = Math.max(...allY, 0);
-    let lo = Math.min(...allY, 0);
-    if (hi === lo) hi = lo + 1;
-    // Breathing room above the peak so the top mark isn't welded to the frame.
-    hi = hi + (hi - lo) * 0.08;
+    let hi = zero ? Math.max(...allY, 0) : Math.max(...allY);
+    let lo = zero ? Math.min(...allY, 0) : Math.min(...allY);
+    if (hi === lo) {
+      hi = lo + 1;
+      if (!zero) lo -= 1;
+    }
+    // Breathing room above the peak so the top mark isn't welded to the
+    // frame (and below the lowest value too, off zero).
+    const room = (hi - lo) * 0.08;
+    hi += room;
+    if (!zero) lo -= room;
 
     const xAt = (x) =>
       allX.length <= 1
@@ -247,7 +274,7 @@ export function LineChart({
     });
 
     return { xs: allX, paths: built, ticks: t };
-  }, [series, H]);
+  }, [series, W, H, zero]);
 
   const xAt = paths[0]?.xAt;
 
@@ -318,6 +345,7 @@ export function LineChart({
               <path d={s.fill} fill={s.color} opacity="0.1" />
             )}
             <path d={s.d} fill="none" stroke={s.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            {dots && s.pts.map((p) => <circle key={p.x} cx={s.xAt(p.x)} cy={s.yAt(p.y)} r="3" fill={s.color} />)}
             {hoverIndex != null &&
               (() => {
                 const p = s.pts.find((q) => q.x === xs[hoverIndex]);

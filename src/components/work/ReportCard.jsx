@@ -1,4 +1,4 @@
-import { Check, CircleDashed, HelpCircle, AlertTriangle, ArrowRight, Clock, MessageSquare } from "lucide-react";
+import { Check, CircleDashed, HelpCircle, AlertTriangle, ArrowRight, Clock, MessageSquare, PackageCheck } from "lucide-react";
 import { buildReport, fmtHours, fmtReportDate } from "../../lib/workReport";
 
 // The screenshot version.
@@ -41,6 +41,8 @@ export default function ReportCard({ work, name }) {
       </div>
 
       <div style={{ padding: "18px 24px 22px" }} className="stack">
+        <Section title="Shipped" icon={PackageCheck} color="var(--text)" items={r.shipped ? [{ key: "shipped", text: r.shipped }] : []} />
+
         <Section
           title="Done"
           icon={Check}

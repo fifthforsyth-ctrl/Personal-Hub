@@ -7,9 +7,12 @@ import {
   fetchProductivityHeatmap,
   fetchReflectionTotals,
   fetchCategories,
+  fetchPractice,
 } from "../lib/api";
 import { intensityColor } from "../lib/nodeStyle";
-import { RankedBars, IntensityLegend } from "../components/charts";
+import { RankedBars, IntensityLegend, LineChart } from "../components/charts";
+import { practiceSummary } from "../lib/honest";
+import { fmtWeight } from "../components/today/WeighIn";
 import { colorFor, familyFor, fmtMinutes, setCategoryColors } from "../lib/categories";
 import {
   todayStr,
@@ -98,18 +101,25 @@ export default function Reflect() {
   // sleep — and the four rollups for whatever range is showing.
   const categoriesRef = useRef(null);
   const { data, error, reload } = useLoad(async () => {
-    const [totals, byCategory, habits, heatmap, categories] = await Promise.all([
+    const [totals, byCategory, habits, heatmap, categories, practice] = await Promise.all([
       fetchReflectionTotals(range.start, range.end),
       fetchTimeByCategory(range.start, range.end),
       fetchHabitStrength(range.start, range.end),
       fetchProductivityHeatmap(range.start, range.end),
       categoriesRef.current ?? (user?.id ? fetchCategories(user.id) : []),
+      // Only one card: the rest of the page still shows if this fails.
+      user?.id
+        ? fetchPractice(user.id, range.start, range.end).catch((err) => {
+            console.warn(err);
+            return null;
+          })
+        : null,
     ]);
     if (!categoriesRef.current) {
       categoriesRef.current = categories;
       setCategoryColors(categories);
     }
-    return { totals, byCategory, habits, heatmap, dayCount, current: range.end === today };
+    return { totals, byCategory, habits, heatmap, practice, dayCount, current: range.end === today };
   }, [range.start, range.end, user?.id]);
 
   // While a new range loads, the last one stays on screen, dimmed, rather
@@ -203,6 +213,7 @@ export default function Reflect() {
                 current={shown.current}
               />
               <HabitChart rows={shown.habits} />
+              <PracticeCard practice={shown.practice} />
               <CategoryChart rows={shown.byCategory} />
               <Heatmap rows={shown.heatmap} />
             </>
@@ -383,6 +394,88 @@ function HabitChart({ rows }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+const shortDay = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+// The body and the practice in one card: temple visits (days with a Temple
+// entry), workouts by kind and time of day, naps, how awake study was, and
+// the weight trend. Counts, not targets.
+function PracticeCard({ practice }) {
+  const sum = useMemo(() => practiceSummary(practice?.entries), [practice]);
+  const weights = practice?.weights ?? [];
+  if (!practice) return null;
+  const { exercise, naps, study } = sum;
+  if (!sum.templeVisits && !exercise.total && !naps.count && !study.sessions && weights.length === 0) return null;
+
+  const kinds = [
+    exercise.run && `${num(exercise.run)} ${exercise.run === 1 ? "run" : "runs"}`,
+    exercise.gym && `${num(exercise.gym)} gym`,
+    exercise.other && `${num(exercise.other)} other`,
+  ].filter(Boolean);
+  const tiles = [
+    { label: "Temple visits", value: num(sum.templeVisits) },
+    {
+      label: "Workouts",
+      value: num(exercise.total),
+      foot: exercise.total ? [kinds.join(", "), `${num(exercise.morning)} before noon`].filter(Boolean).join(" · ") : null,
+    },
+    { label: "Naps", value: num(naps.count), foot: naps.count ? `${fmtMinutes(naps.minutes)} in all` : null },
+    {
+      label: "Study",
+      value: num(study.sessions),
+      foot: study.alert + study.drowsy > 0 ? `${num(study.alert)} alert · ${num(study.drowsy)} drowsy` : null,
+    },
+  ];
+
+  return (
+    <div className="card">
+      <div className="card-head"><span className="card-title">Body and practice</span></div>
+      <div className="practice-tiles">
+        {tiles.map((t) => (
+          <div key={t.label} className="practice-tile">
+            <div className="stat-label">{t.label}</div>
+            <div className="practice-tile__value">{t.value}</div>
+            {t.foot && <div className="stat-foot">{t.foot}</div>}
+          </div>
+        ))}
+      </div>
+      {weights.length > 0 && <WeightTrend weights={weights} />}
+    </div>
+  );
+}
+
+function WeightTrend({ weights }) {
+  const points = weights.map((w) => ({ x: new Date(w.measured_at).getTime(), y: Number(w.value) }));
+  const first = weights[0];
+  const last = weights[weights.length - 1];
+  const diff = Math.round((Number(last.value) - Number(first.value)) * 10) / 10;
+  const note =
+    weights.length === 1
+      ? `One weigh-in, ${shortDay(last.measured_at)}.`
+      : `${diff === 0 ? "The same as" : `${diff < 0 ? "Down" : "Up"} ${fmtWeight(Math.abs(diff))} lb since`} ${shortDay(first.measured_at)} · ${plural(weights.length, "weigh-in")}`;
+
+  return (
+    <div className="practice-weight">
+      <div className="row row--between" style={{ marginBottom: 6 }}>
+        <span className="stat-label">Weight</span>
+        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{fmtWeight(last.value)} lb</span>
+      </div>
+      {weights.length > 1 && (
+        <LineChart
+          series={[{ key: "Weight", color: "var(--text)", points }]}
+          height={150}
+          format={(v) => fmtWeight(v)}
+          formatX={(x) => shortDay(x)}
+          area={false}
+          zero={false}
+          dots
+          fit
+        />
+      )}
+      <p className="card-note" style={{ margin: "8px 0 0" }}>{note}</p>
     </div>
   );
 }

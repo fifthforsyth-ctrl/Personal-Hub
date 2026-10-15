@@ -590,3 +590,17 @@
   .work-stats .stat-value { font-size: 21px; }
   .work-stats .stat-foot { margin-top: 4px; font-size: 10px; }
 }
+
+/* "What I shipped": one line above the running list. */
+.work-shipped { display: flex; flex-direction: column; gap: 7px; }
+.work-shipped__label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+
+/* Charts: the body and the practice. */
+.practice-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.practice-tile { min-width: 0; padding: 12px 14px; border-radius: var(--r); background: var(--inset); }
+.practice-tile__value { margin-top: 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.practice-tile .stat-foot { margin-top: 5px; line-height: 1.4; }
+.practice-weight { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .practice-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+}
