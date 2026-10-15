@@ -88,6 +88,29 @@ import {
   DEFAULT_CLIENTS,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
+import {
+  buildMirror,
+  lastWeekStart,
+  weekDates,
+  familyLookup,
+  nightsOf,
+  earlyDaysOf,
+  wakeOutcomes,
+  wakeHabitTime,
+  isWakeHabit,
+  mornings,
+  workWeek,
+  peopleWeek,
+  missesWeek,
+  moodWeek,
+  focusMirror,
+  moneyWeek,
+  practiceWeek,
+  weightTrend,
+  pieces,
+  andList,
+  fmtHours as mirrorHours,
+} from "../src/lib/mirror.js";
 
 let pass = 0;
 let fail = 0;
@@ -867,6 +890,219 @@ const mig3 = readFileSync(new URL("../supabase/migrations/0071_honest_lightweigh
   .filter((l) => !l.trim().startsWith("--"))
   .join("\n");
 ok("tier 3's migration only adds", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b/i.test(mig3) && /add column if not exists is_nap/.test(mig3));
+}
+
+// --- The weekly mirror ---------------------------------------------------------
+{
+console.log("\nthe weekly mirror");
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
+const iso = (...a) => at(...a).toISOString();
+// The sentences use non-breaking spaces inside "7 h 10 m"; compare plainly.
+const plain = (s) => String(s ?? "").replace(/\u00a0/g, " ");
+const has = (section, line) => (section?.lines ?? []).some((l) => plain(l) === line);
+const week = "2026-10-04";
+const days = weekDates(week);
+
+ok("the mirror opens on the last whole week", lastWeekStart("2026-10-18") === "2026-10-11" && lastWeekStart("2026-10-15") === "2026-10-04" && lastWeekStart("2026-10-17") === "2026-10-04");
+ok("a week is Sunday to Saturday", days.length === 7 && days[0] === "2026-10-04" && days[6] === "2026-10-10");
+ok("lists read as a sentence", andList(["a"]) === "a" && andList(["a", "b"]) === "a and b" && andList(["a", null, "b", "c"]) === "a, b and c");
+ok("hours: whole from ten up, hours and minutes below", plain(mirrorHours(3000)) === "50 h" && plain(mirrorHours(148)) === "2 h 28 m");
+ok("bold pieces for the page", JSON.stringify(pieces("You slept **7 h** a night.")) === JSON.stringify([{ text: "You slept ", bold: false }, { text: "7 h", bold: true }, { text: " a night.", bold: false }]));
+
+// Nights: noon to noon, naps and samples left out, the check-in first.
+const sleep = (from, to, extra = {}) => ({ tags: ["Sleep"], started_at: iso(...from), ended_at: iso(...to), duration_minutes: (at(...to) - at(...from)) / 60000, ...extra });
+const sleeps = [
+  sleep([2026, 10, 3, 22, 0], [2026, 10, 4, 6, 0]),
+  sleep([2026, 10, 4, 21, 30], [2026, 10, 5, 4, 40]),
+  sleep([2026, 10, 5, 5, 0], [2026, 10, 5, 6, 0]),
+  sleep([2026, 10, 5, 14, 0], [2026, 10, 5, 14, 30], { is_nap: true }),
+  sleep([2026, 10, 6, 23, 10], [2026, 10, 7, 5, 20]),
+  sleep([2026, 10, 7, 22, 0], [2026, 10, 8, 7, 0], { is_example: true }),
+];
+const plansByDate = {
+  "2026-10-05": { alarm_at: "04:30:00", mood: 4, energy: "high", stress: 2 },
+  "2026-10-06": { mood: 2, energy: "low", stress: 4, stress_source: "Work" },
+  "2026-10-07": { alarm_at: "04:30:00", mood: 3, energy: "high" },
+  "2026-10-09": { alarm_at: "06:30:00", woke_at: iso(2026, 10, 9, 4, 35), lights_out_at: iso(2026, 10, 8, 20, 5) },
+};
+const nights = nightsOf(days, sleeps, plansByDate);
+const night = (d) => nights.find((x) => x.date === d);
+ok("a night runs noon to noon: Saturday night is Sunday's", night("2026-10-04").sleepMinutes === 480);
+ok("going back to sleep counts toward the night, and is noted", night("2026-10-05").sleepMinutes === 490 && night("2026-10-05").backToSleep === true);
+ok("a nap is never the night", night("2026-10-06").sleepMinutes == null);
+ok("sample sleep is left out", night("2026-10-08").sleepMinutes == null);
+ok("the morning check-in wins over the timers", night("2026-10-09").woke.getHours() === 4 && night("2026-10-09").woke.getMinutes() === 35 && night("2026-10-09").sleepMinutes === 510);
+
+ok("a wake-up habit's time is read from its name", wakeHabitTime("Up at 4:30") === "04:30" && wakeHabitTime("Wake up at 4.45am") === "04:45" && wakeHabitTime("Up on time") === null);
+ok("which habits are getting up", isWakeHabit("Up on time") && isWakeHabit("Get up") && isWakeHabit("Wake up early") && !isWakeHabit("Cleanup") && !isWakeHabit("Run"));
+
+// Early days: an alarm at 5:00 or before, or a wake habit that names one.
+const wl = [
+  { kind: "loss", habit_label: "Up at 4:30", reason: "Late night", occurred_at: iso(2026, 10, 7, 6) },
+  { kind: "win", habit_label: "Up at 4:30", occurred_at: iso(2026, 10, 10, 4, 50) },
+  { kind: "win", habit_label: "Up at 4:30", occurred_at: iso(2026, 10, 8, 4, 50), is_example: true },
+];
+const early = earlyDaysOf(days, plansByDate, wl, []);
+ok("early days: 4:30 alarms and a logged 'Up at 4:30', not a 6:30 alarm or a sample", Object.keys(early).sort().join() === "2026-10-05,2026-10-07,2026-10-10");
+ok("up is due fifteen minutes after the alarm", early["2026-10-05"].due === 285);
+ok("a watched habit's own minute wins", earlyDaysOf(days, plansByDate, [], [{ on_alarm: "04:30:00", due_by: "05:00:00", active: true }])["2026-10-05"].due === 300);
+const outcomes = wakeOutcomes(early, nights, wl);
+ok("kept by waking in time", outcomes["2026-10-05"].kept === true);
+ok("a logged miss decides it, with its reason", outcomes["2026-10-07"].kept === false && outcomes["2026-10-07"].reason === "Late night");
+ok("a logged win decides it with no sleep tracked", outcomes["2026-10-10"].kept === true);
+
+const morn = mornings({ days, nights, early, outcomes, upTo: "2026-10-10" });
+ok("mornings: up on time, out of the early days", has(morn, "You were up by **4:45 am** on **2 of 3** early days."));
+ok("mornings: the miss, with why", has(morn, "Missed on Wednesday (late night, lights out 11:10 pm)."));
+ok("mornings: lights out before 4:30 days against its target", has(morn, "Before 4:30 days, lights out averaged **10:20 pm**, against an 8:00 pm target."));
+ok("mornings: sleep on 4:30 days against the others", has(morn, "On 4:30 days you slept **7 h 10 m**. On the others, **8 h 15 m**."));
+ok("mornings: going back to sleep", has(morn, "One morning you went back to sleep after waking."));
+ok("mornings: untracked nights named by their evening", has(morn, "Monday, Wednesday and Friday nights have no sleep tracked."));
+const nightBar = morn.chart.points.find((p) => p.date === "2026-10-05");
+ok("the night chart runs past midnight, with the alarm", nightBar.out === 21 * 60 + 30 && nightBar.wake === 1440 + 4 * 60 + 40 && nightBar.alarm === 1440 + 270);
+
+// Work.
+const fam = familyLookup([{ name: "Forsyth Media LLC", family: "Work" }, { name: "Date", family: "People" }, { name: "Meet", family: "People" }, { name: "Odd job", family: null, is_work: true }]);
+ok("families: yours first, marked-as-work counts, case aside", fam("Odd job") === "Work" && fam("date") === "People" && fam("Sleep") !== "Work");
+const work = [
+  { tags: ["Forsyth Media LLC"], depth: "deep", client: "Parker", started_at: iso(2026, 10, 5, 6), ended_at: iso(2026, 10, 5, 10), duration_minutes: 240 },
+  { tags: ["Forsyth Media LLC"], depth: "shallow", started_at: iso(2026, 10, 5, 13), ended_at: iso(2026, 10, 5, 14), duration_minutes: 60 },
+  { tags: ["Forsyth Media LLC"], started_at: iso(2026, 10, 6, 9), ended_at: iso(2026, 10, 6, 11), duration_minutes: 120 },
+  { tags: ["Forsyth Media LLC"], depth: "deep", is_example: true, started_at: iso(2026, 10, 6, 12), ended_at: iso(2026, 10, 6, 20), duration_minutes: 480 },
+];
+const target = { label: "Forsyth Media", categories: ["Forsyth Media LLC"], minutes: 3600, period: "week" };
+const ww = workWeek({ days, entries: work, familyOf: fam, targets: [target], early, upTo: "2026-10-10" });
+ok("work against its weekly target, samples aside", has(ww, "Forsyth Media got **7 h** of its 60 h."));
+ok("deep and shallow, and what wasn't marked", has(ww, "Of **7 h** of work, **4 h** went to deep work and **1 h** to shallow (2 h not marked)."));
+ok("a lone client", has(ww, "Parker had **4 h** of it."));
+ok("early days against the other workdays", has(ww, "On 4:30 days you worked **1 h 40 m** a day; on other workdays, **40 m**."));
+ok("a daily work target is read for its week", has(workWeek({ days, entries: work, familyOf: fam, targets: [{ ...target, label: "Deep work", period: "day", minutes: 240, weekly_minutes: 1440 }], upTo: "2026-10-10" }), "Deep work got **7 h** of its 24 h."));
+ok("no work, no work card", workWeek({ days, entries: [], familyOf: fam, upTo: "2026-10-10" }) === null);
+
+// People.
+const together = [
+  { tags: ["Date"], people: ["Zimi"], people_feel: "life_giving", started_at: iso(2026, 10, 5, 19), ended_at: iso(2026, 10, 5, 22), duration_minutes: 180 },
+  { tags: ["Meet"], people: ["zimi", "AJ"], people_feel: "draining", started_at: iso(2026, 10, 6, 12), ended_at: iso(2026, 10, 6, 13), duration_minutes: 60 },
+  { tags: ["Meet"], started_at: iso(2026, 10, 7, 12), ended_at: iso(2026, 10, 7, 13), duration_minutes: 60 },
+];
+const pw = peopleWeek({ entries: together, familyOf: fam });
+ok("people: the time and the stretches", has(pw, "**5 h** with people, across **3** stretches."));
+ok("people: who, once each whatever the case", has(pw, "Most of it was with **Zimi** (4 h) and **AJ** (1 h)."));
+ok("people: how it felt", has(pw, "Of the 2 you rated, **1** felt life-giving and **1** draining."));
+ok("people: with no names, the kinds of time", has(peopleWeek({ entries: together.map(({ people, people_feel, ...e }) => e), familyOf: fam }), "Mostly Date (**3 h**) and Meet (**2 h**)."));
+
+// Wins and misses.
+const mw = missesWeek({
+  winLosses: [
+    { kind: "win", habit_label: "Run" },
+    { kind: "win", habit_label: "Floss" },
+    { kind: "loss", habit_label: "Up at 4:30", reason: "Late night" },
+    { kind: "loss", habit_label: "up at 4:30", reason: "Snoozed" },
+    { kind: "loss", habit_label: "Loss", reason: "late night" },
+    { kind: "loss", habit_label: "Phone", is_example: true },
+  ],
+});
+ok("misses: counted, samples aside", has(mw, "**2** wins and **3** misses logged."));
+ok("misses: by habit, with the unnamed ones", has(mw, "Missed: Up at 4:30 twice, and 1 without a name."));
+ok("misses: the reasons, most first", has(mw, "Reasons you gave: late night (2) and snoozed."));
+ok("no misses is said plainly", has(missesWeek({ winLosses: [{ kind: "win", habit_label: "Run" }] }), "**1** win logged, and no misses."));
+ok("unnamed misses aren't called 'Loss'", has(missesWeek({ winLosses: [{ kind: "loss", habit_label: "Loss" }, { kind: "loss", habit_label: "" }] }), "Both were logged without a name."));
+
+// Mood and energy.
+const md = moodWeek({ days, plansByDate: { ...plansByDate, "2026-10-08": { mood: 1, is_example: true } }, upTo: "2026-10-07" });
+ok("mood: its range and the lowest day, up to today", has(md, "Mood ran from **2** to **4**, lowest on Tuesday."));
+ok("energy: counted by level", has(md, "Energy was high on **2** days and low on **1**."));
+ok("stress: the highest day and where it came from", has(md, "Stress was highest on Tuesday, at **4**, from work."));
+ok("mood chart: one point a day, none past today", md.chart.points.length === 7 && md.chart.points[1].mood === 4 && md.chart.points[4].mood === null);
+
+// Focus goals.
+const fm = focusMirror({
+  goals: [{ id: "g1", title: "Up at 4:30", position: 0 }, { id: "g2", title: "Plan the day", position: 1 }],
+  checkins: [{ goal_id: "g1", date: "2026-10-05", moved: true }, { goal_id: "g1", date: "2026-10-06", moved: false }, { goal_id: "g2", date: "2026-10-05", moved: true }],
+  weekStart: week,
+});
+ok("focus: moved out of the check-ins answered", has(fm, "Your focus goals moved on **2 of 3** check-ins."));
+ok("focus: each goal's seven days", fm.goals.length === 2 && fm.goals[0].days.length === 7 && fm.goals[0].days[2].moved === false);
+ok("focus: goals with no check-ins say so", has(focusMirror({ goals: [{ id: "g1", title: "x" }], checkins: [], weekStart: week }), "Your focus goal has no check-ins this week."));
+
+// Money.
+const money = moneyWeek({
+  txns: [
+    { amount: -700, budget_id: "rent", posted_at: iso(2026, 10, 1, 12), reviewed_at: "x" },
+    { amount: -50, budget_id: "groc", intent: "impulse", posted_at: iso(2026, 10, 5, 12), reviewed_at: "x" },
+    { amount: -30, purchase_kind: "Gas", posted_at: iso(2026, 10, 6, 12), reviewed_at: "x" },
+    { amount: -20, posted_at: iso(2026, 10, 7, 12), reviewed_at: null },
+    { amount: -100, is_business: true, posted_at: iso(2026, 10, 8, 12), reviewed_at: "x" },
+    { amount: -500, is_transfer: true, posted_at: iso(2026, 10, 8, 12) },
+    { amount: 900, posted_at: iso(2026, 10, 9, 12) },
+    { amount: -40, budget_id: "groc", posted_at: iso(2026, 10, 12, 12), reviewed_at: "x" },
+  ],
+  budgets: [
+    { id: "rent", name: "Rent", monthly_limit: 700 },
+    { id: "groc", name: "Groceries", monthly_limit: 300 },
+    { id: "fun", name: "Fun", monthly_limit: 100 },
+    { id: "old", name: "Old", monthly_limit: 50, archived: true },
+  ],
+  weekStart: week,
+  upTo: "2026-10-10",
+});
+ok("money: the week's spending and what it went to", has(money, "You spent **$100**, most on Groceries ($50) and Gas ($30)."));
+ok("money: impulse", has(money, "**$50** of it was impulse."));
+ok("money: what's still to sort", has(money, "**1** purchase ($20) is still to sort."));
+ok("money: business on its own line", has(money, "Business spending: **$100**."));
+ok("budgets: the month as the week left it, untouched ones left out", money.budgets.map((g) => `${g.name}:${g.spent}`).join() === "Rent:700,Groceries:50");
+ok("budgets: the mark at the week's end in the month", Math.abs(money.progress - 10 / 31) < 1e-9 && money.asOf === "2026-10-10");
+
+// Body and practice, with the weight's trend.
+const weighIns = [
+  { value: 183.2, date: "2026-09-20", measured_at: iso(2026, 9, 20, 7) },
+  { value: 181.4, date: "2026-10-05", measured_at: iso(2026, 10, 5, 7) },
+  { value: 181.0, date: "2026-10-05", measured_at: iso(2026, 10, 5, 21) },
+  { value: 180.6, date: "2026-10-09", measured_at: iso(2026, 10, 9, 7) },
+  { value: 150, date: "2026-10-08", measured_at: iso(2026, 10, 8, 7), is_example: true },
+];
+ok("weight trend: one point a day, its last, samples aside", JSON.stringify(weightTrend(weighIns)) === JSON.stringify([{ date: "2026-09-20", value: 183.2 }, { date: "2026-10-05", value: 181 }, { date: "2026-10-09", value: 180.6 }]));
+const body = practiceWeek({
+  entries: [
+    { tags: ["Temple"], started_at: iso(2026, 10, 6, 10), ended_at: iso(2026, 10, 6, 12) },
+    { tags: ["Exercise"], exercise_kind: "run", started_at: iso(2026, 10, 7, 6), ended_at: iso(2026, 10, 7, 7) },
+  ],
+  weights: weighIns.slice(1),
+  trend: weighIns,
+});
+ok("practice: temple and workouts", has(body, "**1** temple visit and **1** workout (1 run)."));
+ok("practice: the week's weigh-ins", has(body, "Weight went from 181.4 to **180.6 lb** across 3 weigh-ins."));
+ok("practice: the trend, when the week has a weigh-in", body.chart?.weights.length === 3);
+ok("practice: no trend without one this week", practiceWeek({ entries: [{ tags: ["Temple"], started_at: iso(2026, 10, 6, 10), ended_at: iso(2026, 10, 6, 12) }], weights: [], trend: weighIns }).chart === null);
+
+// The whole week: samples nowhere, the week under way counted to today.
+const whole = buildMirror({
+  weekStart: week,
+  today: "2026-10-07",
+  dayPlans: [
+    { date: "2026-10-05", mood: 4, energy: "okay" },
+    { date: "2026-10-06", mood: 1, energy: "low", is_example: true },
+  ],
+  entries: [...sleeps, ...work, ...together],
+  winLosses: [...wl, { kind: "win", habit_label: "Run", occurred_at: iso(2026, 10, 5, 7) }, { kind: "loss", habit_label: "Run", occurred_at: iso(2026, 10, 9, 7) }],
+  watched: [],
+  goals: [],
+  checkins: [],
+  txns: [],
+  budgets: [],
+  targets: [target],
+  categories: [{ name: "Forsyth Media LLC", family: "Work" }, { name: "Date", family: "People" }, { name: "Meet", family: "People" }],
+  weights: [],
+});
+const part = (key) => whole.sections.find((s) => s.key === key);
+ok("a week under way is counted to today", whole.current === true && whole.upTo === "2026-10-07");
+ok("the parts in reading order, empty ones left out", whole.sections.map((s) => s.key).join() === "mornings,work,people,misses,mood,practice");
+ok("the nap shows under practice, not as a night", has(part("practice"), "**1** nap."));
+ok("a sample day's mood never shows", has(part("mood"), "Mood was **4** on Monday, the one day you rated it."));
+ok("a miss after today isn't counted yet", has(part("misses"), "**1** win and **1** miss logged."));
+ok("work after today isn't counted yet", has(part("work"), "Forsyth Media got **7 h** of its 60 h."));
+ok("a finished week isn't 'so far'", buildMirror({ weekStart: week, today: "2026-10-12" }).current === false);
+ok("an empty week has nothing to show", buildMirror({ weekStart: week, today: "2026-10-12" }).sections.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

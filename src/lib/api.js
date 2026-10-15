@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
-import { todayStr, addDays, toDateStr } from "./planDates";
+import { todayStr, addDays, toDateStr, startOfMonth } from "./planDates";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -2775,4 +2775,93 @@ export async function askHub({ conversationId = null, question, onEvent = () => 
   }
   if (!answer) throw new Error("The answer stopped partway. It may still land; look again in a minute.");
   return answer;
+}
+
+// ---------------------------------------------------------------------------
+// The weekly mirror. One week's rows, read together; src/lib/mirror.js turns
+// them into the page's sentences and charts, so nothing new is stored.
+// Examples are left out here, and again there.
+// ---------------------------------------------------------------------------
+
+const MIRROR_ENTRY_COLUMNS =
+  "id, started_at, ended_at, duration_minutes, tags, category, depth, people, people_feel, is_nap, exercise_kind, alertness, client, is_example";
+
+export async function fetchMirrorWeek(userId, weekStart) {
+  const weekEnd = addDays(weekStart, 6);
+  const at = (date, time = "00:00:00") => new Date(`${date}T${time}`).toISOString();
+  const [plans, entries, winLosses, watched, focus, txns, budgets, targets, categories, weights] = await Promise.all([
+    supabase
+      .from("day_plans")
+      .select("date, alarm_at, woke_at, lights_out_at, snoozed, mood, energy, stress, stress_source, is_example")
+      .eq("user_id", userId)
+      .eq("is_example", false)
+      .gte("date", weekStart)
+      .lte("date", weekEnd),
+    // From noon the Saturday before, so Sunday morning's night is whole.
+    selectAllPages(() =>
+      supabase
+        .from("time_log_entries")
+        .select(MIRROR_ENTRY_COLUMNS)
+        .eq("user_id", userId)
+        .eq("is_example", false)
+        .not("ended_at", "is", null)
+        .gte("started_at", at(addDays(weekStart, -1), "12:00:00"))
+        .lt("started_at", at(addDays(weekEnd, 1)))
+        .order("started_at", { ascending: true })
+        .order("id", { ascending: true })
+    ),
+    supabase
+      .from("win_losses")
+      .select("id, kind, habit_label, reason, occurred_at, is_example")
+      .eq("user_id", userId)
+      .eq("is_example", false)
+      .gte("occurred_at", at(weekStart))
+      .lt("occurred_at", at(addDays(weekEnd, 1)))
+      .order("occurred_at", { ascending: true })
+      .limit(1000),
+    fetchWatchedHabits(userId),
+    fetchFocusWeek(userId, weekStart),
+    // Spending, from the first of the month the week starts in: budgets are
+    // monthly, so each one is read as the week left it.
+    selectAllPages(() =>
+      supabase
+        .from("bank_transactions")
+        .select("id, posted_at, amount, is_transfer, is_business, budget_id, purchase_kind, intent, reviewed_at")
+        .eq("user_id", userId)
+        .lt("amount", 0)
+        .eq("is_transfer", false)
+        .gte("posted_at", at(startOfMonth(weekStart)))
+        .lt("posted_at", at(addDays(weekEnd, 1)))
+        .order("posted_at", { ascending: true })
+        .order("id", { ascending: true })
+    ),
+    fetchBudgets(userId),
+    fetchWeeklyTargets(weekStart),
+    // Archived ones too: an old entry still names its category.
+    supabase.from("user_categories").select("name, family, is_work").eq("user_id", userId),
+    // Eight weeks of weigh-ins, for the trend the week's reading joins.
+    supabase
+      .from("body_metrics")
+      .select("id, date, measured_at, value, unit, is_example")
+      .eq("user_id", userId)
+      .eq("kind", "weight")
+      .eq("is_example", false)
+      .gte("date", addDays(weekStart, -49))
+      .lte("date", weekEnd)
+      .order("measured_at", { ascending: true }),
+  ]);
+  for (const r of [plans, winLosses, categories, weights]) if (r.error) throw r.error;
+  return {
+    dayPlans: plans.data ?? [],
+    entries,
+    winLosses: winLosses.data ?? [],
+    watched,
+    goals: focus.goals,
+    checkins: focus.checkins,
+    txns,
+    budgets,
+    targets,
+    categories: categories.data ?? [],
+    weights: weights.data ?? [],
+  };
 }
