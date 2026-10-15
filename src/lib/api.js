@@ -379,10 +379,12 @@ export async function fetchWinLosses(userId, { sinceISO, limit = 100 } = {}) {
   return data ?? [];
 }
 
-export async function logPrayer(userId, { context, content, feltResponse, tags }) {
+export async function logPrayer(userId, { context, content, feltResponse, tags, prayedAt }) {
+  const row = { user_id: userId, context: context || null, content, felt_response: feltResponse || null, tags: tags ?? [] };
+  if (prayedAt) row.prayed_at = prayedAt;
   const { data, error } = await supabase
     .from("prayer_logs")
-    .insert({ user_id: userId, context: context || null, content, felt_response: feltResponse || null, tags: tags ?? [] })
+    .insert(row)
     .select()
     .single();
   if (error) throw error;
@@ -401,6 +403,12 @@ export async function fetchDayPlan(userId, date) {
 
 // The morning check-in's answers, on the day they belong to.
 export async function saveMorning(userId, date, fields) {
+  return patchDayPlan(userId, date, fields);
+}
+
+// Some fields of a day's plan, leaving the others as they are. The row is
+// made if the day doesn't have one yet (tomorrow's alarm, set tonight).
+export async function patchDayPlan(userId, date, fields) {
   const { data, error } = await supabase
     .from("day_plans")
     .upsert({ user_id: userId, date, ...fields }, { onConflict: "user_id,date" })
@@ -408,6 +416,24 @@ export async function saveMorning(userId, date, fields) {
     .single();
   if (error) throw error;
   return data;
+}
+
+// Stress sources and off-plan reasons you've given before, newest first, to
+// come back as chips.
+export async function fetchEveningHistory(userId) {
+  const { data, error } = await supabase
+    .from("day_plans")
+    .select("date, stress_source, off_plan_reason")
+    .eq("user_id", userId)
+    .or("stress_source.not.is.null,off_plan_reason.not.is.null")
+    .order("date", { ascending: false })
+    .limit(60);
+  if (error) throw error;
+  const rows = data ?? [];
+  return {
+    stressSources: rows.map((r) => r.stress_source).filter(Boolean),
+    offPlanReasons: rows.map((r) => r.off_plan_reason).filter(Boolean),
+  };
 }
 
 // The alarm used most recently before a day, to offer it again.
@@ -628,17 +654,19 @@ async function syncScriptureRefs(userId, entityType, entityId, ...texts) {
   return refs;
 }
 
-export async function logExperience(userId, { kind, whatCame, triggerContext, linkedGoalId, tags }) {
+export async function logExperience(userId, { kind, whatCame, triggerContext, linkedGoalId, tags, occurredAt }) {
+  const row = {
+    user_id: userId,
+    kind: kind || "prompting",
+    what_came: whatCame,
+    trigger_context: triggerContext || null,
+    linked_goal_id: linkedGoalId || null,
+    tags: tags ?? [],
+  };
+  if (occurredAt) row.occurred_at = occurredAt;
   const { data, error } = await supabase
     .from("spiritual_experiences")
-    .insert({
-      user_id: userId,
-      kind: kind || "prompting",
-      what_came: whatCame,
-      trigger_context: triggerContext || null,
-      linked_goal_id: linkedGoalId || null,
-      tags: tags ?? [],
-    })
+    .insert(row)
     .select()
     .single();
   if (error) throw error;

@@ -61,9 +61,10 @@ weekly_targets(id, label text, categories text[], minutes int, period text 'week
   — standing quotas the week is planned around; categories names which tracked categories count toward it. A 'day' target is expected on each day that is not a rest day.
 
 Days and plans
-day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text, work_report text, woke_at timestamptz, lights_out_at timestamptz, alarm_at time, sleep_quality smallint 1-5, energy text 'high'|'okay'|'low', snoozed boolean, phone_off_by_lights_out boolean, morning_at timestamptz, is_example)
+day_plans(date date, energy_tag text, notes text, banked_at timestamptz, synopsis text, work_report text, woke_at timestamptz, lights_out_at timestamptz, alarm_at time, sleep_quality smallint 1-5, energy text 'high'|'okay'|'low', snoozed boolean, phone_off_by_lights_out boolean, morning_at timestamptz, mood smallint 1-5, stress smallint 1-5, stress_source text, off_plan_reason text, had_prompting boolean, is_example)
   — one per day. banked_at set means the day was closed out in the evening; synopsis is the paragraph written about the day. energy_tag is the Day page's day type ('Open day', 'Heavy edit day', 'Deep focus', 'Recovery day'), not energy.
   — The morning check-in (from mid-October 2026; morning_at set means it was done) fills: woke_at, lights_out_at (when the sleep that ended this morning began, i.e. the night before), alarm_at (04:30 or 06:00 usually), sleep_quality, energy, snoozed, and phone_off_by_lights_out (about the night before). Hours slept = woke_at - lights_out_at. For "what predicts a 4:30 morning", compare days with alarm_at = '04:30' where the 'Up at 4:30' win exists against the loss rows and their reasons, alongside the night before's lights_out_at, phone_off_by_lights_out and the previous day's time entries.
+  — The evening check-in (from mid-October 2026, just before banking) fills: mood (1 low to 5 good) and stress (1 calm to 5 a lot), stress_source (main source, e.g. 'Work', 'Money', 'Family', 'Too much at once', or his words), off_plan_reason (why the day went off plan; only asked when planned time_chunks categories got less than half their time), had_prompting (false = "no prompting today"; true also writes a spiritual_experiences row). It also writes the NEXT day's alarm_at (so alarm_at can be set the evening before; the target lights out is 8.5 hours before it). Null means not answered.
 time_chunks(id, date date, title text, category text, start_time time, end_time time, goal_node_id uuid, source text 'manual'|'commitment'|'plan', notes text, is_example)
   — planned blocks. A block whose end_time is earlier than its start_time crosses midnight.
 tasks(id, title text, date date, status boolean, time_chunk_id uuid, parent_task_id uuid, completed_at timestamptz, rollover_count int, is_work boolean, goal_node_id uuid, is_example)
@@ -76,8 +77,9 @@ journal_entries(date date, thoughts text, gratitude text, gods_hand text, q_savi
   — the evening reflection. gods_hand answers "Where did you see God's hand today?"; q_savior and q_learn answer that evening's questions (the *_prompt columns hold the questions); thoughts is "Anything else". Evenings before mid-October 2026 used q_christ, q_principles and q_success instead.
 daily_walk(date date, verse_ref text, verse_text text, prompt text) — the verse and prompt on the morning's Walk with God card.
 prayer_logs(id, prayed_at timestamptz, context text, content text, felt_response text, tags text[], is_example)
+  — context 'Evening' rows come from the evening check-in's one-tap prayer (content 'Prayed' unless he wrote a line).
 spiritual_experiences(id, occurred_at timestamptz, kind 'prompting'|'impression'|'answer'|'tender_mercy'|'comfort'|'warning'|'insight', what_came text, trigger_context text, acted_on boolean, action_taken text, follow_up_notes text, tags text[], is_example)
-  — acted_on true means the entry is closed; count a prompting as followed only when action_taken is filled in.
+  — acted_on true means the entry is closed; count a prompting as followed only when action_taken is filled in. trigger_context 'Evening check-in' rows came from the evening check-in ('Yes, acted' sets action_taken 'Acted on it'; 'Yes, didn't' leaves it open).
 
 Goals
 nodes(id, title text, description text, tracking_method 'note'|'checkbox'|'counter', target_number numeric, current_number numeric, is_completed boolean, completed_at timestamptz, is_focused boolean, has_deadline boolean, deadline_date date, last_activity_at timestamptz)

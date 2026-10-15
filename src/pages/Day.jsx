@@ -170,6 +170,7 @@ export default function Day() {
           userId={userId}
           date={date}
           archive={a}
+          plan={data.dayPlan}
           chunks={data.chunks}
           tasks={data.tasks}
           onReopen={async () => {

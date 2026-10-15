@@ -9,6 +9,7 @@ import { colorFor, fmtMinutes } from "../../lib/categories";
 import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
 import { trackedMinutes, OVERLAP_NOTE } from "../today/minutes";
+import "../../styles/honest.css";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -35,7 +36,7 @@ function timeOf(iso) {
 // of keeping a day at all, so they get the closing position, not a dropdown.
 //
 // No goal tallies here: minutes per goal weren't telling you anything.
-export default function BankedDayCard({ userId, date, archive, chunks, tasks, onReopen, onChanged }) {
+export default function BankedDayCard({ userId, date, archive, plan, chunks, tasks, onReopen, onChanged }) {
   const a = archive ?? {};
   const [activeSlice, setActiveSlice] = useState(null);
   const [reopening, setReopening] = useState(false);
@@ -94,6 +95,7 @@ export default function BankedDayCard({ userId, date, archive, chunks, tasks, on
         ) : (
           <WriteSummary userId={userId} date={date} onWritten={onChanged} />
         )}
+        <DayInALine plan={plan} />
       </div>
 
       {/* ---- The pictures ------------------------------------------------ */}
@@ -338,6 +340,20 @@ function WriteSummary({ userId, date, onWritten }) {
       {error && <div className="form-error" style={{ flexBasis: "100%" }}>{error}</div>}
     </div>
   );
+}
+
+// What the morning and evening check-ins said, in one quiet line.
+function DayInALine({ plan }) {
+  if (!plan) return null;
+  const parts = [];
+  if (plan.woke_at) parts.push(`Up ${timeOf(plan.woke_at)}`);
+  if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtMinutes((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
+  if (plan.energy) parts.push(`energy ${plan.energy}`);
+  if (plan.mood) parts.push(`mood ${plan.mood}`);
+  if (plan.stress) parts.push(`stress ${plan.stress}${plan.stress_source ? ` (${plan.stress_source.toLowerCase()})` : ""}`);
+  if (plan.off_plan_reason) parts.push(`off plan: ${plan.off_plan_reason.toLowerCase()}`);
+  if (!parts.length) return null;
+  return <p className="banked-line">{parts.join(" · ")}</p>;
 }
 
 function TaskLine({ task, subtasks }) {
