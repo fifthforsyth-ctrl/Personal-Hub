@@ -107,6 +107,30 @@
 .runaway__keep { min-height: 36px; padding: 0 8px; }
 .runaway__note { margin: 10px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }
 
+/* --- Old timers that ran through the night ------------------------------------- */
+
+.overnight { margin-bottom: 0; }
+.overnight__list { margin: 0 0 2px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.overnight__row { padding: 11px 0 12px; border-bottom: 1px solid var(--line); }
+.overnight__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.overnight__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overnight__day { flex-shrink: 0; font-size: 12px; color: var(--text-2); }
+.overnight__leave { flex-shrink: 0; width: 30px; height: 30px; margin: -6px -6px -6px 0; color: var(--text-3); }
+.overnight__ran { margin-top: 1px; font-size: 12.5px; color: var(--text-2); }
+.overnight__fix { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; font-size: 13px; color: var(--text); }
+.overnight__fix .input { width: auto; padding: 6px 10px; font-size: 13px; }
+.overnight__why { color: var(--text-2); }
+.overnight__note { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.overnight__problem { margin-top: 8px; }
+
 /* --- The morning ------------------------------------------------------------- */
 
 .morning__alarm-tag { font-size: 11.5px; }

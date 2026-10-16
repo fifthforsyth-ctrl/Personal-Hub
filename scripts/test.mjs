@@ -86,6 +86,11 @@ import {
   practiceSummary,
   TASK_REASONS,
   DEFAULT_CLIENTS,
+  ranThroughNight,
+  overnightSleepStart,
+  planOvernightFix,
+  withSleepFrom,
+  overnightProblem,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 import {
@@ -1103,6 +1108,92 @@ ok("a miss after today isn't counted yet", has(part("misses"), "**1** win and **
 ok("work after today isn't counted yet", has(part("work"), "Forsyth Media got **7 h** of its 60 h."));
 ok("a finished week isn't 'so far'", buildMirror({ weekStart: week, today: "2026-10-12" }).current === false);
 ok("an empty week has nothing to show", buildMirror({ weekStart: week, today: "2026-10-12" }).sections.length === 0);
+}
+
+// --- Old timers that ran through the night ------------------------------------
+{
+console.log("\nold timers that ran through the night");
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
+const iso = (...a) => at(...a).toISOString();
+const same = (a, b) => a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+const timer = (id, tags, from, to, more = {}) => ({ id, tags, description: more.description ?? null, started_at: iso(...from), ended_at: to ? iso(...to) : null, ended_by: null, is_example: false, ...more });
+
+const prep = timer("prep", ["Prep"], [2026, 9, 8, 21, 46], [2026, 9, 9, 5, 52], { description: "Prep for bed" });
+ok("a bedtime timer stopped the next morning ran through the night", ranThroughNight(prep));
+ok("one already looked at isn't offered again", !ranThroughNight({ ...prep, ended_by: "stop" }) && !ranThroughNight({ ...prep, ended_by: "overnight_fix" }));
+ok("sample entries are never offered", !ranThroughNight({ ...prep, is_example: true }));
+ok("Sleep is never offered", !ranThroughNight({ ...prep, tags: ["Sleep"] }));
+ok("a running timer is the live card's, not the list's", !ranThroughNight({ ...prep, ended_at: null }));
+ok("a date that ran just past midnight isn't a runaway", !ranThroughNight(timer("date", ["Date"], [2026, 10, 7, 18, 17], [2026, 10, 8, 0, 16])));
+ok("a long work day isn't either", !ranThroughNight(timer("work", ["Forsyth Media LLC"], [2026, 10, 5, 7, 41], [2026, 10, 5, 18, 18])));
+ok("an hour awake in the small hours isn't", !ranThroughNight(timer("up", ["Study"], [2026, 10, 5, 2, 30], [2026, 10, 5, 3, 30])));
+const temple = timer("temple", ["Prep"], [2026, 10, 10, 13, 33], [2026, 10, 11, 7, 19], { description: "Prep for temple" });
+ok("an afternoon timer that ran to the next morning is", ranThroughNight(temple));
+
+const usual = "22:28";
+ok("bedtime routine: asleep half an hour in", same(overnightSleepStart(prep, usual), at(2026, 9, 8, 22, 16)));
+ok("an hour before lights-out is still the routine",
+  same(overnightSleepStart(timer("p2", ["Prep"], [2026, 9, 13, 21, 17], [2026, 9, 14, 5, 37]), usual), at(2026, 9, 13, 21, 47)));
+ok("started after your usual lights-out: half an hour in",
+  same(overnightSleepStart(timer("p3", ["Prep"], [2026, 9, 11, 22, 46], [2026, 9, 12, 7, 27]), usual), at(2026, 9, 11, 23, 16)));
+ok("an evening timer left going: your usual lights-out",
+  same(overnightSleepStart(timer("r", ["Reflect", "Plan"], [2026, 9, 24, 20, 40], [2026, 9, 25, 5, 13]), usual), at(2026, 9, 24, 22, 28)));
+ok("an afternoon timer: lights-out that night, not half an hour in", same(overnightSleepStart(temple, usual), at(2026, 10, 10, 22, 28)));
+const chess = timer("chess", ["Minister"], [2026, 10, 3, 17, 38], [2026, 10, 4, 8, 59], { description: "Chess with AJ" });
+ok("a lights-out after midnight is that night's small hours", same(overnightSleepStart(chess, "00:30"), at(2026, 10, 4, 0, 30)));
+ok("no sleep on record: half an hour in", same(overnightSleepStart(chess, null), at(2026, 10, 3, 18, 8)));
+ok("a timer started after midnight: half an hour in",
+  same(overnightSleepStart(timer("late", ["Study"], [2026, 10, 5, 0, 40], [2026, 10, 5, 6, 0]), usual), at(2026, 10, 5, 1, 10)));
+
+// Sleep logged that night anyway: the timer ran alongside it.
+const ranOn = timer("ranOn", ["Prep"], [2026, 9, 9, 23, 17], [2026, 9, 10, 6, 57], { description: "prep for bed" });
+const slept = timer("slept", ["Sleep"], [2026, 9, 9, 23, 37], [2026, 9, 10, 6, 57]);
+const along = planOvernightFix(ranOn, [slept], usual);
+ok("Sleep logged anyway: it ends when Sleep began", along.kind === "alongside" && same(along.end, at(2026, 9, 9, 23, 37)) && along.endedFor.id === "slept");
+ok("and no second Sleep is added", along.sleepFrom === undefined && overnightProblem(along) === null);
+
+const reflection = timer("refl", ["Reflect"], [2026, 9, 6, 20, 41], [2026, 9, 7, 7, 50], { description: "End of day reflection" });
+const evening = [
+  timer("bedprep", ["Prep"], [2026, 9, 6, 21, 27], [2026, 9, 6, 21, 44], { description: "Prep for bed" }),
+  timer("night", ["Sleep"], [2026, 9, 6, 21, 44], [2026, 9, 7, 7, 29]),
+  timer("upprep", ["Prep"], [2026, 9, 7, 7, 32], [2026, 9, 7, 7, 50], { description: "Up and prep" }),
+];
+const refl = planOvernightFix(reflection, evening, usual);
+ok("it ends when the next thing began, even before Sleep", refl.kind === "alongside" && same(refl.end, at(2026, 9, 6, 21, 27)) && refl.endedFor.description === "Prep for bed");
+
+// Fell asleep with it going.
+const asleep = planOvernightFix(prep, [timer("dating", ["Social activity"], [2026, 9, 8, 21, 23], [2026, 9, 8, 21, 53])], usual);
+ok("asleep: it ends where sleep began", asleep.kind === "asleep" && same(asleep.end, at(2026, 9, 8, 22, 16)) && same(asleep.sleepFrom, asleep.end));
+ok("and Sleep runs until the timer was stopped", same(asleep.sleepUntil, at(2026, 9, 9, 5, 52)) && !asleep.wokeFor && !asleep.endedFor);
+ok("something that began before it doesn't count", overnightProblem(asleep) === null);
+
+const symposium = timer("sym", ["Symposium (group goal meeting)"], [2026, 10, 4, 7, 10], [2026, 10, 4, 9, 10]);
+const chessFix = planOvernightFix(chess, [symposium], usual);
+ok("an evening left running sleeps from your usual lights-out", chessFix.kind === "asleep" && same(chessFix.sleepFrom, at(2026, 10, 3, 22, 28)));
+ok("and wakes when the first thing of the morning began", same(chessFix.sleepUntil, at(2026, 10, 4, 7, 10)) && chessFix.wokeFor.id === "sym");
+
+const napped = planOvernightFix(temple, [timer("nap", ["Sleep"], [2026, 10, 10, 15, 0], [2026, 10, 10, 15, 30], { is_nap: true })], usual);
+ok("a nap isn't the night's sleep", napped.kind === "asleep");
+ok("but the timer ends when the nap began", same(napped.end, at(2026, 10, 10, 15, 0)) && napped.endedFor.id === "nap" && same(napped.sleepFrom, at(2026, 10, 10, 22, 28)));
+ok("sample entries don't shape a fix", planOvernightFix(ranOn, [{ ...slept, is_example: true }], usual).kind === "asleep");
+
+const later = withSleepFrom(chessFix, at(2026, 10, 3, 23, 30));
+ok("moving the time moves the end with it", same(later.end, at(2026, 10, 3, 23, 30)) && same(later.sleepUntil, at(2026, 10, 4, 7, 10)) && overnightProblem(later) === null);
+ok("asleep after the timer stopped can't be saved", overnightProblem(withSleepFrom(chessFix, at(2026, 10, 4, 9, 30))) !== null);
+ok("asleep after the morning's first entry runs to the stop", same(withSleepFrom(chessFix, at(2026, 10, 4, 7, 30)).sleepUntil, at(2026, 10, 4, 8, 59)));
+
+const mig = readFileSync(new URL("../supabase/migrations/0072_overnight_fix.sql", import.meta.url), "utf8")
+  .split("\n")
+  .filter((l) => !l.trim().startsWith("--"))
+  .join("\n");
+const outsideFn = mig.replace(/\$\$[\s\S]*?\$\$/g, "");
+ok("the migration only adds a column and a function", /add column if not exists original_ended_at/.test(mig) && !/\bdrop\b|\bdelete\b|\bupdate\b|\btruncate\b/i.test(outsideFn));
+ok("the fix runs as you, under row-level security", /security invoker/.test(mig) && /grant execute on function public\.fix_overnight_timer/.test(mig));
+ok("a fix keeps the end it had", /set original_ended_at = v\.ended_at/.test(mig));
+const askFn = readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8");
+const assistantFn = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+ok("Ask knows original_ended_at", askFn.includes("original_ended_at timestamptz") && askFn.includes("ran past 3:00 with ended_by null"));
+ok("the assistant knows original_ended_at", assistantFn.includes("original_ended_at timestamptz") && assistantFn.includes("ran past 3:00 with ended_by null"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

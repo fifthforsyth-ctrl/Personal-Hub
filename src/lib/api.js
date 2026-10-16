@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
 import { todayStr, addDays, toDateStr, startOfMonth } from "./planDates";
+import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -211,6 +212,67 @@ export async function fetchSleepEntries(userId, sinceISO) {
     .limit(80);
   if (error) throw error;
   return data ?? [];
+}
+
+// Old timers that ran through the night, with what else started while each
+// one ran and the recent Sleep entries your usual lights-out comes from:
+// everything the fix list needs to propose each fix.
+export async function fetchOvernightTimers(userId) {
+  const { data, error } = await supabase
+    .from("time_log_entries")
+    .select("id, description, category, tags, started_at, ended_at, ended_by, is_example")
+    .eq("user_id", userId)
+    .eq("is_example", false)
+    .is("ended_by", null)
+    .not("ended_at", "is", null)
+    .not("tags", "cs", "{Sleep}")
+    .gte("duration_minutes", RUNAWAY_HOURS * 60)
+    .order("started_at", { ascending: true })
+    .limit(1000);
+  if (error) throw error;
+  const timers = (data ?? []).filter(ranThroughNight);
+  if (timers.length === 0) return { timers, others: [], sleeps: [] };
+
+  // Only the entries that started while one of them ran. Times are quoted:
+  // a timestamp's dots and colons mean something else in a filter.
+  const during = timers
+    .map((t) => `and(started_at.gt."${new Date(t.started_at).toISOString()}",started_at.lt."${new Date(t.ended_at).toISOString()}")`)
+    .join(",");
+  const [others, sleeps] = await Promise.all([
+    supabase
+      .from("time_log_entries")
+      .select("id, description, category, tags, started_at, ended_at, is_nap, is_example")
+      .eq("user_id", userId)
+      .eq("is_example", false)
+      .or(during)
+      .order("started_at", { ascending: true })
+      .limit(1000),
+    fetchSleepEntries(userId, new Date(Date.now() - 60 * 86400000).toISOString()),
+  ]);
+  if (others.error) throw others.error;
+  return { timers, others: others.data ?? [], sleeps };
+}
+
+// One old overnight timer, fixed: it ends at `end`, keeping the end it had
+// in original_ended_at, and when you were asleep, Sleep runs from
+// `sleepFrom` to `sleepUntil`. One step on the server, so a fix is never
+// half done.
+export async function fixOvernightTimer({ id, end, sleepFrom = null, sleepUntil = null }) {
+  const { error } = await supabase.rpc("fix_overnight_timer", {
+    p_id: id,
+    p_end: new Date(end).toISOString(),
+    p_sleep_from: sleepFrom ? new Date(sleepFrom).toISOString() : null,
+    p_sleep_until: sleepUntil ? new Date(sleepUntil).toISOString() : null,
+  });
+  if (error) throw error;
+}
+
+// Old overnight timers left as they were. 'stop' is what they always were:
+// a timer stopped by hand, at the time it says.
+export async function keepOvernightTimers(ids) {
+  if (!ids.length) return;
+  const { error } = await supabase.from("time_log_entries").update({ ended_by: "stop" }).in("id", ids).is("ended_by", null);
+  if (error) throw error;
 }
 
 // Recent stretches that can name people: what's been picked before, and
