@@ -17,6 +17,7 @@ import {
   X,
   Compass,
   Sparkles,
+  ScanEye,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -53,6 +54,7 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 export const MORE = [
   { to: "/evening", label: "Evening", Icon: Moon },
   { to: "/day", label: "Past days", Icon: CalendarDays },
+  { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
   { to: "/overview", label: "Big picture", Icon: Compass },
   { to: "/tree", label: "Goal wheel", Icon: GitBranch },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },

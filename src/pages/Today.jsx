@@ -17,8 +17,11 @@ import QuoteOfDay from "../components/today/QuoteOfDay";
 import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import WindDown from "../components/today/WindDown";
+import MirrorLink from "../components/MirrorLink";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
+import { isSunday } from "../lib/honest";
+import { lastWeekStart } from "../lib/mirror";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
@@ -116,6 +119,8 @@ export default function Today() {
           {data && (
             <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
           )}
+          {/* Sunday: last week in the mirror, before the new one is planned. */}
+          {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
         </div>
         <div className="stack">

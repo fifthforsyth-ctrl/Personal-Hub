@@ -7,6 +7,7 @@ import YearView from "../components/plan/YearView";
 import IdealDays from "../components/plan/IdealDays";
 import CategoryKey from "../components/CategoryKey";
 import FocusWeek from "../components/focus/FocusWeek";
+import MirrorLink from "../components/MirrorLink";
 import CuratedCards from "../components/curator/CuratedCards";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import {
@@ -20,6 +21,7 @@ import {
   startOfWeek,
   yearOf,
 } from "../lib/planDates";
+import { lastWeekStart } from "../lib/mirror";
 import "../styles/plan.css";
 
 // "Ideal" is not an altitude like the other three — it is what the other
@@ -136,6 +138,8 @@ export default function Plan() {
         </div>
       </div>
 
+      {/* On Sunday, last week seen whole comes first, then the focus review. */}
+      {view === "Week" && isSundayReview(date) && <MirrorLink weekStart={lastWeekStart(todayStr())} className="mirror-link--plan" />}
       {/* What the week is for comes before how its hours are laid out. */}
       {view === "Week" && <FocusWeek anchorDate={date} />}
       {/* Sunday is when the week gets planned, so it's when the board brings
