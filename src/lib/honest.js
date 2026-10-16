@@ -333,6 +333,83 @@ export function suggestedSleepStart(entry, usual, now = new Date()) {
   return at;
 }
 
+// --- Old timers that ran through the night -------------------------------------
+//
+// Before the runaway card, a timer left going at bedtime simply ran on until
+// morning. Those are offered once, as a short list on Today, each with the
+// likeliest fix worked out from the rest of the record.
+
+// A stopped timer, other than Sleep, that ran on past 3 am and that nobody
+// has looked at since: ended_by is only empty on entries from before the
+// runaway card, and the fix list fills it either way.
+export function ranThroughNight(entry) {
+  if (!entry?.ended_at || entry.ended_by || entry.is_example || isSleep(entry)) return false;
+  const end = new Date(entry.ended_at);
+  if (end - new Date(entry.started_at) < RUNAWAY_HOURS * 3600000) return false;
+  return resolveTimeAfter(entry.started_at, "03:00") < end;
+}
+
+// Where an old runaway most likely turned into sleep. One started within an
+// hour and a half of your usual lights-out was the bedtime routine you fell
+// asleep in: half an hour after it started. One started earlier (a game of
+// chess, the afternoon before the temple) was left going while you got on
+// with the evening, so: your usual lights-out that night.
+export const BEDTIME_ROUTINE_MINUTES = 90;
+
+export function overnightSleepStart(entry, usual) {
+  const start = new Date(entry.started_at);
+  const halfHourIn = new Date(start.getTime() + 30 * 60000);
+  if (!usual) return halfHourIn;
+  const night = resolveTimeAfter(entry.started_at, "03:00");
+  const lights = resolveTimeBefore(night.toISOString(), usual);
+  return lights - start > BEDTIME_ROUTINE_MINUTES * 60000 ? lights : halfHourIn;
+}
+
+// The fix for one old runaway, from whatever else started while it ran.
+//
+// If the night's sleep was logged anyway, the timer only ran alongside
+// everything after it: it ends where the next thing began. Otherwise you
+// fell asleep with it going: it ends where sleep began (or earlier, if
+// something else was logged in the evening), and Sleep runs from there until
+// the timer was stopped, or until the first thing logged after waking.
+export function planOvernightFix(entry, others, usual) {
+  const start = new Date(entry.started_at);
+  const end = new Date(entry.ended_at);
+  const inside = (others ?? [])
+    .filter((o) => o.id !== entry.id && !o.is_example)
+    .map((o) => ({ ...o, at: new Date(o.started_at) }))
+    .filter((o) => o.at > start && o.at < end)
+    .sort((a, b) => a.at - b.at);
+  if (inside.some((o) => isSleep(o) && !isNap(o))) {
+    return { entry, inside, kind: "alongside", end: inside[0].at, endedFor: inside[0] };
+  }
+  return withSleepFrom({ entry, inside, kind: "asleep" }, overnightSleepStart(entry, usual));
+}
+
+// The same fix with sleep starting somewhere else: the time on a row was
+// changed.
+export function withSleepFrom(plan, sleepFrom) {
+  const from = new Date(sleepFrom);
+  const before = plan.inside.find((o) => o.at < from) ?? null;
+  const after = plan.inside.find((o) => o.at >= from) ?? null;
+  return {
+    ...plan,
+    end: before ? before.at : from,
+    endedFor: before,
+    sleepFrom: from,
+    sleepUntil: after ? after.at : new Date(plan.entry.ended_at),
+    wokeFor: after,
+  };
+}
+
+// Why a fix can't be saved as it stands, or null when it can.
+export function overnightProblem(plan) {
+  if (plan.kind !== "asleep") return null;
+  if (plan.sleepFrom >= new Date(plan.entry.ended_at)) return "That's after the timer was stopped.";
+  if (plan.sleepUntil <= plan.sleepFrom) return "Pick an earlier time.";
+  return null;
+}
+
 // --- The morning ---------------------------------------------------------------------
 
 export const MORNING_FROM_HOUR = 3;

@@ -16,6 +16,7 @@ import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
 import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
+import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
 import MirrorLink from "../components/MirrorLink";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
@@ -36,7 +37,9 @@ import "../styles/daily.css";
 // Two things are asked here at the right moment and only then: a timer
 // that ran away (at the very top, once), and in the morning, how last night
 // went (just under the wins, until noon). In the evening the same spot
-// carries one line: when the lights go out for tomorrow's alarm.
+// carries one line: when the lights go out for tomorrow's alarm. Old timers
+// that ran through the night before any of that existed are offered once,
+// under the minutes.
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -122,6 +125,9 @@ export default function Today() {
           {/* Sunday: last week in the mirror, before the new one is planned. */}
           {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
+          {/* Old timers that ran through the night, offered once, under the
+              minutes they'd otherwise keep inflating. */}
+          {userId && data && !runaway && <OldRunaways userId={userId} />}
         </div>
         <div className="stack">
           {/* Just after midnight the yesterday banner is the way in; a second
