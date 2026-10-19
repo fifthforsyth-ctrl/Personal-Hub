@@ -1825,3 +1825,31 @@ summary:focus-visible,
 .load-error__why { color: var(--text-2); }
 .load-error--stale { background: var(--inset); color: var(--text-2); }
 .load-error .btn { background: var(--card); border-color: var(--line); }
+
+/* --- Crossed swords (the mark for a win) ----------------------------------- */
+
+.swords { flex-shrink: 0; overflow: visible; }
+.swords__a, .swords__b, .swords__spark { transform-box: view-box; transform-origin: 12px 12px; }
+.swords--clash .swords__a { animation: swords-swing-a 0.4s cubic-bezier(0.25, 1.5, 0.5, 1); }
+.swords--clash .swords__b { animation: swords-swing-b 0.4s cubic-bezier(0.25, 1.5, 0.5, 1); }
+.swords--clash .swords__spark { transform-origin: 12px 8px; opacity: 0; animation: swords-spark 0.5s ease-out 0.12s; }
+
+@keyframes swords-swing-a {
+  0% { transform: translateX(-3px) rotate(-38deg); }
+  100% { transform: none; }
+}
+@keyframes swords-swing-b {
+  0% { transform: translateX(3px) rotate(38deg); }
+  100% { transform: none; }
+}
+@keyframes swords-spark {
+  0% { opacity: 1; transform: scale(0.4); }
+  60% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swords--clash .swords__a, .swords--clash .swords__b { animation: none; }
+}
+.win-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
+.win-btn .swords { margin: -3px 0; }

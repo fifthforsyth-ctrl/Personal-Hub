@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Plus, Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
@@ -14,6 +14,7 @@ import BankedDayCard from "../components/day/BankedDayCard";
 import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
 import TapEditor from "../components/today/TapEditor";
+import Swords from "../components/ui/Swords";
 import { useOutbox, withTaps, isUnnamed } from "../components/today/tapOutbox";
 import { trackedMinutes, OVERLAP_NOTE } from "../components/today/minutes";
 import { eveningDate } from "../components/today/dayParts";
@@ -161,7 +162,7 @@ function WinsAndLosses({ userId, date, rows }) {
             <TapEditor key={w.id} row={w} onClose={() => setEditing(null)} />
           ) : (
             <button key={w.id} type="button" className={"evening-wl__row" + (kind === "loss" ? " muted" : "")} onClick={() => setEditing(w.id)}>
-              {kind === "win" ? <Plus size={13} className="evening-wl__mark" /> : <Minus size={13} className="evening-wl__mark" />}
+              {kind === "win" ? <Swords size={14} className="evening-wl__mark" /> : <Minus size={13} className="evening-wl__mark" />}
               {isUnnamed(w) ? (
                 <span className="evening-wl__unnamed">{kind === "win" ? "Win" : "Loss"} (tap to name)</span>
               ) : (

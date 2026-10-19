@@ -2927,3 +2927,23 @@ export async function fetchMirrorWeek(userId, weekStart) {
     weights: weights.data ?? [],
   };
 }
+
+// The home screen widget's key (see 0073_phone_widget.sql). The row says
+// whether a widget is on and when it last asked; the key itself only ever
+// comes back once, from newWidgetKey.
+export async function fetchWidgetKey(userId) {
+  const { data, error } = await supabase.from("widget_keys").select("created_at, last_used_at").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function newWidgetKey() {
+  const { data, error } = await supabase.rpc("new_widget_key");
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteWidgetKey(userId) {
+  const { error } = await supabase.from("widget_keys").delete().eq("user_id", userId);
+  if (error) throw error;
+}

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { friendlyError } from "../../lib/errors";
+import { haptic } from "../../lib/haptics";
 
 // Toasts, undo and confirm, shared by every page.
 //
@@ -45,7 +46,10 @@ export function FeedbackProvider({ children }) {
   );
 
   const error = useCallback(
-    (err, fallback = "Something went wrong. Try again.") => show(friendlyError(err, fallback), { tone: "error", duration: 5000 }),
+    (err, fallback = "Something went wrong. Try again.") => {
+      haptic("warning");
+      show(friendlyError(err, fallback), { tone: "error", duration: 5000 });
+    },
     [show]
   );
 

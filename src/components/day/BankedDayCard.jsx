@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Archive, ChevronDown, Clock, Flame, HandHeart, BookOpen, Plus, Minus, PenLine, Unlock, Sparkles } from "lucide-react";
+import { Archive, ChevronDown, Clock, Flame, HandHeart, BookOpen, Minus, PenLine, Unlock, Sparkles } from "lucide-react";
 import { writeDaySynopsis, saveDaySynopsis } from "../../lib/api";
 import { friendlyError } from "../../lib/errors";
 import { Donut, RadialMeter, Legend } from "../charts";
@@ -8,6 +8,7 @@ import { answeredCards } from "./ReflectionFlow";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
+import Swords from "../ui/Swords";
 import { trackedMinutes, OVERLAP_NOTE } from "../today/minutes";
 import "../../styles/honest.css";
 
@@ -217,12 +218,12 @@ export default function BankedDayCard({ userId, date, archive, plan, chunks, tas
           )}
 
           {wins.length + losses.length > 0 && (
-            <Fold icon={Plus} title="Wins and losses" count={wins.length + losses.length}>
+            <Fold icon={Swords} title="Wins and losses" count={wins.length + losses.length}>
               <div className="list">
                 {[...wins, ...losses].map((w) => (
                   <div key={w.id} className="list-row">
                     <span style={{ color: w.kind === "win" ? "var(--accent)" : "var(--text-3)", display: "flex", flexShrink: 0 }}>
-                      {w.kind === "win" ? <Plus size={14} /> : <Minus size={14} />}
+                      {w.kind === "win" ? <Swords size={14} /> : <Minus size={14} />}
                     </span>
                     <span className="truncate" style={{ flex: 1 }}>{w.habit_label}</span>
                     <span className="list-row__meta">{timeOf(w.occurred_at)}</span>
