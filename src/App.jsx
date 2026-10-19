@@ -20,6 +20,7 @@ const Work = lazy(() => import("./pages/Work"));
 const Money = lazy(() => import("./pages/Money"));
 const Spirit = lazy(() => import("./pages/Spirit"));
 const Tree = lazy(() => import("./pages/Tree"));
+const Ascent = lazy(() => import("./pages/Ascent"));
 const Reflect = lazy(() => import("./pages/Reflect"));
 const GoalLinks = lazy(() => import("./pages/GoalLinks"));
 const Ask = lazy(() => import("./pages/Ask"));
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/study" element={<Study />} />
             <Route path="/work" element={<Work />} />
             <Route path="/money" element={<Money />} />
+            <Route path="/ascent" element={<Ascent />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
             <Route path="/spirit" element={<Spirit />} />

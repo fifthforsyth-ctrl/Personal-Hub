@@ -18,6 +18,7 @@ const TITLES = [
   ["/study", "Board"],
   ["/work", "Work"],
   ["/money", "Money"],
+  ["/ascent", "Ascent"],
   ["/tree", "Goal wheel"],
   ["/reflect", "Charts"],
   ["/spirit", "Promptings & prayer"],

@@ -9,6 +9,22 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import {
+  zoneOf,
+  stepIndex,
+  focusSteps,
+  fedLine,
+  shortGoal,
+  gearFor,
+  questState,
+  questLayout,
+  climberAt,
+  lessonWeek,
+  lessonNote,
+  buildAscent,
+  windowDays,
+  WINDOW_DAYS,
+} from "../src/lib/ascent.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -1194,6 +1210,134 @@ const askFn = readFileSync(new URL("../supabase/functions/ask/index.ts", import.
 const assistantFn = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
 ok("Ask knows original_ended_at", askFn.includes("original_ended_at timestamptz") && askFn.includes("ran past 3:00 with ended_by null"));
 ok("the assistant knows original_ended_at", assistantFn.includes("original_ended_at timestamptz") && assistantFn.includes("ran past 3:00 with ended_by null"));
+}
+
+// --- Ascent: the goals page ------------------------------------------------------
+{
+console.log("\nascent");
+ok("zones climb with the share of days walked", zoneOf(0) === "trail" && zoneOf(3) === "foot" && zoneOf(35) === "switch" && zoneOf(69) === "switch" && zoneOf(70) === "ridge");
+
+const index = stepIndex([
+  { tag: "Draw", days: ["2026-10-01", "2026-10-17"], last_day: "2026-10-17" },
+  { tag: "draw ", days: ["2026-10-02"], last_day: "2026-10-02" },
+  { tag: "Serve", days: ["2026-10-17", "2026-10-18"], last_day: "2026-10-18" },
+  { tag: "Minister", days: ["2026-10-18", "2026-10-19"], last_day: "2026-10-19" },
+  { tag: "Painting", days: [], last_day: "2026-06-01" },
+]);
+const drawn = focusSteps({ categories: ["DRAW"] }, index);
+ok("categories match however they're typed", drawn.days.size === 3 && drawn.last === "2026-10-17");
+const served = focusSteps({ categories: ["Serve", "Minister"] }, index);
+ok("a day with two of a focus's categories is one footprint", served.days.size === 3 && served.last === "2026-10-19");
+ok("a focus with no logged category has no steps", focusSteps({ categories: ["Chess"] }, index).days.size === 0);
+
+ok("the line under a goal says what feeds it", fedLine({ focuses: [{ name: "Drawing" }], count: 2, last: "2026-10-17" }) === `Drawing · 2 of ${WINDOW_DAYS} days`);
+ok("two focuses read as a list", fedLine({ focuses: [{ name: "Serving" }, { name: "Ministering" }], count: 1, last: "2026-10-19" }).startsWith("Serving and Ministering"));
+ok("a quiet focus says when it was last walked, not that it failed", /none logged since/.test(fedLine({ focuses: [{ name: "Painting" }], count: 0, last: "2026-06-01" })));
+ok("a goal with nothing feeding it says so plainly", fedLine({ focuses: [], count: 0, last: null }) === "No focus yet");
+ok("short names drop the 'highly'", shortGoal("Highly in tune with God") === "In tune with God" && shortGoal("be highly skilled") === "Skilled");
+ok("each goal gets its gear", gearFor("Highly selfless") === "rope" && gearFor("Highly disciplined") === "boot" && gearFor("Highly in tune with God") === "compass" && gearFor("Highly educated") === "map" && gearFor("Highly skilled") === "axe" && gearFor("Something new") === "tent");
+
+const camps = [
+  { id: "c2", position: 1, title: "Beta", reached_on: null },
+  { id: "c1", position: 0, title: "Prototype", reached_on: "2026-10-10" },
+  { id: "c3", position: 2, title: "Launch", reached_on: "2026-10-12" },
+];
+const st = questState({ status: "on" }, camps);
+ok("camps are climbed in order", st.camps.map((c) => c.id).join() === "c1,c2,c3" && st.reached === 1 && st.next.id === "c2");
+ok("a camp ticked out of order doesn't skip the one below it", !st.atSummit && !st.done);
+const top = questState({ status: "on" }, camps.map((c) => ({ ...c, reached_on: "2026-10-12" })));
+ok("with every camp reached, only the summit is left", top.next === null && top.atSummit && !top.done);
+ok("a quest with no camps goes straight for the summit", questState({ status: "on" }, []).atSummit);
+ok("a done quest is at the top", questState({ status: "done" }, camps).done && questState({ status: "done" }, camps).next === null);
+
+let spaced = true;
+let growing = true;
+let prevH = 0;
+for (let n = 0; n <= 14; n++) {
+  const g = questLayout(n);
+  if (g.H < prevH) growing = false;
+  prevH = g.H;
+  const ys = g.turns.map((t) => t[1]);
+  for (let i = 1; i < ys.length; i++) if (!(ys[i] < ys[i - 1])) spaced = false;
+  // Labels on the same side of the trail sit two camps apart.
+  for (let i = 3; i < g.turns.length - 1; i++) if (g.turns[i - 2][1] - g.turns[i][1] < 20) spaced = false;
+  if (g.turns[g.turns.length - 2][1] - g.turns[g.turns.length - 1][1] < 14) spaced = false;
+}
+ok("the trail always climbs, and camp labels never sit on each other", spaced);
+ok("many camps make a taller mountain", growing && questLayout(12).H > questLayout(3).H);
+
+const turnAt = [0, 0.25, 0.5, 0.75, 1];
+ok("the climber stands just past the last camp reached", Math.abs(climberAt({ reached: 1, done: false }, turnAt) - 0.32) < 1e-9);
+ok("and at the top once the quest is done", climberAt({ reached: 0, done: true }, turnAt) === 1);
+
+const lesson = { id: "L", title: "More integrity", started_on: "2026-10-14" };
+const week = lessonWeek(lesson, new Map([["2026-10-15", true], ["2026-10-16", false], ["2026-10-19", true]]), "2026-10-19");
+ok("the week runs Sunday to Saturday", week[0].date === "2026-10-18" && week[6].date === "2026-10-24" && week.map((d) => d.letter).join("") === "SMTWTFS");
+ok("today is marked, the rest of the week is ahead", week[1].isToday && week[1].kept === true && week[2].ahead && !week[0].ahead);
+const late = lessonWeek({ ...lesson, started_on: "2026-10-20" }, new Map(), "2026-10-21");
+ok("days before a lesson began aren't counted as missed", late[0].before && late[1].before && !late[2].before && late[2].kept === null);
+ok("the note counts days from the start", lessonNote(lesson, true, "2026-10-19") === "Day 6 · kept today");
+ok("a slip is noted without a scolding", lessonNote(lesson, false, "2026-10-19") === "Day 6 · slipped today, and that's noted");
+ok("no answer yet asks for one tonight", lessonNote(lesson, null, "2026-10-14") === "Day 1 · check in tonight");
+
+const today = "2026-10-19";
+const view = buildAscent(
+  {
+    mission: { statement: "To become a trusted servant", summit: "A trusted servant" },
+    goals: [
+      { id: "g2", title: "Highly selfless", created_at: "2026-02-02" },
+      { id: "g1", title: "Highly skilled", created_at: "2026-01-01" },
+    ],
+    focuses: [
+      { id: "f1", goal_id: "g1", name: "Drawing", categories: ["Draw"], position: 0 },
+      { id: "f2", goal_id: "g2", name: "Serving and ministering", categories: ["Serve", "Minister"], position: 1 },
+    ],
+    quests: [
+      { id: "q1", title: "Build the best Premiere Pro plugin", goal_id: "g1", status: "on", position: 0 },
+      { id: "q0", title: "Finish the course", goal_id: null, status: "done", finished_on: "2026-09-01", position: 1 },
+      { id: "q9", title: "Learn the cello", goal_id: "gone", status: "set_aside", position: 2 },
+    ],
+    camps: [{ id: "c1", quest_id: "q1", title: "Prototype", position: 0, reached_on: null }],
+    lessons: [
+      { id: "l1", title: "Stop drinking caffeine", goal_id: "g2", status: "learning", started_on: "2026-10-19", position: 0 },
+      { id: "l2", title: "Patience", goal_id: null, status: "learned", started_on: "2026-08-01", position: 1 },
+    ],
+    checkins: [{ lesson_id: "l1", date: today, kept: true }],
+    steps: [
+      { tag: "Draw", days: ["2026-10-17", "2026-10-02"], last_day: "2026-10-17" },
+      { tag: "Serve", days: ["2026-10-19"], last_day: "2026-10-19" },
+      { tag: "Minister", days: ["2026-10-19", "2026-10-18"], last_day: "2026-10-19" },
+    ],
+  },
+  today
+);
+ok("lifetime goals keep the order they were made in", view.goals.map((g) => g.id).join() === "g1,g2");
+const made = "2026-08-27T21:03:25Z";
+const ordered = buildAscent({ goals: ["Highly disciplined", "Highly educated", "Highly in tune with God", "Highly selfless", "Highly skilled"].map((title) => ({ id: title, title, created_at: made })) }, today);
+ok("goals made together read in the order Aaron names them", ordered.goals.map((g) => g.short).join() === "Skilled,In tune with God,Educated,Selfless,Disciplined");
+ok("a goal's footprints are its focuses' days", view.goals[0].count === 2 && view.goals[1].count === 2 && view.goals[1].prints.length === WINDOW_DAYS);
+ok("today's footprint is the last one", view.goals[1].prints[WINDOW_DAYS - 1] === true && view.goals[0].prints[WINDOW_DAYS - 1] === false);
+ok("the climber is as high as the goals are strong on average", Math.abs(view.climb - (7 + 7) / 2 / 100) < 1e-9);
+ok("a quest's tag names the goal it serves", view.quests.length === 1 && view.quests[0].serves.label === "Skilled" && view.quests[0].serves.gear === "axe");
+ok("a goal lists the quest that serves it", view.goals[0].quests.map((q) => q.id).join() === "q1");
+ok("a finished quest becomes a patch", view.patches.map((q) => q.id).join() === "q0" && view.patches[0].serves.kind === "mission");
+ok("a set-aside quest whose goal is gone serves the mission", view.setAside[0].serves.kind === "mission");
+ok("a lesson shows today's answer", view.lessons.length === 1 && view.lessons[0].today === true && view.lessons[0].note === "Day 1 · kept today");
+ok("learned lessons are kept apart", view.learned.map((l) => l.id).join() === "l2");
+ok("nothing loaded is an empty mountain, not a crash", buildAscent(null, today).goals.length === 0 && buildAscent(null, today).climb === 0);
+ok("the window ends today", windowDays(today).at(-1) === today && windowDays(today).length === WINDOW_DAYS);
+
+const mig = readFileSync(new URL("../supabase/migrations/0074_ascent.sql", import.meta.url), "utf8")
+  .split("\n")
+  .filter((l) => !l.trim().startsWith("--"))
+  .join("\n");
+const tables = ["missions", "focuses", "quests", "quest_camps", "lessons", "lesson_checkins"];
+ok("every Ascent table has row-level security", tables.every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(mig)));
+ok("and is yours alone", tables.every((t) => new RegExp(`create policy "[^"]+" on public\\.${t}\\s+for all to authenticated\\s+using \\(user_id = auth\\.uid\\(\\)\\)`).test(mig)));
+ok("nothing is open to signed-out visitors", /revoke all on[\s\S]*from anon/.test(mig) && !/grant[^;]*\bto anon\b/i.test(mig));
+ok("the footprints function runs as you, on the phone's day", /function public\.ascent_steps\(p_today date/.test(mig) && /security invoker/.test(mig) && !/current_date/.test(mig));
+ok("only signed-in users can call it", /grant execute on function public\.ascent_steps[^;]*to authenticated/.test(mig) && /revoke all on function public\.ascent_steps[^;]*from public/i.test(mig));
+ok("the migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(mig));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
