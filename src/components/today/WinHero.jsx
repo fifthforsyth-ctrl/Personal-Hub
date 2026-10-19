@@ -22,7 +22,7 @@ import { haptic } from "../../lib/haptics";
 // number, so the weight is kept beside the win.
 //
 // The Win button carries two crossed swords. Every win swings them together
-// with a clink you hear and a strike you feel (sound and haptics can each be
+// with the sound of a sword fight and a strike you feel (sound and haptics can each be
 // turned off under More > On your phone).
 //
 // Losses are deliberately quiet: a small grey link, no count, nothing red.
