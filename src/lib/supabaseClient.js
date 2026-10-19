@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 // shared/community visibility at all, unlike Symposium).
 //
 // Project: "personal-hub" in the Forsyth Progress org.
-const SUPABASE_URL = "https://bfednxteqhjljqdfdvsq.supabase.co";
+export const SUPABASE_URL = "https://bfednxteqhjljqdfdvsq.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmZWRueHRlcWhqbGpxZGZkdnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NTM1NTgsImV4cCI6MjEwMzQyOTU1OH0.Tft8vrFtjWnM-gVWD40IZVnrRqS99ivPq8W7H4qi50M";
 

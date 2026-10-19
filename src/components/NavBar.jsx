@@ -18,6 +18,7 @@ import {
   Compass,
   Sparkles,
   ScanEye,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -59,6 +60,7 @@ export const MORE = [
   { to: "/tree", label: "Goal wheel", Icon: GitBranch },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },
   { to: "/links", label: "Goal links", Icon: Link2 },
+  { to: "/phone", label: "On your phone", Icon: Smartphone },
 ];
 
 // "Past days" opens yesterday, the latest day that's over; today is on the

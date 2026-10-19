@@ -7,6 +7,9 @@ import { useOutbox, withTaps, waitingTaps, logTap, renameTap, removeTap, isUnnam
 import TapEditor from "./TapEditor";
 import WeighIn from "./WeighIn";
 import { isWeighIn } from "../../lib/honest";
+import Swords from "../ui/Swords";
+import { playClink } from "../../lib/clink";
+import { haptic } from "../../lib/haptics";
 
 // The first thing on Today, because wins are what keep you going.
 //
@@ -17,6 +20,10 @@ import { isWeighIn } from "../../lib/honest";
 // Every tap can be undone for a few seconds, and any win on the list can be
 // renamed or removed later by tapping it. "Weigh myself" also offers the
 // number, so the weight is kept beside the win.
+//
+// The Win button carries two crossed swords. Every win swings them together
+// with a clink you hear and a strike you feel (sound and haptics can each be
+// turned off under More > On your phone).
 //
 // Losses are deliberately quiet: a small grey link, no count, nothing red.
 // They're kept because logging them keeps you honest (and, in your own
@@ -67,6 +74,8 @@ export default function WinHero({ userId, date, rows, loaded }) {
   }
 
   function logWin(chipLabel) {
+    playClink();
+    haptic("win");
     const tap = logTap(userId, "win", chipLabel);
     setBump((b) => b + 1);
     setEditing(null);
@@ -106,14 +115,14 @@ export default function WinHero({ userId, date, rows, loaded }) {
     <div className="card win-hero">
       <div className="row row--between" style={{ alignItems: "flex-end" }}>
         <div>
-          <div className="eyebrow">Wins today</div>
+          <div className="eyebrow win-eyebrow"><Swords size={12} />Wins today</div>
           <div key={bump} className={"win-count" + (bump ? " win-count--bump" : "")} aria-live="polite">
             {loaded ? wins.length : <span className="win-count__unknown">–</span>}
           </div>
         </div>
         <div className="win-actions">
           <button className="btn btn--accent win-btn" onClick={() => logWin()}>
-            <Plus size={20} strokeWidth={2.8} />
+            <Swords size={24} clash={bump} />
             Win
           </button>
           <button className="loss-link" onClick={logLoss} title="Log a loss. It's kept quiet until the evening.">

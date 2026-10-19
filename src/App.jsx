@@ -24,6 +24,7 @@ const Reflect = lazy(() => import("./pages/Reflect"));
 const GoalLinks = lazy(() => import("./pages/GoalLinks"));
 const Ask = lazy(() => import("./pages/Ask"));
 const Mirror = lazy(() => import("./pages/Mirror"));
+const Phone = lazy(() => import("./pages/Phone"));
 
 function RedirectToToday() {
   return <Navigate to={`/day/${todayStr()}`} replace />;
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/links" element={<GoalLinks />} />
             <Route path="/ask" element={<Ask />} />
             <Route path="/mirror" element={<Mirror />} />
+            <Route path="/phone" element={<Phone />} />
 
             {/* Old addresses, kept so a bookmark lands somewhere sensible. */}
             <Route path="/today" element={<Navigate to="/" replace />} />

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Minus, Clock, Lightbulb, X, Check, ChevronLeft, CloudOff } from "lucide-react";
+import { Minus, Clock, Lightbulb, X, Check, ChevronLeft, CloudOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { createStudyNote, deleteNote, gistNote } from "../lib/api";
 import { friendlyError } from "../lib/errors";
@@ -9,6 +9,9 @@ import { MinutesView } from "./MinutesView";
 import { announceChange } from "./today/announce";
 import { logTap, renameTap, removeTap, startOutbox, useOutbox } from "./today/tapOutbox";
 import { knownWinLabels, loadWinLabels } from "./today/winLabels";
+import Swords from "./ui/Swords";
+import { playClink } from "../lib/clink";
+import { haptic } from "../lib/haptics";
 import WeighIn from "./today/WeighIn";
 import { isWeighIn } from "../lib/honest";
 
@@ -84,8 +87,15 @@ function CaptureSheet({ view, setView, onClose }) {
 
         {view === "menu" && (
           <div className="capture-grid">
-            <button className="capture-tile capture-tile--win" onClick={() => setView("win")}>
-              <Plus size={22} strokeWidth={2.6} />
+            <button
+              className="capture-tile capture-tile--win"
+              onClick={() => {
+                playClink();
+                haptic("win");
+                setView("win");
+              }}
+            >
+              <Swords size={26} />
               Win
             </button>
             <button className="capture-tile capture-tile--quiet" onClick={() => setView("loss")}>

@@ -1,0 +1,97 @@
+/* On your phone: haptics, sounds and the home screen widget. */
+
+.phone-page .card + .card { margin-top: 14px; }
+
+.phone-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.phone-row:first-of-type { border-top: none; }
+.phone-row__icon { color: var(--text-3); flex-shrink: 0; }
+.phone-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.phone-row__text strong { font-size: 14px; font-weight: 620; }
+.phone-row__text span { font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+
+.toggle {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  background: var(--line-strong, #d6d3cc);
+  transition: background 0.16s;
+  cursor: pointer;
+}
+.toggle__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.16s;
+}
+.toggle--on { background: var(--ink); }
+.toggle--on .toggle__knob { transform: translateX(18px); }
+
+.phone-try { margin-top: 10px; gap: 9px; }
+
+.phone-status { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.phone-status--on { color: var(--accent-text); }
+
+.phone-steps { margin: 16px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13.5px; line-height: 1.5; }
+.phone-steps li::marker { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+.phone-steps strong { font-weight: 620; }
+.phone-link { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.phone-make { margin-top: 8px; }
+.phone-script { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.phone-script textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--inset);
+  color: var(--text-2);
+  resize: none;
+}
+.phone-note { font-size: 12px; color: var(--text-3); margin: 14px 0 0; line-height: 1.5; }
+.phone-off { margin-top: 10px; padding-left: 0; }
+
+/* The medium widget, as the home screen draws it. */
+.widget-preview {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: #fff;
+  color: #141414;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 20px rgba(0, 0, 0, 0.08);
+  max-width: 340px;
+  min-height: 150px;
+  margin: 4px auto 0;
+}
+.widget-preview__wins { width: 84px; flex-shrink: 0; display: flex; flex-direction: column; }
+.widget-preview__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a877f;
+}
+.widget-preview__swords { color: var(--accent); }
+.widget-preview__count { font-size: 44px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.widget-preview__losses { font-size: 12px; color: #8a877f; font-weight: 500; }
+.widget-preview__minutes { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.widget-preview__head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; }
+.widget-preview__bar { display: flex; gap: 2px; height: 7px; border-radius: 999px; overflow: hidden; background: rgba(138, 135, 127, 0.18); margin: 1px 0 2px; }
+.widget-preview__bar i { display: block; height: 100%; border-radius: 999px; }
+.widget-preview__row { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+.widget-preview__row .truncate { flex: 1; min-width: 0; }
