@@ -18,7 +18,7 @@ import "../styles/phone.css";
 
 // On your phone: how the Hub feels in the hand, and today on the home screen.
 //
-// Haptics and the clink are switches kept on this device. The widget runs
+// Haptics and the sword sound are switches kept on this device. The widget runs
 // in Scriptable (see lib/widgetScript.js for why): this page makes the key,
 // writes the script with it, and walks through the four steps of putting it
 // on the home screen. The preview is today's real numbers, drawn the way
@@ -146,7 +146,7 @@ export default function Phone() {
           <Volume2 size={18} className="phone-row__icon" />
           <div className="phone-row__text">
             <strong>Sounds</strong>
-            <span>The swords clink when you log a win. The silent switch mutes it.</span>
+            <span>The clash of two swords when you log a win. The silent switch mutes it.</span>
           </div>
           <Toggle on={sounds} onChange={(v) => setOn("sounds", v)} label="Sounds" />
         </div>

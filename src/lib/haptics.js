@@ -10,20 +10,20 @@ import { isOn } from "./phoneFeel";
 // the phone's "System Haptics" setting turns it off like any other app.
 //
 //   haptic("tap")      every button, link and chip (installTapHaptics)
-//   haptic("win")      the swords: a strike, then the ring of the blades
+//   haptic("win")      the swords: timed to the clash and the parry
 //   haptic("success")  something saved that you'll want to feel land
 //   haptic("warning")  something didn't go through
 
 const PATTERNS = {
   tap: [8],
   success: [12, 60, 18],
-  win: [16, 70, 28],
+  win: [10, 170, 34, 280, 22],
   warning: [24, 50, 24, 50, 24],
 };
 
 // iOS buzzes once per flip, so the longer patterns flip again at these
 // offsets while the tap still counts as a tap.
-const IOS_REPEATS = { tap: [], success: [90], win: [85], warning: [80, 160] };
+const IOS_REPEATS = { tap: [], success: [90], win: [190, 500], warning: [80, 160] };
 
 const canVibrate = typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
 let lastAt = 0;
