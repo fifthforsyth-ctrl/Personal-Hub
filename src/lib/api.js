@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
-import { todayStr, addDays, toDateStr, startOfMonth } from "./planDates";
+import { todayStr, addDays, toDateStr, startOfMonth, startOfWeek } from "./planDates";
 import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 
 // ---------------------------------------------------------------------------
@@ -2945,5 +2945,169 @@ export async function newWidgetKey() {
 
 export async function deleteWidgetKey(userId) {
   const { error } = await supabase.from("widget_keys").delete().eq("user_id", userId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Ascent (0074): the mission, the lifetime goals (the tree's root goals),
+// their focuses, quests with their camps, and lessons with this week's
+// answers. Days are the phone's.
+// ---------------------------------------------------------------------------
+
+const ASCENT_FOCUS = "id, goal_id, name, why, categories, position, created_at";
+const ASCENT_QUEST = "id, title, note, goal_id, status, started_on, finished_on, position, created_at";
+const ASCENT_CAMP = "id, quest_id, title, position, reached_on, created_at";
+const ASCENT_LESSON = "id, title, question, goal_id, status, started_on, ended_on, position, created_at";
+
+export async function fetchAscent(userId, today) {
+  const weekStart = startOfWeek(today);
+  const [mission, nodes, edges, focuses, quests, camps, lessons, checkins, steps] = await Promise.all([
+    supabase.from("missions").select("statement, summit, updated_at").eq("user_id", userId).maybeSingle(),
+    selectAllPages(() => supabase.from("nodes").select("id, title, description, created_at").eq("user_id", userId).order("id")),
+    // A goal with a parent isn't a lifetime goal. Your own edges only, by
+    // row-level security.
+    selectAllPages(() => supabase.from("node_edges").select("id, child_id").order("id")),
+    supabase.from("focuses").select(ASCENT_FOCUS).eq("user_id", userId),
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
+    supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
+    supabase
+      .from("lesson_checkins")
+      .select("lesson_id, date, kept")
+      .eq("user_id", userId)
+      .gte("date", weekStart)
+      .lte("date", addDays(weekStart, 6)),
+    supabase.rpc("ascent_steps", { p_today: today, p_days: 30, p_tz: localZone() }),
+  ]);
+  for (const r of [mission, focuses, quests, camps, lessons, checkins, steps]) if (r.error) throw r.error;
+  const children = new Set(edges.map((e) => e.child_id));
+  return {
+    mission: mission.data ?? null,
+    goals: nodes.filter((n) => !children.has(n.id)),
+    focuses: focuses.data ?? [],
+    quests: quests.data ?? [],
+    camps: camps.data ?? [],
+    lessons: lessons.data ?? [],
+    checkins: checkins.data ?? [],
+    steps: steps.data ?? [],
+  };
+}
+
+export async function saveMission(userId, { statement, summit }) {
+  const { error } = await supabase
+    .from("missions")
+    .upsert({ user_id: userId, statement, summit: summit || null, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function addFocus(userId, { goalId, name, why, categories, position = 0 }) {
+  const { error } = await supabase
+    .from("focuses")
+    .insert({ user_id: userId, goal_id: goalId, name, why: why || null, categories, position });
+  if (error) throw error;
+}
+
+export async function updateFocus(id, fields) {
+  const { error } = await supabase.from("focuses").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteFocus(id) {
+  const { error } = await supabase.from("focuses").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// A quest and its camps, in order. A quest added as already done becomes a
+// patch straight away.
+export async function addQuest(userId, { title, note, goalId, status = "on", today, camps = [], position = 0 }) {
+  const { data, error } = await supabase
+    .from("quests")
+    .insert({
+      user_id: userId,
+      title,
+      note: note || null,
+      goal_id: goalId || null,
+      status,
+      started_on: status === "on" ? today : null,
+      finished_on: status === "done" ? today : null,
+      position,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  await syncCamps(userId, data.id, camps, []);
+  return data.id;
+}
+
+export async function updateQuest(id, fields) {
+  const { error } = await supabase.from("quests").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// Its camps go with it.
+export async function deleteQuest(id) {
+  const { error } = await supabase.from("quests").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Brings a quest's camps in line with the list its sheet holds (`rows`, in
+// order, each { id, title, reached_on }; no id for a new one): renamed,
+// reordered or reached in place, new ones added, the rest removed. `before`
+// is what the quest had.
+export async function syncCamps(userId, questId, rows, before) {
+  const ordered = rows.map((r, i) => ({ ...r, position: i }));
+  const keep = new Set(ordered.filter((r) => r.id).map((r) => r.id));
+  const gone = before.filter((c) => !keep.has(c.id)).map((c) => c.id);
+  if (gone.length) {
+    const { error } = await supabase.from("quest_camps").delete().in("id", gone);
+    if (error) throw error;
+  }
+  const fresh = ordered.filter((r) => !r.id);
+  if (fresh.length) {
+    const { error } = await supabase
+      .from("quest_camps")
+      .insert(fresh.map((r) => ({ user_id: userId, quest_id: questId, title: r.title, position: r.position, reached_on: r.reached_on ?? null })));
+    if (error) throw error;
+  }
+  for (const r of ordered.filter((x) => x.id)) {
+    const was = before.find((c) => c.id === r.id);
+    if (was && was.title === r.title && was.position === r.position && (was.reached_on ?? null) === (r.reached_on ?? null)) continue;
+    await updateCamp(r.id, { title: r.title, position: r.position, reached_on: r.reached_on ?? null });
+  }
+}
+
+export async function updateCamp(id, fields) {
+  const { error } = await supabase.from("quest_camps").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+export async function addLesson(userId, { title, question, goalId, today, position = 0 }) {
+  const { error } = await supabase
+    .from("lessons")
+    .insert({ user_id: userId, title, question: question || null, goal_id: goalId || null, started_on: today, position });
+  if (error) throw error;
+}
+
+export async function updateLesson(id, fields) {
+  const { error } = await supabase.from("lessons").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// Its answers go with it.
+export async function deleteLesson(id) {
+  const { error } = await supabase.from("lessons").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Kept (true), slipped (false), or null to take the answer back.
+export async function setLessonCheckin(userId, lessonId, date, kept) {
+  if (kept === null) {
+    const { error } = await supabase.from("lesson_checkins").delete().eq("lesson_id", lessonId).eq("date", date);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase
+    .from("lesson_checkins")
+    .upsert({ user_id: userId, lesson_id: lessonId, date, kept }, { onConflict: "lesson_id,date" });
   if (error) throw error;
 }
