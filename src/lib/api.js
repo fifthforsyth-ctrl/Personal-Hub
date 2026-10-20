@@ -3120,7 +3120,7 @@ export async function setLessonCheckin(userId, lessonId, date, kept) {
 
 const MARK_TARGET = "id, goal_id, quest_id, lesson_id, reasons, created_at";
 const MARK_AIM = "id, target_id, text, focus_id, position, retired_on, created_at";
-const MARK_SHOT = "id, target_id, date, answers, level, reason, reason_how, note, created_at";
+const MARK_SHOT = "id, target_id, date, answers, level, reason, reason_how, note, loosed_at, created_at";
 
 export async function fetchRange(userId, today) {
   const [ascent, targets, aims, shots] = await Promise.all([
@@ -3186,3 +3186,43 @@ export async function saveTargetSetup(userId, ref, { reasons, aims }, before, { 
   }
   return targetId;
 }
+
+// Tonight's shot at one target, saved as it's answered (one per target per
+// day). Saving never looses it: `loosed_at` isn't sent, so an arrow already
+// on the target stays there and one still in hand stays in hand.
+export async function saveShot(userId, ref, targetId, date, shot, reasons) {
+  const id = targetId ?? (await ensureTarget(userId, ref, reasons));
+  const { data, error } = await supabase
+    .from("mark_shots")
+    .upsert(
+      { user_id: userId, target_id: id, date, ...shot, updated_at: new Date().toISOString() },
+      { onConflict: "target_id,date" }
+    )
+    .select(MARK_SHOT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Banking the day: every shot answered for it flies. Returns the ones that
+// were still in hand.
+export async function looseShots(userId, date) {
+  const { data, error } = await supabase
+    .from("mark_shots")
+    .update({ loosed_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("date", date)
+    .is("loosed_at", null)
+    .select(MARK_SHOT);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// What a line says got in the way: the index of one of the four sections,
+// or -1 when it doesn't say. Read by the `mark` function; the key stays there.
+export async function readMarkLine({ target, reasons, line, answers }) {
+  const out = await callFunction("mark", { action: "read", target, reasons, line, answers }, "The reader");
+  const k = Number(out?.section);
+  return Number.isInteger(k) && k >= 0 && k <= 3 ? k : -1;
+}
+

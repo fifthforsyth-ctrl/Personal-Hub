@@ -208,9 +208,14 @@ export function buildRange(ascentView, marks, today) {
     if (!aimsByTarget.has(a.target_id)) aimsByTarget.set(a.target_id, []);
     aimsByTarget.get(a.target_id).push(a);
   }
+  // Only a loosed arrow is on the target. Tonight's, still in hand until the
+  // day is banked, rides along as `tonight` for the evening to answer.
   const shotsByTarget = new Map();
+  const tonightByTarget = new Map();
   for (const s of marks?.shots ?? []) {
     if (s.date > today) continue;
+    if (s.date === today) tonightByTarget.set(s.target_id, s);
+    if (!isLoosed(s)) continue;
     if (!shotsByTarget.has(s.target_id)) shotsByTarget.set(s.target_id, []);
     shotsByTarget.get(s.target_id).push(s);
   }
@@ -238,6 +243,7 @@ export function buildRange(ascentView, marks, today) {
       retired: aims.filter((a) => a.retired_on),
       shots,
       today: shots.find((s) => s.date === today) ?? null,
+      tonight: row ? tonightByTarget.get(row.id) ?? null : null,
       ...extra,
     };
   };
@@ -259,3 +265,121 @@ export function answersOf(shot) {
     v: a?.v === 0 || a?.v === 1 || a?.v === 2 ? a.v : null,
   }));
 }
+
+// An arrow is on the target once the day it's for has been banked.
+export function isLoosed(shot) {
+  return shot?.loosed_at != null;
+}
+
+// --- Tonight ------------------------------------------------------------------
+//
+// In the evening reflection each target asks what a bullseye takes. The time
+// log answers the ones tied to a focus it saw today; the rest are his. His
+// line, if he writes one, is read for what got in the way.
+
+// The minutes the time log has for a focus on this day: any entry with one of
+// its categories (tags first, the entry's category when it has none), the
+// way the goals page counts a step.
+export function focusMinutes(focus, entries) {
+  const want = new Set((focus?.categories ?? []).map(tagKey).filter(Boolean));
+  if (!want.size) return 0;
+  let minutes = 0;
+  let hit = false;
+  for (const e of entries ?? []) {
+    if (e?.is_example) continue;
+    const tags = Array.isArray(e?.tags) && e.tags.length ? e.tags : [e?.category];
+    if (!tags.some((t) => want.has(tagKey(t)))) continue;
+    hit = true;
+    minutes += Number(e.duration_minutes) || 0;
+  }
+  // A timer still running counts as logged, with whatever it has so far.
+  return hit ? Math.max(1, Math.round(minutes)) : 0;
+}
+
+function tagKey(t) {
+  return String(t ?? "").trim().toLowerCase();
+}
+
+// Tonight's answers for a target, in the order its aims are asked: what's
+// already saved, else Yes where the time log saw the aim's focus, else blank.
+export function startingAnswers(target, { focusesById, entries } = {}) {
+  const saved = new Map(answersOf(target?.tonight).map((a) => [a.aim, a.v]));
+  return (target?.aims ?? []).map((a) => {
+    if (saved.has(a.id) && saved.get(a.id) != null) return saved.get(a.id);
+    const focus = a.focus_id ? focusesById?.get(a.focus_id) : null;
+    return focus && focusMinutes(focus, entries) > 0 ? 2 : null;
+  });
+}
+
+// What a line says got in the way, when the reader can't be reached: the
+// section whose name, or a few words like it, the line uses most. -1 when
+// nothing in it points anywhere.
+const CUES = {
+  tired: ["tired", "exhausted", "sleepy", "worn out", "no energy", "drained"],
+  "late night": ["late", "stayed up", "bed late", "midnight"],
+  phone: ["phone", "scroll", "youtube", "instagram", "social media", "screen"],
+  overbooked: ["busy", "overbooked", "too much", "packed", "behind"],
+  "no time": ["no time", "busy", "ran out of time", "behind"],
+  "avoided the hard part": ["avoid", "put off", "procrastinat", "hard part"],
+  "unclear next step": ["unclear", "didn't know", "unsure", "stuck", "not focused", "wasn't focused"],
+  rushed: ["rushed", "hurried", "quick", "rush"],
+  "second-guessed": ["second-guess", "second guess", "doubted", "hesitat"],
+  "didn't make time": ["didn't make time", "no time", "wish i had taken", "should have taken"],
+  distracted: ["distract", "not focused", "wasn't focused", "wander", "phone"],
+  "no plan": ["no plan", "didn't plan", "unplanned"],
+  "other priorities": ["other priorit", "other things", "instead"],
+  "didn't look": ["didn't look", "didn't notice", "seek", "look for", "should have seeked", "should have sought"],
+  impatient: ["impatient", "short with", "snapped", "frustrat", "annoyed"],
+  busy: ["busy", "no time", "full day", "busier"],
+  "held back": ["held back", "shy", "afraid", "nervous", "intentional"],
+  "low energy": ["low energy", "tired", "drained", "slow"],
+  "other work": ["other work", "other project", "meetings", "emails"],
+  "went along": ["went along", "didn't speak up", "crowd", "peer"],
+  "easier path": ["easier", "easy way", "shortcut", "cut corners"],
+  pride: ["pride", "proud", "ego", "defensive"],
+  "didn't think": ["didn't think", "without thinking", "autopilot", "forgot"],
+  "didn't think of it": ["didn't think", "forgot", "slipped my mind"],
+  social: ["friends", "offered", "party", "social", "with people"],
+  habit: ["habit", "automatic", "usual", "routine"],
+  craving: ["crav", "urge", "really wanted"],
+};
+
+export function readLine(reasons, line) {
+  const low = String(line ?? "").toLowerCase();
+  if (!low.trim()) return -1;
+  let best = -1;
+  let most = 0;
+  (reasons ?? []).forEach((r, k) => {
+    const name = tagKey(r);
+    const cues = [name, ...(CUES[name] ?? [])].filter(Boolean);
+    const n = cues.filter((q) => low.includes(q)).length;
+    if (n > most) {
+      most = n;
+      best = k;
+    }
+  });
+  return best;
+}
+
+// With nothing to read, the likeliest reason is where the last 30 days of
+// misses gather; with no misses yet, the first section.
+export function guessReason(target, today) {
+  const k = fullest(missCounts(inRange(target?.shots ?? [], today, "30")));
+  return k >= 0 ? k : 0;
+}
+
+// The shot tonight's answers make, ready to save: null until every aim is
+// answered. A bullseye has no section.
+export function shotFrom(target, values, { line = "", reason = null, how = null } = {}) {
+  const level = levelFrom(values);
+  if (level == null) return null;
+  const note = String(line ?? "").trim();
+  return {
+    answers: (target?.aims ?? []).map((a, i) => ({ aim: a.id, text: a.text, v: values[i] })),
+    level,
+    reason: level === 0 ? null : reason,
+    reason_how: level === 0 ? null : how,
+    note: note ? note.slice(0, 2000) : null,
+  };
+}
+

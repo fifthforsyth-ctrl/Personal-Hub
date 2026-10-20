@@ -10,6 +10,7 @@ import { fmtShortDate } from "../../lib/planDates";
 //   labels    the four sections' names in the corners
 //   hot       shades the fullest section, the next thing to work on
 //   onPick    makes each mark tappable; `selected` rings the chosen one
+//   children  drawn over the face, in its units (the evening's arrows in flight)
 
 const SPOTS = [
   [108, -103, "end"],
@@ -18,7 +19,7 @@ const SPOTS = [
   [-108, -103, "start"],
 ];
 
-export default function TargetFace({ target, today, range = "30", mini = false, labels = false, hot = false, arrow = false, selected = null, onPick, className = "", label }) {
+export default function TargetFace({ target, today, range = "30", mini = false, labels = false, hot = false, arrow = false, selected = null, onPick, className = "", label, children }) {
   const list = inRange(target.shots, today, range);
   const counts = missCounts(list);
   const hotK = hot ? fullest(counts) : -1;
@@ -74,6 +75,7 @@ export default function TargetFace({ target, today, range = "30", mini = false, 
           </g>
         );
       })}
+      {children}
     </svg>
   );
 }

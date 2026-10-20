@@ -25,7 +25,7 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
-import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS } from "../src/lib/mark.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -1404,16 +1404,22 @@ console.log("\nthe mark");
   const rg = buildRange(
     av,
     {
-      targets: [{ id: "t1", goal_id: "g1", quest_id: null, lesson_id: null, reasons: ["Tired", "Late night", "Phone", "Overbooked"] }],
+      targets: [
+        { id: "t1", goal_id: "g1", quest_id: null, lesson_id: null, reasons: ["Tired", "Late night", "Phone", "Overbooked"] },
+        { id: "t2", goal_id: null, quest_id: null, lesson_id: "l1", reasons: ["Tired", "Social", "Habit", "Craving"] },
+      ],
       aims: [
         { id: "a2", target_id: "t1", text: "In bed on time", position: 1 },
         { id: "a1", target_id: "t1", text: "Exercised", position: 0 },
         { id: "a0", target_id: "t1", text: "Old one", position: 2, retired_on: "2026-10-01" },
+        { id: "b1", target_id: "t2", text: "Went without caffeine", position: 0 },
       ],
       shots: [
-        { id: "s2", target_id: "t1", date: today, level: 0, reason: null, answers: [] },
-        { id: "s1", target_id: "t1", date: "2026-10-18", level: 2, reason: 1, answers: [{ aim: "a1", text: "Exercised", v: 2 }] },
-        { id: "s3", target_id: "t1", date: "2026-10-20", level: 0, reason: null, answers: [] },
+        { id: "s2", target_id: "t1", date: today, level: 0, reason: null, answers: [], loosed_at: "2026-10-20T04:00:00Z" },
+        { id: "s1", target_id: "t1", date: "2026-10-18", level: 2, reason: 1, answers: [{ aim: "a1", text: "Exercised", v: 2 }], loosed_at: "2026-10-19T04:00:00Z" },
+        { id: "s3", target_id: "t1", date: "2026-10-20", level: 0, reason: null, answers: [], loosed_at: "2026-10-21T04:00:00Z" },
+        // Answered tonight on another target, but the day isn't banked yet.
+        { id: "s4", target_id: "t2", date: today, level: 0, reason: null, answers: [{ aim: "b1", text: "Went without caffeine", v: 2 }], loosed_at: null },
       ],
     },
     today
@@ -1426,6 +1432,54 @@ console.log("\nthe mark");
   ok("bullseyes count across every target", rg.bullseyes === 1);
   ok("answers read as they were asked", answersOf(rg.goals[0].shots[0]).map((a) => `${a.text}:${a.v}`).join() === "Exercised:2" && answersOf({}).length === 0);
   ok("nothing loaded is an empty range, not a crash", buildRange(null, null, today).all.length === 0);
+  ok("an arrow is on the target only once loosed", isLoosed({ loosed_at: "2026-10-20T04:00:00Z" }) && !isLoosed({ loosed_at: null }) && !isLoosed(null));
+  const caffeine = rg.lessons[0];
+  ok("tonight's answers wait in hand until the day is banked", caffeine.shots.length === 0 && caffeine.today === null && caffeine.tonight?.id === "s4");
+  ok("a waiting arrow is no bullseye yet", rg.bullseyes === 1);
+  ok("and a loosed one is tonight's too", rg.goals[0].tonight?.id === "s2");
+
+  console.log("\ntonight");
+  const exercise = { id: "f1", categories: ["Exercise"] };
+  const entries = [
+    { tags: ["exercise "], category: "Health", duration_minutes: 35 },
+    { tags: [], category: "Exercise", duration_minutes: 10 },
+    { tags: ["Exercise"], category: "x", duration_minutes: 99, is_example: true },
+    { tags: ["Work"], category: "Work", duration_minutes: 240 },
+  ];
+  ok("the time log's minutes for a focus, by tag or category, examples aside", focusMinutes(exercise, entries) === 45);
+  ok("a focus not in the log is zero", focusMinutes({ categories: ["Draw"] }, entries) === 0 && focusMinutes({ categories: [] }, entries) === 0);
+  ok("a timer still running counts as logged", focusMinutes(exercise, [{ tags: ["Exercise"], duration_minutes: null }]) === 1);
+
+  const tDisc = {
+    aims: [
+      { id: "a1", text: "Exercised", focus_id: "f1" },
+      { id: "a2", text: "In bed on time", focus_id: null },
+    ],
+    tonight: null,
+  };
+  const byId = new Map([["f1", exercise]]);
+  ok("the time log answers Yes for a focus it saw; the rest wait for you", startingAnswers(tDisc, { focusesById: byId, entries }).join() === "2,");
+  ok("it never answers No for you", startingAnswers(tDisc, { focusesById: byId, entries: [] }).every((v) => v === null));
+  ok(
+    "what's already saved wins over the time log",
+    startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a1", text: "Exercised", v: 1 }, { aim: "a2", text: "In bed on time", v: 0 }] } }, { focusesById: byId, entries }).join() === "1,0"
+  );
+
+  const why = ["Tired", "Late night", "Phone", "Overbooked"];
+  ok("a line is read for its reason", readLine(why, "I stayed up way too late again") === 1);
+  ok("by the reason's own name too", readLine(why, "Too much phone tonight") === 2);
+  ok("a line about what went well points nowhere", readLine(why, "I hit a new PR of 101 pushups.") === -1 && readLine(why, "") === -1);
+  ok("his own words from Oct 17 read as overbooked", readLine(why, "I felt a bit behind all day.") === 3);
+  const tGuess = { shots: [{ date: "2026-10-18", level: 2, reason: 3 }, { date: "2026-10-17", level: 3, reason: 3 }, { date: "2026-10-16", level: 1, reason: 0 }, { date: "2026-09-01", level: 5, reason: 1 }] };
+  ok("with nothing to read, the guess is where the last 30 days of misses gather", guessReason(tGuess, today) === 3);
+  ok("and the first section when there are none", guessReason({ shots: [] }, today) === 0);
+
+  const half = shotFrom(tDisc, [2, 0], { line: "  Stayed up late. ", reason: 1, how: "read" });
+  ok("a shot keeps each answer with what it was called", half.answers.map((a) => `${a.aim}:${a.text}:${a.v}`).join() === "a1:Exercised:2,a2:In bed on time:0");
+  ok("half done lands in the middle, in the section read from the line", half.level === 2 && half.reason === 1 && half.reason_how === "read" && half.note === "Stayed up late.");
+  const bull = shotFrom(tDisc, [2, 2], { line: "", reason: 1, how: "guess" });
+  ok("a bullseye has no section and an empty line is no note", bull.level === 0 && bull.reason === null && bull.reason_how === null && bull.note === null);
+  ok("nothing to save until every aim is answered", shotFrom(tDisc, [2, null]) === null);
 
   const mk = readFileSync(new URL("../supabase/migrations/0075_the_mark.sql", import.meta.url), "utf8")
     .split("\n")
@@ -1437,6 +1491,11 @@ console.log("\nthe mark");
   ok("nothing is open to signed-out visitors", /revoke all on[\s\S]*from anon/.test(mk) && !/grant[^;]*\bto anon\b/i.test(mk));
   ok("one shot per target per day", /unique \(target_id, date\)/.test(mk));
   ok("the Mark migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(mk) && !/current_date/.test(mk));
+  const loosedSql = readFileSync(new URL("../supabase/migrations/0076_mark_loosed.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok("loosing adds one column and drops nothing", /add column if not exists loosed_at timestamptz/.test(loosedSql) && !/\bdrop\b|\btruncate\b|\bdelete\b/i.test(loosedSql));
 }
 
 function sectionOf({ x, y }) {
