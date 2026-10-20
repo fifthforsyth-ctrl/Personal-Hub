@@ -5,7 +5,7 @@ import {
   Moon,
   CalendarRange,
   CalendarDays,
-  Mountain,
+  Target,
   BarChart3,
   Link2,
   LogOut,
@@ -52,13 +52,13 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // been used since August, and tender mercies are kept from the Walk with God
 // card now. Both pages and everything in them are still there, at /work and
 // /spirit, for the day they're wanted again. The same goes for the goal
-// wheel: Ascent took its place, and the wheel is still at /tree.
+// wheel: the Range took its place, and the wheel is still at /tree.
 export const MORE = [
   { to: "/evening", label: "Evening", Icon: Moon },
   { to: "/day", label: "Past days", Icon: CalendarDays },
   { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
   { to: "/overview", label: "Big picture", Icon: Compass },
-  { to: "/ascent", label: "Ascent", Icon: Mountain },
+  { to: "/ascent", label: "The Range", Icon: Target },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },
   { to: "/links", label: "Goal links", Icon: Link2 },
   { to: "/phone", label: "On your phone", Icon: Smartphone },

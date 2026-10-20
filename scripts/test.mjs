@@ -25,6 +25,7 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS } from "../src/lib/mark.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -1338,6 +1339,109 @@ ok("nothing is open to signed-out visitors", /revoke all on[\s\S]*from anon/.tes
 ok("the footprints function runs as you, on the phone's day", /function public\.ascent_steps\(p_today date/.test(mig) && /security invoker/.test(mig) && !/current_date/.test(mig));
 ok("only signed-in users can call it", /grant execute on function public\.ascent_steps[^;]*to authenticated/.test(mig) && /revoke all on function public\.ascent_steps[^;]*from public/i.test(mig));
 ok("the migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(mig));
+}
+
+console.log("\nthe mark");
+{
+  ok("all Yes is a bullseye", levelFrom([2, 2, 2]) === 0);
+  ok("all No is a miss", levelFrom([0, 0]) === 5);
+  ok("one Some in three is the inner ring", levelFrom([1, 2, 2]) === 1);
+  ok("half done is the middle", levelFrom([2, 0]) === 2 && levelFrom([1]) === 2);
+  ok("a little done stays on the face, at the edge", levelFrom([1, 0, 0]) === 4);
+  ok("a quarter done is the outer ring", levelFrom([2, 0, 0, 0]) === 3);
+  ok("nothing answered yet has no ring", levelFrom([]) === null && levelFrom([2, null]) === null);
+
+  const p1 = placement("shot-1", 2, 1);
+  const p2 = placement("shot-1", 2, 1);
+  ok("a mark always sits in the same spot", p1.x === p2.x && p1.y === p2.y);
+  const rr = Math.hypot(p1.x, p1.y);
+  ok("a mark sits inside its own ring", rr >= LEVELS[2].r0 - 0.1 && rr <= LEVELS[2].r1 + 0.1);
+  ok("a miss sits in its section (bottom right)", p1.x > 0 && p1.y > 0);
+  const tl = placement("shot-2", 4, 3);
+  ok("and top left is the last section", tl.x < 0 && tl.y < 0);
+  let allIn = true;
+  for (let i = 0; i < 200; i++) {
+    const lv = i % 6;
+    const q = placement(`s${i}`, lv, i % 4);
+    const d = Math.hypot(q.x, q.y);
+    if (d < LEVELS[lv].r0 - 0.1 || d > LEVELS[lv].r1 + 0.1) allIn = false;
+    if (lv > 0 && sectionOf(q) !== i % 4) allIn = false;
+  }
+  ok("two hundred marks all land in their ring and section", allIn);
+
+  const shots = [
+    { id: "a", date: "2026-10-19", level: 0, reason: null },
+    { id: "b", date: "2026-10-18", level: 2, reason: 1 },
+    { id: "c", date: "2026-10-10", level: 3, reason: 1 },
+    { id: "d", date: "2026-09-01", level: 5, reason: 2 },
+  ];
+  ok("a week shows the last seven days", inRange(shots, "2026-10-19", "7").map((s) => s.id).join() === "a,b");
+  ok("thirty days leaves out September 1", inRange(shots, "2026-10-19", "30").length === 3);
+  ok("All is everything", inRange(shots, "2026-10-19", "all").length === 4);
+  ok("the average is out of 10", Math.abs(average(shots.slice(0, 3)) - (10 + 6 + 4) / 3) < 1e-9);
+  ok("misses gather by section; bullseyes have none", missCounts(shots).join() === "0,2,1,0");
+  ok("the fullest section is the next thing to work on", fullest(missCounts(shots)) === 1 && fullest([0, 0, 0, 0]) === -1);
+
+  ok("the bow starts as wood", tierOf(0) === 0 && TIERS[tierOf(29)].short === "Bow of wood");
+  ok("a longbow at 30, a recurve at 90, steel at 180", tierOf(30) === 1 && tierOf(90) === 2 && tierOf(180) === 3 && tierOf(500) === 3);
+  ok("the bow's line counts down to the next", bowLine(27) === "27 bullseyes · 3 more to a longbow" && bowLine(1) === "1 bullseye · 29 more to a longbow");
+  ok("and stops at the last", bowLine(200) === "200 bullseyes · every bow earned" && bowProgress(200) === 1);
+  ok("progress is from this bow to the next", Math.abs(bowProgress(60) - 0.5) < 1e-9);
+
+  ok("blank sections fall back to the defaults", fourReasons(["Tired", "", null]).join() === `Tired,${DEFAULT_REASONS.slice(1).join()}`);
+  ok("short names read like tabs", shortTarget("goal", "Highly in tune with God") === "In tune" && shortTarget("quest", "Build the best Premiere Pro plugin") === "Plugin" && shortTarget("lesson", "Stop drinking caffeine") === "Caffeine" && shortTarget("lesson", "More integrity") === "Integrity");
+  ok("a caffeine lesson gets a cup", iconFor("lesson", "Stop drinking caffeine") === "cup" && iconFor("lesson", "More integrity") === "sign" && iconFor("quest", "x") === "tent");
+
+  const today = "2026-10-19";
+  const av = buildAscent(
+    {
+      goals: [{ id: "g1", title: "Highly disciplined", created_at: "2026-08-27" }],
+      quests: [{ id: "q1", title: "Build the best Premiere Pro plugin", status: "on", position: 0 }],
+      lessons: [{ id: "l1", title: "Stop drinking caffeine", status: "learning", started_on: today, position: 0 }],
+    },
+    today
+  );
+  const rg = buildRange(
+    av,
+    {
+      targets: [{ id: "t1", goal_id: "g1", quest_id: null, lesson_id: null, reasons: ["Tired", "Late night", "Phone", "Overbooked"] }],
+      aims: [
+        { id: "a2", target_id: "t1", text: "In bed on time", position: 1 },
+        { id: "a1", target_id: "t1", text: "Exercised", position: 0 },
+        { id: "a0", target_id: "t1", text: "Old one", position: 2, retired_on: "2026-10-01" },
+      ],
+      shots: [
+        { id: "s2", target_id: "t1", date: today, level: 0, reason: null, answers: [] },
+        { id: "s1", target_id: "t1", date: "2026-10-18", level: 2, reason: 1, answers: [{ aim: "a1", text: "Exercised", v: 2 }] },
+        { id: "s3", target_id: "t1", date: "2026-10-20", level: 0, reason: null, answers: [] },
+      ],
+    },
+    today
+  );
+  ok("every goal, quest and lesson is a target, in that order", rg.all.map((t) => t.kind).join() === "goal,quest,lesson");
+  ok("a target with no row yet shows empty with the default sections", rg.quests[0].targetId === null && rg.quests[0].shots.length === 0 && rg.quests[0].reasons.join() === DEFAULT_REASONS.join());
+  ok("aims are asked in order; retired ones aren't asked", rg.goals[0].aims.map((a) => a.id).join() === "a1,a2" && rg.goals[0].retired.length === 1);
+  ok("shots read oldest first, and none from after today", rg.goals[0].shots.map((s) => s.id).join() === "s1,s2");
+  ok("today's shot is known", rg.goals[0].today?.id === "s2");
+  ok("bullseyes count across every target", rg.bullseyes === 1);
+  ok("answers read as they were asked", answersOf(rg.goals[0].shots[0]).map((a) => `${a.text}:${a.v}`).join() === "Exercised:2" && answersOf({}).length === 0);
+  ok("nothing loaded is an empty range, not a crash", buildRange(null, null, today).all.length === 0);
+
+  const mk = readFileSync(new URL("../supabase/migrations/0075_the_mark.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  const mt = ["mark_targets", "mark_aims", "mark_shots"];
+  ok("every Mark table has row-level security", mt.every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(mk)));
+  ok("and is yours alone", mt.every((t) => new RegExp(`create policy "[^"]+" on public\\.${t}\\s+for all to authenticated\\s+using \\(user_id = auth\\.uid\\(\\)\\)`).test(mk)));
+  ok("nothing is open to signed-out visitors", /revoke all on[\s\S]*from anon/.test(mk) && !/grant[^;]*\bto anon\b/i.test(mk));
+  ok("one shot per target per day", /unique \(target_id, date\)/.test(mk));
+  ok("the Mark migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(mk) && !/current_date/.test(mk));
+}
+
+function sectionOf({ x, y }) {
+  const a = (Math.atan2(y, x) * 180) / Math.PI;
+  return Math.floor(((((a + 90) % 360) + 360) % 360) / 90);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
