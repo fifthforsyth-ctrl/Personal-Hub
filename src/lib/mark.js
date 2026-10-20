@@ -131,12 +131,34 @@ function round1(v) {
 
 // --- The bow ------------------------------------------------------------------
 
-// It upgrades as bullseyes add up across every target.
+// It upgrades as bullseyes add up across every target. Each bow after the
+// first comes with a verse, shown the moment it's earned.
 export const TIERS = [
-  { name: "A bow of wood", short: "Bow of wood", at: 0 },
-  { name: "A longbow", short: "Longbow", at: 30 },
-  { name: "A recurve", short: "Recurve", at: 90 },
-  { name: "A bow of steel", short: "Bow of steel", at: 180 },
+  { name: "A bow of wood", short: "Bow of wood", at: 0, verse: null },
+  {
+    name: "A longbow",
+    short: "Longbow",
+    at: 30,
+    verse: {
+      text: "But his bow abode in strength, and the arms of his hands were made strong by the hands of the mighty God of Jacob.",
+      cite: "Genesis 49:24",
+    },
+  },
+  {
+    name: "A recurve",
+    short: "Recurve",
+    at: 90,
+    verse: {
+      text: "In the shadow of his hand hath he hid me, and made me a polished shaft; in his quiver hath he hid me.",
+      cite: "Isaiah 49:2",
+    },
+  },
+  {
+    name: "A bow of steel",
+    short: "Bow of steel",
+    at: 180,
+    verse: { text: "He teacheth my hands to war, so that a bow of steel is broken by mine arms.", cite: "Psalm 18:34" },
+  },
 ];
 
 export function tierOf(bullseyes) {
@@ -152,6 +174,13 @@ export function bowLine(bullseyes) {
   const next = TIERS[tierOf(bullseyes) + 1];
   const n = `${bullseyes} ${bullseyes === 1 ? "bullseye" : "bullseyes"}`;
   return next ? `${n} · ${next.at - bullseyes} more to ${next.name.toLowerCase()}` : `${n} · every bow earned`;
+}
+
+// The bow earned by going from `before` bullseyes to `after`, or -1 when the
+// bow is the same. Crossing two at once (a long day reopened) earns the top one.
+export function bowEarned(before, after) {
+  const k = tierOf(after);
+  return k > tierOf(before) ? k : -1;
 }
 
 // How far along to the next bow, 0..1.

@@ -1,3 +1,5 @@
+import { TIERS, tierOf } from "../../lib/mark";
+
 // The bow, drawn in units where it stands 100 tall with the grip at 0,0 and
 // the arrow pointing right. `pull` is 0 at rest and 1 at full draw. Each
 // tier is its own bow: wood with its grain showing, a longbow with a wrapped
@@ -55,13 +57,33 @@ export function BowShape({ tier = 0, pull = 0, arrow = false }) {
   );
 }
 
-// A bow in its own little picture.
-export default function Bow({ tier = 0, pull = 0.5, width = 54, height = 82, className = "" }) {
+// A bow in its own little picture. `box` crops it tighter when there's no
+// arrow to make room for.
+export default function Bow({ tier = 0, pull = 0.5, width = 54, height = 82, className = "", box = "-54 -75 104 152" }) {
   const arrow = pull > 0;
   return (
-    <svg className={`mk-bow-pic${className ? ` ${className}` : ""}`} viewBox="-54 -75 104 152" width={width} height={height} aria-hidden="true">
+    <svg className={`mk-bow-pic${className ? ` ${className}` : ""}`} viewBox={box} width={width} height={height} aria-hidden="true">
       <BowShape tier={tier} pull={pull} arrow={arrow} />
     </svg>
+  );
+}
+
+// All four bows in a row: the ones behind you, yours now, and the ones
+// still ahead with what they take.
+export function BowRack({ bullseyes }) {
+  const k = tierOf(bullseyes);
+  return (
+    <ol className="mk-rack" aria-label="The four bows">
+      {TIERS.map((t, i) => (
+        <li key={t.name} className={"mk-rack__bow" + (i === k ? " mk-rack__bow--yours" : i > k ? " mk-rack__bow--ahead" : "")}>
+          <Bow tier={i} pull={0} width={14} height={46} box="-19 -66 30 132" className="mk-rack__pic" />
+          <span>
+            <b>{t.short}</b>
+            <small>{i < k ? "Earned" : i === k ? "Yours now" : `At ${t.at} bullseyes`}</small>
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 

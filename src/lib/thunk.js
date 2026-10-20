@@ -13,6 +13,10 @@ import { audio, noiseBuffer, envelope } from "./clink";
 //
 // A bullseye adds a small, high ring over the hit.
 //
+// playTwang is the other end of the shot: a new bow's string let go. A snap
+// of air off the string, the string itself thrumming low and fading, and the
+// arrow hissing away.
+//
 // The arrows land a second or more after the tap that banked the day, which
 // is too late for iPhone to allow a sound to start. So the tap itself calls
 // primeAudio, which wakes the audio while the tap still counts.
@@ -90,6 +94,61 @@ export function playThunk(bullseye = false) {
         ping.stop(hit + 1);
       });
     }
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+export function playTwang() {
+  if (!isOn("sounds")) return;
+  const ac = audio();
+  if (!ac) return;
+  try {
+    if (ac.state === "suspended") ac.resume();
+    const t0 = ac.currentTime + 0.01;
+
+    const snap = ac.createBufferSource();
+    snap.buffer = noiseBuffer(ac, 0.06);
+    const high = ac.createBiquadFilter();
+    high.type = "highpass";
+    high.frequency.value = 2200;
+    const ng = ac.createGain();
+    envelope(ng.gain, t0, 0.5, 0.001, 0.004, 0.05);
+    snap.connect(high).connect(ng).connect(ac.destination);
+    snap.start(t0);
+
+    // The string: a low note with its octave, dulled, bending a touch flat
+    // as it settles.
+    [
+      [98, 0.5, 0.62],
+      [196, 0.22, 0.34],
+    ].forEach(([f, peak, len]) => {
+      const str = ac.createOscillator();
+      str.type = "sawtooth";
+      str.frequency.setValueAtTime(f * 1.04, t0);
+      str.frequency.exponentialRampToValueAtTime(f, t0 + 0.08);
+      const dull = ac.createBiquadFilter();
+      dull.type = "lowpass";
+      dull.frequency.setValueAtTime(1600, t0);
+      dull.frequency.exponentialRampToValueAtTime(420, t0 + len);
+      const sg = ac.createGain();
+      envelope(sg.gain, t0, peak * 0.3, 0.002, 0.01, len);
+      str.connect(dull).connect(sg).connect(ac.destination);
+      str.start(t0);
+      str.stop(t0 + len + 0.05);
+    });
+
+    const away = ac.createBufferSource();
+    away.buffer = noiseBuffer(ac, 0.36);
+    const band = ac.createBiquadFilter();
+    band.type = "bandpass";
+    band.Q.value = 1.6;
+    band.frequency.setValueAtTime(2800, t0 + 0.03);
+    band.frequency.exponentialRampToValueAtTime(800, t0 + 0.36);
+    const ag = ac.createGain();
+    envelope(ag.gain, t0 + 0.03, 0.12, 0.02, 0.03, 0.28);
+    away.connect(band).connect(ag).connect(ac.destination);
+    away.start(t0 + 0.03);
   } catch (err) {
     console.warn(err);
   }

@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LEVELS, bowLine } from "../../lib/mark";
+import { LEVELS, bowLine, bowEarned } from "../../lib/mark";
 import { fmtDayHeading } from "../../lib/planDates";
 import { playThunk } from "../../lib/thunk";
 import Gear from "../ascent/Gear";
 import TargetFace, { ArrowIn } from "./TargetFace";
+import BowUp from "./BowUp";
 import "../../styles/mark.css";
 
 // The day is banked and the arrows fly: every target with tonight's answers
 // gets its arrow, one after another, each landing where the answers put it
 // with a thud (and a ring for a bullseye). Targets left blank show "No shot
-// tonight". Then the count and the bow's line, and one button out.
+// tonight". Then the count and the bow's line, and one button out. When
+// tonight's bullseyes earned a new bow, it comes in over all of this a
+// moment after the last arrow lands.
 //
 // `flown` is the ids of the shots this banking loosed; a shot that was
 // already on its target (a day reopened and banked again) is shown landed.
@@ -17,6 +20,7 @@ import "../../styles/mark.css";
 const FIRST_MS = 650;
 const EACH_MS = 430;
 const FLIGHT_MS = 300;
+const BOW_MS = 900;
 
 export default function Volley({ range, date, flown, onDone }) {
   const button = useRef(null);
@@ -37,6 +41,17 @@ export default function Volley({ range, date, flown, onDone }) {
   const [landed, setLanded] = useState(() => new Set(still ? flying.map((c) => c.t.key) : []));
   const done = landed.size >= flying.length;
 
+  // The bow these arrows earned, if any: bullseyes before tonight's flew,
+  // against the count with them.
+  const earned = useMemo(() => {
+    const fresh = flying.filter((c) => c.shot.level === 0).length;
+    return bowEarned(range.bullseyes - fresh, range.bullseyes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
+  const [bow, setBow] = useState("none"); // none | open | seen
+  const bowRef = useRef(bow);
+  bowRef.current = bow;
+
   useEffect(() => {
     if (still) return undefined;
     const ids = flying.map((c, m) =>
@@ -51,11 +66,26 @@ export default function Volley({ range, date, flown, onDone }) {
   }, []);
 
   useEffect(() => {
-    if (done) button.current?.focus({ preventScroll: true });
-  }, [done]);
+    if (!done) return undefined;
+    if (earned < 0) {
+      button.current?.focus({ preventScroll: true });
+      return undefined;
+    }
+    const id = setTimeout(() => setBow((b) => (b === "none" ? "open" : b)), still ? 0 : BOW_MS);
+    return () => clearTimeout(id);
+  }, [done, earned, still]);
+
+  function closeBow() {
+    setBow("seen");
+    button.current?.focus({ preventScroll: true });
+  }
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onDone();
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (bowRef.current === "open") closeBow();
+      else onDone();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onDone]);
@@ -113,6 +143,7 @@ export default function Volley({ range, date, flown, onDone }) {
           Done
         </button>
       </div>
+      {bow === "open" && <BowUp tier={earned} onClose={closeBow} />}
     </div>
   );
 }

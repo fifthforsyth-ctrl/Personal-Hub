@@ -56,6 +56,15 @@
 .mk-aim { display: flex; flex-direction: column; gap: 6px; padding-left: 28px; border-left: 1px solid var(--line); min-width: 0; }
 .mark .mk-aim .ascent-creed { font-size: 16px; }
 
+.mk-rack { grid-column: 1 / -1; list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.mk-rack__bow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 14px; min-width: 0; }
+.mk-rack__bow > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mk-rack__bow b { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; }
+.mk-rack__bow small { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em; color: var(--text-2); }
+.mk-rack__bow--yours { background: var(--inset); }
+.mk-rack__bow--yours small { color: var(--accent-text); }
+.mk-rack__bow--ahead { opacity: 0.42; }
+
 /* ---------------------------------------------------------------------------
    The range: a small target for each
    --------------------------------------------------------------------------- */
@@ -213,6 +222,43 @@
   .mark .mk-fly { animation: none; }
 }
 
+/* ---------------------------------------------------------------------------
+   A new bow, earned: over the volley, in ink
+   --------------------------------------------------------------------------- */
+
+.mk-bowup {
+  --on-ink-2: rgba(255, 255, 255, 0.66);
+  position: fixed; inset: 0; z-index: 71; overflow-y: auto;
+  background: var(--ink); color: var(--on-ink);
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+  padding: calc(52px + env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) calc(28px + env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+  animation: mk-fade 0.3s ease both;
+}
+/* Centered when there's room, and still scrolls from the top when there isn't. */
+.mk-bowup > :first-child { margin-top: auto; }
+.mk-bowup > :last-child { margin-bottom: auto; }
+.mk-bowup__bow { width: 168px; height: 164px; overflow: visible; flex-shrink: 0; }
+.mk-bowup__bow--in { animation: mk-pop 0.7s 0.1s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.mk-bowup .b-limb, .mk-bowup .b-string, .mk-bowup .b-arrow { stroke: var(--on-ink); }
+.mk-bowup .b-core, .mk-bowup .mk-bow--3 .b-core, .mk-bowup .b-wrap { stroke: var(--ink); }
+.mk-bowup .b-grip, .mk-bowup .b-riser, .mk-bowup .b-head { fill: var(--on-ink); }
+.mk-bowup .b-rivet { fill: var(--ink); }
+.mk-bowup .b-string { stroke-opacity: 0.85; }
+.mk-bowup__away { animation: mk-away 0.42s cubic-bezier(0.4, 0, 0.9, 0.6) both; }
+.mk-bowup .eyebrow { color: var(--accent); }
+.mk-bowup h2 { margin: 0; max-width: 14ch; font-size: 30px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; text-wrap: balance; }
+.mk-bowup blockquote { margin: 4px 0 0; max-width: 30ch; font-family: var(--font-serif); font-style: italic; font-size: 17px; line-height: 1.4; }
+.mk-bowup cite { display: block; margin-top: 8px; font-family: var(--font-mono); font-style: normal; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.mk-bowup p { margin: 0; max-width: 30ch; font-size: 14px; line-height: 1.45; color: var(--on-ink-2); }
+.mk-bowup__draw { margin-top: 10px; min-width: 180px; background: var(--on-ink); color: var(--ink); border-color: var(--on-ink); }
+.mk-bowup__draw:disabled { opacity: 1; }
+@keyframes mk-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mk-pop { from { opacity: 0; transform: scale(0.4) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes mk-away { from { transform: none; opacity: 1; } to { transform: translateX(240px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .mk-bowup, .mk-bowup__bow--in, .mk-bowup__away { animation: none; }
+}
+
 /* The setup sheet */
 .mk-aims-edit { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
 .mk-aims-edit li { display: flex; flex-direction: column; gap: 4px; }
@@ -234,6 +280,7 @@
 }
 @media (max-width: 760px) {
   .mk-bow-card { grid-template-columns: minmax(0, 1fr); }
+  .mk-rack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mk-aim { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 12px; }
 }
 @media (max-width: 700px) {

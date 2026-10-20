@@ -25,7 +25,7 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
-import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -1386,6 +1386,10 @@ console.log("\nthe mark");
   ok("a longbow at 30, a recurve at 90, steel at 180", tierOf(30) === 1 && tierOf(90) === 2 && tierOf(180) === 3 && tierOf(500) === 3);
   ok("the bow's line counts down to the next", bowLine(27) === "27 bullseyes · 3 more to a longbow" && bowLine(1) === "1 bullseye · 29 more to a longbow");
   ok("and stops at the last", bowLine(200) === "200 bullseyes · every bow earned" && bowProgress(200) === 1);
+  ok("a new bow is earned only when the count crosses its line", bowEarned(28, 30) === 1 && bowEarned(30, 31) === -1 && bowEarned(29, 29) === -1 && bowEarned(178, 181) === 3);
+  ok("crossing two bows at once earns the top one", bowEarned(20, 95) === 2);
+  ok("every bow after wood has a verse", TIERS[0].verse === null && TIERS.slice(1).every((t) => t.verse?.text && /^[A-Z].+\.$/.test(t.verse.text) && /\d+:\d+$/.test(t.verse.cite)));
+  ok("the bow of steel gets the bow of steel", TIERS[3].verse.cite === "Psalm 18:34" && TIERS[3].verse.text.includes("bow of steel"));
   ok("progress is from this bow to the next", Math.abs(bowProgress(60) - 0.5) < 1e-9);
 
   ok("blank sections fall back to the defaults", fourReasons(["Tired", "", null]).join() === `Tired,${DEFAULT_REASONS.slice(1).join()}`);

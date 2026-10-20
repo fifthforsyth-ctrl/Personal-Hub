@@ -35,7 +35,7 @@ import { MissionSheet, GoalSheet, FocusSheet, QuestSheet, LessonSheet } from "..
 import TargetFace from "../components/mark/TargetFace";
 import TargetSheet from "../components/mark/TargetSheet";
 import TargetView from "../components/mark/TargetView";
-import Bow from "../components/mark/Bow";
+import Bow, { BowRack } from "../components/mark/Bow";
 import "../styles/ascent.css";
 import "../styles/mark.css";
 
@@ -362,6 +362,7 @@ export default function Ascent() {
                 </button>
               )}
             </div>
+            <BowRack bullseyes={range.bullseyes} />
           </section>
 
           <section className="card mk-minis-card mk-goals-card" aria-labelledby="mk-goals-h">
