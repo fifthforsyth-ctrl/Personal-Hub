@@ -1,7 +1,7 @@
 // Line icons for the Ascent page: the gear a climber carries stands for each
 // lifetime goal (an ice axe for skill, a compass for being in tune with God,
 // a map for learning, a coil of rope for selflessness, a boot for
-// discipline), plus the tent, the trail sign and the summit.
+// discipline), plus the tent, the trail sign, a cup and the summit.
 
 const PATHS = {
   compass: (
@@ -51,6 +51,13 @@ const PATHS = {
       <path d="M10 18.5V1.8" />
       <path d="M10 3.8h5.6l2 2-2 2H10" />
       <path d="M10 10H4.4l-2 2 2 2H10" />
+    </>
+  ),
+  cup: (
+    <>
+      <path d="M3.4 7.6h10.4v4.4a5.2 5.2 0 0 1-10.4 0Z" />
+      <path d="M13.8 8.8h1.4a2.4 2.4 0 0 1 0 4.8h-1.6" />
+      <path d="M6.2 2.4v2.6M8.6 2.4v2.6M11 2.4v2.6" />
     </>
   ),
   summit: (

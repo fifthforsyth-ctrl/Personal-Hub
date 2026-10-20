@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Archive, Check, Circle, Sparkles } from "lucide-react";
 import { bankDay, writeDaySynopsis } from "../../lib/api";
 import { friendlyError } from "../../lib/errors";
+import { primeAudio } from "../../lib/thunk";
 import { useToast } from "../ui/Feedback";
 
 // Closing the day out.
@@ -15,7 +16,12 @@ import { useToast } from "../ui/Feedback";
 // still a day, and an app that refuses to close it is wrong about your life.
 // The same goes for the summary: if the assistant can't write one tonight,
 // the day is banked without it and the banked card offers to write it later.
-export default function CloseOut({ userId, date, reflectionDone, onBanked }) {
+//
+// Banking is also when tonight's arrows fly. `arrows` is how many of the
+// evening's targets are answered ({ ready, total }), and `onLoose` looses
+// them once the day is safely banked; a target left blank gets no arrow,
+// and nothing about that stops the day from closing.
+export default function CloseOut({ userId, date, reflectionDone, onBanked, arrows = null, onLoose = null }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(null);
@@ -23,6 +29,9 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked }) {
 
   async function bank() {
     if (busy) return;
+    // The arrows land a moment after this tap; their sound has to be woken
+    // while the tap still counts.
+    if (onLoose) primeAudio();
     setBusy(true);
     setError(null);
     let synopsis = null;
@@ -38,6 +47,15 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked }) {
       setStage("Banking…");
       await bankDay(userId, date, synopsis);
       if (!synopsis) toast.show("Banked. The summary couldn't be written just now.");
+      if (onLoose) {
+        try {
+          setStage("Loosing your arrows…");
+          await onLoose();
+        } catch (err) {
+          console.warn(err);
+          toast.show("Banked. Your arrows couldn't fly just now.");
+        }
+      }
       await onBanked?.();
     } catch (err) {
       setError(friendlyError(err, "Couldn't bank the day. Try again."));
@@ -67,6 +85,22 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked }) {
           {!reflectionDone && <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>Finish the four cards above.</span>}
         </span>
       </div>
+
+      {arrows?.total > 0 && (
+        <div className="row" style={{ gap: 9, alignItems: "flex-start", marginBottom: 16, marginTop: -6 }}>
+          <span style={{ flexShrink: 0, marginTop: 1, color: arrows.ready ? "var(--accent)" : "var(--text-3)" }}>
+            {arrows.ready === arrows.total ? <Check size={15} /> : <Circle size={15} />}
+          </span>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 550, color: arrows.ready ? "var(--text)" : "var(--text-2)" }}>
+              {arrows.ready === arrows.total ? `All ${arrows.total} arrows ready` : `${arrows.ready} of ${arrows.total} arrows ready`}
+            </span>
+            <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>
+              {arrows.ready === arrows.total ? "They fly when you bank the day." : "Any target left blank gets no arrow tonight."}
+            </span>
+          </span>
+        </div>
+      )}
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 

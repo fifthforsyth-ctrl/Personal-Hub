@@ -3111,3 +3111,118 @@ export async function setLessonCheckin(userId, lessonId, date, kept) {
     .upsert({ user_id: userId, lesson_id: lessonId, date, kept }, { onConflict: "lesson_id,date" });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// The Mark (0075): a target for each lifetime goal, quest and lesson, what a
+// bullseye takes for each, and one shot per target per day. Loaded with
+// everything Ascent loads, since the targets are its goals.
+// ---------------------------------------------------------------------------
+
+const MARK_TARGET = "id, goal_id, quest_id, lesson_id, reasons, created_at";
+const MARK_AIM = "id, target_id, text, focus_id, position, retired_on, created_at";
+const MARK_SHOT = "id, target_id, date, answers, level, reason, reason_how, note, loosed_at, created_at";
+
+export async function fetchRange(userId, today) {
+  const [ascent, targets, aims, shots] = await Promise.all([
+    fetchAscent(userId, today),
+    selectAllPages(() => supabase.from("mark_targets").select(MARK_TARGET).eq("user_id", userId).order("id")),
+    selectAllPages(() => supabase.from("mark_aims").select(MARK_AIM).eq("user_id", userId).order("id")),
+    // A shot a day per target: past a thousand in a few months, so paged.
+    selectAllPages(() => supabase.from("mark_shots").select(MARK_SHOT).eq("user_id", userId).lte("date", today).order("id")),
+  ]);
+  return { ...ascent, marks: { targets, aims, shots } };
+}
+
+// The target's row, made the first time it's needed. `ref` is
+// { goal_id } or { quest_id } or { lesson_id }.
+export async function ensureTarget(userId, ref, reasons = []) {
+  const [column, id] = Object.entries(ref)[0];
+  const found = await supabase.from("mark_targets").select("id").eq("user_id", userId).eq(column, id).maybeSingle();
+  if (found.error) throw found.error;
+  if (found.data) return found.data.id;
+  const { data, error } = await supabase
+    .from("mark_targets")
+    .insert({ user_id: userId, [column]: id, reasons })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+// A target's four sections and what a bullseye takes, as its sheet holds
+// them (`aims` in order, each { id, text, focus_id }; no id for a new one).
+// An aim that's gone is deleted if no shot ever answered it, and otherwise
+// retired, so it stops being asked while old shots still read as they were.
+export async function saveTargetSetup(userId, ref, { reasons, aims }, before, { answered = new Set(), today } = {}) {
+  const targetId = await ensureTarget(userId, ref, reasons);
+  const { error: rErr } = await supabase.from("mark_targets").update({ reasons }).eq("id", targetId);
+  if (rErr) throw rErr;
+
+  const ordered = aims.map((a, i) => ({ ...a, position: i }));
+  const keep = new Set(ordered.filter((a) => a.id).map((a) => a.id));
+  const gone = (before ?? []).filter((a) => !keep.has(a.id));
+  const drop = gone.filter((a) => !answered.has(a.id)).map((a) => a.id);
+  const retire = gone.filter((a) => answered.has(a.id)).map((a) => a.id);
+  if (drop.length) {
+    const { error } = await supabase.from("mark_aims").delete().in("id", drop);
+    if (error) throw error;
+  }
+  if (retire.length) {
+    const { error } = await supabase.from("mark_aims").update({ retired_on: today }).in("id", retire);
+    if (error) throw error;
+  }
+  const fresh = ordered.filter((a) => !a.id);
+  if (fresh.length) {
+    const { error } = await supabase
+      .from("mark_aims")
+      .insert(fresh.map((a) => ({ user_id: userId, target_id: targetId, text: a.text, focus_id: a.focus_id || null, position: a.position })));
+    if (error) throw error;
+  }
+  for (const a of ordered.filter((x) => x.id)) {
+    const was = (before ?? []).find((b) => b.id === a.id);
+    if (was && was.text === a.text && (was.focus_id ?? null) === (a.focus_id || null) && was.position === a.position) continue;
+    const { error } = await supabase.from("mark_aims").update({ text: a.text, focus_id: a.focus_id || null, position: a.position }).eq("id", a.id);
+    if (error) throw error;
+  }
+  return targetId;
+}
+
+// Tonight's shot at one target, saved as it's answered (one per target per
+// day). Saving never looses it: `loosed_at` isn't sent, so an arrow already
+// on the target stays there and one still in hand stays in hand.
+export async function saveShot(userId, ref, targetId, date, shot, reasons) {
+  const id = targetId ?? (await ensureTarget(userId, ref, reasons));
+  const { data, error } = await supabase
+    .from("mark_shots")
+    .upsert(
+      { user_id: userId, target_id: id, date, ...shot, updated_at: new Date().toISOString() },
+      { onConflict: "target_id,date" }
+    )
+    .select(MARK_SHOT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Banking the day: every shot answered for it flies. Returns the ones that
+// were still in hand.
+export async function looseShots(userId, date) {
+  const { data, error } = await supabase
+    .from("mark_shots")
+    .update({ loosed_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("date", date)
+    .is("loosed_at", null)
+    .select(MARK_SHOT);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// What a line says got in the way: the index of one of the four sections,
+// or -1 when it doesn't say. Read by the `mark` function; the key stays there.
+export async function readMarkLine({ target, reasons, line, answers }) {
+  const out = await callFunction("mark", { action: "read", target, reasons, line, answers }, "The reader");
+  const k = Number(out?.section);
+  return Number.isInteger(k) && k >= 0 && k <= 3 ? k : -1;
+}
+

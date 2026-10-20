@@ -28,7 +28,8 @@ const GAINS = [0.42, 0.3, 0.2, 0.12, 0.07];
 
 let ctx = null;
 
-function audio() {
+// One audio context for every sound in the Hub (the arrows use it too).
+export function audio() {
   if (ctx) return ctx;
   const AC = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
   if (!AC) return null;
@@ -41,7 +42,7 @@ function audio() {
   return ctx;
 }
 
-function noiseBuffer(ac, seconds) {
+export function noiseBuffer(ac, seconds) {
   const len = Math.max(1, Math.floor(ac.sampleRate * seconds));
   const buf = ac.createBuffer(1, len, ac.sampleRate);
   const data = buf.getChannelData(0);
@@ -49,7 +50,7 @@ function noiseBuffer(ac, seconds) {
   return buf;
 }
 
-function envelope(param, at, peak, attack, hold, release) {
+export function envelope(param, at, peak, attack, hold, release) {
   param.setValueAtTime(0.0001, at);
   param.exponentialRampToValueAtTime(peak, at + attack);
   param.setValueAtTime(peak, at + attack + hold);

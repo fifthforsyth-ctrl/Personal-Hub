@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Plus, ChevronDown } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { Pencil, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
-  fetchAscent,
+  fetchRange,
   fetchCategories,
   saveMission,
   updateNode,
@@ -17,34 +18,39 @@ import {
   addLesson,
   updateLesson,
   deleteLesson,
-  setLessonCheckin,
+  saveTargetSetup,
 } from "../lib/api";
-import { buildAscent, ZONES, WINDOW_DAYS } from "../lib/ascent";
+import { buildAscent } from "../lib/ascent";
+import { buildRange, bowLine, bowProgress, tierOf, TIERS, LEVELS } from "../lib/mark";
 import { todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import { playClink } from "../lib/clink";
 import { haptic } from "../lib/haptics";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
-import SummitScene from "../components/ascent/SummitScene";
-import Footprints from "../components/ascent/Footprints";
 import QuestTrail from "../components/ascent/QuestTrail";
 import Ceremony from "../components/ascent/Ceremony";
 import Gear from "../components/ascent/Gear";
 import { MissionSheet, GoalSheet, FocusSheet, QuestSheet, LessonSheet } from "../components/ascent/Sheets";
+import TargetFace from "../components/mark/TargetFace";
+import TargetSheet from "../components/mark/TargetSheet";
+import TargetView from "../components/mark/TargetView";
+import Bow, { BowRack } from "../components/mark/Bow";
 import "../styles/ascent.css";
+import "../styles/mark.css";
 
-// Ascent: your goals on one mountain, in place of the goal wheel.
+// The Range: your goals as targets, in place of the goal wheel.
 //
-// Top to bottom it's the order of what you're climbing toward: the mission
-// at the summit, the five lifetime goals that serve it, each with the
-// footprints its focuses left in the last 30 days, the quest God has you
-// on, climbed camp by camp, and the lessons you're learning, kept or
-// slipped with one honest tap a day. The mountain is decoration; nothing is
-// counted in minutes and nothing turns red.
+// Sin means missing the mark, so every lifetime goal, the quest God has you
+// on and each lesson you're learning is a target, and every evening's
+// answers put an arrow in each. The page opens on your bow, which upgrades
+// as bullseyes add up, with your mission as what every shot is aimed at,
+// then a small target for each with its last 30 days of marks. Tap one for
+// the whole target (at /ascent/<its id>): every mark, what you answered and
+// wrote that day, and what a bullseye takes. The quest's camps stay here
+// too. Nothing turns red; a miss is a mark, not a mark against you.
 
 const NO_ROWS = [];
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export default function Ascent() {
   const { user } = useAuth();
@@ -52,12 +58,13 @@ export default function Ascent() {
   const today = todayStr();
   const toast = useToast();
   const confirm = useConfirm();
+  const { ref } = useParams();
 
-  const { data, error, loading, reload, mutate } = useLoad(() => (userId ? fetchAscent(userId, today) : null), [userId, today]);
+  const { data, error, loading, reload, mutate } = useLoad(() => (userId ? fetchRange(userId, today) : null), [userId, today]);
   const view = useMemo(() => (data ? buildAscent(data, today) : null), [data, today]);
+  const range = useMemo(() => (view ? buildRange(view, data.marks, today) : null), [view, data, today]);
   const categories = useLoad(() => (userId ? fetchCategories(userId) : NO_ROWS), [userId]);
 
-  const [open, setOpen] = useState(null); // the lifetime goal showing what feeds it
   const [sheet, setSheet] = useState(null); // { kind, ...what it edits }
   const [ceremony, setCeremony] = useState(null);
   const [planted, setPlanted] = useState(null); // { questId, turn } whose flag just went in
@@ -164,33 +171,6 @@ export default function Ascent() {
     }
   }
 
-  // --- A lesson's honest tap ------------------------------------------------
-
-  async function answer(lesson, kept) {
-    if (kept === true) {
-      haptic("win");
-      playClink();
-    }
-    mutate(
-      (d) =>
-        d && {
-          ...d,
-          checkins: [
-            ...d.checkins.filter((c) => !(c.lesson_id === lesson.id && c.date === today)),
-            ...(kept === null ? [] : [{ lesson_id: lesson.id, date: today, kept }]),
-          ],
-        }
-    );
-    if (kept === true) toast.show(`Kept: ${lesson.title}`);
-    else if (kept === false) toast.show("Noted. Tomorrow is a new step.");
-    try {
-      await setLessonCheckin(userId, lesson.id, today, kept);
-    } catch (err) {
-      toast.error(err, "Couldn't save that.");
-      reload();
-    }
-  }
-
   // --- Saving from the sheets -------------------------------------------------
 
   const saveMissionFrom = (v) => write(() => saveMission(userId, v), "Couldn't save your mission.", "Mission saved");
@@ -253,135 +233,25 @@ export default function Ascent() {
     await write(() => deleteLesson(lesson.id), "Couldn't delete that lesson.", `Deleted ${lesson.title}`);
   }
 
+  // What a bullseye takes, and the four sections. An aim a shot already
+  // answered is retired rather than deleted, so that day still reads true.
+  const saveTargetFrom = (t) => (v) => {
+    const answered = new Set(t.shots.flatMap((s) => (Array.isArray(s.answers) ? s.answers.map((a) => a?.aim) : [])).filter(Boolean));
+    const refCol = t.kind === "goal" ? { goal_id: t.key } : t.kind === "quest" ? { quest_id: t.key } : { lesson_id: t.key };
+    return write(() => saveTargetSetup(userId, refCol, v, t.aims, { answered, today }), "Couldn't save that target.", "Saved");
+  };
+
   // ---------------------------------------------------------------------------
 
   const goals = view?.goals ?? NO_ROWS;
   const quests = view?.quests ?? NO_ROWS;
   const patches = view?.patches ?? NO_ROWS;
+  const focuses = useMemo(() => goals.flatMap((g) => g.focuses), [goals]);
+  const focusesById = useMemo(() => new Map(focuses.map((f) => [f.id, f])), [focuses]);
+  const target = ref && range ? range.all.find((t) => t.key === ref) ?? null : null;
 
-  return (
-    <div className="page ascent">
-      <header className="ascent-head">
-        <div className="eyebrow">My goals</div>
-        <h1 className="page-title">Ascent</h1>
-      </header>
-
-      {error && <LoadError what="your goals" error={error} onRetry={reload} stale={Boolean(data)} />}
-      {!view && !error && loading && <p className="empty">Loading…</p>}
-
-      {view && (
-        <div className="ascent-grid">
-          <section className="card card--flush ascent-summit" aria-labelledby="ascent-mission-h">
-            <SummitScene climb={view.climb} name={view.mission?.summit || "My mission"} />
-            <div className="ascent-mission">
-              <div className="ascent-row">
-                <h2 className="eyebrow" id="ascent-mission-h">
-                  The summit · my mission
-                </h2>
-                <button type="button" className="btn-icon ascent-edit" onClick={() => setSheet({ kind: "mission" })} aria-label="Edit your mission" title="Edit your mission">
-                  <Pencil size={14} />
-                </button>
-              </div>
-              {view.mission ? (
-                <p className="ascent-creed">{view.mission.statement}</p>
-              ) : (
-                <button type="button" className="btn btn--sm btn--accent ascent-first" onClick={() => setSheet({ kind: "mission" })}>
-                  Write your mission
-                </button>
-              )}
-            </div>
-          </section>
-
-          <section className="card ascent-goals" aria-labelledby="ascent-goals-h">
-            <div className="ascent-row ascent-card-head">
-              <h2 className="eyebrow" id="ascent-goals-h">
-                Lifetime goals
-              </h2>
-              <span className="ascent-mini">last {WINDOW_DAYS} days</span>
-            </div>
-            {goals.map((g) => (
-              <GoalRow
-                key={g.id}
-                goal={g}
-                open={open === g.id}
-                onToggle={() => setOpen((cur) => (cur === g.id ? null : g.id))}
-                onEdit={() => setSheet({ kind: "goal", goal: g })}
-                onFocus={(f) => setSheet({ kind: "focus", focus: f })}
-                onAddFocus={() => setSheet({ kind: "focus", focus: null, goalId: g.id })}
-              />
-            ))}
-            {!goals.length && <p className="empty">Your lifetime goals are the top goals of your goal wheel. There aren't any yet.</p>}
-          </section>
-
-          <div className="ascent-side">
-            {quests.map((q, i) => (
-              <QuestCard
-                key={q.id}
-                quest={q}
-                planted={planted?.questId === q.id ? planted.turn : null}
-                onReach={() => reachNext(q)}
-                onEdit={() => setSheet({ kind: "quest", quest: q })}
-              >
-                {i === quests.length - 1 && patches.length > 0 && (
-                  <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />
-                )}
-              </QuestCard>
-            ))}
-
-            {!quests.length && (
-              <section className="card ascent-quest" aria-labelledby="ascent-quests-h">
-                <h2 className="eyebrow" id="ascent-quests-h">
-                  Quests
-                </h2>
-                <p className="empty">Missions you feel God calling you to. Add one and climb it camp by camp.</p>
-                {patches.length > 0 && <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />}
-              </section>
-            )}
-
-            <div className="ascent-adds">
-              <button type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ kind: "quest", quest: null })}>
-                <Plus size={14} />
-                Add a quest
-              </button>
-              {view.setAside.map((q) => (
-                <button key={q.id} type="button" className="chip chip--tap ascent-aside" onClick={() => setSheet({ kind: "quest", quest: q })} title="Set aside">
-                  {q.title}
-                </button>
-              ))}
-            </div>
-
-            <section className="card ascent-lessons" aria-labelledby="ascent-lessons-h">
-              <div className="ascent-row ascent-card-head">
-                <h2 className="eyebrow" id="ascent-lessons-h">
-                  Lessons from God
-                </h2>
-                <span className="ascent-mini">this week</span>
-              </div>
-              {view.lessons.map((l) => (
-                <LessonRow key={l.id} lesson={l} onAnswer={answer} onEdit={() => setSheet({ kind: "lesson", lesson: l })} />
-              ))}
-              {!view.lessons.length && <p className="empty">Changes to your character you feel God teaching you, kept one honest day at a time.</p>}
-              <div className="ascent-card-foot">
-                <button type="button" className="btn btn--sm" onClick={() => setSheet({ kind: "lesson", lesson: null })}>
-                  <Plus size={14} />
-                  Add a lesson
-                </button>
-              </div>
-              {view.learned.length > 0 && (
-                <div className="ascent-learned">
-                  <span className="ascent-mini">Learned</span>
-                  {view.learned.map((l) => (
-                    <button key={l.id} type="button" className="chip chip--tap" onClick={() => setSheet({ kind: "lesson", lesson: l })}>
-                      {l.title}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        </div>
-      )}
-
+  const sheets = (
+    <>
       {sheet?.kind === "mission" && <MissionSheet mission={view?.mission} onSave={saveMissionFrom} onClose={close} />}
       {sheet?.kind === "goal" && <GoalSheet goal={sheet.goal} onSave={saveGoalFrom(sheet.goal)} onClose={close} />}
       {sheet?.kind === "focus" && (
@@ -409,6 +279,177 @@ export default function Ascent() {
       {sheet?.kind === "lesson" && (
         <LessonSheet lesson={sheet.lesson} goals={goals} onSave={saveLessonFrom(sheet.lesson)} onDelete={() => removeLesson(sheet.lesson)} onClose={close} />
       )}
+      {sheet?.kind === "target" && <TargetSheet target={sheet.target} focuses={focuses} onSave={saveTargetFrom(sheet.target)} onClose={close} />}
+    </>
+  );
+
+  // --- One target -------------------------------------------------------------
+
+  if (ref) {
+    return (
+      <div className="page ascent mark">
+        {error && <LoadError what="your goals" error={error} onRetry={reload} stale={Boolean(data)} />}
+        {!view && !error && loading && <p className="empty">Loading…</p>}
+        {range && !target && (
+          <div className="ascent-head">
+            <p className="empty">That target isn't on your range anymore.</p>
+            <Link to="/ascent" className="btn btn--sm">
+              Back to the range
+            </Link>
+          </div>
+        )}
+        {target && (
+          <TargetView
+            range={range}
+            target={target}
+            today={today}
+            focusesById={focusesById}
+            onSetup={() => setSheet({ kind: "target", target })}
+            onEditGoal={() => setSheet({ kind: "goal", goal: target.goal })}
+            onFocus={(f) => setSheet({ kind: "focus", focus: f })}
+            onAddFocus={() => setSheet({ kind: "focus", focus: null, goalId: target.key })}
+            onEditQuest={() => setSheet({ kind: "quest", quest: view.quests.find((q) => q.id === target.key) ?? target.quest })}
+            onEditLesson={() => setSheet({ kind: "lesson", lesson: target.lesson })}
+          />
+        )}
+        {sheets}
+      </div>
+    );
+  }
+
+  // --- The range ----------------------------------------------------------------
+
+  const tier = range ? tierOf(range.bullseyes) : 0;
+
+  return (
+    <div className="page ascent mark">
+      <header className="ascent-head">
+        <div className="eyebrow">My goals</div>
+        <h1 className="page-title">The Range</h1>
+      </header>
+
+      {error && <LoadError what="your goals" error={error} onRetry={reload} stale={Boolean(data)} />}
+      {!view && !error && loading && <p className="empty">Loading…</p>}
+
+      {view && range && (
+        <div className="ascent-grid">
+          <section className="card mk-bow-card" aria-labelledby="mk-bow-h">
+            <div className="mk-bow-card__top">
+              <Bow tier={tier} pull={0.5} width={58} height={88} />
+              <div className="mk-bow-card__txt">
+                <h2 className="eyebrow" id="mk-bow-h">
+                  Your bow
+                </h2>
+                <b>{TIERS[tier].name}</b>
+                <span className="ascent-mini">{bowLine(range.bullseyes)}</span>
+                <div className="mk-bar" aria-hidden="true">
+                  <i style={{ width: `${Math.round(bowProgress(range.bullseyes) * 100)}%` }} />
+                </div>
+              </div>
+            </div>
+            <div className="mk-aim">
+              <div className="ascent-row">
+                <span className="eyebrow">Aiming at · my mission</span>
+                <button type="button" className="btn-icon ascent-edit" onClick={() => setSheet({ kind: "mission" })} aria-label="Edit your mission" title="Edit your mission">
+                  <Pencil size={14} />
+                </button>
+              </div>
+              {view.mission ? (
+                <p className="ascent-creed">{view.mission.statement}</p>
+              ) : (
+                <button type="button" className="btn btn--sm btn--accent ascent-first" onClick={() => setSheet({ kind: "mission" })}>
+                  Write your mission
+                </button>
+              )}
+            </div>
+            <BowRack bullseyes={range.bullseyes} />
+          </section>
+
+          <section className="card mk-minis-card mk-goals-card" aria-labelledby="mk-goals-h">
+            <div className="ascent-row ascent-card-head">
+              <h2 className="eyebrow" id="mk-goals-h">
+                Lifetime goals
+              </h2>
+              <span className="ascent-mini">last 30 days</span>
+            </div>
+            <div className="mk-minis">
+              {range.goals.map((t) => (
+                <MiniTarget key={t.key} target={t} today={today} />
+              ))}
+            </div>
+            {!range.goals.length && <p className="empty">Your lifetime goals are the top goals of your goal wheel. There aren't any yet.</p>}
+          </section>
+
+          <section className={`card mk-minis-card${quests.length || patches.length ? "" : " mk-wide"}`} aria-labelledby="mk-more-h">
+            <div className="ascent-row ascent-card-head">
+              <h2 className="eyebrow" id="mk-more-h">
+                Quest and lessons
+              </h2>
+              <span className="ascent-mini">last 30 days</span>
+            </div>
+            {range.quests.length + range.lessons.length > 0 ? (
+              <div className="mk-minis">
+                {[...range.quests, ...range.lessons].map((t) => (
+                  <MiniTarget key={t.key} target={t} today={today} />
+                ))}
+              </div>
+            ) : (
+              <p className="empty">The quest God has you on and the lessons you're learning each get a target too.</p>
+            )}
+            <div className="ascent-card-foot mk-adds">
+              <button type="button" className="btn btn--sm" onClick={() => setSheet({ kind: "quest", quest: null })}>
+                <Plus size={14} />
+                Add a quest
+              </button>
+              <button type="button" className="btn btn--sm" onClick={() => setSheet({ kind: "lesson", lesson: null })}>
+                <Plus size={14} />
+                Add a lesson
+              </button>
+            </div>
+            {(view.learned.length > 0 || view.setAside.length > 0) && (
+              <div className="ascent-learned">
+                {view.learned.length > 0 && <span className="ascent-mini">Learned</span>}
+                {view.learned.map((l) => (
+                  <button key={l.id} type="button" className="chip chip--tap" onClick={() => setSheet({ kind: "lesson", lesson: l })}>
+                    {l.title}
+                  </button>
+                ))}
+                {view.setAside.length > 0 && <span className="ascent-mini">Set aside</span>}
+                {view.setAside.map((q) => (
+                  <button key={q.id} type="button" className="chip chip--tap ascent-aside" onClick={() => setSheet({ kind: "quest", quest: q })}>
+                    {q.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {(quests.length > 0 || patches.length > 0) && (
+            <div className="ascent-side">
+              {quests.map((q, i) => (
+                <QuestCard
+                  key={q.id}
+                  quest={q}
+                  planted={planted?.questId === q.id ? planted.turn : null}
+                  onReach={() => reachNext(q)}
+                  onEdit={() => setSheet({ kind: "quest", quest: q })}
+                >
+                  {i === quests.length - 1 && patches.length > 0 && (
+                    <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />
+                  )}
+                </QuestCard>
+              ))}
+              {!quests.length && patches.length > 0 && (
+                <section className="card ascent-quest" aria-label="Quests behind you">
+                  <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />
+                </section>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sheets}
 
       {ceremony && (
         <Ceremony
@@ -427,71 +468,20 @@ export default function Ascent() {
   );
 }
 
-// --- A lifetime goal ----------------------------------------------------------
+// --- A small target -------------------------------------------------------------
 
-function GoalRow({ goal: g, open, onToggle, onEdit, onFocus, onAddFocus }) {
+// Its last 30 days of marks, its name, and tonight's landing or not yet.
+function MiniTarget({ target: t, today }) {
+  const state = t.today ? LEVELS[t.today.level].name : t.shots.length ? "Not yet tonight" : "No marks yet";
   return (
-    <div className={"ascent-goal" + (open ? " open" : "")}>
-      <button type="button" className="ascent-goal__head" aria-expanded={open} onClick={onToggle}>
-        <span className="ascent-goal__top">
-          <span className="ascent-goal__name">
-            <Gear name={g.gear} />
-            <b>{g.title}</b>
-          </span>
-          <span className={`zone zone--${g.zone}`}>{ZONES[g.zone]}</span>
-        </span>
-        <span className="ascent-goal__fed">
-          {g.fed}
-          <ChevronDown size={13} className="ascent-goal__chev" aria-hidden="true" />
-        </span>
-        {g.focuses.length > 0 && <Footprints prints={g.prints} label={`Footprints: ${g.count} of the last ${WINDOW_DAYS} days`} />}
-      </button>
-      {open && (
-        <div className="ascent-goal__more">
-          <ul className="feeds">
-            {g.focuses.map((f) => (
-              <li key={f.id}>
-                <button type="button" className="feeds__row" onClick={() => onFocus(f)}>
-                  <span>
-                    Focus: {f.name}
-                    {f.why && <small> · {f.why}</small>}
-                  </span>
-                  <span className="feeds__n">
-                    {f.count} of {WINDOW_DAYS} days
-                  </span>
-                </button>
-              </li>
-            ))}
-            {g.quests.map((q) => (
-              <li key={q.id}>
-                <span>Quest: {q.title}</span>
-                <span className="feeds__n">also serves it</span>
-              </li>
-            ))}
-            {g.lessons.map((l) => (
-              <li key={l.id}>
-                <span>Lesson: {l.title}</span>
-                <span className="feeds__n">also serves it</span>
-              </li>
-            ))}
-            <li>
-              <span>Serves</span>
-              <span className="feeds__n">your mission</span>
-            </li>
-          </ul>
-          <div className="ascent-goal__actions">
-            <button type="button" className="btn-link" onClick={onAddFocus}>
-              <Plus size={13} />
-              {g.focuses.length ? "Add a focus" : "Choose a focus"}
-            </button>
-            <button type="button" className="btn-link" onClick={onEdit}>
-              <Pencil size={13} />
-              Edit goal
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+    <Link to={`/ascent/${t.key}`} className="mk-mini" aria-label={`${t.title}: ${state}`}>
+      <TargetFace target={t} today={today} range="30" mini arrow />
+      <b>
+        <Gear name={t.icon} size={14} />
+        {t.short}
+      </b>
+      <small className={t.today ? "done" : undefined}>{state}</small>
+    </Link>
   );
 }
 
@@ -567,57 +557,6 @@ function Patches({ patches, fresh, onOpen }) {
             <span>{p.title}</span>
           </button>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// --- A lesson -------------------------------------------------------------------
-
-function dayClass(d) {
-  if (d.before) return "day before";
-  if (d.isToday) return "day today" + (d.kept === true ? " kept" : d.kept === false ? " slip" : "");
-  if (d.ahead) return "day ahead";
-  return "day" + (d.kept === true ? " kept" : d.kept === false ? " slip" : "");
-}
-
-function daySays(d, i) {
-  const name = WEEKDAYS[i];
-  if (d.before) return `${name}: before it began`;
-  if (d.ahead) return `${name}: still ahead`;
-  if (d.kept === true) return `${name}: kept`;
-  if (d.kept === false) return `${name}: slipped`;
-  return `${name}: ${d.isToday ? "not answered yet" : "no answer"}`;
-}
-
-function LessonRow({ lesson: l, onAnswer, onEdit }) {
-  return (
-    <div className="lesson">
-      <div className="ascent-row">
-        <button type="button" className="lesson__title" onClick={onEdit} title="Edit the lesson">
-          {l.title}
-        </button>
-        <Serves serves={l.serves} />
-      </div>
-      {l.question && <p className="lesson__q">{l.question}</p>}
-      <div className="week" role="img" aria-label={`This week. ${l.week.map(daySays).join(". ")}.`}>
-        {l.week.map((d) => (
-          <span key={d.date} className={dayClass(d)} aria-hidden="true">
-            <i />
-            {d.letter}
-          </span>
-        ))}
-      </div>
-      <div className="lesson__foot">
-        <span className="ascent-mini">{l.note}</span>
-        <div className="lesson__seg" role="group" aria-label={`Today, ${l.title}`}>
-          <button type="button" className="kept" aria-pressed={l.today === true} onClick={() => onAnswer(l, l.today === true ? null : true)}>
-            Kept it
-          </button>
-          <button type="button" className="slip" aria-pressed={l.today === false} onClick={() => onAnswer(l, l.today === false ? null : false)}>
-            Slipped
-          </button>
-        </div>
       </div>
     </div>
   );

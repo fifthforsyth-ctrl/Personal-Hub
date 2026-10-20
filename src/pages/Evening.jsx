@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay } from "../lib/api";
+import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay, looseShots, fetchRange } from "../lib/api";
+import { buildAscent } from "../lib/ascent";
+import { buildRange } from "../lib/mark";
 import { useLoad } from "../lib/useLoad";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
 import { todayStr, addDays, fmtDayHeading } from "../lib/planDates";
@@ -12,6 +14,8 @@ import CloseOut from "../components/day/CloseOut";
 import EveningCheckin from "../components/day/EveningCheckin";
 import BankedDayCard from "../components/day/BankedDayCard";
 import FocusDay from "../components/focus/FocusDay";
+import TonightShots from "../components/mark/TonightShots";
+import Volley from "../components/mark/Volley";
 import CuratedCards from "../components/curator/CuratedCards";
 import TapEditor from "../components/today/TapEditor";
 import Swords from "../components/ui/Swords";
@@ -24,8 +28,9 @@ import "../styles/daily.css";
 // The evening, on one page, in the order it actually goes: what went well
 // and what didn't, where the hours went, an old thought from the board that
 // fits the day, the four reflection cards, whether today moved this week's
-// focus goals, a few taps on how it felt and when tomorrow starts, and then
-// bank it. Nothing else on the page, so the only way forward is down.
+// focus goals, tonight's shot at each target on The Range, a few taps on how
+// it felt and when tomorrow starts, and then bank it, which is when the
+// arrows fly. Nothing else on the page, so the only way forward is down.
 //
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
@@ -62,6 +67,21 @@ export default function Evening() {
     return () => window.removeEventListener("hub:changed", reload);
   }, [reload]);
   useBackOnline(reload, Boolean(error));
+
+  // Tonight's arrows: how many targets are answered, a way to save what's
+  // still waiting before they fly, and the volley once they have.
+  const [arrows, setArrows] = useState(null);
+  const flushShots = useRef(null);
+  const [volley, setVolley] = useState(null);
+
+  const loose = useCallback(async () => {
+    await flushShots.current?.();
+    const flown = await looseShots(userId, date);
+    if (!flown.length) return;
+    const fresh = await fetchRange(userId, date);
+    const range = buildRange(buildAscent(fresh, date), fresh.marks, date);
+    setVolley({ range, date, flown: new Set(flown.map((s) => s.id)) });
+  }, [userId, date]);
 
   const a = data?.archive ?? {};
   const banked = Boolean(data?.dayPlan?.banked_at);
@@ -121,6 +141,7 @@ export default function Evening() {
           <CuratedCards slot="day" date={date} title="From your board" compact />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
           <FocusDay userId={userId} date={date} variant="evening" />
+          <TonightShots key={`shots-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} flushRef={flushShots} onReady={setArrows} />
           <EveningCheckin
             key={`checkin-${date}`}
             userId={userId}
@@ -132,9 +153,11 @@ export default function Evening() {
             prayers={a.prayers ?? []}
             experiences={a.experiences ?? []}
           />
-          <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} />
+          <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} arrows={arrows} onLoose={loose} />
         </div>
       )}
+
+      {volley && <Volley range={volley.range} date={volley.date} flown={volley.flown} onDone={() => setVolley(null)} />}
     </div>
   );
 }

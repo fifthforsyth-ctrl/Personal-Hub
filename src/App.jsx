@@ -51,6 +51,7 @@ export default function App() {
             <Route path="/work" element={<Work />} />
             <Route path="/money" element={<Money />} />
             <Route path="/ascent" element={<Ascent />} />
+            <Route path="/ascent/:ref" element={<Ascent />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
             <Route path="/spirit" element={<Spirit />} />
