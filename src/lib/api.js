@@ -3226,3 +3226,109 @@ export async function readMarkLine({ target, reasons, line, answers }) {
   return Number.isInteger(k) && k >= 0 && k <= 3 ? k : -1;
 }
 
+
+// ---------------------------------------------------------------------------
+// Temple: a mirror of FamilySearch (people, open ordinances, the work you've
+// finished), replaced by each snapshot you load, plus your own trips,
+// helpers and permissions on top.
+// ---------------------------------------------------------------------------
+
+const TEMPLE_PERSON = "pid, name, gender, lifespan, ahnentafel, generation, birth_place, death_place, rollup_status";
+const TEMPLE_ORD = "id, pid, kind, spouse_name, fs_status, reasons";
+const TEMPLE_DONE = "pid, name, gender, lifespan, in_pedigree, ordinances";
+const TEMPLE_TRIP = "id, kind, planned_on, items, rechecked_on, printed, status, created_at";
+
+export async function fetchTemple(userId) {
+  const [people, ordinances, done, trips, helpers, permissions, syncs] = await Promise.all([
+    selectAllPages(() => supabase.from("temple_people").select(TEMPLE_PERSON).eq("user_id", userId).order("pid")),
+    selectAllPages(() => supabase.from("temple_ordinances").select(TEMPLE_ORD).eq("user_id", userId).order("id")),
+    selectAllPages(() => supabase.from("temple_done").select(TEMPLE_DONE).eq("user_id", userId).order("pid")),
+    selectAllPages(() => supabase.from("temple_trips").select(TEMPLE_TRIP).eq("user_id", userId).order("planned_on").order("id")),
+    selectAllPages(() => supabase.from("temple_helpers").select("id, name, note, per_trip, created_at").eq("user_id", userId).order("created_at")),
+    selectAllPages(() => supabase.from("temple_permissions").select("pid, granted_by, relationship, granted_on, note").eq("user_id", userId).order("pid")),
+    supabase.from("temple_syncs").select("synced_at, loaded_at, counts").eq("user_id", userId).order("synced_at", { ascending: false }).limit(1),
+  ]);
+  if (syncs.error) throw syncs.error;
+  return { people, ordinances, done, trips, helpers, permissions, syncs: syncs.data ?? [] };
+}
+
+// The next planned trip from today on, for the card on Today. null when
+// there isn't one (or the Temple tables aren't there yet).
+export async function fetchNextTempleTrip(userId, today) {
+  const { data, error } = await supabase
+    .from("temple_trips")
+    .select(TEMPLE_TRIP)
+    .eq("user_id", userId)
+    .eq("status", "planned")
+    .gte("planned_on", today)
+    .order("planned_on")
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+// Replaces the FamilySearch mirror with a parsed snapshot (see parseSnapshot
+// in lib/temple.js): rows are upserted, then anything the snapshot no
+// longer has is removed, so a failure part way leaves the old picture
+// rather than an empty one.
+export async function loadTempleSnapshot(userId, snap) {
+  const stamp = snap.syncedAt;
+  const chunks = (rows, n = 500) => Array.from({ length: Math.ceil(rows.length / n) }, (_, i) => rows.slice(i * n, i * n + n));
+
+  for (const part of chunks(snap.people.map((p) => ({ ...p, user_id: userId, synced_at: stamp })))) {
+    const { error } = await supabase.from("temple_people").upsert(part, { onConflict: "user_id,pid" });
+    if (error) throw error;
+  }
+  for (const part of chunks(snap.ordinances.map((o) => ({ ...o, user_id: userId, synced_at: stamp })))) {
+    const { error } = await supabase.from("temple_ordinances").upsert(part, { onConflict: "user_id,pid,kind,spouse_name" });
+    if (error) throw error;
+  }
+  for (const part of chunks(snap.done.map((d) => ({ ...d, user_id: userId, synced_at: stamp })))) {
+    const { error } = await supabase.from("temple_done").upsert(part, { onConflict: "user_id,pid" });
+    if (error) throw error;
+  }
+  // Whatever this snapshot didn't mention is gone from FamilySearch's view:
+  // finished, or no longer in the tree.
+  for (const table of ["temple_people", "temple_ordinances", "temple_done"]) {
+    const { error } = await supabase.from(table).delete().eq("user_id", userId).neq("synced_at", stamp);
+    if (error) throw error;
+  }
+  const counts = { people: snap.people.length, open: snap.ordinances.length, done: snap.done.length };
+  const { error } = await supabase.from("temple_syncs").insert({ user_id: userId, synced_at: stamp, counts });
+  if (error) throw error;
+  return counts;
+}
+
+export async function addTempleTrip(userId, { kind, planned_on, items }) {
+  const { data, error } = await supabase.from("temple_trips").insert({ user_id: userId, kind, planned_on, items }).select(TEMPLE_TRIP).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTempleTrip(id, fields) {
+  const { data, error } = await supabase.from("temple_trips").update(fields).eq("id", id).select(TEMPLE_TRIP).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function saveTemplePermission(userId, { pid, granted_by, relationship, granted_on, note }) {
+  const { error } = await supabase
+    .from("temple_permissions")
+    .upsert({ user_id: userId, pid, granted_by, relationship: relationship || null, granted_on, note: note || null }, { onConflict: "user_id,pid" });
+  if (error) throw error;
+}
+
+export async function deleteTemplePermission(userId, pid) {
+  const { error } = await supabase.from("temple_permissions").delete().eq("user_id", userId).eq("pid", pid);
+  if (error) throw error;
+}
+
+export async function addTempleHelper(userId, { name, note, per_trip }) {
+  const { error } = await supabase.from("temple_helpers").insert({ user_id: userId, name, note: note || null, per_trip: per_trip ?? 5 });
+  if (error) throw error;
+}
+
+export async function deleteTempleHelper(id) {
+  const { error } = await supabase.from("temple_helpers").delete().eq("id", id);
+  if (error) throw error;
+}
