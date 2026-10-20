@@ -14,6 +14,7 @@ import WeekStrip from "../components/today/WeekStrip";
 import FocusDay from "../components/focus/FocusDay";
 import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
+import TempleTrip from "../components/today/TempleTrip";
 import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
@@ -134,6 +135,7 @@ export default function Today() {
               link to the same evening would only compete with it. */}
           {!(yesterdayOpen && lateNight) && <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!evening} />}
           <WalkWithGod userId={userId} date={date} />
+          <TempleTrip userId={userId} date={date} />
           <FocusDay userId={userId} date={date} />
         </div>
       </div>

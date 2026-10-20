@@ -10,6 +10,23 @@
 
 import { readFileSync } from "node:fs";
 import {
+  stageOf,
+  buildTemple,
+  candidates,
+  fillTrip,
+  waitsOn,
+  tripProgress,
+  nextTrip,
+  helperNames,
+  missingParents,
+  crowd as templeCrowd,
+  familyFacts,
+  countryOf,
+  parseSnapshot,
+  plainReason,
+  fanSlots,
+} from "../src/lib/temple.js";
+import {
   zoneOf,
   stepIndex,
   focusSteps,
@@ -1500,6 +1517,95 @@ console.log("\nthe mark");
     .filter((l) => !l.trim().startsWith("--"))
     .join("\n");
   ok("loosing adds one column and drops nothing", /add column if not exists loosed_at timestamptz/.test(loosedSql) && !/\bdrop\b|\btruncate\b|\bdelete\b/i.test(loosedSql));
+}
+
+// --- Temple -------------------------------------------------------------------
+{
+  const people = [
+    { pid: "ME", name: "Aaron", gender: "M", lifespan: "2005-Living", ahnentafel: 1, generation: 1, rollup_status: "LIVING" },
+    { pid: "DAD", name: "Dad", gender: "M", lifespan: "Living", ahnentafel: 2, generation: 2, rollup_status: "LIVING" },
+    { pid: "GP", name: "Grandpa", gender: "M", lifespan: "1940-2006", ahnentafel: 4, generation: 3, rollup_status: "READY", birth_place: "Provo, Utah, Utah, United States" },
+    { pid: "OLD", name: "Old Man", gender: "M", lifespan: "1766-1817", ahnentafel: 200, generation: 8, rollup_status: "READY", birth_place: "Lutzhausen, Luxembourg" },
+    { pid: "BUD", name: "Bud Wells", gender: "M", lifespan: "1799-Deceased", ahnentafel: 201, generation: 8, rollup_status: "READY" },
+    { pid: "HER", name: "Anna", gender: "F", lifespan: "1770-1832", ahnentafel: 203, generation: 8, rollup_status: "NEEDS_MORE_INFORMATION" },
+    { pid: "PIO", name: "Pioneer", gender: "M", lifespan: "1788-1872", ahnentafel: 148, generation: 8, rollup_status: "COMPLETED", birth_place: "Rockingham, Windham, Republic of Vermont", death_place: "Salt Lake City, Salt Lake, Utah, United States" },
+  ];
+  const ordinances = [
+    { pid: "GP", kind: "stp", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "OLD", kind: "sts", spouse_name: "Catherine", fs_status: "ReservedSharedReady", reasons: [] },
+    { pid: "OLD", kind: "bap", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "OLD", kind: "con", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "OLD", kind: "ini", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "BUD", kind: "bap", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [] },
+    { pid: "BUD", kind: "end", spouse_name: "", fs_status: "Completed", reasons: [] },
+    { pid: "HER", kind: "bap", spouse_name: "", fs_status: "NeedsMoreInformation", reasons: ["This person's record needs a standardized place in a birth event."] },
+  ];
+  const v = buildTemple({ people, ordinances, done: [], trips: [] });
+
+  ok("FamilySearch's statuses sort into stages", stageOf("ReservedSharedReady") === "mine" && stageOf("SharedInProgressPrinted") === "shared" && stageOf("Completed") === null);
+  ok("completed ordinances aren't open work", v.open.length === 7 && !v.open.some((o) => o.fs_status === "Completed"));
+  ok("counts come from the snapshot", v.counts.deceased === 5 && v.counts.completed === 1 && v.counts.ready === 4 && v.counts.mine === 2);
+
+  const bap = candidates(v, "bap");
+  ok("names you hold go first", bap[0].o.pid === "BUD" && bap[0].why[0] === "Reserved by you");
+  ok("women's individual ordinances aren't on your trips", !candidates(v, "bap").some((c) => c.o.pid === "HER"));
+  ok("an initiatory waits for that person's baptism", waitsOn(v.open.find((o) => o.pid === "OLD" && o.kind === "ini"), v.open) === "baptism");
+  const ini = fillTrip(v, "ini");
+  ok("so it isn't on the initiatory trip yet", ini.items.length === 0 && ini.waiting.length === 1);
+
+  const seal = fillTrip(v, "seal");
+  ok("a sealing trip takes reserved names first, then the closest", seal.items.map((c) => c.o.pid).join() === "OLD,GP");
+  ok("the last open ordinance a person has is called out", candidates(v, "seal").find((c) => c.o.pid === "GP").why.includes("Last one for him"));
+
+  const trip = { id: "t1", kind: "seal", planned_on: "2026-10-24", status: "planned", items: [{ pid: "GP", name: "Grandpa", kind: "stp", spouse: "" }] };
+  const withTrip = buildTemple({ people, ordinances, done: [], trips: [trip] });
+  ok("a name on a planned trip isn't offered twice", !fillTrip(withTrip, "seal").items.some((c) => c.o.pid === "GP"));
+  ok("a trip isn't done while its names are open", !tripProgress(trip, withTrip).finished);
+  const after = buildTemple({ people, ordinances: ordinances.filter((o) => o.pid !== "GP"), done: [], trips: [trip] });
+  ok("it's done when FamilySearch no longer has them open", tripProgress(trip, after).finished);
+  ok("the next trip is the soonest planned one from today", nextTrip([{ ...trip, planned_on: "2026-10-19" }, trip, { ...trip, id: "t2", planned_on: "2026-11-01" }], "2026-10-20").planned_on === "2026-10-24");
+
+  const h = helperNames(v);
+  ok("women's names wait for research before a helper gets them", h.ready.length === 0 && h.later.length === 1 && h.later[0].person.pid === "HER");
+  ok("FamilySearch's reasons read plainly", plainReason(ordinances[7].reasons[0]) === "Needs a standard place");
+
+  const mp = missingParents(people);
+  ok("missing parents are found from gaps in the pedigree", mp.length === 4 && mp.find((m) => m.person.pid === "OLD").missing === "both");
+
+  const c = templeCrowd([
+    { pid: "A", name: "A", gender: "M", in_pedigree: true, ordinances: [{ type: "E", date: "2025-02-01", temple: "Lindon" }] },
+    { pid: "B", name: "B", gender: "F", in_pedigree: false, ordinances: [{ type: "B", date: "2024-09-12", temple: "Mount Timpanogos" }, { type: "C", date: "2024-09-12", temple: "Mount Timpanogos" }] },
+  ]);
+  ok("one figure per person, however many ordinances", c.people.length === 2 && c.ordinances === 3 && c.direct === 1);
+  ok("in the order you did them", c.people[0].pid === "B" && c.since === "2024-09-12" && c.temples[0][0] === "Mount Timpanogos");
+
+  const f = familyFacts(people, { thisYear: 2026 });
+  ok("years lived add up whole lives only", f.yearsLived === 66 + 51 + 62 + 84 && f.withBothDates === 4);
+  ok("alive in 1776 counts lives that cross it", f.aliveIn1776 === 2);
+  ok("a pioneer was born elsewhere and died in Utah", f.pioneers.length === 1 && f.pioneers[0].pid === "PIO");
+  ok("old countries fold into today's names", countryOf("Rockingham, Windham, Republic of Vermont") === "United States" && countryOf("Kelso, Scotland") === "England & Scotland");
+  ok("the fan has a wedge for every slot out to nine generations", fanSlots(people).length === 510 && fanSlots(people).filter((s) => s.person).length === 6);
+
+  let threw = "";
+  try {
+    parseSnapshot('{"kind":"something-else"}');
+  } catch (e) {
+    threw = e.message;
+  }
+  ok("a file that isn't a snapshot is refused in words", /isn't a FamilySearch snapshot/.test(threw));
+  const snap = parseSnapshot(JSON.stringify({ kind: "hub-temple-snapshot", version: 1, synced_at: "2026-10-20T14:55:00Z", people: [people[2]], ordinances: [ordinances[0], { pid: "X", kind: "nope", fs_status: "Ready" }], done: [] }));
+  const twice = parseSnapshot(JSON.stringify({ kind: "hub-temple-snapshot", synced_at: "2026-10-20T14:55:00Z", people: [{ ...people[3], ahnentafel: 300 }, people[3]], ordinances: [], done: [] }));
+  ok("someone in the pedigree twice is kept once, at the closer place", twice.people.length === 1 && twice.people[0].ahnentafel === 200);
+  ok("a snapshot keeps only rows it understands", snap.people.length === 1 && snap.ordinances.length === 1 && snap.ordinances[0].spouse_name === "");
+
+  const tm = readFileSync(new URL("../supabase/migrations/0077_temple.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  const tt = ["temple_people", "temple_ordinances", "temple_done", "temple_syncs", "temple_trips", "temple_helpers", "temple_permissions"];
+  ok("every Temple table has row-level security", tt.every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(tm)));
+  ok("and is yours alone, closed to signed-out visitors", /using \(\(select auth\.uid\(\)\) = user_id\) with check/.test(tm) && /from anon, public;/.test(tm) && !/\bto anon\b/i.test(tm));
+  ok("the Temple migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(tm) && !/current_date/.test(tm));
 }
 
 function sectionOf({ x, y }) {
