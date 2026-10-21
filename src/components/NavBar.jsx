@@ -20,6 +20,7 @@ import {
   ScanEye,
   Smartphone,
   Landmark,
+  AlarmClock,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -61,6 +62,7 @@ export const MORE = [
   { to: "/overview", label: "Big picture", Icon: Compass },
   { to: "/ascent", label: "The Range", Icon: Target },
   { to: "/temple", label: "Temple", Icon: Landmark },
+  { to: "/wake", label: "Wake watch", Icon: AlarmClock },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },
   { to: "/links", label: "Goal links", Icon: Link2 },
   { to: "/phone", label: "On your phone", Icon: Smartphone },

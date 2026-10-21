@@ -3332,3 +3332,68 @@ export async function deleteTempleHelper(id) {
   const { error } = await supabase.from("temple_helpers").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Wake watch: at 4:35 your peers hear whether you're up (0078_wake_watch).
+// The morning is judged in the database; the `wake` edge function texts.
+// ---------------------------------------------------------------------------
+
+export async function fetchWakeWatch(userId) {
+  const { data, error } = await supabase.from("wake_watch").select("*").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Creates the row on first save; the defaults (4:35, 9:00, the three
+// messages) come from the table.
+export async function saveWakeWatch(userId, patch) {
+  const { data, error } = await supabase
+    .from("wake_watch")
+    .upsert({ user_id: userId, ...patch }, { onConflict: "user_id" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchWakePeers(userId) {
+  const { data, error } = await supabase
+    .from("wake_peers")
+    .select("id, name, phone, active, created_at")
+    .eq("user_id", userId)
+    .order("created_at");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addWakePeer(userId, { name, phone }) {
+  const { data, error } = await supabase.from("wake_peers").insert({ user_id: userId, name, phone }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateWakePeer(id, patch) {
+  const { error } = await supabase.from("wake_peers").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteWakePeer(id) {
+  const { error } = await supabase.from("wake_peers").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchWakeReports(userId, { limit = 14 } = {}) {
+  const { data, error } = await supabase
+    .from("wake_reports")
+    .select("id, date, outcome, woke_at, message, status, sent_to, error, decided_at")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// A test text to one peer (or all active ones), straight away.
+export function sendWakeTest(peerId) {
+  return callFunction("wake", { test: true, peer_id: peerId ?? null }, "The test text");
+}
