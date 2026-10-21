@@ -1,0 +1,26 @@
+/* Wake watch: the morning text to your peers. Rows and toggles come from phone.css. */
+
+.wake-times { display: flex; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); }
+.wake-times label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; min-width: 0; }
+.wake-times span, .wake-msg > span { font-size: 12px; color: var(--text-2); }
+
+.wake-days { list-style: none; margin: 0; padding: 0; }
+.wake-day { display: flex; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.wake-day:first-child { border-top: none; }
+.wake-day__date { width: 92px; flex-shrink: 0; font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.wake-day__what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wake-day__what strong { font-size: 13.5px; font-weight: 620; display: flex; align-items: center; gap: 7px; }
+.wake-day__what strong::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); flex-shrink: 0; }
+.wake-day--good .wake-day__what strong::before { background: var(--good); }
+.wake-day--miss .wake-day__what strong::before { background: var(--text); }
+.wake-day--wait .wake-day__what strong::before { background: var(--accent); }
+.wake-day--ahead .wake-day__what { color: var(--text-3); font-size: 13px; }
+.wake-day__what q { font-family: var(--font-serif); font-style: italic; font-size: 13.5px; color: var(--text-2); }
+.wake-day__what small { font-size: 12px; color: var(--text-3); }
+
+.wake-add { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); }
+.wake-add .input { flex: 1 1 140px; min-width: 0; }
+
+.wake-msg { display: flex; flex-direction: column; gap: 5px; padding: 10px 0; }
+.wake-msg .textarea { resize: vertical; }
+.wake-msg small { font-size: 12px; color: var(--text-3); }
