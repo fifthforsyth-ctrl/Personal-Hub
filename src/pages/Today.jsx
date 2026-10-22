@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Moon, ArrowRight, Archive, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchWinLosses, fetchTimeEntries, fetchOpenTimeEntry, fetchCategories, fetchDayPlan } from "../lib/api";
+import { fetchWinLosses, fetchTimeEntries, fetchOpenTimeEntry, fetchCategories, fetchDayPlan, fetchTimeChunks } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { setCategoryColors } from "../lib/categories";
 import { todayStr, addDays, fmtDayHeading, parseDateStr } from "../lib/planDates";
@@ -19,6 +19,7 @@ import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
+import PlanBlocks from "../components/today/PlanBlocks";
 import MirrorLink from "../components/MirrorLink";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
@@ -30,8 +31,9 @@ import "../styles/daily.css";
 // Today: wins, minutes, and your walk with God.
 //
 // The page you open dozens of times a day, so it carries exactly the three
-// things you said the Hub is for, in that order, then this week's focus
-// goals, and one action that matters most (Win) sits at the top where a
+// things you said the Hub is for, in that order, with the blocks planned
+// for today beside them (what you're in now, what's next), then this week's
+// focus goals, and one action that matters most (Win) sits at the top where a
 // thumb finds it. Below the fold: a quote chosen for this week, the
 // curator's cards, and a one-line note about purchases to sort.
 //
@@ -49,13 +51,18 @@ import "../styles/daily.css";
 
 async function loadToday(userId, date) {
   const since = parseDateStr(date).toISOString();
-  const [wl, list, open, plan, yesterdayPlan, tomorrowPlan, cats] = await Promise.all([
+  const [wl, list, open, plan, yesterdayPlan, tomorrowPlan, chunks, cats] = await Promise.all([
     fetchWinLosses(userId, { sinceISO: since, limit: 200 }),
     fetchTimeEntries(userId, { sinceISO: since, limit: 200 }),
     fetchOpenTimeEntry(userId),
     fetchDayPlan(userId, date),
     fetchDayPlan(userId, addDays(date, -1)),
     fetchDayPlan(userId, addDays(date, 1)),
+    // The day's planned blocks: Today still opens if these don't come.
+    fetchTimeChunks(userId, date).catch((err) => {
+      console.warn(err);
+      return null;
+    }),
     // Only colours: Today still opens if these don't come.
     fetchCategories(userId).catch((err) => {
       console.warn(err);
@@ -70,6 +77,7 @@ async function loadToday(userId, date) {
     dayPlan: plan,
     yesterdayBanked: Boolean(yesterdayPlan?.banked_at),
     tomorrowAlarm: tomorrowPlan?.alarm_at ?? null,
+    chunks,
   };
 }
 
@@ -134,6 +142,7 @@ export default function Today() {
           {/* Just after midnight the yesterday banner is the way in; a second
               link to the same evening would only compete with it. */}
           {!(yesterdayOpen && lateNight) && <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!evening} />}
+          {data?.chunks && <PlanBlocks date={date} chunks={data.chunks} />}
           <WalkWithGod userId={userId} date={date} />
           <TempleTrip userId={userId} date={date} />
           <FocusDay userId={userId} date={date} />
