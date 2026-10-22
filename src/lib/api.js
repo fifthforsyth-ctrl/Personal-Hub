@@ -3625,3 +3625,44 @@ export async function fetchWakeReports(userId, { limit = 14 } = {}) {
 export function sendWakeTest(peerId) {
   return callFunction("wake", { test: true, peer_id: peerId ?? null }, "The test text");
 }
+
+// ---------------------------------------------------------------------------
+// The village (0080): what each quest builds. Everything else on the map
+// (which parts stand, how many bricks are down, the soldiers) comes from the
+// camps, their steps and The Mark, so this loads those beside the builds.
+// ---------------------------------------------------------------------------
+
+const VILLAGE_BUILD = "id, quest_id, kind, seed, plot, created_at";
+
+export async function fetchVillage(userId, today) {
+  const [quests, camps, sections, steps, builds, lessons, goals, bulls] = await Promise.all([
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
+    selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, position").eq("user_id", userId).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).order("id")),
+    supabase.from("village_builds").select(VILLAGE_BUILD).eq("user_id", userId),
+    supabase.from("lessons").select("id, title").eq("user_id", userId),
+    selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
+    // A bullseye is a shot at level 0 that has flown (loosed on Bank the day).
+    selectAllPages(() =>
+      supabase.from("mark_shots").select("id, date").eq("user_id", userId).eq("level", 0).not("loosed_at", "is", null).lte("date", today).order("id"),
+    ),
+  ]);
+  for (const r of [quests, camps, builds, lessons]) if (r.error) throw r.error;
+  return {
+    quests: quests.data ?? [],
+    camps: camps.data ?? [],
+    sections,
+    steps,
+    builds: builds.data ?? [],
+    lessons: lessons.data ?? [],
+    goals,
+    bullseyes: bulls.map((s) => s.date),
+  };
+}
+
+export async function addVillageBuild(userId, { quest_id, kind, seed, plot }) {
+  const { data, error } = await supabase.from("village_builds").insert({ user_id: userId, quest_id, kind, seed, plot }).select(VILLAGE_BUILD).single();
+  if (error) throw error;
+  return data;
+}

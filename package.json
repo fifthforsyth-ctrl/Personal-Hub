@@ -14,7 +14,8 @@
     "lucide-react": "^0.400.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "react-router-dom": "^6.26.0"
+    "react-router-dom": "^6.26.0",
+    "three": "0.128.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
