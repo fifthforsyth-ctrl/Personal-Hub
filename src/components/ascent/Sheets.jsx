@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUp, ArrowDown, X, Plus } from "lucide-react";
 import Sheet from "./Sheet";
+import { useConfirm } from "../ui/Feedback";
 
 // The edit sheets for each kind of goal on the Ascent page. Each one keeps
 // its fields while you type, and hands them to `onSave`, which resolves to
@@ -186,14 +187,16 @@ const QUEST_STATUS = [
   ["set_aside", "Set aside"],
 ];
 
-export function QuestSheet({ quest, camps = [], goals, today, onSave, onDelete, onClose }) {
-  const [title, setTitle] = useState(quest?.title ?? "");
-  const [note, setNote] = useState(quest?.note ?? "");
-  const [goalId, setGoalId] = useState(quest ? quest.goal_id : null);
-  const [status, setStatus] = useState(quest?.status ?? "on");
-  const [rows, setRows] = useState(() => camps.map((c) => ({ key: c.id, id: c.id, title: c.title, reached_on: c.reached_on })));
-  const { busy, problem, save } = useSaving(onSave);
+// The camps on a mountain, first to last, as the sheet holds them: rows of
+// { key, id, title, reached_on }, no id for a new one.
+function campRows(camps) {
+  return camps.map((c) => ({ key: c.id, id: c.id, title: c.title, reached_on: c.reached_on }));
+}
 
+// The camps editor, for a quest's mountain and a lesson's. Taking off a camp
+// that has steps asks first, since its steps go with it when you save.
+function CampsField({ rows, setRows, today, stepsIn, label, note }) {
+  const confirm = useConfirm();
   const setRow = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const move = (i, by) =>
     setRows((rs) => {
@@ -202,6 +205,75 @@ export function QuestSheet({ quest, camps = [], goals, today, onSave, onDelete, 
       next.splice(i + by, 0, r);
       return next;
     });
+  async function remove(r) {
+    const n = r.id ? stepsIn?.(r.id) ?? 0 : 0;
+    if (
+      n &&
+      !(await confirm({
+        title: `Take off “${r.title || "this camp"}”?`,
+        body: `Its ${n === 1 ? "step goes" : `${n} steps go`} with it when you save.`,
+        confirmLabel: "Take it off",
+      }))
+    )
+      return;
+    setRows((rs) => rs.filter((x) => x.key !== r.key));
+  }
+
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <ol className="ascent-camps">
+        {rows.map((r, i) => (
+          <li key={r.key}>
+            <label className="ascent-camps__reached" title={r.reached_on ? "Reached" : "Not yet"}>
+              <input
+                type="checkbox"
+                checked={Boolean(r.reached_on)}
+                onChange={(e) => setRow(r.key, { reached_on: e.target.checked ? today : null })}
+                aria-label={`Camp ${i + 1} reached`}
+              />
+            </label>
+            <input
+              className="input"
+              value={r.title}
+              onChange={(e) => setRow(r.key, { title: e.target.value })}
+              maxLength={200}
+              placeholder={`Camp ${i + 1}`}
+              aria-label={`Camp ${i + 1}`}
+              autoFocus={r.key === "new-first"}
+            />
+            <button type="button" className="btn-icon" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" title="Move up">
+              <ArrowUp size={15} />
+            </button>
+            <button type="button" className="btn-icon" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down" title="Move down">
+              <ArrowDown size={15} />
+            </button>
+            <button type="button" className="btn-icon" onClick={() => remove(r)} aria-label="Remove camp" title="Remove camp">
+              <X size={15} />
+            </button>
+          </li>
+        ))}
+      </ol>
+      <button
+        type="button"
+        className="btn btn--sm btn--on-page"
+        onClick={() => setRows((rs) => [...rs, { key: `new-${Date.now()}-${rs.length}`, id: null, title: "", reached_on: null }])}
+      >
+        <Plus size={14} />
+        Add a camp
+      </button>
+      {note && <p className="card-note ascent-sheet__note">{note}</p>}
+    </div>
+  );
+}
+
+export function QuestSheet({ quest, camps = [], stepsIn, goals, today, onSave, onDelete, onClose }) {
+  const [title, setTitle] = useState(quest?.title ?? "");
+  const [note, setNote] = useState(quest?.note ?? "");
+  const [goalId, setGoalId] = useState(quest ? quest.goal_id : null);
+  const [status, setStatus] = useState(quest?.status ?? "on");
+  const [rows, setRows] = useState(() => campRows(camps));
+  const { busy, problem, save } = useSaving(onSave);
 
   return (
     <Sheet title={quest ? "Quest" : "New quest"} onClose={onClose}>
@@ -235,42 +307,14 @@ export function QuestSheet({ quest, camps = [], goals, today, onSave, onDelete, 
         </div>
 
         {status !== "done" || rows.length > 0 ? (
-          <div className="field">
-            <span>Camps on the way up, first to last</span>
-            <ol className="ascent-camps">
-              {rows.map((r, i) => (
-                <li key={r.key}>
-                  <label className="ascent-camps__reached" title={r.reached_on ? "Reached" : "Not yet"}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(r.reached_on)}
-                      onChange={(e) => setRow(r.key, { reached_on: e.target.checked ? today : null })}
-                      aria-label={`Camp ${i + 1} reached`}
-                    />
-                  </label>
-                  <input className="input" value={r.title} onChange={(e) => setRow(r.key, { title: e.target.value })} maxLength={200} placeholder={`Camp ${i + 1}`} aria-label={`Camp ${i + 1}`} />
-                  <button type="button" className="btn-icon" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" title="Move up">
-                    <ArrowUp size={15} />
-                  </button>
-                  <button type="button" className="btn-icon" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down" title="Move down">
-                    <ArrowDown size={15} />
-                  </button>
-                  <button type="button" className="btn-icon" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} aria-label="Remove camp" title="Remove camp">
-                    <X size={15} />
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <button
-              type="button"
-              className="btn btn--sm btn--on-page"
-              onClick={() => setRows((rs) => [...rs, { key: `new-${Date.now()}-${rs.length}`, id: null, title: "", reached_on: null }])}
-            >
-              <Plus size={14} />
-              Add a camp
-            </button>
-            <p className="card-note ascent-sheet__note">Each camp is a point on the way you'll know you've reached. The quest itself is the summit.</p>
-          </div>
+          <CampsField
+            rows={rows}
+            setRows={setRows}
+            today={today}
+            stepsIn={stepsIn}
+            label="Camps on the way up, first to last"
+            note="Each camp is a point on the way you'll know you've reached. The quest itself is the summit. Tap a camp on the Range for its steps."
+          />
         ) : null}
 
         {problem && <p className="form-error">{problem}</p>}
@@ -288,11 +332,15 @@ const LESSON_STATUS = [
   ["set_aside", "Set aside"],
 ];
 
-export function LessonSheet({ lesson, goals, onSave, onDelete, onClose }) {
+export function LessonSheet({ lesson, camps = [], stepsIn, goals, today, mountainFirst = false, onSave, onDelete, onClose }) {
   const [title, setTitle] = useState(lesson?.title ?? "");
   const [question, setQuestion] = useState(lesson?.question ?? "");
   const [goalId, setGoalId] = useState(lesson ? lesson.goal_id : null);
   const [status, setStatus] = useState(lesson?.status ?? "learning");
+  // Opened from "A mountain for a lesson": its first camp is ready to name.
+  const [rows, setRows] = useState(() =>
+    camps.length || !mountainFirst ? campRows(camps) : [{ key: "new-first", id: null, title: "", reached_on: null }]
+  );
   const { busy, problem, save } = useSaving(onSave);
 
   return (
@@ -300,7 +348,8 @@ export function LessonSheet({ lesson, goals, onSave, onDelete, onClose }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          save({ title: title.trim(), question: question.trim() || null, goal_id: goalId, status }, (v) => (!v.title ? "Name the lesson." : null));
+          const clean = rows.map((r) => ({ ...r, title: r.title.trim() })).filter((r) => r.title);
+          save({ title: title.trim(), question: question.trim() || null, goal_id: goalId, status, camps: clean }, (v) => (!v.title ? "Name the lesson." : null));
         }}
       >
         <p className="card-note ascent-sheet__lede">A change to your character you feel God teaching you, kept one day at a time.</p>
@@ -325,6 +374,18 @@ export function LessonSheet({ lesson, goals, onSave, onDelete, onClose }) {
             </div>
           </div>
         )}
+        <CampsField
+          rows={rows}
+          setRows={setRows}
+          today={today}
+          stepsIn={stepsIn}
+          label={rows.length ? "Its mountain: camps on the way, first to last" : "A mountain for it (if you want one)"}
+          note={
+            rows.length
+              ? "Each camp is a point on the way you'll know you've reached, with steps of its own. Learning the lesson is the summit."
+              : "Give it camps and it gets a mountain on the Range, climbed the same way as a quest."
+          }
+        />
         {problem && <p className="form-error">{problem}</p>}
         <Actions busy={busy} onDelete={lesson ? onDelete : null} />
       </form>

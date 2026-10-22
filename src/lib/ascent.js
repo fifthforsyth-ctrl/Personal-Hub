@@ -7,7 +7,10 @@ import { addDays, parseDateStr, startOfWeek, fmtShortDate } from "./planDates.js
 //   focuses           what feeds each lifetime goal. A footprint is a day the
 //                     time log has one of a focus's categories
 //   quests            what God is calling him to now, climbed camp by camp
-//   lessons           changes to his character, kept or slipped each day
+//   lessons           changes to his character, kept or slipped each day. A
+//                     lesson can have a mountain of its own (0079): a quest
+//                     row with its lesson_id, climbed the same way and shown
+//                     with the lesson, not as a quest
 //
 // The mountain is only decoration. Nothing here is scored in minutes and
 // nothing turns red: a quiet goal is at the trailhead, not failing.
@@ -222,7 +225,9 @@ export function buildAscent(data, today) {
       String(a.title).localeCompare(String(b.title))
   );
   const focuses = [...(data?.focuses ?? [])].sort(byPosition);
-  const quests = [...(data?.quests ?? [])].sort(byPosition);
+  const allQuests = [...(data?.quests ?? [])].sort(byPosition);
+  const quests = allQuests.filter((q) => !q.lesson_id);
+  const climbs = allQuests.filter((q) => q.lesson_id);
   const lessons = [...(data?.lessons ?? [])].sort(byPosition);
 
   const goals = roots.map((g) => {
@@ -268,6 +273,15 @@ export function buildAscent(data, today) {
     serves: servesOf(q.goal_id, goalsById),
     state: questState(q, campsByQuest.get(q.id) ?? []),
   }));
+  const lessonsById = new Map(lessons.map((l) => [l.id, l]));
+  // A lesson's mountain goes by the lesson's name and serves what it serves.
+  const climbViews = climbs
+    .filter((q) => lessonsById.has(q.lesson_id))
+    .map((q) => {
+      const l = lessonsById.get(q.lesson_id);
+      return { ...q, title: l.title, lesson: l, serves: servesOf(l.goal_id, goalsById), state: questState(q, campsByQuest.get(q.id) ?? []) };
+    });
+  const climbByLesson = new Map(climbViews.map((q) => [q.lesson_id, q]));
 
   const answersByLesson = new Map();
   for (const c of data?.checkins ?? []) {
@@ -283,6 +297,7 @@ export function buildAscent(data, today) {
       week: lessonWeek(l, answers, today),
       today: todayAnswer,
       note: lessonNote(l, todayAnswer, today),
+      mountain: climbByLesson.get(l.id) ?? null,
     };
   });
 
@@ -293,7 +308,9 @@ export function buildAscent(data, today) {
     // are strong on average, so it climbs as they're walked.
     climb: goals.length ? goals.reduce((a, g) => a + g.pct, 0) / goals.length / 100 : 0,
     quests: questViews.filter((q) => q.status === "on"),
-    patches: questViews
+    // The mountains of lessons still being learned, climbed beside the quest.
+    climbs: climbViews.filter((q) => q.status === "on" && q.lesson.status === "learning"),
+    patches: [...questViews, ...climbViews]
       .filter((q) => q.status === "done")
       .sort((a, b) => String(a.finished_on ?? "").localeCompare(String(b.finished_on ?? ""))),
     setAside: questViews.filter((q) => q.status === "set_aside"),
