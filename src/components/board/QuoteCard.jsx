@@ -4,11 +4,12 @@ import { saveQuote } from "../../lib/api";
 import { useToast } from "../ui/Feedback";
 import { initials, sourceLine } from "../../lib/quotes";
 import { pinOf, tiltOf } from "../../lib/quoteShelves";
+import ShareQuote from "./ShareQuote";
 import "../../styles/cork.css";
 
 // A quote as a photo print: the picture on top, the words under it, and who
 // said them. On the cork it hangs from a pin; on a shelf or in the picks it's
-// taped down, with "Save to board" to pin it up.
+// taped down, with "Save to board" to pin it up. "Share" sends it to a friend.
 //
 // The picture is whatever the web had: the person, or a scene that suits the
 // words. When it won't load, the card falls back to a warm block with the
@@ -91,6 +92,7 @@ export default function QuoteCard({ quote, onChange, variant = "shelf", reason }
           {saved ? (pinned ? <PinOff size={13} /> : <Pin size={13} fill="currentColor" />) : <Pin size={13} />}
           {pinned ? "Unpin" : saved ? "On your board" : "Save to board"}
         </button>
+        <ShareQuote quote={quote} className="qprint__save qprint__share" />
       </div>
     </figure>
   );

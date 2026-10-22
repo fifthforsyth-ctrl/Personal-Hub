@@ -7,6 +7,7 @@ import { friendlyError, isOffline } from "../../lib/errors";
 import { todayStr } from "../../lib/planDates";
 import { RATINGS, initials, ratedLine, sourceLine } from "../../lib/quotes";
 import { useBackOnline } from "./useBackOnline";
+import ShareQuote from "../board/ShareQuote";
 
 // One quote for the day, from a Church leader or someone from history,
 // chosen for what this week is about.
@@ -19,7 +20,7 @@ import { useBackOnline } from "./useBackOnline";
 // A historical figure comes with their portrait when there's a public-domain
 // one; anyone else gets a name card. Rating it is the whole loop: "applies"
 // brings it back now and then and steers what comes next. "Save to board"
-// pins it up on the Board's cork.
+// pins it up on the Board's cork, and "Share" sends it to a friend.
 const asked = new Map();
 
 function triedKey(date) {
@@ -231,6 +232,7 @@ function QuoteCard({ day, onRated }) {
           <Pin size={13} fill={saved ? "currentColor" : "none"} />
           {saved ? "On your board" : "Save to board"}
         </button>
+        <ShareQuote quote={quote} className="btn btn--sm quote-card__share" />
       </div>
       {rateError && <div className="form-error">{rateError}</div>}
 

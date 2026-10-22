@@ -62,6 +62,7 @@ import {
   WINDOW_MINUTES,
 } from "../src/lib/ring.js";
 import { initials, ratedLine, sourceLine, RATINGS } from "../src/lib/quotes.js";
+import { shareText, shareFileName, wrapText, layoutCard, CARD_H } from "../src/lib/quoteShare.js";
 import { answerParts, stillWorking, unanswered, chartResult, ANSWER_GIVES_UP_MS } from "../src/lib/ask.js";
 import { boardNotes, verdictOf, USEFUL, NOT_NOW } from "../src/lib/board.js";
 import {
@@ -1634,6 +1635,30 @@ console.log("\nthe mark");
   ok("the judging functions can't be called from the app", /revoke all on function public\.wake_watch_tick\(\) from public, anon, authenticated/.test(wm) && /revoke all on function public\.trigger_wake_send\(uuid\)/.test(wm));
   ok("the wake migration drops nothing", !/\bdrop\s+(table|column|function|policy)\b|\btruncate\b|\bdelete\s+from\b/i.test(wm));
   ok("it starts off and in practice", /enabled boolean not null default false/.test(wm) && /live boolean not null default false/.test(wm));
+}
+
+{
+  // Sharing a quote: what a friend gets.
+  const q = { text: "  The past is to be learned from but not lived in. ", author: "Jeffrey R. Holland", source: "BYU devotional", year: 2009 };
+  ok("shared words are quoted and signed", shareText(q) === "\u201CThe past is to be learned from but not lived in.\u201D\n\u2014 Jeffrey R. Holland, BYU devotional (2009)");
+  ok("no author, no dash", shareText({ text: "Hi" }) === "\u201CHi\u201D");
+  ok("the file is named for who said it", shareFileName(q) === "quote-jeffrey-r-holland.png" && shareFileName({}) === "quote.png");
+
+  const mono = (w) => (s) => s.length * w;
+  const lines = wrapText("one two three four five", mono(1), 9);
+  ok("words wrap without cutting one", lines.join("|") === "one two|three|four five");
+  ok("a word longer than the line gets its own line", wrapText("a extraordinarily b", mono(1), 5).join("|") === "a|extraordinarily|b");
+
+  const measureAt = (size) => mono(size === "mono" ? 13 : size * 0.5);
+  const short = layoutCard(q, measureAt);
+  ok("a short quote gets the big type and a full card", short.text.size === 56 && short.height === CARD_H);
+  ok("the photo is a good size", short.photo.h >= 300 && short.photo.h <= 560);
+  ok("everything sits inside the print", short.source.y + short.source.lines.length * 32 <= short.print.y + short.print.h);
+  const long = layoutCard({ ...q, text: "word ".repeat(220) }, measureAt);
+  ok("a very long quote grows the card instead of shrinking past readable", long.text.size === 32 && long.height > CARD_H);
+  ok("and still fits on it", long.print.y + long.print.h <= long.height);
+  const mid = layoutCard({ ...q, text: "word ".repeat(40) }, measureAt);
+  ok("a longer quote steps the type down", mid.text.size < 56 && mid.height === CARD_H);
 }
 
 function sectionOf({ x, y }) {
