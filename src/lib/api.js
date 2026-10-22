@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { parseScriptureRefs } from "./scripture";
 import { todayStr, addDays, toDateStr, startOfMonth, startOfWeek } from "./planDates";
 import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
+import { planRows } from "./camp";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -2955,8 +2956,8 @@ export async function deleteWidgetKey(userId) {
 // ---------------------------------------------------------------------------
 
 const ASCENT_FOCUS = "id, goal_id, name, why, categories, position, created_at";
-const ASCENT_QUEST = "id, title, note, goal_id, status, started_on, finished_on, position, created_at";
-const ASCENT_CAMP = "id, quest_id, title, position, reached_on, created_at";
+const ASCENT_QUEST = "id, title, note, goal_id, lesson_id, status, started_on, finished_on, position, created_at";
+const ASCENT_CAMP = "id, quest_id, title, note, position, reached_on, created_at";
 const ASCENT_LESSON = "id, title, question, goal_id, status, started_on, ended_on, position, created_at";
 
 export async function fetchAscent(userId, today) {
@@ -3018,8 +3019,9 @@ export async function deleteFocus(id) {
 }
 
 // A quest and its camps, in order. A quest added as already done becomes a
-// patch straight away.
-export async function addQuest(userId, { title, note, goalId, status = "on", today, camps = [], position = 0 }) {
+// patch straight away. With `lessonId` it's that lesson's own mountain
+// (0079), shown with the lesson rather than as a quest.
+export async function addQuest(userId, { title, note, goalId, lessonId = null, status = "on", today, camps = [], position = 0 }) {
   const { data, error } = await supabase
     .from("quests")
     .insert({
@@ -3027,6 +3029,7 @@ export async function addQuest(userId, { title, note, goalId, status = "on", tod
       title,
       note: note || null,
       goal_id: goalId || null,
+      lesson_id: lessonId || null,
       status,
       started_on: status === "on" ? today : null,
       finished_on: status === "done" ? today : null,
@@ -3082,10 +3085,13 @@ export async function updateCamp(id, fields) {
 }
 
 export async function addLesson(userId, { title, question, goalId, today, position = 0 }) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("lessons")
-    .insert({ user_id: userId, title, question: question || null, goal_id: goalId || null, started_on: today, position });
+    .insert({ user_id: userId, title, question: question || null, goal_id: goalId || null, started_on: today, position })
+    .select("id")
+    .single();
   if (error) throw error;
+  return data.id;
 }
 
 export async function updateLesson(id, fields) {
@@ -3110,6 +3116,228 @@ export async function setLessonCheckin(userId, lessonId, date, kept) {
     .from("lesson_checkins")
     .upsert({ user_id: userId, lesson_id: lessonId, date, kept }, { onConflict: "lesson_id,date" });
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Camps (0079): the steps under each camp, grouped into sections, with a note
+// on each, and the plans that fill them. A plan is read once by the `plan`
+// edge function and kept, so it can fill any number of camps.
+// ---------------------------------------------------------------------------
+
+const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, text, note, done_on, position, created_at";
+const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
+
+// Every step's camp and whether it's done, for the camp lists on the Range.
+export function fetchStepTally(userId) {
+  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on").eq("user_id", userId).order("id"));
+}
+
+// One camp: the camp, the mountain it's on (a quest, or a lesson's own),
+// the camps beside it, its sections and steps, and the plans they came
+// from. Null when the camp is gone.
+export async function fetchCamp(userId, campId) {
+  const camp = await supabase.from("quest_camps").select(ASCENT_CAMP).eq("id", campId).eq("user_id", userId).maybeSingle();
+  if (camp.error) throw camp.error;
+  if (!camp.data) return null;
+  const [quest, camps, sections, steps] = await Promise.all([
+    supabase.from("quests").select(ASCENT_QUEST).eq("id", camp.data.quest_id).maybeSingle(),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("quest_id", camp.data.quest_id),
+    selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("camp_id", campId).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("camp_id", campId).order("id")),
+  ]);
+  for (const r of [quest, camps]) if (r.error) throw r.error;
+  const planIds = [...new Set(sections.map((s) => s.plan_id).filter(Boolean))];
+  const [lesson, plans] = await Promise.all([
+    quest.data?.lesson_id
+      ? supabase.from("lessons").select("id, title, status").eq("id", quest.data.lesson_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    planIds.length ? supabase.from("quest_plans").select("id, title, notes").in("id", planIds) : Promise.resolve({ data: [] }),
+  ]);
+  for (const r of [lesson, plans]) if (r.error) throw r.error;
+  return {
+    camp: camp.data,
+    quest: quest.data ?? null,
+    lesson: lesson.data ?? null,
+    camps: camps.data ?? [],
+    sections,
+    steps,
+    plans: plans.data ?? [],
+  };
+}
+
+// Every mountain a plan can go on: quests, lessons' own mountains and their
+// camps, and the lessons (which can be given one).
+export async function fetchMountains(userId) {
+  const [quests, camps, lessons] = await Promise.all([
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
+    supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
+  ]);
+  for (const r of [quests, camps, lessons]) if (r.error) throw r.error;
+  return { quests: quests.data ?? [], camps: camps.data ?? [], lessons: lessons.data ?? [] };
+}
+
+// New steps at the end of a section (or of the camp's loose steps, with no
+// section), in the order given. Resolves to the rows as saved.
+export async function addSteps(userId, campId, sectionId, texts, startAt = 0) {
+  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: campId, section_id: sectionId ?? null, text, position: startAt + i }));
+  if (!rows.length) return [];
+  const { data, error } = await supabase.from("camp_steps").insert(rows).select(CAMP_STEP);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function updateStep(id, fields) {
+  const { error } = await supabase
+    .from("camp_steps")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteStep(id) {
+  const { error } = await supabase.from("camp_steps").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function addSection(userId, campId, { title, why = null, position = 0 }) {
+  const { data, error } = await supabase
+    .from("camp_sections")
+    .insert({ user_id: userId, camp_id: campId, title, why: why || null, position })
+    .select(CAMP_SECTION)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateSection(id, fields) {
+  const { error } = await supabase.from("camp_sections").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// Its steps go with it.
+export async function deleteSection(id) {
+  const { error } = await supabase.from("camp_sections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Saves a new order: `rows` in the order they should be, each { id,
+// position } as it was. Only the ones that moved are written.
+export async function reorder(table, rows) {
+  if (table !== "camp_steps" && table !== "camp_sections") throw new Error(`Can't reorder ${table}.`);
+  for (const [i, r] of rows.entries()) {
+    if (r.position === i) continue;
+    const { error } = await supabase.from(table).update({ position: i }).eq("id", r.id);
+    if (error) throw error;
+  }
+}
+
+// --- Plans ---------------------------------------------------------------------
+
+export async function fetchPlans(userId) {
+  const { data, error } = await supabase.from("quest_plans").select(PLAN_ROW).eq("user_id", userId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// The plan, and the camps it has filled so far ({ camp_id } once per camp).
+export async function fetchPlan(userId, id) {
+  const [plan, used] = await Promise.all([
+    supabase.from("quest_plans").select(PLAN_ROW).eq("id", id).eq("user_id", userId).maybeSingle(),
+    selectAllPages(() => supabase.from("camp_sections").select("id, camp_id").eq("plan_id", id).order("id")),
+  ]);
+  if (plan.error) throw plan.error;
+  return plan.data ? { ...plan.data, camps: [...new Set(used.map((s) => s.camp_id))] } : null;
+}
+
+// Keeps a plan as read (and checked). Resolves to its id.
+export async function savePlan(userId, { title, summary, notes, sections, source }) {
+  const { data, error } = await supabase
+    .from("quest_plans")
+    .insert({ user_id: userId, title, summary: summary || null, notes: notes || null, sections, source: source || null })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function updatePlan(id, fields) {
+  const { error } = await supabase.from("quest_plans").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// The camps it filled keep their sections and steps.
+export async function deletePlan(id) {
+  const { error } = await supabase.from("quest_plans").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Reads a plan: { text, filename } for a page or a document, { pdf,
+// filename } with the PDF as base64. Resolves to { title, summary,
+// sections, notes }; nothing is saved.
+export async function readPlan({ text, pdf, filename }) {
+  const out = await callFunction("plan", { action: "read", text: text ?? null, pdf: pdf ?? null, filename: filename ?? null }, "The plan reader");
+  if (!out?.plan?.sections?.length) throw new Error("No steps were found in that plan.");
+  return out.plan;
+}
+
+// Puts a plan's sections and steps into each of `campIds`, after what each
+// camp already holds.
+export async function addPlanToCamps(userId, plan, planId, campIds) {
+  if (!campIds.length) return;
+  const had = await selectAllPages(() =>
+    supabase.from("camp_sections").select("id, camp_id, position").in("camp_id", campIds).order("id")
+  );
+  const sections = [];
+  const steps = [];
+  for (const campId of campIds) {
+    const after = had.filter((s) => s.camp_id === campId).reduce((m, s) => Math.max(m, s.position + 1), 0);
+    const rows = planRows(plan, campId, after);
+    const base = sections.length;
+    sections.push(...rows.sections.map((s) => ({ ...s, user_id: userId, plan_id: planId })));
+    steps.push(...rows.steps.map((st) => ({ ...st, section: base + st.section })));
+  }
+  const { data, error } = await supabase.from("camp_sections").insert(sections).select("id, camp_id, position");
+  if (error) throw error;
+  const idOf = new Map((data ?? []).map((s) => [`${s.camp_id}:${s.position}`, s.id]));
+  await insertSteps(
+    userId,
+    steps.map(({ section, ...st }) => ({ ...st, section_id: idOf.get(`${sections[section].camp_id}:${sections[section].position}`) }))
+  );
+}
+
+// Makes each of a plan's sections a camp of its own on a mountain (a quest,
+// or a lesson's), after the camps it has, with the section's steps in it.
+export async function addPlanAsCamps(userId, plan, questId, startAt = 0) {
+  const list = plan?.sections ?? [];
+  if (!list.length) return;
+  const { data, error } = await supabase
+    .from("quest_camps")
+    .insert(
+      list.map((s, i) => ({
+        user_id: userId,
+        quest_id: questId,
+        title: String(s.title ?? "").trim().slice(0, 200) || `Camp ${startAt + i + 1}`,
+        note: [s.why, s.note].map((v) => String(v ?? "").trim()).filter(Boolean).join("\n\n").slice(0, 4000) || null,
+        position: startAt + i,
+      }))
+    )
+    .select("id, position");
+  if (error) throw error;
+  const campAt = new Map((data ?? []).map((c) => [c.position, c.id]));
+  const steps = list.flatMap((s, i) =>
+    planRows({ sections: [{ ...s, why: null, note: null }] }, campAt.get(startAt + i)).steps.map(({ section, ...st }) => ({ ...st, section_id: null }))
+  );
+  await insertSteps(userId, steps);
+}
+
+// A few hundred at a time, so one request never gets too big.
+async function insertSteps(userId, rows) {
+  for (let i = 0; i < rows.length; i += 400) {
+    const { error } = await supabase.from("camp_steps").insert(rows.slice(i, i + 400).map((r) => ({ ...r, user_id: userId })));
+    if (error) throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,20 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import {
+  buildCamp,
+  campProgress,
+  stepsLine,
+  splitSteps,
+  planFromOutline,
+  titleFromFilename,
+  planFileKind,
+  planRows,
+  planStepCount,
+  noteBlocks,
+  boldRuns,
+  mountainsOf,
+} from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
   stageOf,
@@ -1659,6 +1673,138 @@ console.log("\nthe mark");
   ok("and still fits on it", long.print.y + long.print.h <= long.height);
   const mid = layoutCard({ ...q, text: "word ".repeat(40) }, measureAt);
   ok("a longer quote steps the type down", mid.text.size < 56 && mid.height === CARD_H);
+}
+
+{
+  console.log("\ncamps and plans");
+
+  const sections = [
+    { id: "s2", title: "Market research", position: 1 },
+    { id: "s1", title: "Name the job", position: 0 },
+  ];
+  const steps = [
+    { id: "a", section_id: "s1", text: "Write it in one sentence", position: 0, done_on: "2026-10-22" },
+    { id: "b", section_id: "s1", text: "Say which tab", position: 1, done_on: "2026-10-22" },
+    { id: "c", section_id: "s2", text: "List the competitors", position: 0, done_on: null },
+    { id: "d", section_id: "s2", text: "Read the complaints", position: 1, done_on: null },
+    { id: "e", section_id: null, text: "Loose one", position: 0, done_on: null },
+    { id: "f", section_id: "gone", text: "Section went away", position: 1, done_on: null },
+  ];
+  const camp = buildCamp(sections, steps);
+  ok("sections come in order and are numbered", camp.sections.map((x) => `${x.number}${x.id}`).join() === "1s1,2s2");
+  ok("a section knows how far along it is", camp.sections[0].done === 2 && camp.sections[0].complete && !camp.sections[1].complete);
+  ok("steps with no section (or a lost one) sit loose at the top", camp.loose.map((x) => x.id).join() === "e,f");
+  ok("the next step is the first open one, top to bottom", camp.next.id === "e" && camp.done === 2 && camp.total === 6);
+  ok("an empty camp has no next step", buildCamp([], []).next === null && buildCamp(null, null).total === 0);
+  ok("an empty section isn't complete", buildCamp([{ id: "x", title: "X" }], []).sections[0].complete === false);
+
+  const tally = campProgress([{ camp_id: "c1", done_on: "2026-10-22" }, { camp_id: "c1", done_on: null }, { camp_id: "c2", done_on: null }]);
+  ok("steps are tallied by camp", tally.get("c1").done === 1 && tally.get("c1").total === 2 && tally.get("c2").done === 0);
+  ok("the camp line reads plainly", stepsLine({ done: 12, total: 49 }) === "12 of 49 steps" && stepsLine({ done: 0, total: 0 }) === "No steps yet" && stepsLine({ done: 3, total: 3 }) === "All 3 steps done");
+
+  ok("a pasted list is one step a line, bullets and boxes off", splitSteps("- [ ] Mock it up\n2. Number the steps\n\n• Keep labels short\n  [x] Check widths  ").join("|") === "Mock it up|Number the steps|Keep labels short|Check widths");
+  ok("one line is one step", splitSteps("Write a NEW sequence (copy)").join("|") === "Write a NEW sequence (copy)");
+  ok("a step that only starts with a number keeps it", splitSteps("200 cuts on the Mac Pro").join() === "200 cuts on the Mac Pro");
+
+  const outline = [
+    "FTF Tools · how we build",
+    "# New feature playbook",
+    "Every step we took, turned into a checklist.",
+    "## The workflow",
+    "1",
+    "### Name the job in one sentence",
+    "If it can't be said simply, it isn't ready to build.",
+    "- Write what the editor gets.",
+    "- Say which tab it lives on.",
+    "2",
+    "### 2. Market research",
+    "- List the competitors.",
+    "**Wait for Aaron's OK before building.** Never start on a guess.",
+    "## When to check in",
+    "| Moment | Who |",
+    "| After research | Boss |",
+    "## What makes a good plugin",
+    "### Invisible cuts",
+    "You can't hear the join.",
+  ].join("\n");
+  const plan = planFromOutline(outline, "x");
+  ok("the outline reader takes the title from the top heading", plan.title === "New feature playbook");
+  ok("headings with lists become sections, numbers off", plan.sections.map((x) => x.title).join("|") === "Name the job in one sentence|Market research");
+  ok("the line under a heading is its why", plan.sections[0].why === "If it can't be said simply, it isn't ready to build.");
+  ok("list items are its steps", plan.sections[0].steps.map((x) => x.text).join("|") === "Write what the editor gets.|Say which tab it lives on.");
+  ok("a line after the steps is the section's note", plan.sections[1].note.startsWith("**Wait for Aaron's OK"));
+  ok("a bare heading over sections is dropped", !plan.notes.includes("The workflow"));
+  ok("tables and other headings go to the notes", plan.notes.includes("| After research | Boss |") && plan.notes.includes("### Invisible cuts") && plan.notes.includes("## What makes a good plugin"));
+  ok("text before the first heading is the summary", plan.summary.includes("FTF Tools"));
+  ok("a plain list with no headings is one section", planFromOutline("- one\n- two", "My plan").sections[0].title === "My plan");
+  ok("text with nothing to do has no sections", planFromOutline("Just a paragraph.").sections.length === 0);
+
+  ok("file names read as titles", titleFromFilename("new-feature_playbook.html") === "New feature playbook" && titleFromFilename("") === "");
+  ok(
+    "files are sorted by kind",
+    planFileKind("plan.pdf") === "pdf" && planFileKind("Plan.HTML") === "html" && planFileKind("x.md") === "md" && planFileKind("notes", "text/plain") === "md" && planFileKind("a.docx") === null
+  );
+
+  const twoSec = { sections: [{ title: "A", why: "because", note: "", steps: [{ text: "one", note: "n" }, { text: "  " }, { text: "two" }] }, { title: "", steps: [{ text: "three" }] }] };
+  const rows = planRows(twoSec, "camp1", 4);
+  ok("a plan's sections go after what the camp has", rows.sections.map((x) => x.position).join() === "4,5" && rows.sections[1].title === "Part 2");
+  ok("empty steps are left out and the rest keep their section", rows.steps.map((x) => `${x.section}:${x.text}`).join() === "0:one,0:two,1:three");
+  ok("empty words are stored as nothing", rows.sections[0].note === null && rows.steps[0].note === "n" && rows.steps[1].note === null);
+  ok("a plan's steps are counted", planStepCount(twoSec) === 4 && planStepCount(null) === 0);
+
+  const blocks = noteBlocks("## When to check in\n\n| Moment | Who |\n|---|---|\n| After research | Boss |\n\n### Fast\nBeats the competitor.\n- Robotic cuts\n- Lag\nDone.");
+  ok(
+    "notes become headings, tables, paragraphs and lists",
+    blocks.map((b) => b.kind).join() === "h,table,h,p,ul,p" && blocks[1].head.join() === "Moment,Who" && blocks[1].rows.length === 1 && blocks[4].items.length === 2
+  );
+  ok("bold lead-ins stay bold", JSON.stringify(boldRuns("**Wait** for it")) === JSON.stringify([{ bold: true, text: "Wait" }, { bold: false, text: " for it" }]));
+  ok("a stray ** is just text", boldRuns("2 ** 3")[0].text === "2 ** 3");
+
+  const mts = mountainsOf({
+    quests: [
+      { id: "lq", title: "More integrity", lesson_id: "l1", status: "on", position: 1 },
+      { id: "q1", title: "Build the best Premiere Pro plugin", status: "on", position: 0 },
+      { id: "q2", title: "Old", status: "done", position: 2 },
+    ],
+    camps: [
+      { id: "c2", quest_id: "q1", title: "Multicam tab", position: 1 },
+      { id: "c1", quest_id: "q1", title: "Sift tab", position: 0 },
+    ],
+    lessons: [
+      { id: "l1", title: "More integrity", status: "learning", position: 0 },
+      { id: "l2", title: "Stop drinking caffeine", status: "learning", position: 1 },
+      { id: "l3", title: "Patience", status: "learned", position: 2 },
+    ],
+  });
+  ok("plans can go on quests, then lessons", mts.map((m) => `${m.kind}:${m.title}`).join("|") === "Quest:Build the best Premiere Pro plugin|Lesson:More integrity|Lesson:Stop drinking caffeine");
+  ok("a mountain's camps are in order", mts[0].camps.map((c) => c.title).join() === "Sift tab,Multicam tab");
+  ok("a lesson with no mountain can be given one", mts[2].questId === null && mts[2].lessonId === "l2");
+
+  // A lesson's own mountain is shown with the lesson, not as a quest.
+  const av = buildAscent(
+    {
+      goals: [{ id: "g1", title: "Highly skilled", created_at: "2026-01-01" }],
+      quests: [
+        { id: "q1", title: "Build the best Premiere Pro plugin", goal_id: "g1", status: "on", position: 0 },
+        { id: "lq", title: "old name", goal_id: null, lesson_id: "l1", status: "on", position: 1 },
+        { id: "lq2", title: "Patience", lesson_id: "l2", status: "done", finished_on: "2026-10-01", position: 2 },
+      ],
+      camps: [
+        { id: "c1", quest_id: "q1", title: "Sift tab", position: 0 },
+        { id: "lc", quest_id: "lq", title: "Tell the whole truth for a week", position: 0 },
+      ],
+      lessons: [
+        { id: "l1", title: "More integrity", goal_id: "g1", status: "learning", started_on: "2026-10-19", position: 0 },
+        { id: "l2", title: "Patience", status: "learned", started_on: "2026-08-01", position: 1 },
+      ],
+    },
+    "2026-10-22"
+  );
+  ok("a lesson's mountain isn't a quest (or a target of its own)", av.quests.map((q) => q.id).join() === "q1" && av.goals[0].quests.map((q) => q.id).join() === "q1");
+  ok("it climbs beside the quest, by the lesson's name", av.climbs.length === 1 && av.climbs[0].title === "More integrity" && av.climbs[0].state.camps.length === 1);
+  ok("it serves what the lesson serves", av.climbs[0].serves.kind === "goal" && av.climbs[0].serves.id === "g1");
+  ok("the lesson knows its mountain", av.lessons[0].mountain?.id === "lq" && av.learned[0].mountain?.id === "lq2");
+  ok("a finished lesson mountain is a patch", av.patches.map((q) => q.id).join() === "lq2");
 }
 
 function sectionOf({ x, y }) {

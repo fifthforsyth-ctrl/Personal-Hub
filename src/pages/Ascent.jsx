@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Pencil, Plus } from "lucide-react";
+import { BookOpen, ChevronRight, Flag, Pencil, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchRange,
   fetchCategories,
+  fetchStepTally,
   saveMission,
   updateNode,
   addFocus,
@@ -21,6 +22,7 @@ import {
   saveTargetSetup,
 } from "../lib/api";
 import { buildAscent } from "../lib/ascent";
+import { campProgress, stepsLine } from "../lib/camp";
 import { buildRange, bowLine, bowProgress, tierOf, TIERS, LEVELS } from "../lib/mark";
 import { todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
@@ -38,6 +40,7 @@ import TargetView from "../components/mark/TargetView";
 import Bow, { BowRack } from "../components/mark/Bow";
 import "../styles/ascent.css";
 import "../styles/mark.css";
+import "../styles/camp.css";
 
 // The Range: your goals as targets, in place of the goal wheel.
 //
@@ -48,7 +51,9 @@ import "../styles/mark.css";
 // then a small target for each with its last 30 days of marks. Tap one for
 // the whole target (at /ascent/<its id>): every mark, what you answered and
 // wrote that day, and what a bullseye takes. The quest's camps stay here
-// too. Nothing turns red; a miss is a mark, not a mark against you.
+// too, each a tap from its own page of steps (/ascent/camp/<id>), and a
+// lesson can have a mountain of its own beside it. Nothing turns red; a
+// miss is a mark, not a mark against you.
 
 const NO_ROWS = [];
 
@@ -64,6 +69,8 @@ export default function Ascent() {
   const view = useMemo(() => (data ? buildAscent(data, today) : null), [data, today]);
   const range = useMemo(() => (view ? buildRange(view, data.marks, today) : null), [view, data, today]);
   const categories = useLoad(() => (userId ? fetchCategories(userId) : NO_ROWS), [userId]);
+  const tally = useLoad(() => (userId ? fetchStepTally(userId) : NO_ROWS), [userId]);
+  const progress = useMemo(() => campProgress(tally.data), [tally.data]);
 
   const [sheet, setSheet] = useState(null); // { kind, ...what it edits }
   const [ceremony, setCeremony] = useState(null);
@@ -212,18 +219,33 @@ export default function Ascent() {
     await write(() => deleteQuest(quest.id), "Couldn't delete that quest.", `Deleted ${quest.title}`);
   }
 
+  // A lesson and its own mountain: made with its first camp, kept in step
+  // with the lesson's name and goal, and gone once its last camp is.
   const saveLessonFrom = (lesson) => (v) =>
     write(
-      () =>
-        lesson
-          ? updateLesson(lesson.id, {
-              title: v.title,
-              question: v.question,
-              goal_id: v.goal_id,
-              status: v.status,
-              ended_on: v.status === "learning" ? null : lesson.ended_on ?? today,
-            })
-          : addLesson(userId, { title: v.title, question: v.question, goalId: v.goal_id, today, position: data?.lessons.length ?? 0 }),
+      async () => {
+        let lessonId = lesson?.id;
+        if (lesson) {
+          await updateLesson(lesson.id, {
+            title: v.title,
+            question: v.question,
+            goal_id: v.goal_id,
+            status: v.status,
+            ended_on: v.status === "learning" ? null : lesson.ended_on ?? today,
+          });
+        } else {
+          lessonId = await addLesson(userId, { title: v.title, question: v.question, goalId: v.goal_id, today, position: data?.lessons.length ?? 0 });
+        }
+        const m = lesson?.mountain ?? null;
+        if (!m && v.camps.length) {
+          await addQuest(userId, { title: v.title, goalId: v.goal_id, lessonId, status: "on", today, camps: v.camps, position: data?.quests.length ?? 0 });
+        } else if (m && !v.camps.length) {
+          await deleteQuest(m.id);
+        } else if (m) {
+          if (m.title !== v.title || m.goal_id !== v.goal_id) await updateQuest(m.id, { title: v.title, goal_id: v.goal_id });
+          await syncCamps(userId, m.id, v.camps, m.state.camps);
+        }
+      },
       "Couldn't save that lesson.",
       lesson ? "Lesson saved" : `Added ${v.title}`
     );
@@ -245,7 +267,13 @@ export default function Ascent() {
 
   const goals = view?.goals ?? NO_ROWS;
   const quests = view?.quests ?? NO_ROWS;
+  const climbs = view?.climbs ?? NO_ROWS;
   const patches = view?.patches ?? NO_ROWS;
+  const bare = (view?.lessons ?? NO_ROWS).filter((l) => !l.mountain);
+  const stepsIn = (campId) => progress.get(campId)?.total ?? 0;
+  // A finished mountain opens what it was: its quest, or its lesson.
+  const openPatch = (p) =>
+    p.lesson_id ? setSheet({ kind: "lesson", lesson: [...(view?.lessons ?? []), ...(view?.learned ?? [])].find((l) => l.id === p.lesson_id) ?? p.lesson }) : setSheet({ kind: "quest", quest: p });
   const focuses = useMemo(() => goals.flatMap((g) => g.focuses), [goals]);
   const focusesById = useMemo(() => new Map(focuses.map((f) => [f.id, f])), [focuses]);
   const target = ref && range ? range.all.find((t) => t.key === ref) ?? null : null;
@@ -269,6 +297,7 @@ export default function Ascent() {
         <QuestSheet
           quest={sheet.quest}
           camps={sheet.quest?.state.camps}
+          stepsIn={stepsIn}
           goals={goals}
           today={today}
           onSave={saveQuestFrom(sheet.quest)}
@@ -277,7 +306,17 @@ export default function Ascent() {
         />
       )}
       {sheet?.kind === "lesson" && (
-        <LessonSheet lesson={sheet.lesson} goals={goals} onSave={saveLessonFrom(sheet.lesson)} onDelete={() => removeLesson(sheet.lesson)} onClose={close} />
+        <LessonSheet
+          lesson={sheet.lesson}
+          camps={sheet.lesson?.mountain?.state.camps}
+          stepsIn={stepsIn}
+          goals={goals}
+          today={today}
+          mountainFirst={sheet.mountain}
+          onSave={saveLessonFrom(sheet.lesson)}
+          onDelete={() => removeLesson(sheet.lesson)}
+          onClose={close}
+        />
       )}
       {sheet?.kind === "target" && <TargetSheet target={sheet.target} focuses={focuses} onSave={saveTargetFrom(sheet.target)} onClose={close} />}
     </>
@@ -323,9 +362,15 @@ export default function Ascent() {
 
   return (
     <div className="page ascent mark">
-      <header className="ascent-head">
-        <div className="eyebrow">My goals</div>
-        <h1 className="page-title">The Range</h1>
+      <header className="ascent-head ascent-head--range">
+        <div>
+          <div className="eyebrow">My goals</div>
+          <h1 className="page-title">The Range</h1>
+        </div>
+        <Link to="/ascent/plans" className="btn btn--sm btn--on-page">
+          <BookOpen size={14} />
+          Plans
+        </Link>
       </header>
 
       {error && <LoadError what="your goals" error={error} onRetry={reload} stale={Boolean(data)} />}
@@ -424,24 +469,50 @@ export default function Ascent() {
             )}
           </section>
 
-          {(quests.length > 0 || patches.length > 0) && (
+          {(quests.length > 0 || patches.length > 0 || climbs.length > 0 || bare.length > 0) && (
             <div className="ascent-side">
               {quests.map((q, i) => (
                 <QuestCard
                   key={q.id}
                   quest={q}
+                  progress={progress}
                   planted={planted?.questId === q.id ? planted.turn : null}
                   onReach={() => reachNext(q)}
                   onEdit={() => setSheet({ kind: "quest", quest: q })}
                 >
-                  {i === quests.length - 1 && patches.length > 0 && (
-                    <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />
-                  )}
+                  {i === quests.length - 1 && patches.length > 0 && <Patches patches={patches} fresh={freshPatch} onOpen={openPatch} />}
                 </QuestCard>
               ))}
               {!quests.length && patches.length > 0 && (
                 <section className="card ascent-quest" aria-label="Quests behind you">
-                  <Patches patches={patches} fresh={freshPatch} onOpen={(p) => setSheet({ kind: "quest", quest: p })} />
+                  <Patches patches={patches} fresh={freshPatch} onOpen={openPatch} />
+                </section>
+              )}
+              {climbs.map((q) => (
+                <QuestCard
+                  key={q.id}
+                  quest={q}
+                  kind="Lesson"
+                  progress={progress}
+                  planted={planted?.questId === q.id ? planted.turn : null}
+                  onReach={() => reachNext(q)}
+                  onEdit={() => setSheet({ kind: "lesson", lesson: view.lessons.find((l) => l.id === q.lesson_id) })}
+                />
+              ))}
+              {bare.length > 0 && (
+                <section className="card ascent-bare" aria-labelledby="ascent-bare-h">
+                  <h2 className="eyebrow" id="ascent-bare-h">
+                    A mountain for a lesson
+                  </h2>
+                  <p className="ascent-mini">A lesson can be climbed camp by camp too, with steps at each camp.</p>
+                  <div className="ascent-bare__list">
+                    {bare.map((l) => (
+                      <button key={l.id} type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ kind: "lesson", lesson: l, mountain: true })}>
+                        <Plus size={14} />
+                        {l.title}
+                      </button>
+                    ))}
+                  </div>
                 </section>
               )}
             </div>
@@ -496,40 +567,71 @@ function Serves({ serves }) {
   );
 }
 
-function QuestCard({ quest: q, planted, onReach, onEdit, children }) {
+function QuestCard({ quest: q, kind = "Quest", progress, planted, onReach, onEdit, children }) {
   const s = q.state;
   const n = s.camps.length;
   return (
-    <section className="card ascent-quest" aria-label={`Quest: ${q.title}`}>
+    <section className="card ascent-quest" aria-label={`${kind}: ${q.title}`}>
       <div className="ascent-row">
-        <span className="eyebrow">Quest</span>
+        <span className="eyebrow">{kind === "Lesson" ? "Lesson · its mountain" : kind}</span>
         <Serves serves={q.serves} />
       </div>
-      <button type="button" className="ascent-quest__title" onClick={onEdit} title="Edit the quest">
+      <button type="button" className="ascent-quest__title" onClick={onEdit} title={kind === "Lesson" ? "Edit the lesson and its camps" : "Edit the quest"}>
         {q.title}
       </button>
       {q.note && <p className="ascent-quest__note">{q.note}</p>}
       <QuestTrail quest={q} state={s} planted={planted} />
-      {n > 0 && (
-        <div className="next-camp">
-          <div>
-            <span className="ascent-mini">{s.next ? "Next camp" : "The summit"}</span>
-            <b>{s.next ? s.next.title : q.title}</b>
-          </div>
-          <span className="next-camp__n">{s.next ? `Camp ${s.reached + 1} of ${n}` : "Last climb"}</span>
-        </div>
-      )}
+      {n > 0 && <CampList state={s} progress={progress} />}
       <button type="button" className="btn btn--accent btn--block ascent-reach" onClick={onReach}>
-        {s.next ? "Mark camp reached" : "Mark the summit reached"}
+        {s.next ? `Mark ${s.next.title} reached` : "Mark the summit reached"}
       </button>
-      {n === 0 && (
+      {n === 0 ? (
         <button type="button" className="btn-link ascent-quest__camps" onClick={onEdit}>
           <Plus size={13} />
           Add camps along the way
         </button>
+      ) : (
+        <Link to="/ascent/plans" className="btn-link ascent-quest__camps">
+          <BookOpen size={13} />
+          Bring in a plan for its camps
+        </Link>
       )}
       {children}
     </section>
+  );
+}
+
+// The camps, first to last: each one's steps done, and a tap to its page.
+function CampList({ state: s, progress }) {
+  return (
+    <ol className="camp-list">
+      {s.camps.map((c, i) => {
+        const p = progress?.get(c.id) ?? { done: 0, total: 0 };
+        const next = s.next?.id === c.id;
+        return (
+          <li key={c.id}>
+            <Link to={`/ascent/camp/${c.id}`} className={"camp-link" + (c.reached_on ? " reached" : "") + (next ? " next" : "")}>
+              <span className="camp-link__n" aria-hidden="true">
+                {c.reached_on ? <Flag size={12} /> : i + 1}
+              </span>
+              <span className="camp-link__t">
+                <b>{c.title}</b>
+                <small>
+                  {next ? "Next camp · " : ""}
+                  {stepsLine(p)}
+                </small>
+              </span>
+              {p.total > 0 && (
+                <span className="camp-link__bar" aria-hidden="true">
+                  <i style={{ width: `${Math.round((p.done / p.total) * 100)}%` }} />
+                </span>
+              )}
+              <ChevronRight size={15} className="camp-link__go" aria-hidden="true" />
+            </Link>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

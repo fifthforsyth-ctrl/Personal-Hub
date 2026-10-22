@@ -21,6 +21,8 @@ const Money = lazy(() => import("./pages/Money"));
 const Spirit = lazy(() => import("./pages/Spirit"));
 const Tree = lazy(() => import("./pages/Tree"));
 const Ascent = lazy(() => import("./pages/Ascent"));
+const Camp = lazy(() => import("./pages/Camp"));
+const Plans = lazy(() => import("./pages/Plans"));
 const Reflect = lazy(() => import("./pages/Reflect"));
 const GoalLinks = lazy(() => import("./pages/GoalLinks"));
 const Ask = lazy(() => import("./pages/Ask"));
@@ -54,6 +56,9 @@ export default function App() {
             <Route path="/money" element={<Money />} />
             <Route path="/ascent" element={<Ascent />} />
             <Route path="/ascent/:ref" element={<Ascent />} />
+            <Route path="/ascent/camp/:id" element={<Camp />} />
+            <Route path="/ascent/plans" element={<Plans />} />
+            <Route path="/ascent/plans/:id" element={<Plans />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/reflect" element={<Reflect />} />
             <Route path="/spirit" element={<Spirit />} />
