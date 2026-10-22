@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BookOpen, ChevronRight, Flag, Pencil, Plus } from "lucide-react";
+import { BookOpen, Castle, ChevronRight, Flag, Pencil, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchRange,
@@ -367,10 +367,16 @@ export default function Ascent() {
           <div className="eyebrow">My goals</div>
           <h1 className="page-title">The Range</h1>
         </div>
-        <Link to="/ascent/plans" className="btn btn--sm btn--on-page">
-          <BookOpen size={14} />
-          Plans
-        </Link>
+        <div className="ascent-head__links">
+          <Link to="/village" className="btn btn--sm btn--on-page">
+            <Castle size={14} />
+            Village
+          </Link>
+          <Link to="/ascent/plans" className="btn btn--sm btn--on-page">
+            <BookOpen size={14} />
+            Plans
+          </Link>
+        </div>
       </header>
 
       {error && <LoadError what="your goals" error={error} onRetry={reload} stale={Boolean(data)} />}

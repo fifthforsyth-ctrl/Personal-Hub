@@ -30,6 +30,8 @@ const Mirror = lazy(() => import("./pages/Mirror"));
 const Phone = lazy(() => import("./pages/Phone"));
 const Temple = lazy(() => import("./pages/Temple"));
 const Wake = lazy(() => import("./pages/Wake"));
+// The village brings three.js with it, so it stays in its own bundle.
+const Village = lazy(() => import("./pages/Village"));
 
 function RedirectToToday() {
   return <Navigate to={`/day/${todayStr()}`} replace />;
@@ -69,6 +71,7 @@ export default function App() {
             <Route path="/wake" element={<Wake />} />
             <Route path="/temple" element={<Temple />} />
             <Route path="/temple/:view" element={<Temple />} />
+            <Route path="/village" element={<Village />} />
 
             {/* Old addresses, kept so a bookmark lands somewhere sensible. */}
             <Route path="/today" element={<Navigate to="/" replace />} />

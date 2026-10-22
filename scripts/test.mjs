@@ -9,6 +9,7 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { bandFor, bandLine, buildOptions, layout, tileOf, freePlot, assignCamps, dayIndex, villageOf, shortName } from "../src/lib/village.js";
 import {
   buildCamp,
   campProgress,
@@ -1805,6 +1806,66 @@ console.log("\nthe mark");
   ok("it serves what the lesson serves", av.climbs[0].serves.kind === "goal" && av.climbs[0].serves.id === "g1");
   ok("the lesson knows its mountain", av.lessons[0].mountain?.id === "lq" && av.learned[0].mountain?.id === "lq2");
   ok("a finished lesson mountain is a patch", av.patches.map((q) => q.id).join() === "lq2");
+}
+
+// --- Village ------------------------------------------------------------------
+{
+  ok("under 20 steps is a small build", bandFor(0) === 0 && bandFor(19) === 0 && bandFor(20) === 1 && bandFor(79) === 1 && bandFor(80) === 2 && bandFor(260) === 2);
+  ok("the band line reads", bandLine(260) === "260 steps is a big quest, so it gets a big build." && bandLine(48) === "48 steps is a middle-sized quest. These three fit it.");
+  const a = buildOptions("q1", 260, 0), a2 = buildOptions("q1", 260, 0), b = buildOptions("q1", 260, 1);
+  ok("three builds, the same for the same roll", a.length === 3 && JSON.stringify(a) === JSON.stringify(a2) && a.map((o) => o.kind).sort().join() === "farmstead,fortress,warcamp");
+  ok("Generate again changes the variations", JSON.stringify(a) !== JSON.stringify(b) && b.every((o) => o.seed > 0));
+  ok("small quests get four kinds in turn", new Set([0, 1, 2, 3].flatMap((r) => buildOptions("q", 5, r).map((o) => o.kind))).size === 4);
+  ok("plots start beside the plaza", JSON.stringify(tileOf(0)) === "[0,-1]" && JSON.stringify(tileOf(3)) === "[0,1]");
+  const big = layout(60), seen = new Set();
+  for (const t of [...big.plots.map((p) => p.tile), ...big.nature.map((n) => n.tile), [0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]]) seen.add(t.join());
+  ok("the village grows forever without two things on one plot", big.plots.length === 60 && seen.size === big.plots.length + big.nature.length + 5);
+  ok("the first free plot fills gaps", freePlot([{ plot: 0 }, { plot: 2 }]) === 1 && freePlot([]) === 0);
+  const camps = (n, steps) => Array.from({ length: n }, (_, i) => ({ id: "c" + i, title: "Camp " + i, steps: Array.from({ length: steps }, (_, k) => ({ id: i + "-" + k })) }));
+  const five = assignCamps(camps(5, 52), [1, 1, 1, 1, 1].map((u) => ({ units: u * 40 })));
+  ok("five camps, five parts: one each, in order", five.map((p) => p.title).join() === "Camp 0,Camp 1,Camp 2,Camp 3,Camp 4" && five.every((p) => p.steps.length === 52));
+  const few = assignCamps(camps(2, 10), [{ units: 10 }, { units: 30 }, { units: 20 }, { units: 40 }]);
+  ok("fewer camps: each builds neighbouring parts, its steps shared by size", few.map((p) => p.camps.join()).join("|") === "c0|c0|c1|c1" && few[0].steps.length + few[1].steps.length === 10 && few[1].steps.length > few[0].steps.length && few[3].steps.length === 7);
+  const many = assignCamps(camps(7, 3), [{ units: 1 }, { units: 1 }, { units: 1 }]);
+  ok("more camps: neighbours share a part, none left out", many.flatMap((p) => p.camps).join() === "c0,c1,c2,c3,c4,c5,c6" && many[0].title === "Camp 0 + Camp 1");
+  ok("no camps, no steps anywhere", assignCamps([], [{ units: 4 }]).every((p) => !p.steps.length && !p.camps.length));
+  ok("day index counts calendar days", dayIndex("2026-10-22", "2026-10-15") === 7 && dayIndex("2026-11-02", "2026-10-31") === 2);
+  ok("short names", shortName("Build the best Premiere Pro plugin") === "Plugin" && shortName("More integrity") === "More integrity" && shortName("Future quest number 15") === "Future quest");
+  const v = villageOf(
+    {
+      quests: [
+        { id: "q1", title: "Build the best Premiere Pro plugin", goal_id: "g1", status: "on" },
+        { id: "q2", title: "Old one", status: "set_aside" },
+        { id: "lq", title: "x", lesson_id: "l1", status: "on" },
+      ],
+      camps: [
+        { id: "c1", quest_id: "q1", title: "Sift tab", position: 0 },
+        { id: "c2", quest_id: "q1", title: "Multicam tab", position: 1 },
+        { id: "c3", quest_id: "lq", title: "Tell the truth", position: 0 },
+        { id: "c4", quest_id: "q2", title: "Old camp", position: 0 },
+      ],
+      sections: [{ id: "s1", camp_id: "c1", position: 0 }, { id: "s2", camp_id: "c1", position: 1 }],
+      steps: [
+        { id: "a", camp_id: "c1", section_id: "s2", text: "late", position: 0, done_on: null },
+        { id: "b", camp_id: "c1", section_id: "s1", text: "early", position: 1, done_on: "2026-10-20" },
+        { id: "c", camp_id: "c1", section_id: null, text: "loose", position: 5, done_on: "2026-10-30" },
+        { id: "d", camp_id: "c3", text: "one", position: 0, done_on: null },
+      ],
+      builds: [{ quest_id: "q1", kind: "fortress", seed: 3, plot: 0, created_at: "2026-10-21T18:00:00Z" }],
+      lessons: [{ id: "l1", title: "More integrity" }],
+      goals: [{ id: "g1", title: "Highly skilled" }],
+      bullseyes: ["2026-10-19", "2026-10-22", "2026-10-25"],
+    },
+    "2026-10-22",
+    () => "2026-10-21"
+  );
+  ok("a build carries its camps and steps in camp order", v.builds.length === 1 && v.builds[0].camps.map((c) => c.id).join() === "c1,c2" && v.builds[0].camps[0].steps.map((s) => s.id).join() === "c,b,a");
+  ok("its goal and plot come along", v.builds[0].goal === "Highly skilled" && v.builds[0].plot === 0 && v.builds[0].made === "2026-10-21");
+  ok("only quests still on wait for a build, under a lesson's name", v.waiting.map((w) => w.name).join() === "More integrity" && v.waiting[0].type === "Lesson" && v.waiting[0].steps === 1);
+  ok("the first day is the first thing that happened (a bullseye here)", v.day0 === "2026-10-19" && v.days === 3);
+  ok("bullseyes after today don't count yet", v.bullseyes.length === 2 && v.nextPlot === 1);
+  const empty = villageOf({ quests: [], camps: [], steps: [], builds: [] }, "2026-10-22", () => null);
+  ok("an empty village starts a week back", empty.day0 === "2026-10-15" && empty.days === 7 && empty.waiting.length === 0);
 }
 
 function sectionOf({ x, y }) {

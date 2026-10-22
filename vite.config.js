@@ -41,9 +41,13 @@ export default defineConfig({
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
           supabase: ["@supabase/supabase-js"],
+          // Only the village uses it, so it loads the first time you open the village.
+          three: ["three"],
         },
       },
     },
+    // three.js is about 600 kB on its own and can't be split further.
+    chunkSizeWarningLimit: 700,
   },
   server: {
     port: process.env.PORT ? Number(process.env.PORT) : 5174,
