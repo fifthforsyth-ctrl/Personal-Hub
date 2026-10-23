@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder } from "../lib/api";
+import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
 import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
@@ -134,6 +134,75 @@ export default function Camp() {
     reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
   }
 
+  // Into a section (null: the camp's top) as one of its own steps, just
+  // before `beforeId` or at the end. Its sub-steps go with it; a sub-step
+  // comes out from under its step.
+  function moveToSection(st, sectionId, beforeId = null) {
+    sectionId = sectionId ?? null;
+    const under = stepsUnder(data.steps, st.id).map((x) => x.id);
+    const moving = new Set(under);
+    const there = siblings({ section_id: sectionId, parent_id: null })
+      .filter((x) => x.id !== st.id)
+      .sort(byPos);
+    const at = beforeId ? there.findIndex((x) => x.id === beforeId) : -1;
+    const next = [...there];
+    next.splice(at < 0 ? next.length : at, 0, st);
+    const pos = new Map(next.map((x, k) => [x.id, k]));
+    const same = sectionId === (st.section_id ?? null) && !st.parent_id;
+    if (same && next.every((x) => x.position === pos.get(x.id))) return;
+    setSteps((list) =>
+      list.map((x) =>
+        x.id === st.id
+          ? { ...x, section_id: sectionId, parent_id: null, position: pos.get(x.id) }
+          : moving.has(x.id)
+            ? { ...x, section_id: sectionId }
+            : pos.has(x.id)
+              ? { ...x, position: pos.get(x.id) }
+              : x
+      )
+    );
+    const to = sectionId ? data.sections.find((s) => s.id === sectionId) : null;
+    if (to) setOpened((o) => ({ ...o, [to.id]: true }));
+    haptic("tap");
+    if (!same) toast.show(to ? `Moved to ${to.title}` : "Moved to the top");
+    requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    (same ? Promise.resolve() : moveStepToSection(st.id, under, sectionId, pos.get(st.id)))
+      .then(() => reorder("camp_steps", next))
+      .catch((err) => failed(err, "Couldn't move that step."));
+  }
+
+  // A step carried out of its own list: the section under the finger lights
+  // up, and letting go there drops it in, between the steps it landed on.
+  function dropTarget(x, y, st) {
+    const el = document
+      .elementsFromPoint(x, y)
+      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-drop]"))
+      ?.closest("[data-drop]");
+    if (!el) return null;
+    const below = [...el.querySelectorAll("li.camp-step:not(.camp-step--sub)")].find((li) => {
+      if (li.id === `step-${st.id}`) return false;
+      const r = li.getBoundingClientRect();
+      return y < r.top + r.height / 2;
+    });
+    return { el, below, sectionId: el.dataset.drop || null, beforeId: below ? below.id.slice(5) : null };
+  }
+
+  function dragOut(phase, x, y, st) {
+    const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st) : null;
+    document.querySelectorAll("[data-drop].drop-here").forEach((e) => e !== hit?.el && e.classList.remove("drop-here", "drop-end"));
+    document.querySelectorAll(".drop-before").forEach((e) => e !== hit?.below && e.classList.remove("drop-before"));
+    if (phase === "move") {
+      hit?.el.classList.add("drop-here");
+      hit?.el.classList.toggle("drop-end", !hit.below);
+      hit?.below?.classList.add("drop-before");
+    }
+    if (phase === "drop") {
+      hit?.el.classList.remove("drop-here", "drop-end");
+      hit?.below?.classList.remove("drop-before");
+      if (hit) moveToSection(st, hit.sectionId, hit.beforeId);
+    }
+  }
+
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
   // Dragged into a new order: `shown` is the list as it stood on screen and
   // `ids` its new order. Done steps hidden from it keep their places.
@@ -165,12 +234,19 @@ export default function Camp() {
 
   const addSubs = (st, texts) => addTo(st.section_id ?? null, texts, st);
 
+  // Where a step can go: any section, or the camp's top above them.
+  const sectionChoices = data?.sections?.length
+    ? [{ id: null, title: "No section (top of the camp)" }, ...[...data.sections].sort(byPos).map((s) => ({ id: s.id, title: s.title }))]
+    : null;
+
   const stepProps = (st, shown) => ({
     onOpen: () => setOpenStep((o) => (o === st.id ? null : st.id)),
     onDone: () => toggleDone(st),
     onSave: (fields) => saveStep(st, fields),
     onMove: (by) => moveStep(st, shown, by),
     onRemove: () => removeStep(st),
+    sections: sectionChoices,
+    onMoveTo: (sectionId) => moveToSection(st, sectionId),
   });
 
   // --- Sections and the camp's notes ---------------------------------------------
@@ -362,8 +438,8 @@ export default function Camp() {
           )}
 
           {(view.loose.length > 0 || empty) && (
-            <section className="card camp-sec open camp-loose" aria-label="Steps">
-              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} />}
+            <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
+              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} />}
               {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
               <AddStep onAdd={(texts) => addTo(null, texts)} />
             </section>
@@ -381,6 +457,7 @@ export default function Camp() {
               onAdd={addTo}
               onAddSubs={addSubs}
               onReorder={reorderSteps}
+              onDragOut={dragOut}
               step={stepProps}
               sort={
                 view.sections.length > 1

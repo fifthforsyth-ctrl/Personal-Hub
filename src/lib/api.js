@@ -3198,6 +3198,20 @@ export async function updateStep(id, fields) {
   if (error) throw error;
 }
 
+// A step (and everything under it) into another section, or to the camp's
+// top with `sectionId` null. A sub-step becomes a step of its own there.
+export async function moveStepToSection(id, underIds, sectionId, position) {
+  const at = new Date().toISOString();
+  const { error } = await supabase
+    .from("camp_steps")
+    .update({ section_id: sectionId ?? null, parent_id: null, position, updated_at: at })
+    .eq("id", id);
+  if (error) throw error;
+  if (!underIds.length) return;
+  const { error: e2 } = await supabase.from("camp_steps").update({ section_id: sectionId ?? null, updated_at: at }).in("id", underIds);
+  if (e2) throw e2;
+}
+
 export async function deleteStep(id) {
   const { error } = await supabase.from("camp_steps").delete().eq("id", id);
   if (error) throw error;
