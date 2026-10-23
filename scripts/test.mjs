@@ -1700,6 +1700,22 @@ console.log("\nthe mark");
   ok("an empty camp has no next step", buildCamp([], []).next === null && buildCamp(null, null).total === 0);
   ok("an empty section isn't complete", buildCamp([{ id: "x", title: "X" }], []).sections[0].complete === false);
 
+  // Sub-steps (0083) sit under their step, count like steps, and come next in reading order.
+  const withSubs = buildCamp(sections, [
+    ...steps,
+    { id: "a1", section_id: "s1", parent_id: "a", text: "First draft", position: 0, done_on: "2026-10-23" },
+    { id: "c2", section_id: "s2", parent_id: "c", text: "The paid ones", position: 1, done_on: null },
+    { id: "c1", section_id: "s2", parent_id: "c", text: "The free ones", position: 0, done_on: null },
+    { id: "z1", section_id: "s1", parent_id: "gone", text: "Its step went away", position: 5, done_on: null },
+  ]);
+  const s1 = withSubs.sections[0];
+  const s2 = withSubs.sections[1];
+  ok("sub-steps sit under their step, in order", s2.steps[0].subs.map((x) => x.id).join() === "c1,c2" && s1.steps[0].subs.map((x) => x.id).join() === "a1");
+  ok("sub-steps aren't steps of their own in the section", s2.steps.map((x) => x.id).join() === "c,d");
+  ok("a sub-step whose step is gone stands on its own", s1.steps.map((x) => x.id).join() === "a,b,z1" && !s1.complete);
+  ok("sub-steps count on the section and the camp", s2.total === 4 && s1.done === 3 && withSubs.total === 10 && withSubs.done === 3);
+  ok("the next step can be a sub-step", buildCamp(sections, [...steps.slice(0, 3), { id: "c1", section_id: "s2", parent_id: "c", text: "x", position: 0, done_on: null }].map((x) => (x.id === "c" ? { ...x, done_on: "2026-10-23" } : x))).next.id === "c1");
+
   const tally = campProgress([{ camp_id: "c1", done_on: "2026-10-22" }, { camp_id: "c1", done_on: null }, { camp_id: "c2", done_on: null }]);
   ok("steps are tallied by camp", tally.get("c1").done === 1 && tally.get("c1").total === 2 && tally.get("c2").done === 0);
   ok("the camp line reads plainly", stepsLine({ done: 12, total: 49 }) === "12 of 49 steps" && stepsLine({ done: 0, total: 0 }) === "No steps yet" && stepsLine({ done: 3, total: 3 }) === "All 3 steps done");
@@ -1837,6 +1853,15 @@ console.log("\nthe mark");
   });
   ok("finished tasks and camp steps lay bricks, in the order they were done", units.map((u) => u.id).join() === "s1,t1,t2");
   ok("a camp step counts for its quest", units[0].src === "step" && units[0].questId === "q2" && units[1].src === "task");
+  const subUnits = finishedUnits({
+    steps: [
+      { id: "s1", camp_id: "c1", text: "a step", done_on: "2026-10-21" },
+      { id: "s1a", camp_id: "c1", parent_id: "s1", text: "its sub-step", done_on: "2026-10-22" },
+      { id: "s1b", camp_id: "c1", parent_id: "s1", text: "an open sub-step", done_on: null },
+    ],
+    camps: [{ id: "c1", quest_id: "q2" }],
+  });
+  ok("a finished camp sub-step lays its own bricks for the quest", subUnits.map((x) => x.id).join() === "s1,s1a" && subUnits[1].questId === "q2");
 
   const u = (id, day) => ({ id, day, at: day + "T12:00:00Z" });
   const al = allocate(

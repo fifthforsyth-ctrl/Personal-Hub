@@ -11,7 +11,7 @@ import { playClink } from "../lib/clink";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
-import { SectionCard, StepRow, AddStep } from "../components/camp/Steps";
+import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -100,22 +100,29 @@ export default function Camp() {
     updateStep(st.id, fields).catch((err) => failed(err, "Couldn't save that step."));
   }
 
+  // Its sub-steps go with it.
   function removeStep(st) {
     setOpenStep(null);
-    setSteps((list) => list.filter((x) => x.id !== st.id));
+    const gone = data.steps.filter((x) => x.id === st.id || x.parent_id === st.id);
+    const ids = new Set(gone.map((x) => x.id));
+    setSteps((list) => list.filter((x) => !ids.has(x.id)));
     toast.undoable({
-      message: "Step removed",
+      message: gone.length > 1 ? "Step and its sub-steps removed" : st.parent_id ? "Sub-step removed" : "Step removed",
       run: () => deleteStep(st.id),
-      onUndo: () => setSteps((list) => [...list, st]),
+      onUndo: () => setSteps((list) => [...list.filter((x) => !ids.has(x.id)), ...gone]),
     });
   }
 
-  // Up or down past the next step you can see, within its section.
+  // The steps beside this one: its section's top steps, or its step's sub-steps.
+  const siblings = (st) =>
+    data.steps.filter((x) => (x.section_id ?? null) === (st.section_id ?? null) && (x.parent_id ?? null) === (st.parent_id ?? null));
+
+  // Up or down past the next step you can see, within its section (or its step).
   function moveStep(st, shown, by) {
     const i = shown.findIndex((x) => x.id === st.id);
     const other = shown[i + by];
     if (!other) return;
-    const full = data.steps.filter((x) => (x.section_id ?? null) === (st.section_id ?? null)).sort(byPos);
+    const full = siblings(st).sort(byPos);
     const from = full.findIndex((x) => x.id === st.id);
     const to = full.findIndex((x) => x.id === other.id);
     const next = [...full];
@@ -126,19 +133,22 @@ export default function Camp() {
     reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
   }
 
-  async function addTo(sectionId, texts) {
-    const same = data.steps.filter((x) => (x.section_id ?? null) === (sectionId ?? null));
+  // New steps at the end of a section, or (with `parent`) sub-steps under a step.
+  async function addTo(sectionId, texts, parent = null) {
+    const same = siblings({ section_id: sectionId, parent_id: parent?.id ?? null });
     const start = same.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     try {
-      const rows = await addSteps(userId, id, sectionId, texts, start);
+      const rows = await addSteps(userId, id, sectionId, texts, start, parent?.id ?? null);
       setSteps((list) => [...list, ...rows]);
       haptic("tap");
       return true;
     } catch (err) {
-      toast.error(err, texts.length > 1 ? "Couldn't add those steps." : "Couldn't add that step.");
+      toast.error(err, texts.length > 1 ? `Couldn't add those ${parent ? "sub-steps" : "steps"}.` : `Couldn't add that ${parent ? "sub-step" : "step"}.`);
       return false;
     }
   }
+
+  const addSubs = (st, texts) => addTo(st.section_id ?? null, texts, st);
 
   const stepProps = (st, shown) => ({
     onOpen: () => setOpenStep((o) => (o === st.id ? null : st.id)),
@@ -325,13 +335,7 @@ export default function Camp() {
 
           {(view.loose.length > 0 || empty) && (
             <section className="card camp-sec open camp-loose" aria-label="Steps">
-              {looseShown.length > 0 && (
-                <ul className="camp-steps">
-                  {looseShown.map((st, i) => (
-                    <StepRow key={st.id} step={st} open={openStep === st.id} first={i === 0} last={i === looseShown.length - 1} {...stepProps(st, looseShown)} />
-                  ))}
-                </ul>
-              )}
+              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} />}
               {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
               <AddStep onAdd={(texts) => addTo(null, texts)} />
             </section>
@@ -347,6 +351,7 @@ export default function Camp() {
               onToggle={() => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
               onEdit={() => setSheet(s)}
               onAdd={addTo}
+              onAddSubs={addSubs}
               step={stepProps}
             />
           ))}

@@ -3125,7 +3125,7 @@ export async function setLessonCheckin(userId, lessonId, date, kept) {
 // ---------------------------------------------------------------------------
 
 const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, text, note, done_on, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp and whether it's done, for the camp lists on the Range.
@@ -3179,9 +3179,10 @@ export async function fetchMountains(userId) {
 }
 
 // New steps at the end of a section (or of the camp's loose steps, with no
-// section), in the order given. Resolves to the rows as saved.
-export async function addSteps(userId, campId, sectionId, texts, startAt = 0) {
-  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: campId, section_id: sectionId ?? null, text, position: startAt + i }));
+// section), in the order given; with `parentId`, sub-steps under that step
+// (0083), in its section. Resolves to the rows as saved.
+export async function addSteps(userId, campId, sectionId, texts, startAt = 0, parentId = null) {
+  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: campId, section_id: sectionId ?? null, parent_id: parentId, text, position: startAt + i }));
   if (!rows.length) return [];
   const { data, error } = await supabase.from("camp_steps").insert(rows).select(CAMP_STEP);
   if (error) throw error;
