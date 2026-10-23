@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder } from "../lib/api";
+import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
 import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
@@ -134,6 +134,29 @@ export default function Camp() {
     reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
   }
 
+  // Into another section (null: the camp's top), at the end of its steps.
+  // Its sub-steps go with it; a sub-step comes out from under its step.
+  function moveToSection(st, sectionId) {
+    sectionId = sectionId ?? null;
+    if (sectionId === (st.section_id ?? null) && !st.parent_id) return;
+    const under = stepsUnder(data.steps, st.id).map((x) => x.id);
+    const moving = new Set(under);
+    const position = siblings({ section_id: sectionId, parent_id: null })
+      .filter((x) => x.id !== st.id)
+      .reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    setSteps((list) =>
+      list.map((x) =>
+        x.id === st.id ? { ...x, section_id: sectionId, parent_id: null, position } : moving.has(x.id) ? { ...x, section_id: sectionId } : x
+      )
+    );
+    const to = sectionId ? data.sections.find((s) => s.id === sectionId) : null;
+    if (to) setOpened((o) => ({ ...o, [to.id]: true }));
+    haptic("tap");
+    toast.show(to ? `Moved to ${to.title}` : "Moved to the top");
+    requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    moveStepToSection(st.id, under, sectionId, position).catch((err) => failed(err, "Couldn't move that step."));
+  }
+
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
   // Dragged into a new order: `shown` is the list as it stood on screen and
   // `ids` its new order. Done steps hidden from it keep their places.
@@ -165,12 +188,19 @@ export default function Camp() {
 
   const addSubs = (st, texts) => addTo(st.section_id ?? null, texts, st);
 
+  // Where a step can go: any section, or the camp's top above them.
+  const sectionChoices = data?.sections?.length
+    ? [{ id: null, title: "No section (top of the camp)" }, ...[...data.sections].sort(byPos).map((s) => ({ id: s.id, title: s.title }))]
+    : null;
+
   const stepProps = (st, shown) => ({
     onOpen: () => setOpenStep((o) => (o === st.id ? null : st.id)),
     onDone: () => toggleDone(st),
     onSave: (fields) => saveStep(st, fields),
     onMove: (by) => moveStep(st, shown, by),
     onRemove: () => removeStep(st),
+    sections: sectionChoices,
+    onMoveTo: (sectionId) => moveToSection(st, sectionId),
   });
 
   // --- Sections and the camp's notes ---------------------------------------------

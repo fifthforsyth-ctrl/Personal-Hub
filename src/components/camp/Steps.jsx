@@ -32,7 +32,7 @@ const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
 // the words to open it: change the words, set how urgent it is, write notes,
 // move it or take it off. Its sub-steps come in as `children`. With `sort`
 // (from useDragSort) it has a handle to drag it into a new place.
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, sort, children }) {
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, sections, sort, children }) {
   const done = Boolean(step.done_on);
   const [text, setText] = useState(step.text);
   const [note, setNote] = useState(step.note ?? "");
@@ -109,6 +109,23 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
               ))}
             </div>
           </div>
+          {sections && (
+            <label className="field">
+              <span>Section</span>
+              <select
+                className="input"
+                value={step.parent_id ? "under" : step.section_id ?? ""}
+                onChange={(e) => e.target.value !== "under" && onMoveTo(e.target.value || null)}
+              >
+                {step.parent_id && <option value="under">Under its step</option>}
+                {sections.map((s) => (
+                  <option key={s.id ?? ""} value={s.id ?? ""}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="field">
             <span>Notes</span>
             <textarea
