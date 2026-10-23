@@ -44,7 +44,13 @@ function flipIosSwitch() {
     document.body.appendChild(label);
     iosSwitch = label;
   }
+  // Clicking the label also moves focus onto its hidden checkbox, which on a
+  // field you're typing in would close the keyboard; so focus goes back.
+  const had = document.activeElement;
   iosSwitch.click();
+  if (had && had !== document.activeElement && had !== document.body && typeof had.focus === "function") {
+    had.focus({ preventScroll: true });
+  }
 }
 
 export function haptic(kind = "tap") {
@@ -68,6 +74,13 @@ export function haptic(kind = "tap") {
 
 const TAPPABLE = 'button, a[href], [role="button"], [role="tab"], [role="switch"], summary, label, select, input[type="checkbox"], input[type="radio"]';
 
+// Somewhere to type: tapping into one is not a press, and gets no tap.
+const TYPING = 'textarea, select, [contenteditable=""], [contenteditable="true"], input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]):not([type="color"]):not([type="file"])';
+
+function isTyping(el) {
+  return !!el && el instanceof Element && el.matches(TYPING);
+}
+
 // Every press in the app gets the light tap. This listens on the document
 // after the page's own handlers have run, so a button that plays something
 // stronger (the swords) wins, and the light tap is dropped as a repeat.
@@ -76,6 +89,9 @@ export function installTapHaptics() {
   document.addEventListener("click", (e) => {
     const el = e.target instanceof Element ? e.target.closest(TAPPABLE) : null;
     if (!el || el.closest("[data-haptic-skip]") || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+    // A field wrapped in its label: tapping the field, or the label's words
+    // (which only put you in the field), is starting to type.
+    if (isTyping(e.target) || (el.tagName === "LABEL" && isTyping(el.control))) return;
     haptic("tap");
   });
 }
