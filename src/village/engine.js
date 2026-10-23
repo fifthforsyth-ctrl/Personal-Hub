@@ -1,19 +1,25 @@
 // The village drawing: an ink-and-watercolour survey map in 3D, the way the
-// Ascent mountain is drawn. Every quest stands on its own plot around the
-// plaza, each camp builds one part of it, and each step ticked lays a few
-// bricks. Bullseyes on The Mark train the soldiers who march in the plaza.
-// The slider replays it all from the first step to today.
+// Ascent mountain is drawn. He chooses what to build, and every task or camp
+// step he finishes, on any quest or lesson, lays the next bricks on it until
+// it stands; then the next build goes up on the next plot. Arrows loosed on
+// The Mark train the soldiers who drill in the plaza, carrying the bow his
+// bullseyes have earned, and everyone he has done temple work for walks its
+// lanes. The slider replays it all from the first day to today.
 //
 // This is the mockup's engine (https://claude.ai/artifact/7HfmhqkCg8qxuefFbx4abi)
-// fed his real quests instead of a sample, so it keeps the mockup's plain
-// ES5 style. It draws into a shadow root on `host`, so its styles and the
-// Hub's never meet. src/lib/village.js shapes the data; src/pages/Village.jsx
-// loads it and saves what's tapped here:
+// fed his real data, so it keeps the mockup's plain ES5 style. It draws into
+// a shadow root on `host`, so its styles and the Hub's never meet.
+// src/lib/village.js shapes the data; src/pages/Village.jsx loads it and
+// saves what's tapped here:
 //
-//   api.toggleStep(step, doneOn)  a step ticked or opened again in a sheet
-//   api.build({ quest_id, kind, seed, plot })  Build this, in Generate project
-//   api.open(path)  a link out (a camp, the plans)
+//   api.build({ kind, seed, plot, need })   Build this, in Choose a build
+//   api.change(id, { kind, seed, need })    Build something else, same plot
+//   api.open(path)  a link out (a quest, The Mark, the temple)
 //   api.close()     the close button
+//
+// With data.solo it draws only the build going up, floating on its plot, for
+// the top of a quest's list (src/components/quests/FloatingBuild.jsx), and
+// returns setDone(done, today) to lay bricks as tasks are ticked there.
 //
 // Two things matter when changing it, both learned the hard way:
 //   * three r128 sizes instanceColor from .count on the first setColorAt, so
@@ -27,20 +33,21 @@ import * as T from "three";
 import CSS from "./village.css?raw";
 import { haptic } from "../lib/haptics";
 import { parseDateStr } from "../lib/planDates";
-import { assignCamps, bandLine, buildOptions, dayIndex, layout, NATURE_START, shortName, tileOf } from "../lib/village";
+import { TIERS, bowLine } from "../lib/mark";
+import { ARROWS_PER_SOLDIER, CATALOG, SIZES, bowFor, buildOf, dayIndex, layout, NATURE_START, seedFor, soldiersFor, tileOf } from "../lib/village";
 
 const MARKUP = `
 
 <div id="paper"></div>
 <div id="grain"></div>
-<canvas id="scene" aria-label="3D drawing of your village. Drag to turn it, pinch or scroll to zoom, tap a building for its quest."></canvas>
+<canvas id="scene" aria-label="3D drawing of your village. Drag to turn it, pinch or scroll to zoom, tap a building or a villager."></canvas>
 <div id="labels"></div>
 <div id="ui">
   <header class="top">
     <div class="titlecard">
       <span class="eyebrow">More · Village</span>
       <h1>Your village</h1>
-      <span class="scale" aria-hidden="true"><i></i>1 plot = 1 quest</span>
+      <span class="scale" aria-hidden="true"><i></i>1 plot = 1 build</span>
     </div>
     <div class="top-actions">
       <button class="iconbtn" id="leave" type="button" aria-label="Close the village"><svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="#141414" stroke-width="1.8" stroke-linecap="round"/></svg></button>
@@ -48,8 +55,8 @@ const MARKUP = `
     </div>
   </header>
   <div class="spacer"></div>
-  <!-- the hint sits just above the dock, clear of the quest labels at the top of the drawing -->
-  <p class="hint" id="hint"><span class="long">Drag to turn · pinch to zoom · tap a building</span><span class="short">Drag · pinch · tap a building</span></p>
+  <!-- the hint sits just above the dock, clear of the labels at the top of the drawing -->
+  <p class="hint" id="hint"><span class="long">Drag to turn · pinch to zoom · tap a building or a villager</span><span class="short">Drag · pinch · tap</span></p>
 
   <section class="card dock" id="dock" aria-label="Watch the village grow">
     <div class="dock-row">
@@ -63,27 +70,32 @@ const MARKUP = `
     <div class="stats">
       <div class="stat"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="3" width="10" height="6.5" rx="1.8" fill="#d5cec1" stroke="#141414" stroke-width="1"/></svg><span id="s-bricks">0</span></b><span>bricks laid</span></div>
       <div class="stat"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 11V1.2" stroke="#141414" stroke-width="1.2" stroke-linecap="round"/><path d="M3 1.6l7 2.3-7 2.3z" fill="#141414"/></svg><span id="s-builds">0</span></b><span>builds standing</span></div>
-      <div class="stat"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1" fill="#c6d3b0" stroke="#141414" stroke-width="1"/></svg><span id="s-land">0</span></b><span>plots of land</span></div>
-      <div class="stat"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#ffffff" stroke="#141414" stroke-width="1"/><circle cx="6" cy="6" r="2" fill="#141414"/></svg><span id="s-army">0</span></b><span>soldiers</span></div>
+      <button class="stat tap" id="armybtn" type="button"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 1c4.6 1.8 4.6 8.2 0 10" fill="none" stroke="#141414" stroke-width="1.3" stroke-linecap="round"/><path d="M4 1.2v9.6" stroke="#141414" stroke-width="0.8"/></svg><span id="s-army">0</span></b><span>soldiers</span></button>
+      <button class="stat tap" id="folkbtn" type="button"><b><svg class="key" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="3.2" r="2" fill="#f6f1e9" stroke="#141414" stroke-width="1"/><path d="M2.6 11.2l1.3-5.2h4.2l1.3 5.2z" fill="#c2b29a" stroke="#141414" stroke-width="1" stroke-linejoin="round"/></svg><span id="s-folk">0</span></b><span>villagers</span></button>
     </div>
     <p class="verse">“So built we the wall… for the people had a mind to work.”<cite>Nehemiah 4:6</cite></p>
   </section>
 
   <section class="card sheet" id="sheet" hidden aria-label="Building"></section>
-  <section class="card sheet" id="gen" hidden aria-label="Generate project"></section>
+  <section class="card sheet" id="gen" hidden aria-label="Choose a build"></section>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 <div id="nogl" hidden><div class="card"><b>This view needs 3D graphics.</b><p class="note">Your browser didn't start WebGL. Try opening the page in Safari or Chrome.</p></div></div>
 `;
 
+// the floating build at the top of a quest's list: the same drawing, sized to its box, with none of the map's chrome
+const SOLO_CSS = ':host{position:relative;inset:auto;z-index:auto;height:100%}.vg{position:absolute;background:transparent}#scene{position:absolute;touch-action:pan-y;pointer-events:none}' +
+  '#paper,#grain,#labels,#ui,.toast{display:none!important}#nogl{position:absolute}#nogl .card{display:none}';
+
 export function mountVillage(host, data, api) {
+  var SOLO = !!data.solo;
   var root = host.shadowRoot || host.attachShadow({ mode: "open" });
-  root.innerHTML = "<style>" + CSS + "</style><div class=\"vg\">" + MARKUP + "</div>";
+  root.innerHTML = "<style>" + CSS + (SOLO ? SOLO_CSS : '') + "</style><div class=\"vg" + (SOLO ? ' solo' : '') + "\">" + MARKUP + "</div>";
   var $ = function (id) { return root.getElementById(id); };
   var canvas = $('scene');
   var renderer;
   try { renderer = new T.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true }); }
-  catch (e) { $('nogl').hidden = false; return { destroy: function () { root.innerHTML = ''; } }; }
+  catch (e) { $('nogl').hidden = false; return { destroy: function () { root.innerHTML = ''; }, setDone: function () {} }; }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputEncoding = T.sRGBEncoding;
   renderer.shadowMap.enabled = true;
@@ -91,7 +103,7 @@ export function mountVillage(host, data, api) {
   renderer.setClearColor(0x000000, 0);
 
   // ---------------------------------------------------------------- constants
-  // day 0 is the village's first day (its first step done or build made); MAXDAY is today
+  // day 0 is the village's first day (its first build chosen, brick laid or arrow loosed); MAXDAY is today
   var TILE = 28, DEPTH = 4.2, MAXDAY = data.days;
   var DAY0 = parseDateStr(data.day0);
   var REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -141,6 +153,8 @@ export function mountVillage(host, data, api) {
   var UP = new T.Vector3(0, 1, 0);
   function qY(a) { return new T.Quaternion().setFromAxisAngle(UP, a); }
   function qBeam(dx, dy, dz) { return new T.Quaternion().setFromUnitVectors(UP, new T.Vector3(dx, dy, dz).normalize()); }
+  function qX(a) { return new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), a); }
+  function qZ(a) { return new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), a); }
 
   // ---------------------------------------------------------------- builder: every piece belongs to a part, laid in order
   function Builder(seed) { this.r = rng(seed); this.parts = []; this.cur = null; this.grp = -1; this.attach = null; }
@@ -372,6 +386,98 @@ export function mountVillage(host, data, api) {
       if (hole && hole(px, pz, y)) continue;
       this.add('block', px, y, pz, L / n - 0.05, ph - 0.05, 0.32, q, this.col(this.pick(PAL.plaster), 0.01));
     }
+  };
+
+  // the newer builds' pieces: steel, horses, goods, beehives, targets and garden beds
+  var STEEL = '#cdd1d4', STEEL_DK = '#5d6065', HORSE = ['#a08670', '#6e5d50', '#d8d0c4', '#b3967a'];
+  // a sword standing point down: blade, crossguard, grip and pommel
+  BP.sword = function (x, y, z, ry, h) {
+    h = h || 1.7; var q = ry ? qY(ry) : null;
+    this.unit(function () {
+      this.add('block', x, y + h * 0.36, z, 0.13, h * 0.72, 0.05, q, this.col(STEEL, 0.02));
+      this.add('block', x, y + h * 0.74, z, 0.56, 0.08, 0.1, q, this.col(STEEL_DK, 0));
+      this.add('log', x, y + h * 0.86, z, 0.045, h * 0.2, 0.045, null, this.col(PAL.woodDark, 0));
+      this.add('dot', x, y + h * 0.98, z, 0.08, 0.08, 0.08, null, this.col(STEEL_DK, 0));
+    });
+  };
+  BP.barrel = function (x, z, s) { s = s || 1; this.add('log', x, 0.48 * s, z, 0.44 * s, 0.96 * s, 0.44 * s, null, this.col(this.pick(PAL.wood), 0.03)); };
+  BP.sack = function (x, y, z) { this.add('ball', x, y, z, 0.42, 0.36, 0.38, qY(this.r() * 3), this.col(this.pick(PAL.canvas), 0.02)); };
+  BP.crate = function (x, y, z) { this.add('block', x, y, z, 0.9, 0.9, 0.9, qY(this.j(0.3)), this.col(this.pick(PAL.plank), 0.03)); };
+  BP.horse = function (x, z, ry, hex) {
+    var cs = Math.cos(ry), sn = Math.sin(ry), self = this;
+    function P(dx, dz) { return [x + dx * cs + dz * sn, z - dx * sn + dz * cs]; }
+    this.unit(function () {
+      var c = self.col(hex, 0.02), dk = self.col('#3a3532', 0), q = qY(ry);
+      self.add('ball', x, 1.62, z, 0.5, 0.55, 1.05, q, c);
+      [[-0.27, 0.62], [0.27, 0.62], [-0.27, -0.62], [0.27, -0.62]].forEach(function (l) { var p = P(l[0], l[1]); self.post(p[0], 0, p[1], 0.09, 1.38, c); });
+      var n0 = P(0, 0.8), n1 = P(0, 1.18); self.beam(n0[0], 1.85, n0[1], n1[0], 2.55, n1[1], 0.2, c);
+      var hd = P(0, 1.42); self.add('ball', hd[0], 2.55, hd[1], 0.2, 0.22, 0.42, q, c);
+      var t0 = P(0, -1.0), t1 = P(0, -1.22); self.beam(t0[0], 1.8, t0[1], t1[0], 1.0, t1[1], 0.07, dk);
+    });
+  };
+  // a straw practice dummy on a post
+  BP.dummy = function (x, z) {
+    this.unit(function () {
+      this.post(x, 0, z, 0.1, 1.9, this.col(PAL.wood[1], 0));
+      this.add('block', x, 1.45, z, 1.2, 0.1, 0.1, null, this.col(PAL.wood[2], 0));
+      this.add('ball', x, 1.25, z, 0.32, 0.42, 0.28, null, this.col(this.pick(PAL.straw), 0.02));
+      this.add('ball', x, 2.05, z, 0.22, 0.22, 0.22, null, this.col(this.pick(PAL.straw), 0.02));
+    });
+  };
+  // an archery target facing +z: two legs leaning back, the ringed straw face and a couple of arrows in it
+  BP.target = function (x, z) {
+    var self = this;
+    this.unit(function () {
+      [-0.7, 0.7].forEach(function (dx) { self.beam(x + dx, 0, z, x + dx, 2.4, z - 0.5, 0.08, self.col(PAL.wood[1], 0)); });
+      self.add('disc', x, 1.75, z - 0.12, 1.05, 0.32, 1.05, qX(Math.PI / 2), self.col(PAL.straw[0], 0));
+      for (var i = 0; i < 2; i++) { var ox = x + self.j(0.35), oy = 1.75 + self.j(0.35); self.beam(ox, oy, z + 0.05, ox, oy + 0.05, z + 0.6, 0.025, self.col(PAL.woodDark, 0)); }
+    });
+  };
+  // a straw beehive, its little door facing +z
+  BP.skep = function (x, y, z) {
+    this.unit(function () {
+      var c = this.col(this.pick(PAL.straw), 0.03);
+      this.add('ball', x, y + 0.32, z, 0.42, 0.36, 0.42, null, c);
+      this.add('ball', x, y + 0.62, z, 0.3, 0.26, 0.3, null, c);
+      this.add('dot', x, y + 0.16, z + 0.4, 0.07, 0.07, 0.07, null, lin(PAL.dot));
+    });
+  };
+  // a raised garden bed: plank sides, soil, then two rows of greens
+  BP.bed = function (cx, cz, w, d) {
+    var self = this, n = Math.max(2, Math.round(w / 0.75));
+    this.unit(function () {
+      var pl = self.col(self.pick(PAL.plank), 0.03);
+      self.add('block', cx, 0.22, cz - d / 2, w, 0.44, 0.14, null, pl);
+      self.add('block', cx, 0.22, cz + d / 2, w, 0.44, 0.14, null, pl);
+      self.add('block', cx - w / 2, 0.22, cz, 0.14, 0.44, d, null, pl);
+      self.add('block', cx + w / 2, 0.22, cz, 0.14, 0.44, d, null, pl);
+      self.add('block', cx, 0.3, cz, w - 0.14, 0.12, d - 0.14, null, self.col(PAL.soil, 0.03));
+    });
+    [0, 1].forEach(function (r) { self.unit(function () { for (var i = 0; i < n; i++) self.add('ball', cx - w / 2 + (i + 0.5) * w / n, 0.52, cz + (r - 0.5) * d * 0.5, 0.27, 0.3, 0.27, null, self.col(self.pick(PAL.crop), 0.03)); }); });
+  };
+  // a whitewashed timber-framed hall (its walls; the roof is hallRoof), ridge along x, door side at +z
+  BP.hall = function (x0, z0, x1, z1, o) {
+    o = o || {}; var rows = o.rows || 3, ph = o.ph || 0.9, y0 = 0.5, wt = y0 + rows * ph, ins = 0.28, self = this, hole = o.hole;
+    this.rect(x0, z0, x1, z1, 0, 1, { h: 0.5, d: 0.56, len: 0.9 });
+    this.panels(x0 + 0.1, z1 - ins, x1 - 0.1, z1 - ins, y0, rows, ph, hole);
+    this.panels(x1 - ins, z1 - 0.1, x1 - ins, z0 + 0.1, y0, rows, ph, hole);
+    this.panels(x1 - 0.1, z0 + ins, x0 + 0.1, z0 + ins, y0, rows, ph, hole);
+    this.panels(x0 + ins, z0 + 0.1, x0 + ins, z1 - 0.1, y0, rows, ph, hole);
+    var dark = this.col(PAL.woodDark, 0);
+    this.unit(function () { [[x0 + 0.1, z1 - 0.1], [x1 - 0.1, z1 - 0.1], [x1 - 0.1, z0 + 0.1], [x0 + 0.1, z0 + 0.1]].forEach(function (c) { self.add('block', c[0], y0 + rows * ph / 2, c[1], 0.3, rows * ph, 0.3, null, dark); }); });
+    this.unit(function () {
+      self.add('block', (x0 + x1) / 2, wt + 0.1, z1 - 0.1, x1 - x0, 0.2, 0.25, null, dark); self.add('block', (x0 + x1) / 2, wt + 0.1, z0 + 0.1, x1 - x0, 0.2, 0.25, null, dark);
+      self.add('block', x0 + 0.1, wt + 0.1, (z0 + z1) / 2, 0.25, 0.2, z1 - z0, null, dark); self.add('block', x1 - 0.1, wt + 0.1, (z0 + z1) / 2, 0.25, 0.2, z1 - z0, null, dark);
+    });
+    return wt;
+  };
+  BP.hallRoof = function (x0, z0, x1, z1, wt, rh, roof) {
+    var self = this, D = z1 - z0, ins = 0.28, steps = 5;
+    [x0 + ins, x1 - ins].forEach(function (xx) {
+      for (var s = 0; s < steps; s++) { var hh = rh / steps, wdt = D * (1 - (s + 0.5) / steps); self.add('block', xx, wt + 0.2 + (s + 0.5) * hh, (z0 + z1) / 2, 0.3, hh - 0.04, wdt, null, self.col(self.pick(PAL.plaster), 0.01)); }
+    });
+    this.unit(function () { self.gable((x0 + x1) / 2, wt + 0.15, (z0 + z1) / 2, x1 - x0 + 0.9, D + 1.1, rh + 0.3, roof); });
+    return wt + rh + 0.45;
   };
 
   // ---------------------------------------------------------------- the builds
@@ -619,17 +725,257 @@ export function mountVillage(host, data, api) {
     b.pennant(-5, rt - 0.3, -2.9, PAL.ink);
     return { door: [-5, -2.4] };
   };
-  var KIND = {
-    fortress: { name: 'Stone fortress', line: 'Towers, curtain walls and a keep. Built to hold.' },
-    warcamp: { name: 'War camp', line: 'A palisade, two watchtowers and a ring of tents.' },
-    farmstead: { name: 'Frontier farmstead', line: 'A barn, a stone silo, six fields and a flock.' },
-    windmill: { name: 'Windmill', line: 'A stone mill. Its sails turn once it stands.' },
-    farm: { name: 'Farm', line: 'A barn, a fenced pasture, a small flock and hay.' },
-    outpost: { name: 'Outpost', line: 'A watchtower inside a palisade, with a signal fire.' },
-    cottage: { name: 'Cottage', line: 'Whitewashed walls, a steep roof and a garden.' },
-    forge: { name: 'Forge', line: 'A stone smithy with a tall chimney and an anvil.' },
-    well: { name: 'Well', line: 'A stone well with a little roof.' },
-    watchtower: { name: 'Watchtower', line: 'A timber lookout on a stone footing.' }
+  GEN.armory = function (b) {
+    var roof = b.pick([PAL.slate, PAL.charcoal]), x0 = -5, x1 = 5, z0 = -6.5, z1 = -0.5, d = 0.8;
+    b.part('wl', 'Walls');
+    var top = b.rect(x0, z0, x1, z1, 0, 9, { d: d, len: 1.05, core: PAL.core, hole: function (px, pz, y) {
+      var front = pz > z1 - d - 0.01, sides = px < x0 + d + 0.01 || px > x1 - d - 0.01;
+      if (front && Math.abs(px) < 1.2 && y < 3.0) return true;
+      if (front && Math.abs(Math.abs(px) - 3.2) < 0.45 && y > 1.7 && y < 3.0) return true;
+      if (sides && !front && Math.abs(pz - (z0 + z1) / 2) < 0.5 && y > 1.7 && y < 3.0) return true;
+      return false;
+    }, onCourse: function (k) { if (k === 4) this.add('block', 0, 1.5, z1 - d / 2, 2.2, 3.0, 0.3, null, this.col(PAL.woodDark, 0)); } });
+    // over the door: a round shield with two swords crossed on it, like the wins mark in the Hub
+    var fz = z1 + 0.04, ey = 4.25;
+    b.unit(function () {
+      b.add('disc', 0, ey, fz, 0.62, 0.08, 0.62, qX(Math.PI / 2), b.col(PAL.wool[0], 0));
+      b.add('block', 0, ey, fz + 0.1, 0.12, 1.9, 0.05, qZ(0.62), b.col(STEEL, 0));
+      b.add('block', 0, ey, fz + 0.1, 0.12, 1.9, 0.05, qZ(-0.62), b.col(STEEL, 0));
+      b.add('block', 0.46, ey - 0.62, fz + 0.14, 0.42, 0.07, 0.08, qZ(0.62), b.col(STEEL_DK, 0));
+      b.add('block', -0.46, ey - 0.62, fz + 0.14, 0.42, 0.07, 0.08, qZ(-0.62), b.col(STEEL_DK, 0));
+    });
+    b.part('rf', 'Roof');
+    b.unit(function () { b.gable(0, top - 0.05, (z0 + z1) / 2, x1 - x0 + 0.9, z1 - z0 + 1.1, 2.8, b.col(roof, 0.02)); });
+    b.rect(x1 - 2.2, z0 + 0.6, x1 - 1.1, z0 + 1.7, top - 0.6, 5, { h: 0.55, d: 0.5, len: 0.55 });
+    b.part('rk', 'Sword racks');
+    // a lean-to off the east wall, with two racks of swords under it
+    var rx0 = x1 + 0.6, rx1 = x1 + 4.4, rz0 = z0 + 0.4, rz1 = z1 - 0.2;
+    b.unit(function () { [[rx1, rz0], [rx1, rz1]].forEach(function (c) { b.post(c[0], 0, c[1], 0.16, 3.0, b.col(PAL.wood[1], 0.02)); }); });
+    b.unit(function () { b.add('block', (rx0 + rx1) / 2 - 0.2, 3.05, (rz0 + rz1) / 2, rx1 - rx0 + 0.8, 0.18, rz1 - rz0 + 0.9, qZ(-0.18), b.col(roof, 0.02)); });
+    [rx0 + 1.1, rx0 + 2.6].forEach(function (rx) {
+      b.unit(function () { b.post(rx, 0, rz0 + 0.3, 0.07, 1.3, b.col(PAL.woodDark, 0)); b.post(rx, 0, rz1 - 0.3, 0.07, 1.3, b.col(PAL.woodDark, 0)); b.add('block', rx, 1.2, (rz0 + rz1) / 2, 0.12, 0.12, rz1 - rz0 - 0.4, null, b.col(PAL.wood[2], 0)); });
+      for (var i = 0; i < 5; i++) b.sword(rx + 0.14, 0, rz0 + 0.8 + i * (rz1 - rz0 - 1.6) / 4, Math.PI / 2, 1.5);
+    });
+    b.part('yd', 'Practice yard');
+    b.fence([[-1.6, z1 + 1.6], [x0 - 0.8, z1 + 1.6], [x0 - 0.8, z1 + 7.4], [-1.6, z1 + 7.4]], false);
+    b.dummy(-3.8, z1 + 3.4); b.dummy(-2.6, z1 + 5.8);
+    b.unit(function () { b.add('block', -4.6, 0.5, z1 + 6.2, 1.6, 0.14, 0.5, null, b.col(PAL.plank[0], 0)); b.post(-5.2, 0, z1 + 6.2, 0.06, 0.45, b.col(PAL.woodDark, 0)); b.post(-4.0, 0, z1 + 6.2, 0.06, 0.45, b.col(PAL.woodDark, 0)); });
+    b.part('fin', 'Banner', { hidden: true });
+    b.unit(function () {
+      b.post(x0 + 0.9, top + 0.3, (z0 + z1) / 2, 0.08, 4.2, b.col(PAL.woodDark, 0));
+      b.add('flag', x0 + 0.9, top + 0.3 + 4.2 - 1.2, (z0 + z1) / 2, 2.2, 1.2, 1, null, b.col(PAL.ink, 0), { flag: 2 });
+    });
+    return { door: [0, z1 + 0.4] };
+  };
+  GEN.barracks = function (b) {
+    var roof = b.col(b.pick([PAL.charcoal, PAL.slate, PAL.teal]), 0.02), x0 = -7.5, x1 = 7.5, z0 = -8.5, z1 = -3.5, glass = b.col(PAL.glass, 0), wins = [-5.2, -2.6, 2.6, 5.2];
+    b.part('hl', 'Long hall');
+    var wt = b.hall(x0, z0, x1, z1, { rows: 3, ph: 0.9, hole: function (px, pz, y) {
+      var front = pz > z1 - 0.6;
+      if (front && Math.abs(px) < 0.65 && y < 2.4) return true;
+      if (front && y > 1.4 && y < 2.4) for (var i = 0; i < wins.length; i++) if (Math.abs(px - wins[i]) < 0.5) return true;
+      return false;
+    } });
+    b.add('block', 0, 1.45, z1 - 0.28, 1.2, 1.9, 0.2, null, b.col(PAL.woodDark, 0));
+    b.unit(function () { wins.forEach(function (wx) { b.add('block', wx, 1.9, z1 - 0.28, 0.9, 0.85, 0.26, null, glass); }); });
+    b.part('rf', 'Roof');
+    var rt = b.hallRoof(x0, z0, x1, z1, wt, 2.6, roof);
+    b.part('yd', 'Drill yard');
+    b.fence([[-1.4, z1 + 1.2], [x0, z1 + 1.2], [x0, z1 + 10.5], [-1.4, z1 + 10.5]], false);
+    b.fence([[1.4, z1 + 10.5], [x1, z1 + 10.5], [x1, z1 + 1.2], [1.4, z1 + 1.2]], false);
+    [-5.2, -2.8, 2.8, 5.2].forEach(function (dx) { b.dummy(dx, z1 + 7.6); });
+    b.part('rk', 'Spear racks');
+    [x0 + 2.2, x1 - 2.2].forEach(function (rx) {
+      b.unit(function () { b.post(rx - 0.9, 0, z1 + 2.8, 0.07, 1.4, b.col(PAL.woodDark, 0)); b.post(rx + 0.9, 0, z1 + 2.8, 0.07, 1.4, b.col(PAL.woodDark, 0)); b.add('block', rx, 1.3, z1 + 2.8, 2.0, 0.12, 0.12, null, b.col(PAL.wood[2], 0)); });
+      for (var k = 0; k < 5; k++) b.unit(function () { var sx = rx - 0.8 + k * 0.4; b.beam(sx, 0, z1 + 3.1, sx, 2.6, z1 + 2.65, 0.04, b.col(PAL.wood[1], 0)); b.add('tip', sx, 2.58, z1 + 2.66, 0.08, 0.32, 0.08, null, b.col(STEEL, 0)); });
+    });
+    b.part('fin', 'Pennant', { hidden: true });
+    b.pennant(0, rt - 0.35, (z0 + z1) / 2, PAL.ink);
+    return { door: [0, z1 + 0.3] };
+  };
+  GEN.range = function (b) {
+    var roof = b.col(b.pick([PAL.charcoal, PAL.slate, PAL.terracotta]), 0.02);
+    b.part('tg', 'Targets');
+    [-6, -2, 2, 6].forEach(function (tx) { b.target(tx, -8.5); b.unit(function () { b.bale(tx - 0.62, 0.35, -9.5, 0); b.bale(tx + 0.62, 0.35, -9.5, 0); }); });
+    b.part('ln', 'Shooting line');
+    for (var i = 0; i < 9; i++) b.unit(function () { var x = -8 + i * 2; b.post(x, 0, 4.5, 0.09, 0.6, b.col(PAL.woodDark, 0)); if (i < 8) b.add('block', x + 1, 0.06, 4.5, 1.9, 0.08, 0.16, null, b.col(PAL.plank[1], 0)); });
+    b.part('sh', 'Bow shelter');
+    var sx0 = -9.5, sx1 = -4.5, sz0 = 6.5, sz1 = 9.5;
+    b.unit(function () { [[sx0, sz0], [sx1, sz0], [sx1, sz1], [sx0, sz1]].forEach(function (c) { b.post(c[0], 0, c[1], 0.15, 2.8, b.col(PAL.wood[1], 0.02)); }); });
+    b.unit(function () { b.gable((sx0 + sx1) / 2, 2.75, (sz0 + sz1) / 2, sx1 - sx0 + 0.8, sz1 - sz0 + 0.9, 1.5, roof); });
+    for (var k = 0; k < 4; k++) b.unit(function () { b.add('log', sx0 + 0.9 + k * 1.1, 1.1, sz1 - 0.4, 0.04, 1.7, 0.04, qX(0.25), b.col(PAL.wood[3], 0)); });
+    b.unit(function () { b.add('block', (sx0 + sx1) / 2, 0.45, sz0 + 0.8, 3.2, 0.14, 0.5, null, b.col(PAL.plank[0], 0)); b.post(sx0 + 1, 0, sz0 + 0.8, 0.07, 0.4, b.col(PAL.woodDark, 0)); b.post(sx1 - 1, 0, sz0 + 0.8, 0.07, 0.4, b.col(PAL.woodDark, 0)); });
+    b.part('qv', 'Quivers and hay');
+    [[4.5, 7.2], [6, 7.6], [7.5, 7.0]].forEach(function (q) { b.unit(function () { b.add('log', q[0], 0.45, q[1], 0.18, 0.9, 0.18, null, b.col(PAL.woodDark, 0)); for (var a = 0; a < 3; a++) b.add('dot', q[0] + b.j(0.08), 1.0, q[1] + b.j(0.08), 0.08, 0.08, 0.08, null, b.col(PAL.wool[0], 0)); }); });
+    [4, 3].forEach(function (n, r) { for (var j = 0; j < n; j++) b.unit(function () { b.bale(6.4 + j * 1.2 + r * 0.6, 0.35 + r * 0.68, 10.2, 0); }); });
+    b.part('fin', 'Pennant', { hidden: true });
+    b.pennant(sx1, 2.8, sz0, PAL.ink);
+    return { door: [0, 5] };
+  };
+  GEN.chapel = function (b) {
+    var roof = b.col(b.pick([PAL.slate, PAL.charcoal, PAL.teal]), 0.02), glass = b.col(PAL.glass, 0);
+    var x0 = -6, x1 = 6, z0 = -8.5, z1 = -3.5, tw = 1.35, tz0 = z1 - 0.3, tz1 = z1 + 2.3, wins = [-4.4, -2.6, 2.6, 4.4];
+    b.part('wl', 'Walls');
+    var wt = b.hall(x0, z0, x1, z1, { rows: 4, ph: 1.0, hole: function (px, pz, y) {
+      var front = pz > z1 - 0.6, back = pz < z0 + 0.6;
+      if ((front || back) && y > 1.2 && y < 3.7) for (var i = 0; i < wins.length; i++) if (Math.abs(px - wins[i]) < 0.42) return true;
+      return false;
+    } });
+    b.unit(function () { wins.forEach(function (wx) { b.add('block', wx, 2.45, z1 - 0.28, 0.72, 2.4, 0.26, null, glass); b.add('block', wx, 2.45, z0 + 0.28, 0.72, 2.4, 0.26, null, glass); }); });
+    b.part('rf', 'Roof');
+    b.hallRoof(x0, z0, x1, z1, wt, 3.0, roof);
+    b.part('st', 'Steeple');
+    var tt = b.hall(-tw, tz0, tw, tz1, { rows: 7, ph: 1.0, hole: function (px, pz, y) { return pz > tz1 - 0.6 && Math.abs(px) < 0.6 && y < 2.5; } });
+    b.add('block', 0, 1.5, tz1 - 0.28, 1.1, 2.0, 0.2, null, b.col(PAL.woodDark, 0));
+    b.unit(function () {
+      [[-tw + 0.2, tz0 + 0.2], [tw - 0.2, tz0 + 0.2], [tw - 0.2, tz1 - 0.2], [-tw + 0.2, tz1 - 0.2]].forEach(function (c) { b.post(c[0], tt + 0.2, c[1], 0.12, 1.7, b.col(PAL.plaster[0], 0)); });
+      b.add('ball', 0, tt + 1.1, (tz0 + tz1) / 2, 0.42, 0.5, 0.42, null, b.col('#5f6166', 0));
+    });
+    b.unit(function () { b.pyr(0, tt + 1.85, (tz0 + tz1) / 2, 2 * tw + 0.6, tz1 - tz0 + 0.6, 1.2, roof); });
+    b.unit(function () { b.pyr(0, tt + 2.95, (tz0 + tz1) / 2, 1.3, 1.3, 5.2, b.col(PAL.plaster[1], 0.01)); });
+    b.part('gd', 'Grounds');
+    b.fence([[x0 - 1, z1 + 4.2], [-1.6, z1 + 4.2]], false); b.fence([[1.6, z1 + 4.2], [x1 + 1, z1 + 4.2]], false);
+    b.unit(function () { for (var f = 0; f < 12; f++) b.add('ball', f < 6 ? -5.5 + f * 0.7 : 2.3 + (f - 6) * 0.7, 0.3, z1 + 0.7, 0.28, 0.24, 0.28, null, b.col(f % 3 === 0 ? PAL.flower[1] : b.pick(PAL.leaf), 0.03)); });
+    b.unit(function () { [-4.3, 4.3].forEach(function (bx) { b.add('block', bx, 0.5, z1 + 2.6, 2.0, 0.14, 0.5, null, b.col(PAL.plank[0], 0)); b.post(bx - 0.8, 0, z1 + 2.6, 0.06, 0.45, b.col(PAL.woodDark, 0)); b.post(bx + 0.8, 0, z1 + 2.6, 0.06, 0.45, b.col(PAL.woodDark, 0)); }); });
+    b.tree(x0 - 2.2, z0 + 1.5, 1.0); b.tree(x1 + 2.2, z0 + 1.5, 1.0, 'pine');
+    b.part('fin', 'Lamps', { hidden: true });
+    b.unit(function () { [-1.3, 1.3].forEach(function (lx) { b.post(lx, 0, z1 + 4.6, 0.07, 2.2, b.col(PAL.woodDark, 0)); b.add('block', lx, 2.35, z1 + 4.6, 0.34, 0.4, 0.34, null, lin(PAL.glow)); }); });
+    return { door: [0, tz1 + 0.3] };
+  };
+  GEN.school = function (b) {
+    var roof = b.col(b.pick([PAL.charcoal, PAL.slate, PAL.terracotta]), 0.02), glass = b.col(PAL.glass, 0);
+    var x0 = -5, x1 = 5, z0 = -7.5, z1 = -2.5, wins = [-3.2, -1.7, 1.7, 3.2];
+    b.part('wl', 'Schoolroom');
+    var top = b.rect(x0, z0, x1, z1, 0, 7, { d: 0.75, len: 1.0, core: PAL.core, pal: PAL.barn, hole: function (px, pz, y) {
+      var front = pz > z1 - 0.8, back = pz < z0 + 0.8;
+      if (front && Math.abs(px) < 0.75 && y < 2.6) return true;
+      if ((front || back) && y > 1.3 && y < 3.2) for (var i = 0; i < wins.length; i++) if (Math.abs(px - wins[i]) < 0.42) return true;
+      return false;
+    }, onCourse: function (k) { if (k === 3) this.add('block', 0, 1.3, z1 - 0.38, 1.4, 2.6, 0.2, null, this.col(PAL.teal, 0.02)); } });
+    b.unit(function () { wins.forEach(function (wx) { b.add('block', wx, 2.25, z1 - 0.38, 0.75, 1.8, 0.2, null, glass); b.add('block', wx, 2.25, z0 + 0.38, 0.75, 1.8, 0.2, null, glass); }); });
+    b.part('rf', 'Roof');
+    b.unit(function () { b.gable(0, top - 0.05, (z0 + z1) / 2, x1 - x0 + 0.9, z1 - z0 + 1.1, 2.6, roof); });
+    b.part('bt', 'Bell tower');
+    var bz = z1 - 1.0;
+    b.unit(function () { [[-0.7, bz - 0.7], [0.7, bz - 0.7], [0.7, bz + 0.7], [-0.7, bz + 0.7]].forEach(function (c) { b.post(c[0], top - 0.1, c[1], 0.1, 2.9, b.col(PAL.plaster[0], 0)); }); });
+    b.unit(function () { b.add('ball', 0, top + 2.15, bz, 0.36, 0.42, 0.36, null, b.col('#5f6166', 0)); });
+    b.unit(function () { b.pyr(0, top + 2.75, bz, 2.1, 2.1, 1.6, roof); });
+    b.part('yd', 'Schoolyard');
+    b.fence([[x0 - 1.2, z1 + 1.4], [x0 - 1.2, z1 + 7], [-1.6, z1 + 7]], false);
+    b.fence([[1.6, z1 + 7], [x1 + 1.2, z1 + 7], [x1 + 1.2, z1 + 1.4]], false);
+    b.unit(function () { b.post(3.4, 0, z1 + 3.4, 0.07, 1.6, b.col(PAL.woodDark, 0)); b.post(5.2, 0, z1 + 3.4, 0.07, 1.6, b.col(PAL.woodDark, 0)); b.add('block', 4.3, 1.25, z1 + 3.4, 2.0, 1.1, 0.12, null, b.col('#4a4b4e', 0)); });
+    b.unit(function () { b.add('block', -3.8, 0.5, z1 + 3.6, 2.2, 0.14, 0.55, null, b.col(PAL.plank[0], 0)); b.post(-4.7, 0, z1 + 3.6, 0.06, 0.45, b.col(PAL.woodDark, 0)); b.post(-2.9, 0, z1 + 3.6, 0.06, 0.45, b.col(PAL.woodDark, 0)); });
+    b.tree(-3.8, z1 + 5.6, 0.85);
+    b.part('fin', 'Pennant', { hidden: true });
+    b.pennant(0, top + 4.3, bz, PAL.ink);
+    return { door: [0, z1 + 0.4] };
+  };
+  GEN.stable = function (b) {
+    var roof = b.pick([PAL.charcoal, PAL.slate]);
+    b.part('st', 'Stable');
+    var rt = b.barn(-4.5, -5.5, 8, 6, { wh: 3.2, rh: 2.6, pal: PAL.wood, roof: roof });
+    b.part('pd', 'Paddock');
+    b.fence([[0.8, 1.2], [0.8, -2.4], [11.2, -2.4], [11.2, 10.8], [0.8, 10.8], [0.8, 3.4]], false);
+    b.part('hs', 'Horses');
+    [[3.8, 0.8, 0.6], [7.6, 1.8, -2.2], [5.2, 5.8, 2.6], [8.8, 8.0, 1.2]].forEach(function (h, i) { b.horse(h[0] + b.j(0.3), h[1] + b.j(0.3), h[2], HORSE[i % HORSE.length]); });
+    b.part('hy', 'Hay and trough');
+    [4, 3].forEach(function (n, r) { for (var k = 0; k < n; k++) b.unit(function () { b.bale(-10.2 + k * 1.2 + r * 0.6, 0.35 + r * 0.68, 2.2, 0); }); });
+    b.unit(function () { b.add('block', 3.6, 0.4, -1.4, 2.6, 0.7, 0.8, null, b.col(PAL.plank[1], 0)); b.add('disc', 3.6, 0.76, -1.4, 1.1, 0.04, 0.3, null, b.col(PAL.water, 0)); });
+    b.part('fin', 'Pennant', { hidden: true });
+    b.pennant(-4.5, rt - 0.3, -2.5, PAL.ink);
+    return { door: [-4.5, -2.0] };
+  };
+  GEN.storehouse = function (b) {
+    var roof = b.pick([PAL.slate, PAL.terracotta, PAL.charcoal]), x0 = -5.5, x1 = 5.5, z0 = -8, z1 = -2;
+    b.part('wl', 'Stone walls');
+    var top = b.rect(x0, z0, x1, z1, 0, 8, { d: 0.8, len: 1.1, core: PAL.core, hole: function (px, pz, y) {
+      var front = pz > z1 - 0.81;
+      return (front && Math.abs(px) < 1.6 && y < 3.2) || (front && Math.abs(px) < 0.6 && y > 3.9 && y < 4.8);
+    }, onCourse: function (k) { if (k === 5) { this.add('block', -0.8, 1.6, z1 - 0.4, 1.55, 3.2, 0.2, null, this.col(PAL.woodDark, 0)); this.add('block', 0.8, 1.6, z1 - 0.4, 1.55, 3.2, 0.2, null, this.col(PAL.woodDark, 0)); } } });
+    b.part('rf', 'Roof and hoist');
+    b.unit(function () { b.gable(0, top - 0.05, (z0 + z1) / 2, x1 - x0 + 0.9, z1 - z0 + 1.1, 2.8, b.col(roof, 0.02)); });
+    b.unit(function () { b.beam(0, top + 0.3, z1 - 0.6, 0, top + 0.3, z1 + 1.3, 0.12, b.col(PAL.woodDark, 0)); b.post(0, top - 1.9, z1 + 1.2, 0.02, 2.1, b.col('#d8cbb0', 0)); b.add('ball', 0, top - 2.2, z1 + 1.2, 0.42, 0.38, 0.4, null, b.col(PAL.canvas[0], 0)); });
+    b.part('gd', 'Barrels, sacks and crates');
+    [[-4.6, 0.2], [-3.7, 0.6], [-4.2, 1.5], [3.6, 0.4], [4.5, 0.1]].forEach(function (p) { b.unit(function () { b.barrel(p[0], p[1]); }); });
+    b.unit(function () { b.crate(2.6, 0.45, 1.6); b.crate(3.6, 0.45, 1.7); b.crate(3.1, 1.35, 1.65); });
+    for (var i = 0; i < 6; i++) b.unit(function () { b.sack(-3.0 + (i % 3) * 0.8, 0.36 + Math.floor(i / 3) * 0.55, 2.6 + (i % 2) * 0.2); });
+    b.part('ct', 'Cart');
+    b.unit(function () { b.add('block', 7.6, 1.0, 3.5, 1.8, 0.2, 3.0, null, b.col(PAL.plank[0], 0)); b.add('block', 6.75, 1.35, 3.5, 0.1, 0.5, 3.0, null, b.col(PAL.plank[1], 0)); b.add('block', 8.45, 1.35, 3.5, 0.1, 0.5, 3.0, null, b.col(PAL.plank[1], 0)); });
+    b.unit(function () { [6.55, 8.65].forEach(function (wx) { b.add('disc', wx, 0.75, 3.2, 0.75, 0.12, 0.75, qZ(Math.PI / 2), b.col(PAL.wood[1], 0)); }); });
+    b.unit(function () { b.beam(7.2, 0.9, 5.0, 7.2, 0.35, 7.0, 0.06, b.col(PAL.wood[2], 0)); b.beam(8.0, 0.9, 5.0, 8.0, 0.35, 7.0, 0.06, b.col(PAL.wood[2], 0)); b.add('ball', 7.6, 1.42, 4.0, 0.42, 0.34, 0.38, null, b.col(PAL.canvas[1], 0)); });
+    b.part('fin', 'Pennant', { hidden: true });
+    b.pennant(x1 - 0.9, top + 2.5, (z0 + z1) / 2, PAL.ink);
+    return { door: [0, z1 + 0.4] };
+  };
+  GEN.apiary = function (b) {
+    var roof = b.col(b.pick([PAL.terracotta, PAL.slate, PAL.teal]), 0.02), hx = -7.5, hz = -6.5;
+    b.part('bn', 'Benches');
+    [-1.2, 2.4].forEach(function (bz) { b.unit(function () { b.add('block', 0, 0.62, bz, 8.4, 0.16, 0.9, null, b.col(PAL.plank[0], 0.02)); [-3.8, 0, 3.8].forEach(function (px) { b.post(px, 0, bz, 0.08, 0.56, b.col(PAL.woodDark, 0)); }); }); });
+    b.part('sk', 'Skeps');
+    [-1.2, 2.4].forEach(function (bz) { for (var i = 0; i < 5; i++) b.skep(-3.4 + i * 1.7, 0.7, bz); });
+    b.part('hs', 'Honey house');
+    b.rect(hx - 2, hz - 1.6, hx + 2, hz + 1.6, 0, 1, { h: 0.5, d: 0.5, len: 0.9 });
+    b.panels(hx - 1.9, hz + 1.35, hx + 1.9, hz + 1.35, 0.5, 2, 0.9, function (px, pz, y) { return Math.abs(px - hx) < 0.5 && y < 2.2; });
+    b.panels(hx + 1.75, hz + 1.5, hx + 1.75, hz - 1.5, 0.5, 2, 0.9);
+    b.panels(hx + 1.9, hz - 1.35, hx - 1.9, hz - 1.35, 0.5, 2, 0.9);
+    b.panels(hx - 1.75, hz - 1.5, hx - 1.75, hz + 1.5, 0.5, 2, 0.9);
+    b.add('block', hx, 1.3, hz + 1.35, 0.9, 1.6, 0.2, null, b.col(PAL.woodDark, 0));
+    b.unit(function () { b.gable(hx, 2.25, hz, 4.8, 4.2, 1.9, roof); });
+    b.part('fl', 'Flower beds');
+    for (var r = 0; r < 3; r++) b.unit(function () { for (var f = 0; f < 14; f++) { var x = -6.5 + f; if (Math.abs(x) < 1.2) continue; b.add('ball', x + b.j(0.2), 0.28, 5.2 + r * 1.3 + b.j(0.2), 0.3, 0.26, 0.3, null, b.col(f % 2 ? b.pick(PAL.flower) : b.pick(PAL.leaf), 0.03)); } });
+    b.fence([[-7.5, 4.2], [-7.5, 9.6], [-1.5, 9.6]], false);
+    b.fence([[1.5, 9.6], [7.5, 9.6], [7.5, 4.2]], false);
+    b.part('fin', 'Bees', { hidden: true });
+    b.unit(function () { for (var i = 0; i < 14; i++) b.add('dot', b.j(4.2), 1.6 + b.r() * 1.2, 0.6 + b.j(2.2), 0.06, 0.06, 0.06, null, lin(PAL.dot)); });
+    return { door: [0, 4.0] };
+  };
+  GEN.garden = function (b) {
+    var roof = b.col(b.pick([PAL.slate, PAL.terracotta]), 0.02), sx = 4.5, sz = 5.2;
+    b.part('bd', 'Raised beds');
+    [[-4.5, -4], [0, -4], [4.5, -4], [-4.5, 0.5], [4.5, 0.5], [-4.5, 5]].forEach(function (p) { b.bed(p[0], p[1], 3.4, 2.2); });
+    b.part('fc', 'Fence');
+    b.fence([[-1.4, 8.2], [-7.8, 8.2], [-7.8, -6.8], [7.8, -6.8], [7.8, 8.2], [1.4, 8.2]], false);
+    b.part('sc', 'Scarecrow');
+    b.unit(function () { b.post(0.2, 0, 1.2, 0.08, 2.6, b.col(PAL.wood[1], 0)); b.add('block', 0.2, 1.95, 1.2, 1.7, 0.1, 0.1, null, b.col(PAL.wood[2], 0)); });
+    b.unit(function () { b.add('block', 0.2, 1.65, 1.2, 0.62, 0.8, 0.34, null, b.col(PAL.tunic, 0.02)); b.add('ball', 0.2, 2.4, 1.2, 0.28, 0.3, 0.28, null, b.col(PAL.straw[0], 0)); b.add('tip', 0.2, 2.55, 1.2, 0.5, 0.45, 0.5, null, b.col(PAL.straw[1], 0)); });
+    b.part('sh', 'Tool shed');
+    b.unit(function () { b.add('block', sx, 1.1, sz, 2.6, 2.2, 2.0, null, b.col(b.pick(PAL.plank), 0.02)); b.add('block', sx, 0.85, sz + 1.01, 0.8, 1.6, 0.06, null, b.col(PAL.woodDark, 0)); });
+    b.unit(function () { b.gable(sx, 2.2, sz, 3.0, 2.5, 1.1, roof); });
+    b.unit(function () { b.barrel(sx - 1.9, sz + 0.7, 0.85); b.add('disc', sx - 1.9, 0.83, sz + 0.7, 0.32, 0.03, 0.32, null, b.col(PAL.water, 0)); });
+    b.unit(function () { b.beam(sx + 1.5, 0, sz + 1.3, sx + 1.7, 1.5, sz + 1.1, 0.04, b.col(PAL.wood[1], 0)); b.add('block', sx + 1.5, 0.15, sz + 1.35, 0.32, 0.3, 0.06, null, b.col(STEEL_DK, 0)); });
+    b.part('fin', 'Sunflowers', { hidden: true });
+    b.unit(function () { [-6.6, -5.6, 6.6].forEach(function (fx, i) { b.post(fx, 0, -5.8 + i * 0.4, 0.05, 2.2, b.col('#9fb18a', 0)); b.add('ball', fx, 2.3, -5.6 + i * 0.4, 0.34, 0.34, 0.12, null, b.col('#e3cf95', 0)); }); });
+    return { door: [0, 8.6] };
+  };
+  GEN.gate = function (b) {
+    var roof = b.pick([PAL.slate, PAL.charcoal, PAL.teal]), tc = 15 + Math.floor(b.r() * 3), R = 2.3, TX = 5.2, gx = 3.2, pw = 1.4, wtop = 0;
+    function tower(key, name, cx) {
+      b.part(key, name);
+      var top = b.ring(cx, 0, R, 0, tc, { core: PAL.core, hole: function (a, y) { return Math.abs(angDiff(a, Math.PI / 2)) < 0.22 && y > 4.6 && y < 5.9; } });
+      top = b.ring(cx, 0, R + 0.28, top, 1, { len: 0.95, h: 0.5, d: 1.0, core: PAL.core });
+      b.unit(function () { b.cone(cx, top - 0.05, 0, R + 0.8, 4.2 + b.r() * 0.6, b.col(roof, 0.02)); });
+      wtop = top;
+    }
+    function curtain(key, name, ax, bx) {
+      b.part(key, name);
+      var top = b.wall(ax, 0, bx, 0, 0, 9, { d: 0.8, len: 1.0 });
+      b.add('block', (ax + bx) / 2, top + 0.1, 0, Math.abs(bx - ax), 0.2, 1.6, null, b.stoneCol());
+      b.merlons(ax, 0, bx, 0, top + 0.2, { off: 0.48, d: 0.5 });
+    }
+    curtain('ww', 'West wall', -12.4, -TX - R + 0.5);
+    tower('lt', 'West tower', -TX);
+    b.part('gh', 'Gate and arch');
+    b.rect(-gx, -1.5, -pw, 1.5, 0, 6, { d: 0.6, len: 0.9, core: PAL.core });
+    b.rect(pw, -1.5, gx, 1.5, 0, 6, { d: 0.6, len: 0.9, core: PAL.core });
+    var top = b.rect(-gx, -1.5, gx, 1.5, 6 * 0.62, 6, { d: 0.6, len: 0.9, core: PAL.core });
+    b.unit(function () { b.add('block', -pw / 2, 1.8, 0, pw - 0.1, 3.6, 0.22, null, b.col(PAL.woodDark, 0)); b.add('block', pw / 2, 1.8, 0, pw - 0.1, 3.6, 0.22, null, b.col(PAL.woodDark, 0)); });
+    b.add('block', 0, top + 0.1, 0, 2 * gx, 0.2, 3.0, null, b.stoneCol());
+    b.merlons(-gx, 1.25, gx, 1.25, top + 0.2, { d: 0.5 }); b.merlons(-gx, -1.25, gx, -1.25, top + 0.2, { d: 0.5 });
+    tower('rt', 'East tower', TX);
+    curtain('ew', 'East wall', TX + R - 0.5, 12.4);
+    b.part('fin', 'Banners', { hidden: true });
+    [-TX, TX].forEach(function (cx, i) { b.unit(function () { b.post(cx, wtop + 3.6, 0, 0.07, 3.4, b.col(PAL.woodDark, 0)); b.add('flag', cx, wtop + 3.6 + 3.4 - 1.0, 0, 1.9, 1.0, 1, null, b.col(PAL.ink, 0), { flag: i * 2 }); }); });
+    return { door: [0, 2.4] };
   };
 
   // ---------------------------------------------------------------- nature and the plaza (always standing once the land is there)
@@ -701,34 +1047,40 @@ export function mountVillage(host, data, api) {
     }
   }
 
-  // ---------------------------------------------------------------- the village plan, from his quests
-  function stepDay(st) { return st.done_on ? clamp(dayIndex(st.done_on, data.day0), 0, MAXDAY) : Infinity; }
-  data.builds.forEach(function (b) { b.camps.forEach(function (c) { c.steps.forEach(function (st) { st._d = stepDay(st); }); }); });
-  // a build stands on the map from the day it was made, or from its first step if that came sooner
-  function fromDay(b) {
-    var d = b.made ? clamp(dayIndex(b.made, data.day0), 0, MAXDAY) : 0;
-    b.camps.forEach(function (c) { c.steps.forEach(function (st) { if (st._d < d) d = st._d; }); });
-    return d;
-  }
-  var QUESTS = data.builds.map(function (b) {
-    return { id: b.id, name: b.name, label: shortName(b.name), type: b.type, goal: b.goal, note: b.note, kind: b.kind, seed: b.seed, plot: b.plot, tile: tileOf(b.plot), from: fromDay(b), camps: b.camps, real: true };
+  // ---------------------------------------------------------------- the village plan: the builds he chose
+  // a date as a day on the slider (one not reached yet counts as today)
+  function dayOf(s) { return s ? clamp(dayIndex(s, data.day0), 0, MAXDAY) : MAXDAY; }
+  function faceCenter(tile) { var dx = -tile[0], dz = -tile[1]; if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? Math.PI / 2 : -Math.PI / 2; return dz > 0 ? 0 : Math.PI; }
+  // each build stands on its plot from the day he chose it; `days` holds the day each of its tasks laid its bricks
+  var PROJECTS = data.projects.map(function (p, i) {
+    return {
+      id: p.id, name: p.name, label: SOLO ? null : p.name, line: p.line, kind: p.kind, seed: p.seed, plot: p.plot, need: p.need,
+      tile: SOLO ? [0, 0] : tileOf(p.plot), from: dayOf(p.start), days: p.items.map(function (it) { return dayOf(it.laid); }),
+      items: p.items, start: p.start, finishedOn: p.finishedOn, current: i === data.current, noPath: SOLO
+    };
   });
-  var BYPLOT = {}; QUESTS.forEach(function (q) { BYPLOT[q.plot] = q; });
-  var WAITING = data.waiting, PLOT_TILE_AT = WAITING.length ? tileOf(data.nextPlot) : null;
-  var LAYOUT = layout(Math.max(data.nextPlot + 2, QUESTS.reduce(function (m, q) { return Math.max(m, q.plot + 1); }, 0)));
+  var BYPLOT = {}; PROJECTS.forEach(function (q) { BYPLOT[q.plot] = q; });
+  var CURRENT = data.current >= 0 ? PROJECTS[data.current] : null;
+  // while nothing is going up, the next plot is staked out for Choose a build
+  var PLOT_TILE_AT = !SOLO && !CURRENT ? tileOf(data.nextPlot) : null;
+  var LAYOUT = layout(Math.max(data.nextPlot + 2, PROJECTS.reduce(function (m, q) { return Math.max(m, q.plot + 1); }, 0)));
   // the woods, orchard, pond and meadow are there from the start; more green comes with the builds further out
-  var NATURE = NATURE_START.map(function (n) { return { tile: n.tile, kind: n.kind, day: 0 }; }).concat(LAYOUT.nature.map(function (n) {
+  var NATURE = SOLO ? [] : NATURE_START.map(function (n) { return { tile: n.tile, kind: n.kind, day: 0 }; }).concat(LAYOUT.nature.map(function (n) {
     var q = BYPLOT[n.withPlot]; return { tile: n.tile, kind: n.nature, day: q ? q.from : Infinity };
   }));
-  // the next plot after the one waiting for Generate project, staked in pencil
-  var NEXT_AT = tileOf(WAITING.length ? data.nextPlot + 1 : data.nextPlot);
-  // one soldier for each bullseye loosed on The Mark, from the day it landed
-  var BULLS = data.bullseyes.map(function (d) { return clamp(dayIndex(d, data.day0), 0, MAXDAY); });
-  function soldiers(d) { var n = 0; for (var i = 0; i < BULLS.length; i++) if (BULLS[i] <= d) n++; return n; }
-  function stepsDone(s, d) { if (d < s.start) return 0; return Math.min(s.steps, Math.round(s.rate * (d - s.start))); }
-  function partDone(P, d) { if (!P.list) return stepsDone(P.sched, d); var n = 0; for (var i = 0; i < P.list.length; i++) if (P.list[i]._d <= d) n++; return n; }
-  function standing(P) { return P.steps > 0 && P.done >= P.steps; }
-  function faceCenter(tile) { var dx = -tile[0], dz = -tile[1]; if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? Math.PI / 2 : -Math.PI / 2; return dz > 0 ? 0 : Math.PI; }
+  // the plot after that one, staked in pencil
+  var NEXT_AT = SOLO ? null : tileOf(PLOT_TILE_AT ? data.nextPlot + 1 : data.nextPlot);
+  function countBy(list, d) { var n = 0; for (var i = 0; i < list.length; i++) if (list[i] <= d) n++; return n; }
+  // a soldier for every few arrows loosed on The Mark, all carrying the bow his bullseyes have earned
+  var ARROW_DAYS = data.arrows.map(dayOf), BULL_DAYS = data.bullseyes.map(dayOf);
+  function soldiers(d) { return soldiersFor(countBy(ARROW_DAYS, d)); }
+  function bowAt(d) { return bowFor(countBy(BULL_DAYS, d)); }
+  // everyone he has done temple work for, in the order they moved in
+  var FOLK = data.villagers.map(function (v) { return { v: v, day: dayOf(v.arrive) }; }), FOLK_DAYS = FOLK.map(function (f) { return f.day; });
+  // a build's bricks are shared out over the tasks it takes, so its last task lays its last brick
+  function tasksBy(B, d) { return Math.min(B.def.need, countBy(B.def.days, d)); }
+  function unitsAt(B, k) { return k >= B.def.need ? B.units : Math.floor(B.units * k / B.def.need); }
+  function standing(P) { return P.n >= P.units; }
 
   // ---------------------------------------------------------------- geometry, materials, pools
   function roundedBox(r, seg) {
@@ -1301,7 +1653,7 @@ export function mountVillage(host, data, api) {
       for (i = a; i < b; i++) {
         var pc = o.list[i];
         if (o.ghost) showGhost(pc, false);
-        if (anim && !(pc.fl && (pc.fl.spin || pc.fl.walk !== undefined))) { ANIMS.push({ pc: pc, t0: now + (k++) * 16 + (pc.ord - o.n) * 6, dur: 420 }); show(pc, false); }
+        if (anim && !(pc.fl && (pc.fl.spin || pc.fl.walk !== undefined || pc.fl.folk !== undefined))) { ANIMS.push({ pc: pc, t0: now + (k++) * 16 + (pc.ord - o.n) * 6, dur: 420 }); show(pc, false); }
         else show(pc, true);
       }
     } else {
@@ -1345,26 +1697,21 @@ export function mountVillage(host, data, api) {
     return bx;
   }
   function makeBuilding(def, dynamic) {
-    var b = new Builder(def.seed || 1), info = GEN[def.kind](b) || {}, ry = def.ry !== undefined ? def.ry : 0, M = tileMatrix(def.tile, ry);
-    var B = { def: def, kind: def.kind, parts: [], fin: null, info: info, M: M, ry: ry, exists: false, complete: false, mode: def.mode || 'plan', dynamic: !!dynamic };
-    var vis = b.parts.filter(function (p) { return !p.hidden; }), total = vis.reduce(function (s, p) { return s + p.units; }, 0);
-    var camps = def.real ? assignCamps(def.camps, vis) : null;
-    vis.forEach(function (p, i) {
-      var sc = null;
-      if (!camps) {
-        var steps = Math.max(3, Math.round((def.steps || 30) * p.units / total)), span = def.span || 90;
-        sc = { steps: steps, start: (def.start || 0) + Math.round(i * span * 0.16), rate: steps / (span * 0.62) };
-      }
+    var b = new Builder(def.seed || 1), info = (GEN[def.kind] || GEN.cottage)(b) || {}, ry = def.ry !== undefined ? def.ry : 0, M = tileMatrix(def.tile, ry);
+    var B = { def: def, kind: def.kind, parts: [], fin: null, info: info, M: M, ry: ry, exists: false, complete: false, hidden: false, mode: def.mode || 'plan', dynamic: !!dynamic, k: 0, n: 0, today: 0 };
+    // the parts go up in order: the first task's bricks start the first part, the last task's finish the last
+    var off = 0;
+    b.parts.filter(function (p) { return !p.hidden; }).forEach(function (p) {
       var O = new Owner('part', p.units); O.ghostable = true; O.dynamic = !!dynamic; O.day = def.from || 0;
       register(p.pieces, O, M); O.finalize();
-      var P = camps
-        ? { key: p.key, name: p.name, camp: camps[i].title, campIds: camps[i].camps, list: camps[i].steps, steps: camps[i].steps.length, sched: null, units: p.units, owner: O, done: 0 }
-        : { key: p.key, name: p.name, camp: null, steps: sc.steps, sched: sc, units: p.units, owner: O, done: 0 };
-      var cx = 0, cy = 0, cz = 0, top = 0;
+      var P = { key: p.key, name: p.name, units: p.units, off: off, owner: O, n: 0, today: 0 };
+      off += p.units;
+      var cx = 0, cz = 0, top = 0;
       p.pieces.forEach(function (pc) { cx += pc.m.elements[12]; cz += pc.m.elements[14]; top = Math.max(top, pc.m.elements[13]); });
       P.center = new T.Vector3(cx / p.pieces.length, top + 1.2, cz / p.pieces.length);
       B.parts.push(P);
     });
+    B.units = off;
     b.parts.filter(function (p) { return p.hidden; }).forEach(function (p) {
       var O = new Owner('fin', p.units); O.dynamic = !!dynamic; O.day = def.from || 0; register(p.pieces, O, M); O.finalize(); B.fin = O;
     });
@@ -1377,8 +1724,6 @@ export function mountVillage(host, data, api) {
     B.radius = Math.hypot(hx, hz, lb[4] * 0.6);
     var hit = new T.Mesh(new T.BoxGeometry(hx * 2, lb[4], hz * 2), new T.MeshBasicMaterial({ visible: false }));
     hit.position.set(c.x, lb[4] / 2, c.z); hit.userData.B = B; scene.add(hit); B.hit = hit;
-    B.steps = B.parts.reduce(function (s, p) { return s + p.steps; }, 0);
-    B.units = B.parts.reduce(function (s, p) { return s + p.units; }, 0);
     return B;
   }
   // one wash of land, turned per plot in the shader so neighbouring plots differ; plot borders are fine pen lines
@@ -1397,7 +1742,7 @@ export function mountVillage(host, data, api) {
     var mesh = new T.Mesh(tileGeo, [soilMat, landMat]);
     mesh.position.set(tile[0] * TILE, -DEPTH / 2, tile[1] * TILE); mesh.receiveShadow = true; mesh.visible = false;
     scene.add(mesh);
-    var Tl = { tile: tile, day: day, mesh: mesh, kind: kind, present: false, decor: null, rise: null };
+    var Tl = { tile: tile, day: day, mesh: mesh, kind: kind, present: false, decor: null, rise: null, y0: -DEPTH / 2 };
     if (decorFn) {
       var b = new Builder(tile[0] * 73 + tile[1] * 31 + 900), M = tileMatrix(tile, 0);
       b.part('decor', 'Decor'); b.grp = 0; b.cur.units = 1; decorFn(b); b.grp = -1;
@@ -1433,51 +1778,94 @@ export function mountVillage(host, data, api) {
   }
 
   // static content
-  var GARRISON = null, PLOTMARK = null, PLOT = { preview: null, q: 0, roll: 0, opts: [], sel: 0, busy: false }, PLOT_B = null, PLOT_TILE = null;
+  var GARRISON = null, FOLKO = null, PLOTMARK = null, PLOT_HIT = null, PLOT_FREE = 0, PLOT = { preview: null }, PLOT_B = null;
+  // the plaza drills up to 96 soldiers and the lanes hold up to 240 villagers; the sheets count them all
+  var SOLO_PLATE = null;
+  var ARMY_N = SOLO ? 0 : Math.min(96, soldiers(MAXDAY)), FOLK_N = SOLO ? 0 : Math.min(240, FOLK.length);
+  // the soldiers march on rings round the plaza: [radius, how many march on it]
+  var LANES = [[4.0, 14], [5.25, 18], [6.2, 16], [8.4, 22], [10.2, 26]], LANE_OF = [];
+  LANES.forEach(function (L, li) { for (var i = 0; i < L[1]; i++) LANE_OF.push([li, i]); });
+  // where each walker is this frame, for a tap to find them
+  var SPOS = new Float32Array(ARMY_N * 2 + 2), FPOS = new Float32Array(FOLK_N * 2 + 2);
+  var COATS = ['#6b6e72', '#8a7f72', '#5c5e62', '#9a8d7b', '#73695e', '#a39a8c'], DRESSES = ['#8e9195', '#a89c8a', '#7f8a8c', '#b5aa98', '#6f7377', '#9c9286'];
   function world() {
-    makeTile([0, 0], 0, plaza, 'plaza');
-    QUESTS.forEach(function (q) {
-      q.ry = faceCenter(q.tile);
-      var B = makeBuilding(q, false); B.exists = false; BUILDINGS.push(B);
-      makeTile(q.tile, 0, buildingDecor(B), 'quest');
+    if (!SOLO) makeTile([0, 0], 0, plaza, 'plaza');
+    PROJECTS.forEach(function (q) {
+      q.ry = SOLO ? 0 : faceCenter(q.tile);
+      var B = makeBuilding(q, false); BUILDINGS.push(B); q.B = B;
+      if (!SOLO) { makeTile(q.tile, q.from, buildingDecor(B), 'build'); return; }
+      // the floating build stands on a plate cut to its own footprint, with no trees or paths, so the build fills the card
+      var side = Math.min(TILE, 2 * Math.max(B.half[0], B.half[2]) + 5), k = side / TILE, Tl = makeTile(q.tile, q.from, null, 'build');
+      Tl.mesh.scale.set(k, k, k); Tl.mesh.position.x = B.center.x; Tl.mesh.position.z = B.center.z; Tl.y0 = -DEPTH * k / 2;
+      SOLO_PLATE = { x0: B.center.x - side / 2, x1: B.center.x + side / 2, z0: B.center.z - side / 2, z1: B.center.z + side / 2, depth: DEPTH * k };
     });
+    if (SOLO) return;
     NATURE.forEach(function (n) { makeTile(n.tile, n.day, NAT[n.kind], 'nature'); });
-    if (PLOT_TILE_AT) PLOT_TILE = makeTile(PLOT_TILE_AT, 0, function (b) {
-      trees(b, 4, function (x, z) { return Math.abs(x) < 10 && Math.abs(z) < 10; }, 0.3, 4);
-      flowers(b, 20, function (x, z) { return Math.abs(x) < 10.5 && Math.abs(z) < 10.5; });
-    }, 'plot');
-    // the staked-out plot: orange marks show while it waits for Generate project
-    var mb = new Builder(77); mb.part('marks', 'Marks'); mb.grp = 0; mb.cur.units = 1;
-    var inset = 9.2;
-    for (var s = 0; s < 4; s++) for (var i = 0; i < 9; i++) {
-      var t = -inset + (i + 0.5) * (2 * inset) / 9, x = s < 2 ? t : (s === 2 ? -inset : inset), z = s < 2 ? (s === 0 ? -inset : inset) : t;
-      mb.add('block', x, 0.06, z, s < 2 ? 1.1 : 0.22, 0.1, s < 2 ? 0.22 : 1.1, null, lin(PAL.orange));
+    if (PLOT_TILE_AT) {
+      // the plot comes free on the day the last build stood
+      var last = PROJECTS[PROJECTS.length - 1];
+      PLOT_FREE = last && last.finishedOn ? dayOf(last.finishedOn) : 0;
+      makeTile(PLOT_TILE_AT, PLOT_FREE, function (b) {
+        trees(b, 4, function (x, z) { return Math.abs(x) < 10 && Math.abs(z) < 10; }, 0.3, 4);
+        flowers(b, 20, function (x, z) { return Math.abs(x) < 10.5 && Math.abs(z) < 10.5; });
+      }, 'plot');
+      // the staked-out plot: orange marks show while it waits for Choose a build
+      var mb = new Builder(77); mb.part('marks', 'Marks'); mb.grp = 0; mb.cur.units = 1;
+      var inset = 9.2;
+      for (var s = 0; s < 4; s++) for (var i = 0; i < 9; i++) {
+        var t = -inset + (i + 0.5) * (2 * inset) / 9, x = s < 2 ? t : (s === 2 ? -inset : inset), z = s < 2 ? (s === 0 ? -inset : inset) : t;
+        mb.add('block', x, 0.06, z, s < 2 ? 1.1 : 0.22, 0.1, s < 2 ? 0.22 : 1.1, null, lin(PAL.orange));
+      }
+      [[-inset, -inset], [inset, -inset], [-inset, inset], [inset, inset]].forEach(function (p) { mb.post(p[0], 0, p[1], 0.1, 1.2, mb.col(PAL.wood[0], 0)); });
+      mb.grp = -1;
+      PLOTMARK = new Owner('decor', 1); PLOTMARK.day = PLOT_FREE;
+      register(mb.parts[0].pieces, PLOTMARK, tileMatrix(PLOT_TILE_AT, 0)); PLOTMARK.finalize();
+      PLOT_HIT = new T.Mesh(new T.BoxGeometry(TILE, 1, TILE), new T.MeshBasicMaterial({ visible: false }));
+      PLOT_HIT.position.set(PLOT_TILE_AT[0] * TILE, 0, PLOT_TILE_AT[1] * TILE); scene.add(PLOT_HIT);
     }
-    [[-inset, -inset], [inset, -inset], [-inset, inset], [inset, inset]].forEach(function (p) { mb.post(p[0], 0, p[1], 0.1, 1.2, mb.col(PAL.wood[0], 0)); });
-    mb.grp = -1;
-    PLOTMARK = new Owner('decor', 1);
-    register(mb.parts[0].pieces, PLOTMARK, tileMatrix(PLOT_TILE_AT || [0, 0], 0)); PLOTMARK.finalize();
-    PLOT_HIT = new T.Mesh(new T.BoxGeometry(TILE, 1, TILE), new T.MeshBasicMaterial({ visible: false }));
-    if (PLOT_TILE_AT) { PLOT_HIT.position.set(PLOT_TILE_AT[0] * TILE, 0, PLOT_TILE_AT[1] * TILE); scene.add(PLOT_HIT); }
-    // the garrison: one soldier for each bullseye on The Mark
-    var gb = new Builder(5); gb.part('army', 'Soldiers');
-    for (var k = 0; k < 48; k++) gb.unit(function () {
-      gb.add('block', 0, 0, 0, 0.56, 0.86, 0.38, null, gb.col(PAL.tunic, 0.02), { walk: k, off: [0, 0.68, 0] });
-      gb.add('ball', 0, 0, 0, 0.23, 0.23, 0.23, null, gb.col(PAL.skin, 0.02), { walk: k, off: [0, 1.32, 0] });
-      gb.add('ball', 0, 0, 0, 0.26, 0.14, 0.26, null, gb.col(PAL.helm, 0), { walk: k, off: [0, 1.46, 0] });
-      gb.add('log', 0, 0, 0, 0.04, 1.9, 0.04, null, gb.col(PAL.wood[1], 0), { walk: k, off: [0.36, 1.0, 0.05] });
-      gb.add('disc', 0, 0, 0, 0.3, 0.07, 0.3, new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), Math.PI / 2), gb.col(PAL.wool[0], 0), { walk: k, off: [-0.34, 0.75, 0.02] });
-      gb.add('dot', 0, 0, 0, 0.075, 0.075, 0.075, null, gb.col(PAL.woodDark, 0), { walk: k, off: [-0.385, 0.75, 0.02] });
-    });
-    GARRISON = new Owner('army', 48);
-    register(gb.parts[0].pieces, GARRISON, new T.Matrix4()); GARRISON.finalize();
+    // the garrison: a soldier for every few arrows loosed, a quiver on his back and his bow at his side (setBow shapes it)
+    if (ARMY_N) {
+      var gb = new Builder(5); gb.part('army', 'Soldiers');
+      for (var k = 0; k < ARMY_N; k++) gb.unit(function () {
+        gb.add('block', 0, 0, 0, 0.56, 0.86, 0.38, null, gb.col(PAL.tunic, 0.02), { walk: k, off: [0, 0.68, 0] });
+        gb.add('ball', 0, 0, 0, 0.23, 0.23, 0.23, null, gb.col(PAL.skin, 0.02), { walk: k, off: [0, 1.32, 0] });
+        gb.add('ball', 0, 0, 0, 0.26, 0.14, 0.26, null, gb.col(PAL.helm, 0), { walk: k, off: [0, 1.46, 0] });
+        gb.add('log', 0, 0, 0, 0.1, 0.62, 0.1, qX(-0.3), gb.col(PAL.woodDark, 0), { walk: k, off: [0.14, 1.0, -0.24] });
+        gb.add('dot', 0, 0, 0, 0.09, 0.09, 0.09, null, gb.col(PAL.wool[0], 0), { walk: k, off: [0.14, 1.33, -0.33] });
+        ['grip', 'up', 'down', 'string', 'tipU', 'tipD'].forEach(function (role) {
+          gb.add('log', 0, 0, 0, 0.03, 0.3, 0.03, null, gb.col(PAL.wood[1], 0), { walk: k, off: [-0.4, 1, 0.16], bow: role });
+        });
+      });
+      GARRISON = new Owner('army', ARMY_N);
+      register(gb.parts[0].pieces, GARRISON, new T.Matrix4()); GARRISON.finalize();
+    }
+    // the villagers: the men in coats and hats, the women in long dresses and bonnets, walking the lanes between the plots
+    if (FOLK_N) {
+      var fb = new Builder(9); fb.part('folk', 'Villagers');
+      for (var v = 0; v < FOLK_N; v++) fb.unit(function () {
+        var skin = fb.col(PAL.skin, 0.02), me = v;
+        function at(off) { return { folk: me, off: off }; }
+        if (FOLK[v].v.gender === 'F') {
+          fb.add('tip', 0, 0, 0, 0.36, 1.08, 0.36, null, fb.col(fb.pick(DRESSES), 0.03), at([0, 0, 0]));
+          fb.add('ball', 0, 0, 0, 0.2, 0.21, 0.2, null, skin, at([0, 1.2, 0]));
+          fb.add('ball', 0, 0, 0, 0.23, 0.2, 0.25, null, fb.col(PAL.plaster[1], 0), at([0, 1.27, -0.05]));
+        } else {
+          fb.add('block', 0, 0, 0, 0.34, 0.36, 0.22, null, fb.col('#4a4743', 0.02), at([0, 0.18, 0]));
+          fb.add('block', 0, 0, 0, 0.46, 0.72, 0.3, null, fb.col(fb.pick(COATS), 0.03), at([0, 0.72, 0]));
+          fb.add('ball', 0, 0, 0, 0.2, 0.21, 0.2, null, skin, at([0, 1.22, 0]));
+          fb.add('log', 0, 0, 0, 0.27, 0.035, 0.27, null, fb.col('#3d3c39', 0), at([0, 1.37, 0]));
+          fb.add('log', 0, 0, 0, 0.15, 0.2, 0.15, null, fb.col('#3d3c39', 0), at([0, 1.47, 0]));
+        }
+      });
+      FOLKO = new Owner('folk', FOLK_N);
+      register(fb.parts[0].pieces, FOLKO, new T.Matrix4()); FOLKO.finalize();
+    }
   }
-  var PLOT_HIT = null;
   world();
 
-  // the plot's build lives in a reserved stretch of each pool, so Generate project can swap it
+  // the build being chosen is drawn in a reserved stretch of each pool, so Choose a build can swap it
   var reserve = {};
-  Object.keys(GEN).forEach(function (kind) {
+  if (!SOLO) Object.keys(GEN).forEach(function (kind) {
     for (var s = 1; s <= 3; s++) {
       var b = new Builder(s * 13), cnt = {};
       GEN[kind](b);
@@ -1492,6 +1880,35 @@ export function mountVillage(host, data, api) {
   PENDING.forEach(placePiece);
   PENDING = null;
 
+  // the soldiers' bows, reshaped as his bullseyes earn a better one (the same four as The Mark): a grip, two limbs
+  // and a string, with tips that curl forward on the recurve and the bow of steel
+  var BOWS = [
+    { L: 0.56, d: 0.16, tip: 0, c: PAL.wood[1], r: 0.032 },
+    { L: 0.78, d: 0.2, tip: 0, c: '#8d7257', r: 0.034 },
+    { L: 0.64, d: 0.2, tip: 0.18, c: '#4a4743', r: 0.036 },
+    { L: 0.7, d: 0.22, tip: 0.2, c: '#a9afb5', r: 0.04 }
+  ], BOW_AT = -1;
+  function setBow(t) {
+    t = clamp(t, 0, BOWS.length - 1);
+    if (!GARRISON || t === BOW_AT) return;
+    BOW_AT = t;
+    var w = BOWS[t], x = -0.4, yg = 0.98, zg = 0.16, L = w.L, d = w.d, tp = w.tip, limb = Math.hypot(L, d);
+    var col = lin(w.c), str = lin('#efe9dd'), qU = qBeam(0, L, -d), qD = qBeam(0, -L, -d), qTU = qBeam(0, tp * 0.55, tp * 0.75), qTD = qBeam(0, -tp * 0.55, tp * 0.75);
+    GARRISON.list.forEach(function (pc) {
+      var role = pc.fl.bow; if (!role) return;
+      var off, s, q = null;
+      if (role === 'grip') { off = [x, yg, zg]; s = [w.r * 1.6, 0.22, w.r * 1.6]; }
+      else if (role === 'up') { off = [x, yg + L / 2, zg - d / 2]; s = [w.r, limb, w.r]; q = qU; }
+      else if (role === 'down') { off = [x, yg - L / 2, zg - d / 2]; s = [w.r, limb, w.r]; q = qD; }
+      else if (role === 'string') { off = [x, yg, zg - d + tp * 0.75]; s = [0.01, 2 * (L + tp * 0.55), 0.01]; }
+      else if (!tp) { off = [x, yg, zg]; s = [0, 0, 0]; }
+      else { var up = role === 'tipU' ? 1 : -1; off = [x, yg + up * (L + tp * 0.275), zg - d + tp * 0.375]; s = [w.r * 0.9, Math.hypot(tp * 0.55, tp * 0.75), w.r * 0.9]; q = up > 0 ? qTU : qTD; }
+      pc.fl.off = off; pc.sx = s[0]; pc.sy = s[1]; pc.sz = s[2]; pc.q = q;
+      pc.c = role === 'string' ? str : col;
+      POOLS[pc.g].mesh.setColorAt(pc.idx, pc.c); POOLS[pc.g].cdirty = true;
+    });
+  }
+
   // the land's outer silhouette: one instanced pen hull for every plot, kept in step with each plot as it rises.
   // Its depth is pushed back, so where two plots meet the neighbour's turf hides it and only the outline of the land shows.
   var tileHull = new T.InstancedMesh(roundedBox(0.004, 2), hullMat({ w: 1.5, k: 1, bias: -2.6 }), TILES.length);
@@ -1501,14 +1918,17 @@ export function mountVillage(host, data, api) {
   function syncTileHull() {
     for (var i = 0; i < TILES.length; i++) {
       var tm = TILES[i].mesh;
-      if (tm.visible) { _m.compose(tm.position, _tq, _ts); tileHull.setMatrixAt(i, _m); } else tileHull.setMatrixAt(i, ZERO);
+      if (tm.visible) { _ts.set(TILE * tm.scale.x, DEPTH * tm.scale.y, TILE * tm.scale.z); _m.compose(tm.position, _tq, _ts); tileHull.setMatrixAt(i, _m); } else tileHull.setMatrixAt(i, ZERO);
     }
     tileHull.instanceMatrix.needsUpdate = true;
   }
 
+  // Choose a build previews on the staked plot; Build something else previews on the build going up, hidden meanwhile
+  var CH = { mode: 'new', kind: null, roll: 0, busy: false };
+  function chooseTile() { return CH.mode === 'change' && CURRENT ? CURRENT.tile : PLOT_TILE_AT; }
   function plotDef() {
-    var q = WAITING[PLOT.q], o = PLOT.preview;
-    return { id: 'next', name: q.name, label: null, type: q.type, tile: PLOT_TILE_AT, ry: faceCenter(PLOT_TILE_AT), noPath: true, kind: o.kind, seed: o.seed, from: 0, start: 0, steps: Math.max(1, q.steps), span: 90, mode: 'preview' };
+    var o = PLOT.preview, tile = chooseTile();
+    return { id: 'preview', name: buildOf(o.kind).name, label: null, tile: tile, ry: faceCenter(tile), noPath: true, kind: o.kind, seed: o.seed, need: o.need, from: 0, days: [], items: [], mode: 'preview' };
   }
   function rebuildPlot() {
     if (PLOT_B) DYNALL.forEach(function (pc) { if (pc.gOn) showGhost(pc, false); });
@@ -1526,7 +1946,7 @@ export function mountVillage(host, data, api) {
       BUILDINGS.splice(BUILDINGS.indexOf(PLOT_B), 1);
     }
     DYN = []; DYNALL = []; PLOT_B = null;
-    if (PLOT.preview) {
+    if (PLOT.preview && chooseTile()) {
       PLOT_B = makeBuilding(plotDef(), true);
       DYN.forEach(placePiece); DYNALL = DYN;
       BUILDINGS.push(PLOT_B);
@@ -1535,7 +1955,7 @@ export function mountVillage(host, data, api) {
   }
 
   // ---------------------------------------------------------------- time
-  var DAY = MAXDAY;
+  var DAY = MAXDAY, PRESENT = [];
   function posToDay(p) { return Math.round(p / 1000 * MAXDAY); }
   function dayToPos(d) { return d / MAXDAY * 1000; }
   var bounds = { cx: 0, cz: 0, r: 60, key: '' };
@@ -1547,39 +1967,49 @@ export function mountVillage(host, data, api) {
       landKey += on ? '1' : '0';
       if (on !== Tl.present) {
         Tl.present = on; Tl.mesh.visible = on;
-        if (on && animate && !REDUCED) { Tl.rise = performance.now(); Tl.mesh.position.y = -DEPTH / 2 - 16; if (Tl.decor) Tl.decorAt = Tl.rise + 520; }
-        else { Tl.rise = null; Tl.mesh.position.y = -DEPTH / 2; if (Tl.decor) setCount(Tl.decor, on ? 1 : 0, false); }
+        if (on && animate && !REDUCED) { Tl.rise = performance.now(); Tl.mesh.position.y = Tl.y0 - 16; if (Tl.decor) Tl.decorAt = Tl.rise + 520; }
+        else { Tl.rise = null; Tl.mesh.position.y = Tl.y0; if (Tl.decor) setCount(Tl.decor, on ? 1 : 0, false); }
       }
     });
+    // the villagers walk the lanes of the land that's there
+    PRESENT = TILES.filter(function (Tl) { return Tl.present; });
     BUILDINGS.forEach(function (B) {
-      var exists = d >= B.def.from, preview = B.mode === 'preview', all = exists;
+      var preview = B.mode === 'preview', exists = d >= B.def.from && !B.hidden;
+      // k tasks laid by this day, k0 by the day before: the difference is today's, in orange
+      var k = !exists ? 0 : preview ? B.def.need : tasksBy(B, d), k0 = !exists || preview ? k : Math.min(k, tasksBy(B, d - 1));
+      var n = unitsAt(B, k), n0 = unitsAt(B, k0);
+      B.k = k; B.n = n; B.today = k - k0;
       B.parts.forEach(function (P) {
-        var done = !exists ? 0 : preview ? P.steps : Math.min(P.steps, partDone(P, d));
-        var prev = !exists ? 0 : preview ? P.steps : partDone(P, d - 1);
-        var n = P.steps ? Math.round(P.units * done / P.steps) : 0, n0 = P.steps ? Math.min(n, Math.round(P.units * prev / P.steps)) : 0;
-        if (!P.steps || done < P.steps) all = false;
-        P.done = done; P.n = n; P.today = n - n0;
-        setCount(P.owner, n, animate);
-        setOrange(P.owner, n0, n);
+        var pn = clamp(n - P.off, 0, P.units), p0 = clamp(n0 - P.off, 0, P.units);
+        P.n = pn; P.today = pn - p0;
+        setCount(P.owner, pn, animate);
+        setOrange(P.owner, p0, pn);
       });
-      B.complete = exists && all; B.exists = exists;
+      B.complete = exists && k >= B.def.need; B.exists = exists;
       if (B.fin) setCount(B.fin, B.complete ? B.fin.units : 0, animate);
+      // what's still to build shows as a pencil plan
       var g = exists && !B.complete && !preview;
-      B.parts.forEach(function (P) { setGhost(P.owner, g || (exists && SEL.B === B && !preview && !B.complete)); });
+      B.parts.forEach(function (P) { setGhost(P.owner, g); });
     });
-    setCount(GARRISON, Math.min(48, soldiers(d)), false);
-    setCount(PLOTMARK, plotEmpty() ? 1 : 0, false);
+    if (GARRISON) { setCount(GARRISON, Math.min(ARMY_N, soldiers(d)), false); setBow(bowAt(d)); }
+    if (FOLKO) setCount(FOLKO, Math.min(FOLK_N, countBy(FOLK_DAYS, d)), false);
+    if (PLOTMARK) setCount(PLOTMARK, plotEmpty() && d >= PLOT_FREE ? 1 : 0, false);
     for (var g in POOLS) trimPool(POOLS[g]);
     if (landKey !== bounds.key || force) updateBounds(landKey);
     updateDock(); updateLabels(); refreshSheet();
   }
-  function plotEmpty() { return !PLOT_B || !PLOT_B.exists; }
+  function plotEmpty() { return !!PLOT_TILE_AT && !(PLOT_B && CH.mode === 'new'); }
   function updateBounds(key) {
     var x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     TILES.forEach(function (Tl) { if (!Tl.present) return; x0 = Math.min(x0, Tl.tile[0]); x1 = Math.max(x1, Tl.tile[0]); z0 = Math.min(z0, Tl.tile[1]); z1 = Math.max(z1, Tl.tile[1]); });
+    if (x0 === Infinity) { x0 = x1 = z0 = z1 = 0; }
     bounds.cx = (x0 + x1) / 2 * TILE; bounds.cz = (z0 + z1) / 2 * TILE;
     bounds.x0 = x0 * TILE - TILE / 2; bounds.x1 = x1 * TILE + TILE / 2; bounds.z0 = z0 * TILE - TILE / 2; bounds.z1 = z1 * TILE + TILE / 2;
     bounds.r = Math.hypot((x1 - x0 + 1) * TILE, (z1 - z0 + 1) * TILE) / 2;
+    if (SOLO_PLATE) {
+      var sp = SOLO_PLATE; bounds.x0 = sp.x0; bounds.x1 = sp.x1; bounds.z0 = sp.z0; bounds.z1 = sp.z1;
+      bounds.cx = (sp.x0 + sp.x1) / 2; bounds.cz = (sp.z0 + sp.z1) / 2; bounds.r = Math.hypot(sp.x1 - sp.x0, sp.z1 - sp.z0) / 2;
+    }
     bounds.key = key;
     var R = bounds.r + 8;
     var sc = sun.shadow.camera; sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 1; sc.far = 600; sc.updateProjectionMatrix();
@@ -1587,7 +2017,7 @@ export function mountVillage(host, data, api) {
     sun.position.set(bounds.cx, 0, bounds.cz).addScaledVector(SUN_DIR, 260);
     var px = 2048 / (2 * R);
     sun.shadow.normalBias = clamp(0.6 / px, 0.03, 0.18);
-    if (!userCam && !SEL.B && !GEN_OPEN) fitVillage();
+    if (!userCam && !SEL.view && !GEN_OPEN) { if (SOLO) soloFit(); else fitVillage(); }
   }
 
   // ---------------------------------------------------------------- camera
@@ -1617,14 +2047,14 @@ export function mountVillage(host, data, api) {
   // the whole plate, as drawn: its land box is projected at the goal angle and fitted inside the free area with a margin
   var fitCam = new T.PerspectiveCamera(30, 1, 2, 5000), _fc = [], _fv = new T.Vector3();
   for (var fci = 0; fci < 8; fci++) _fc.push(new T.Vector3());
-  function plateBox(D) {
-    var cp = Math.cos(goal.ph);
+  function plateBox(D, ytop, th) {
+    var cp = Math.cos(goal.ph), a = th === undefined ? goal.th : th, yt = ytop === undefined ? 5 : ytop;
     fitCam.aspect = W / H; fitCam.updateProjectionMatrix();
-    fitCam.position.set(goal.tx + D * cp * Math.sin(goal.th), goal.ty + D * Math.sin(goal.ph), goal.tz + D * cp * Math.cos(goal.th));
+    fitCam.position.set(goal.tx + D * cp * Math.sin(a), goal.ty + D * Math.sin(goal.ph), goal.tz + D * cp * Math.cos(a));
     fitCam.lookAt(goal.tx, goal.ty, goal.tz); fitCam.updateMatrixWorld();
     var b = [Infinity, Infinity, -Infinity, -Infinity];
     for (var i = 0; i < 8; i++) {
-      _fv.set(i & 1 ? bounds.x1 : bounds.x0, i & 2 ? 5 : -DEPTH, i & 4 ? bounds.z1 : bounds.z0).project(fitCam);
+      _fv.set(i & 1 ? bounds.x1 : bounds.x0, i & 2 ? yt : -(SOLO_PLATE ? SOLO_PLATE.depth : DEPTH), i & 4 ? bounds.z1 : bounds.z0).project(fitCam);
       var x = (_fv.x + 1) / 2 * W, y = (1 - _fv.y) / 2 * H;
       b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y);
     }
@@ -1648,47 +2078,49 @@ export function mountVillage(host, data, api) {
     goal.ox = (bb[0] + bb[2]) / 2 - (f.left + (W - f.right)) / 2;
     goal.oy = (bb[1] + bb[3]) / 2 - (f.top + (H - f.bottom)) / 2;
   }
+  // the floating build turns slowly, so it is fitted at every angle it turns through
+  function soloFit() {
+    var B = BUILDINGS[0], top = B ? Math.max(4, B.top + 0.6) : 4, m = 6, need = 30;
+    goal.tx = bounds.cx; goal.tz = bounds.cz; goal.ty = top * 0.32 - (SOLO_PLATE ? SOLO_PLATE.depth : DEPTH) * 0.3; goal.ph = 0.46; goal.ox = 0; goal.oy = 0;
+    for (var i = 0; i < 8; i++) {
+      var th = i / 8 * Math.PI * 2, lo = 20, hi = 2000;
+      for (var it = 0; it < 20; it++) {
+        var mid = (lo + hi) / 2, b = plateBox(mid, top, th);
+        if (b[0] >= m && b[1] >= m && b[2] <= W - m && b[3] <= H - m) hi = mid; else lo = mid;
+      }
+      need = Math.max(need, hi);
+    }
+    goal.dist = need;
+  }
   function focus(v, radius) {
     goal.tx = v.x; goal.ty = Math.max(1, v.y * 0.4); goal.tz = v.z;
     goal.dist = clamp(fitDist(radius), 30, 2400);
     frameOffset();
   }
+  function snapView() { ['th', 'ph', 'dist', 'tx', 'ty', 'tz', 'ox', 'oy'].forEach(function (key) { view[key] = goal[key]; }); }
+  var snapped = false;
   function resize() {
-    W = canvas.clientWidth || window.innerWidth; H = canvas.clientHeight || window.innerHeight;
+    W = canvas.clientWidth || (SOLO ? 1 : window.innerWidth); H = canvas.clientHeight || (SOLO ? 1 : window.innerHeight);
     renderer.setSize(W, H, false);
     renderer.getDrawingBufferSize(INK.uRes.value);
     camera.aspect = W / H; camera.updateProjectionMatrix();
-    if (SEL.B) focusSel(); else if (GEN_OPEN) focusPlot(); else if (!userCam) fitVillage(); else frameOffset();
+    if (SOLO) { soloFit(); if (!snapped && W > 1) { snapped = true; snapView(); } }
+    else if (SEL.view) focusSel(); else if (GEN_OPEN) focusPlot(); else if (!userCam) fitVillage(); else frameOffset();
     uiDirty = true; placeToast();
   }
-  function placeCamera() {
-    var cp = Math.cos(view.ph);
-    camera.position.set(view.tx + view.dist * cp * Math.sin(view.th), view.ty + view.dist * Math.sin(view.ph), view.tz + view.dist * cp * Math.cos(view.th));
-    camera.lookAt(view.tx, view.ty, view.tz);
+  function placeCamera(now) {
+    // the floating build bobs a little as it turns
+    var cp = Math.cos(view.ph), bob = SOLO && !REDUCED ? Math.sin(now / 1000 * 0.9) * 0.4 : 0;
+    camera.position.set(view.tx + view.dist * cp * Math.sin(view.th), view.ty + bob + view.dist * Math.sin(view.ph), view.tz + view.dist * cp * Math.cos(view.th));
+    camera.lookAt(view.tx, view.ty + bob, view.tz);
     camera.setViewOffset(W, H, view.ox, view.oy, W, H);
   }
 
-  // input
+  // input (the floating build takes none: it's a picture, and the quest list scrolls under it)
   var ptrs = new Map(), drag = null, pinch0 = 0, dist0 = 0;
   function interacted() { var h = $('hint'); if (!h.classList.contains('gone')) { h.classList.add('gone'); uiDirty = true; } }
   var hintT = null; // the hint shows for 7 seconds from the first drawn frame (slow phones take a while to get there)
   function pdist() { var a = Array.from(ptrs.values()); return a.length < 2 ? 1 : Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); }
-  canvas.addEventListener('pointerdown', function (e) {
-    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
-    else { if (drag) drag.moved = 99; pinch0 = pdist(); dist0 = goal.dist; }
-    interacted();
-  });
-  canvas.addEventListener('pointermove', function (e) {
-    if (!ptrs.has(e.pointerId)) return;
-    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size === 1 && drag) {
-      var dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
-      drag.moved += Math.abs(dx) + Math.abs(dy);
-      if (drag.moved > 6) { goal.th -= dx * 0.0075; view.th = goal.th; goal.ph = clamp(goal.ph + dy * 0.005, 0.2, 1.3); view.ph = goal.ph; userCam = true; }
-    } else if (ptrs.size === 2) { goal.dist = clamp(dist0 * pinch0 / pdist(), 25, 2600); userCam = true; }
-  });
   function up(e) {
     if (!ptrs.has(e.pointerId)) return;
     if (ptrs.size === 1 && drag && drag.moved < 8 && performance.now() - drag.t < 500) tap(e.clientX, e.clientY);
@@ -1696,19 +2128,60 @@ export function mountVillage(host, data, api) {
     if (ptrs.size === 1) { var r = Array.from(ptrs.values())[0]; drag = { x: r.x, y: r.y, t: 0, moved: 99 }; }
     if (ptrs.size === 0) drag = null;
   }
-  canvas.addEventListener('pointerup', up);
-  canvas.addEventListener('pointercancel', up);
-  canvas.addEventListener('wheel', function (e) { e.preventDefault(); goal.dist = clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 25, 2600); userCam = true; interacted(); }, { passive: false });
+  if (!SOLO) {
+    canvas.addEventListener('pointerdown', function (e) {
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
+      else { if (drag) drag.moved = 99; pinch0 = pdist(); dist0 = goal.dist; }
+      interacted();
+    });
+    canvas.addEventListener('pointermove', function (e) {
+      if (!ptrs.has(e.pointerId)) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (ptrs.size === 1 && drag) {
+        var dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+        drag.moved += Math.abs(dx) + Math.abs(dy);
+        if (drag.moved > 6) { goal.th -= dx * 0.0075; view.th = goal.th; goal.ph = clamp(goal.ph + dy * 0.005, 0.2, 1.3); view.ph = goal.ph; userCam = true; }
+      } else if (ptrs.size === 2) { goal.dist = clamp(dist0 * pinch0 / pdist(), 25, 2600); userCam = true; }
+    });
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('wheel', function (e) { e.preventDefault(); goal.dist = clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 25, 2600); userCam = true; interacted(); }, { passive: false });
+  }
   var ray = new T.Raycaster(), ndc = new T.Vector2();
+  // the walker drawn nearest a tap, within `max` pixels of it (an index into `pos`), or -1
+  function nearest(pos, n, y, px, py, max) {
+    var best = -1, bd = max;
+    for (var i = 0; i < n; i++) {
+      _pv.set(pos[i * 2], y, pos[i * 2 + 1]).project(camera);
+      if (_pv.z > 1) continue;
+      var dd = Math.hypot((_pv.x + 1) / 2 * W - px, (1 - _pv.y) / 2 * H - py);
+      if (dd < bd) { bd = dd; best = i; }
+    }
+    return best;
+  }
   function tap(x, y) {
-    var r = canvas.getBoundingClientRect();
-    ndc.set((x - r.left) / r.width * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    var r = canvas.getBoundingClientRect(), px = x - r.left, py = y - r.top;
+    // a villager or a soldier before the building behind them
+    if (!GEN_OPEN) {
+      var fv = FOLKO ? nearest(FPOS, FOLKO.n, 0.8, px, py, 22) : -1;
+      if (fv >= 0) { meet(fv); return; }
+      if (GARRISON && nearest(SPOS, GARRISON.n, 0.8, px, py, 18) >= 0) { openArmy(); return; }
+    }
+    ndc.set(px / r.width * 2 - 1, -(py / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     var objs = BUILDINGS.filter(function (B) { return B.exists; }).map(function (B) { return B.hit; });
-    if (plotEmpty() && PLOT_TILE_AT) objs.push(PLOT_HIT);
+    if (plotEmpty() && PLOT_HIT && DAY >= PLOT_FREE) objs.push(PLOT_HIT);
     var h = ray.intersectObjects(objs, false)[0];
-    if (!h) { if (SEL.B) closeSheet(); return; }
-    if (h.object === PLOT_HIT) openGen(); else if (h.object.userData.B === PLOT_B && PLOT_B.mode === 'preview') return; else openBuilding(h.object.userData.B);
+    if (!h) { if (SEL.view) closeSheet(); return; }
+    if (h.object === PLOT_HIT) openChoose('new'); else if (h.object.userData.B.mode === 'preview') return; else openBuilding(h.object.userData.B);
+  }
+  // meeting a villager: who they were and where their temple work was done
+  function meet(v) {
+    var f = FOLK[v].v, his = f.gender === 'F' ? 'Her' : f.gender === 'M' ? 'His' : 'Their';
+    var where = [f.temple, f.first ? parseDateStr(f.first).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : null].filter(Boolean).join(', ');
+    toast(f.name + (f.lifespan ? ' (' + f.lifespan + ')' : '') + '. ' + his + ' temple work' + (where ? ': ' + where + '.' : ' is done.'), false, 3600);
   }
   $('recenter').addEventListener('click', function () { userCam = false; closeAll(); goal.th = 0.62; goal.ph = 0.62; fitVillage(); });
 
@@ -1726,10 +2199,10 @@ export function mountVillage(host, data, api) {
     $('date').textContent = dt.toLocaleDateString('en-US', opts);
     var dn = DAY + 1, when = dn < 120 ? 'Week ' + Math.ceil(dn / 7) + ' · day ' + dn : 'Year ' + Math.ceil(dn / 365) + ' · day ' + dn;
     $('dayno').textContent = DAY === MAXDAY ? 'Today · ' + when : when;
-    var bricks = 0, standing = 0, land = 0;
-    BUILDINGS.forEach(function (B) { if (B.mode === 'preview') return; B.parts.forEach(function (P) { bricks += P.owner.n; }); if (B.complete) standing++; });
-    TILES.forEach(function (Tl) { if (Tl.present) land++; });
-    $('s-bricks').textContent = fmt(bricks); $('s-builds').textContent = fmt(standing); $('s-land').textContent = fmt(land); $('s-army').textContent = fmt(soldiers(DAY));
+    var bricks = 0, up = 0;
+    BUILDINGS.forEach(function (B) { if (B.mode === 'preview') return; bricks += B.n; if (B.complete) up++; });
+    $('s-bricks').textContent = fmt(bricks); $('s-builds').textContent = fmt(up);
+    $('s-army').textContent = fmt(soldiers(DAY)); $('s-folk').textContent = fmt(countBy(FOLK_DAYS, DAY));
     var p = Math.round(dayToPos(DAY)); if (!playing || Math.abs(+slider.value - p) > 3) slider.value = p;
     slider.style.setProperty('--fill', (slider.value / 10) + '%');
   }
@@ -1762,20 +2235,21 @@ export function mountVillage(host, data, api) {
     if (!B.def.label) return;
     var el = document.createElement('button'); el.type = 'button'; el.className = 'lbl';
     el.innerHTML = '<b class="tag"><span>' + B.def.label + '</span><small></small></b>' + STEM;
-    LABELS.push(addLabel(el, function () { return _lv.set(B.center.x, B.top + 0.9, B.center.z); }, function () { return B.exists && !SEL.B && !GEN_OPEN; }, function () { openBuilding(B); }));
+    LABELS.push(addLabel(el, function () { return _lv.set(B.center.x, B.top + 0.9, B.center.z); }, function () { return B.exists && !SEL.view && !GEN_OPEN; }, function () { openBuilding(B); }));
     B.label = el;
   });
   (function () {
     var el = document.createElement('button'); el.type = 'button'; el.className = 'lbl go';
-    el.innerHTML = '<b class="tag"><em aria-hidden="true">+</em><span>Generate project</span></b>' + STEM;
+    el.innerHTML = '<b class="tag"><em aria-hidden="true">+</em><span>Choose a build</span></b>' + STEM;
     var at = PLOT_TILE_AT || [0, 0];
-    LABELS.push(addLabel(el, function () { return _lv.set(at[0] * TILE, 0.2, at[1] * TILE); }, function () { return !!PLOT_TILE_AT && plotEmpty() && !GEN_OPEN && !SEL.B; }, openGen));
+    LABELS.push(addLabel(el, function () { return _lv.set(at[0] * TILE, 0.2, at[1] * TILE); }, function () { return plotEmpty() && DAY >= PLOT_FREE && !GEN_OPEN && !SEL.view; }, function () { openChoose('new'); }));
   })();
   // the next plot to be claimed: a faint pencil outline staked on the paper, with its grid reference
   // columns A to E and rows 1 to 5 across the first two rings; further out the letters and numbers keep going
-  function gridRef(tile) { var c = tile[0] + 2; return (c >= 0 && c < 26 ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[c] : 'x' + tile[0] + ',') + (tile[1] + 3); }
+  // plots are numbered in the order they're built on, so the ref never runs off the end of a grid as the village grows
+  function plotNo(plot) { return 'Plot ' + ((plot | 0) + 1); }
   var NEXT = { tile: null, label: null, mesh: null };
-  function nextTile() { return { tile: NEXT_AT }; }
+  function nextTile() { return NEXT_AT ? { tile: NEXT_AT } : null; }
   (function () {
     var mb = [], inset = 13.1, n = 11, i, sd;
     for (sd = 0; sd < 4; sd++) for (i = 0; i < n; i++) {
@@ -1787,11 +2261,11 @@ export function mountVillage(host, data, api) {
     mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 2; scene.add(mesh); NEXT.mesh = mesh;
     var el = document.createElement('div'); el.className = 'lbl ref'; el.setAttribute('aria-hidden', 'true');
     el.innerHTML = '<b class="tag"><span></span></b>' + STEM;
-    var L = addLabel(el, function () { return NEXT.tile ? _lv.set(NEXT.tile.tile[0] * TILE, 0, NEXT.tile.tile[1] * TILE) : _lv.set(0, 0, 0); }, function () { return !!NEXT.tile && !SEL.B && !GEN_OPEN; }, null);
+    var L = addLabel(el, function () { return NEXT.tile ? _lv.set(NEXT.tile.tile[0] * TILE, 0, NEXT.tile.tile[1] * TILE) : _lv.set(0, 0, 0); }, function () { return !!NEXT.tile && !SEL.view && !GEN_OPEN; }, null);
     L.opt = true; el.style.pointerEvents = 'none'; el.style.cursor = 'default'; LABELS.push(L); NEXT.label = el;
   })();
   function syncNextStake() {
-    NEXT.on = !!NEXT.tile && !SEL.B && !GEN_OPEN;
+    NEXT.on = !!NEXT.tile && !SEL.view && !GEN_OPEN;
     if (NEXT.on) NEXT.mesh.position.set(NEXT.tile.tile[0] * TILE, 0, NEXT.tile.tile[1] * TILE);
     else NEXT.mesh.visible = false;
   }
@@ -1805,7 +2279,7 @@ export function mountVillage(host, data, api) {
   function updateLabels() {
     BUILDINGS.forEach(function (B) {
       if (!B.label) return;
-      var pct = B.units ? Math.round(100 * B.parts.reduce(function (s, P) { return s + P.owner.n; }, 0) / B.units) : 0;
+      var pct = B.units ? Math.round(100 * B.n / B.units) : 0;
       setTag(B.label, 'small', B.complete ? FLAG_SM : pct + '%');
     });
     // part tags: the same ring as the sheet's row (orange = stones laid today, ink with a flag = standing)
@@ -1813,7 +2287,7 @@ export function mountVillage(host, data, api) {
       var P = L.P, done = standing(P), cls = done ? 'done' : P.today > 0 ? 'today' : '', html = done ? FLAG_RING : String(L.num);
       if (L.ringV !== cls + html) { L.ringV = cls + html; L.ring.className = cls; L.ring.innerHTML = html; }
     });
-    if (NEXT.label) { var nt = nextTile(); NEXT.tile = nt; if (nt) setTag(NEXT.label, 'span', 'Next plot · ' + gridRef(nt.tile)); }
+    if (NEXT.label) { var nt = nextTile(); NEXT.tile = nt; if (nt) setTag(NEXT.label, 'span', 'Next plot · ' + (data.nextPlot + 1)); }
     syncNextStake();
   }
   // labels behave like map callouts: each sits on its building. When it would cover a tag or a leader already placed,
@@ -1896,31 +2370,36 @@ export function mountVillage(host, data, api) {
     NEXT.mesh.visible = !!NEXT.on && !NEXT.label.hidden;
   }
 
-  // ---------------------------------------------------------------- building sheet
-  var SEL = { B: null, part: null }, GEN_OPEN = false, sheet = $('sheet'), gen = $('gen');
+  // ---------------------------------------------------------------- sheets: a building, the garrison, the villagers
+  var SEL = { view: null, B: null, part: null }, GEN_OPEN = false, sheet = $('sheet'), gen = $('gen');
   var X = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-  var CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  function closeAll() { if (SEL.B) closeSheet(true); if (GEN_OPEN) closeGen(true); }
-  function openBuilding(B) {
+  function closeAll() { if (SEL.view) closeSheet(true); if (GEN_OPEN) closeGen(true); }
+  function openSheet(view, B) {
     if (GEN_OPEN) closeGen(true);
     stop();
     if (SEL.B && SEL.B !== B) clearSel();
-    SEL.B = B; SEL.part = SEL.part && B.parts.indexOf(SEL.part) >= 0 ? SEL.part : null;
+    SEL.part = B && SEL.B === B ? SEL.part : null;
+    SEL.view = view; SEL.B = B || null;
     $('dock').hidden = true; sheet.hidden = false;
+    sheet.setAttribute('aria-label', view === 'army' ? 'The garrison' : view === 'folk' ? 'The villagers' : 'Building');
     PARTLABELS.forEach(function (L) { L.el.remove(); });
-    PARTLABELS = B.parts.map(function (P, i) {
+    PARTLABELS = !B ? [] : B.parts.map(function (P, i) {
       var el = document.createElement('button'); el.type = 'button'; el.className = 'lbl part';
-      el.innerHTML = '<b class="tag"><i aria-hidden="true">' + (i + 1) + '</i><span></span></b>' + STEM; el.querySelector('span').textContent = P.camp || P.name;
+      el.innerHTML = '<b class="tag"><i aria-hidden="true">' + (i + 1) + '</i><span></span></b>' + STEM; el.querySelector('span').textContent = P.name;
       var L = addLabel(el, function () { return P.center; }, function () { return SEL.B === B; }, function () { selectPart(P); });
       L.P = P; L.opt = true; L.num = i + 1; L.ring = el.querySelector('i'); return L;
     });
     applyDay(DAY, false, true);
-    renderSheet();
     sheet.scrollTop = 0;
     requestAnimationFrame(focusSel);
   }
+  function openBuilding(B) { openSheet('build', B); }
+  function openArmy() { openSheet('army', null); }
+  function openFolk() { openSheet('folk', null); }
   function clearSel() { if (!SEL.B) return; SEL.B.parts.forEach(function (P) { setTint(P.owner, false); }); }
   function focusSel() {
+    if (SEL.view === 'army') { focus(new T.Vector3(0, 2, 0), 15); return; }
+    if (SEL.view === 'folk') { fitVillage(); return; }
     var B = SEL.B; if (!B) return;
     if (SEL.part) focus(SEL.part.center, Math.max(7, B.radius * 0.55)); else focus(new T.Vector3(B.center.x, B.top, B.center.z), B.radius * 1.05);
   }
@@ -1929,7 +2408,7 @@ export function mountVillage(host, data, api) {
     renderSheet(); focusSel();
   }
   function closeSheet(silent) {
-    clearSel(); SEL.B = null; SEL.part = null;
+    clearSel(); SEL.view = null; SEL.B = null; SEL.part = null;
     PARTLABELS.forEach(function (L) { L.el.remove(); }); PARTLABELS = [];
     sheet.hidden = true; $('dock').hidden = false; uiDirty = true;
     applyDay(DAY, false, true);
@@ -1937,95 +2416,109 @@ export function mountVillage(host, data, api) {
   }
   // meta lines break only between their · segments
   function nw(t) { return '<span class="nw">' + t + '</span>'; }
-  function refreshSheet() { if (SEL.B && !sheet.hidden) renderSheet(); }
+  function refreshSheet() { if (SEL.view && !sheet.hidden) renderSheet(); }
   function bar(P) {
-    var w = P.steps ? Math.round(100 * P.done / P.steps) : 0;
-    var todayW = P.today > 0 ? Math.max(3, Math.round(100 * P.today / P.units)) : 0;
+    var w = Math.round(100 * P.n / P.units), todayW = P.today > 0 ? Math.max(3, Math.round(100 * P.today / P.units)) : 0;
     return '<span class="bar"><i style="width:' + Math.max(0, w - todayW) + '%;float:left"></i><i class="today" style="width:' + todayW + '%;float:left;border-radius:0 3px 3px 0"></i></span>';
   }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function plural(n, one, many) { return fmt(n) + ' ' + (n === 1 ? one : many); }
-  // the steps a part shows: the next ones to do, then a few of the latest done
-  var TODO_SHOWN = 12;
-  function partSteps(P) {
-    var todo = P.list.filter(function (st) { return !st.done_on; }), done = P.list.filter(function (st) { return st.done_on; });
-    done.sort(function (a, b) { return a.done_on < b.done_on ? 1 : a.done_on > b.done_on ? -1 : 0; });
-    return { todo: todo.slice(0, TODO_SHOWN), more: Math.max(0, todo.length - TODO_SHOWN), done: done.slice(0, 3), doneAll: done.length };
+  function dayLine(s) { return s ? parseDateStr(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
+  function monthLine(s) { return s ? parseDateStr(s).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''; }
+  function firstLine(s) { var t = String(s).trim().split('\n')[0]; return t.length > 140 ? t.slice(0, 137) + '…' : t; }
+  var TODAY_WORD = function () { return DAY === MAXDAY ? 'today' : 'that day'; };
+  // the tasks whose bricks went into a part
+  function laidBy(B, P) {
+    var out = [];
+    for (var i = 0; i < B.k; i++) { var a = unitsAt(B, i), b = unitsAt(B, i + 1); if (b > P.off && a < P.off + P.units) out.push(B.def.items[i]); }
+    return out;
   }
-  var SHOWN = [];
-  function stepBtn(st) {
-    var k = SHOWN.push(st) - 1, on = !!st.done_on;
-    return '<button type="button" class="step' + (on ? ' on' : '') + '" data-step="' + k + '" aria-pressed="' + on + '"><i>' + CHECK + '</i><span>' + esc(st.text) + '</span></button>';
-  }
-  function renderSheet() {
-    var B = SEL.B; if (!B) return;
-    var def = B.def, kind = KIND[B.kind].name;
-    B.parts.forEach(function (P) { setTint(P.owner, P === SEL.part); });
-    var laid = B.parts.reduce(function (s, P) { return s + P.owner.n; }, 0), up = B.parts.filter(standing).length;
-    var h = '<div class="sheet-head"><div><span class="eyebrow">' + (def.type === 'Lesson' ? 'Lesson · ' : 'Quest · ') + kind + '</span><h2>' + esc(def.name) + '</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
-    var chips = ['<span class="chip ref">Plot ' + gridRef(def.tile) + '</span>'];
-    if (def.goal) chips.push('<span class="chip or"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 10.5L6 2l5 8.5z" fill="none" stroke="#141414" stroke-width="1.3" stroke-linejoin="round"/><path d="M4.2 5.6L6 6.8l1.6-1.1" fill="none" stroke="#141414" stroke-width="1.1"/></svg>' + esc(def.goal) + '</span>');
-    chips.push('<span class="chip">' + plural(def.camps.length, 'camp', 'camps') + '</span>');
-    chips.push('<span class="chip">' + plural(B.steps, 'step', 'steps') + '</span>');
-    h += '<div class="chips">' + chips.join('') + '</div>';
-    if (def.note) h += '<p class="note">' + esc(def.note) + '</p>';
-    if (!B.steps) h += '<p class="note">Its camps have no steps yet. Add steps to a camp and bricks start landing here as you tick them.</p>';
-    h += '<span class="sub">' + nw(fmt(laid) + ' of ' + fmt(B.units) + ' bricks') + ' · ' + nw(up + ' of ' + B.parts.length + ' parts standing') + (B.complete ? ' · ' + nw('banner up') : '') + '</span>';
-    h += '<div class="label">Parts · build in any order</div><div class="parts">';
-    B.parts.forEach(function (P, i) {
-      var done = standing(P), pct = P.steps ? Math.round(100 * P.done / P.steps) : 0;
-      h += '<button type="button" class="prow' + (P === SEL.part ? ' sel' : '') + '" data-part="' + i + '" aria-pressed="' + (P === SEL.part) + '">' +
-        '<span class="num' + (done ? ' done' : P.today > 0 ? ' today' : '') + '" aria-hidden="true">' + (done ? '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1v10M3 1.5l7 2.5-7 2.5" stroke="#ffffff" stroke-width="1.4" fill="#ffffff" stroke-linejoin="round"/></svg>' : (i + 1)) + '</span>' +
-        '<span class="nm">' + (P.camp ? esc(P.camp) + '<small>' + P.name + '</small>' : P.name) + '</span>' +
-        '<span class="pct' + (done ? ' done' : '') + '">' + (done ? 'Standing' : !P.steps ? 'No steps' : (P.today > 0 ? '<span class="td">+' + P.today + ' today</span> · ' : '') + pct + '%') + '</span>' + bar(P) + '</button>';
+  // what laid the bricks, latest first: each task (or camp step) with its quest, the day it was done and the first line of its notes
+  var ITEMS_SHOWN = 12;
+  function itemRows(list) {
+    var shown = list.slice(-ITEMS_SHOWN).reverse(), h = '<div class="items">';
+    shown.forEach(function (it) {
+      var td = dayOf(it.laid) === DAY, meta = [it.quest, dayLine(it.day)].filter(Boolean).map(esc).join(' · ');
+      h += '<button type="button" class="item"' + (it.questId ? ' data-quest="' + esc(it.questId) + '"' : ' disabled') + '><i' + (td ? ' class="today"' : '') + ' aria-hidden="true"></i><span><b>' + esc(it.text) + '</b>' +
+        (meta ? '<small>' + meta + '</small>' : '') + (it.note ? '<em>' + esc(firstLine(it.note)) + '</em>' : '') + '</span></button>';
     });
     h += '</div>';
-    var P = SEL.part;
-    SHOWN = [];
-    if (P) {
-      h += '<div class="detail"><h3>' + P.name + (P.camp ? ' · ' + esc(P.camp) : '') + '</h3><span class="sub">' + nw(P.done + ' of ' + plural(P.steps, 'step', 'steps')) + ' · ' + nw(P.owner.n + ' of ' + P.units + ' bricks') + (P.today > 0 ? ' · ' + nw('+' + P.today + ' today') : '') + '</span>';
-      if (!P.campIds.length) h += '<p class="note">No camp builds this part yet.</p>';
-      else if (!P.steps) h += '<p class="note">The camp has no steps yet. Add them in the camp and tick them here or there.</p>';
-      else {
-        if (DAY !== MAXDAY) h += '<p class="note">You\'re looking back at ' + shortDate(DAY, true) + '. Ticking a step counts it today.</p>';
-        h += '<p class="note">Each step lays about ' + Math.max(1, Math.round(P.units / P.steps)) + ' bricks here.</p>';
-        var ps = partSteps(P);
-        if (ps.todo.length) { h += '<span class="sub">Next to do</span>'; ps.todo.forEach(function (st) { h += stepBtn(st); }); }
-        else h += '<p class="note">Standing. Its pennant is up.</p>';
-        if (ps.more) h += '<span class="sub">' + plural(ps.more, 'more step', 'more steps') + ' in the camp</span>';
-        if (ps.done.length) { h += '<span class="sub">Done lately · ' + fmt(ps.doneAll) + ' in all</span>'; ps.done.forEach(function (st) { h += stepBtn(st); }); }
+    if (list.length > shown.length) h += '<span class="sub">' + plural(list.length - shown.length, 'earlier task', 'earlier tasks') + '</span>';
+    return h;
+  }
+  function renderSheet() {
+    if (SEL.view === 'army') { renderArmy(); return; }
+    if (SEL.view === 'folk') { renderFolk(); return; }
+    var B = SEL.B; if (!B) return;
+    var def = B.def, up = B.parts.filter(standing).length, left = def.need - B.k, P = SEL.part;
+    B.parts.forEach(function (Q) { setTint(Q.owner, Q === P); });
+    var h = '<div class="sheet-head"><div><span class="eyebrow">' + (B.complete ? 'Standing' + (def.finishedOn && dayOf(def.finishedOn) <= DAY ? ' since ' + dayLine(def.finishedOn) : '') : 'Going up') + ' · ' + plotNo(def.plot) + '</span><h2>' + esc(def.name) + '</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
+    if (def.line) h += '<p class="note serif">' + esc(def.line) + '</p>';
+    h += '<span class="sub">' + nw(fmt(B.k) + ' of ' + plural(def.need, 'task', 'tasks')) + ' · ' + nw(fmt(B.n) + ' of ' + fmt(B.units) + ' bricks') + ' · ' + nw(up + ' of ' + B.parts.length + ' parts standing') +
+      (B.today > 0 ? ' · ' + nw('<span class="td">+' + plural(B.today, 'task', 'tasks') + ' ' + TODAY_WORD() + '</span>') : '') + '</span>';
+    if (!B.complete) h += '<p class="note">' + (B.k ? plural(left, 'more task', 'more tasks') + ' and it stands. ' : '') + 'Every task you finish, on any quest or lesson, lays about ' + plural(Math.max(1, Math.round(B.units / def.need)), 'brick', 'bricks') + ' here.</p>';
+    else h += '<p class="note">Built from ' + plural(def.need, 'finished task', 'finished tasks') + ', start to finish.</p>';
+    h += '<div class="label">Parts · built in order</div><div class="parts">';
+    B.parts.forEach(function (Q, i) {
+      var done = standing(Q), pct = Math.round(100 * Q.n / Q.units);
+      h += '<button type="button" class="prow' + (Q === P ? ' sel' : '') + '" data-part="' + i + '" aria-pressed="' + (Q === P) + '">' +
+        '<span class="num' + (done ? ' done' : Q.today > 0 ? ' today' : '') + '" aria-hidden="true">' + (done ? '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1v10M3 1.5l7 2.5-7 2.5" stroke="#ffffff" stroke-width="1.4" fill="#ffffff" stroke-linejoin="round"/></svg>' : (i + 1)) + '</span>' +
+        '<span class="nm">' + Q.name + '</span>' +
+        '<span class="pct' + (done ? ' done' : '') + '">' + (done ? 'Standing' : (Q.today > 0 ? '<span class="td">+' + plural(Q.today, 'brick', 'bricks') + ' ' + TODAY_WORD() + '</span> · ' : '') + pct + '%') + '</span>' + bar(Q) + '</button>';
+    });
+    h += '</div>';
+    var list = P ? laidBy(B, P) : def.items.slice(0, B.k);
+    h += '<div class="label">' + (P ? 'What laid the ' + esc(P.name.toLowerCase()) : 'What laid it') + '</div>';
+    if (list.length) h += itemRows(list);
+    else h += '<p class="note">' + (P ? 'No task has reached this part yet.' : 'Nothing yet. Tick off a task on any quest and its bricks land here.') + '</p>';
+    var going = def.current && !B.complete && DAY === MAXDAY, next = B.complete && PLOT_TILE_AT && def === PROJECTS[PROJECTS.length - 1];
+    h += '<div class="actions">' + (going ? '<button type="button" class="btn ghost" data-change>Build something else</button>' : '') +
+      (next ? '<button type="button" class="btn ghost" data-open="/quests">Your quests</button><button type="button" class="btn dark" data-choose>Choose the next build</button>' : '<button type="button" class="btn dark" data-open="/quests">Your quests</button>') + '</div>';
+    sheet.innerHTML = h; uiDirty = true;
+  }
+  function renderArmy() {
+    var arrows = countBy(ARROW_DAYS, DAY), n = soldiersFor(arrows), bulls = countBy(BULL_DAYS, DAY), tier = TIERS[bowFor(bulls)], left = ARROWS_PER_SOLDIER - arrows % ARROWS_PER_SOLDIER;
+    var h = '<div class="sheet-head"><div><span class="eyebrow">The garrison · the plaza</span><h2>' + (n ? plural(n, 'soldier', 'soldiers') : 'No soldiers yet') + '</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
+    h += '<div class="chips"><span class="chip">' + plural(arrows, 'arrow loosed', 'arrows loosed') + '</span><span class="chip">' + tier.short + '</span></div>';
+    h += '<p class="note">Every ' + ARROWS_PER_SOLDIER + ' arrows you loose on The Mark train a soldier. ' + plural(left, 'more arrow trains', 'more arrows train') + ' the next one.</p>';
+    if (n > ARMY_N && ARMY_N) h += '<p class="note">' + ARMY_N + ' drill in the plaza at a time; the rest are on watch.</p>';
+    h += '<div class="detail"><h3>Their bows: ' + tier.name.toLowerCase() + '</h3><span class="sub">' + bowLine(bulls) + '</span>';
+    h += tier.verse ? '<p class="note serif">“' + esc(tier.verse.text) + '”</p><span class="sub">' + esc(tier.verse.cite) + '</span>' : '<p class="note">Your bullseyes upgrade every soldier\'s bow to the one you hold on The Mark.</p>';
+    h += '</div><div class="actions"><button type="button" class="btn dark" data-open="/ascent">Open The Range</button></div>';
+    sheet.innerHTML = h; uiDirty = true;
+  }
+  function renderFolk() {
+    var n = countBy(FOLK_DAYS, DAY);
+    var h = '<div class="sheet-head"><div><span class="eyebrow">The villagers</span><h2>' + (n ? plural(n, 'villager', 'villagers') : 'No villagers yet') + '</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
+    h += '<p class="note">Everyone you have done temple work for lives here. Each moved in on the day of their first ordinance. Tap someone on the map to meet them.</p>';
+    if (n > FOLK_N && FOLK_N) h += '<p class="note">' + FOLK_N + ' walk the lanes at a time; everyone is listed here.</p>';
+    if (n) {
+      h += '<div class="label">Newest first</div><div class="people">';
+      for (var i = n - 1; i >= 0; i--) {
+        var f = FOLK[i].v, meta = [f.lifespan, f.temple, monthLine(f.first)].filter(Boolean).map(esc).join(' · ');
+        h += '<div class="person"><b>' + esc(f.name) + '</b>' + (meta ? '<small>' + meta + '</small>' : '') + '</div>';
       }
-      if (P.campIds.length) h += '<button type="button" class="btn ghost" data-camp="' + esc(P.campIds[0]) + '">Open the camp</button>';
       h += '</div>';
     }
+    h += '<div class="actions"><button type="button" class="btn dark" data-open="/temple">Open the Temple</button></div>';
     sheet.innerHTML = h; uiDirty = true;
   }
   sheet.addEventListener('click', function (e) {
-    var t = e.target.closest('button'); if (!t) return;
+    var t = e.target.closest('button'); if (!t || t.disabled) return;
     if (t.hasAttribute('data-close')) { closeSheet(); return; }
     if (t.hasAttribute('data-part')) { selectPart(SEL.B.parts[+t.getAttribute('data-part')]); return; }
-    if (t.hasAttribute('data-camp')) { api.open('/ascent/camp/' + t.getAttribute('data-camp')); return; }
-    if (t.hasAttribute('data-step')) {
-      var st = SHOWN[+t.getAttribute('data-step')], P = SEL.part; if (!st || !P) return;
-      var was = st.done_on, before = P.owner.n;
-      st.done_on = was ? null : data.today; st._d = stepDay(st);
-      applyDay(MAXDAY, true, true);
-      var diff = P.owner.n - before;
-      haptic(was ? 'tap' : 'success');
-      toast(diff > 0 ? '+' + diff + ' bricks on the ' + P.name : diff < 0 ? -diff + ' bricks taken back off' : was ? 'Step opened again' : 'Step done', diff > 0);
-      api.toggleStep(st, st.done_on).catch(function () {
-        st.done_on = was; st._d = stepDay(st);
-        applyDay(MAXDAY, false, true);
-        toast('Couldn\'t save that step. Try again.');
-      });
-    }
+    if (t.hasAttribute('data-quest')) { api.open('/quests/' + t.getAttribute('data-quest')); return; }
+    if (t.hasAttribute('data-open')) { api.open(t.getAttribute('data-open')); return; }
+    if (t.hasAttribute('data-change')) { openChoose('change'); return; }
+    if (t.hasAttribute('data-choose')) { openChoose('new'); return; }
   });
   var toastT = null;
   // the swatch is a brick: orange when the message is about stones laid today
-  function toast(msg, today) {
+  function toast(msg, today, ms) {
+    if (SOLO) return;
     var el = $('toast'); el.innerHTML = '<i' + (today ? ' class="today"' : '') + '></i><span></span>'; el.lastChild.textContent = msg; el.hidden = false;
     placeToast(); uiDirty = true;
-    clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; uiDirty = true; }, 2200);
+    clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; uiDirty = true; }, ms || 2200);
   }
   // under the title card; on a phone with a sheet open, just above the sheet (clear of the building in focus);
   // on a wide screen with a panel open, centred in the drawing left of it
@@ -2040,72 +2533,85 @@ export function mountVillage(host, data, api) {
     el.style.left = left + 'px'; el.style.top = top + 'px'; el.style.maxWidth = maxW;
   }
 
-  // ---------------------------------------------------------------- Generate project
-  function genOptions() {
-    var q = WAITING[PLOT.q];
-    PLOT.opts = q.steps ? buildOptions(q.id, q.steps, PLOT.roll).map(function (o) {
-      var b = new Builder(o.seed); GEN[o.kind](b);
-      var parts = b.parts.filter(function (p) { return !p.hidden; });
-      return { kind: o.kind, seed: o.seed, steps: q.steps, units: parts.reduce(function (s, p) { return s + p.units; }, 0), parts: parts.map(function (p) { return p.name; }) };
-    }) : [];
+  // ---------------------------------------------------------------- Choose a build
+  // the first build offered: the smallest he hasn't built yet
+  function firstChoice() {
+    var have = {}; PROJECTS.forEach(function (q) { have[q.kind] = true; });
+    var c = CATALOG.filter(function (x) { return !have[x.kind]; })[0];
+    return (c || CATALOG[0]).kind;
   }
-  function openGen() {
-    if (SEL.B) closeSheet(true);
+  function openChoose(mode) {
+    mode = mode === 'change' ? 'change' : 'new';
+    if (mode === 'change' ? !CURRENT : !PLOT_TILE_AT) return;
+    if (SEL.view) closeSheet(true);
     stop();
-    GEN_OPEN = true; PLOT.sel = 0;
-    if (!PLOT.opts.length) genOptions();
+    if (DAY !== MAXDAY) applyDay(MAXDAY, false);
+    CH.mode = mode; CH.busy = false; CH.kind = firstChoice(); CH.roll = 0;
+    GEN_OPEN = true;
+    if (mode === 'change') CURRENT.B.hidden = true;
     $('dock').hidden = true; gen.hidden = false;
     renderGen();
     previewOpt();
     gen.scrollTop = 0;
   }
   function previewOpt() {
-    var o = PLOT.opts[PLOT.sel];
-    PLOT.preview = o ? { kind: o.kind, seed: o.seed, steps: o.steps } : null;
+    var c = buildOf(CH.kind);
+    PLOT.preview = { kind: c.kind, seed: seedFor(c.kind, CH.roll), need: c.need };
     rebuildPlot();
     requestAnimationFrame(focusPlot);
   }
   function focusPlot() {
+    var tile = chooseTile();
     if (PLOT_B) focus(new T.Vector3(PLOT_B.center.x, PLOT_B.top, PLOT_B.center.z), Math.max(10, PLOT_B.radius * 1.05));
-    else if (PLOT_TILE_AT) focus(new T.Vector3(PLOT_TILE_AT[0] * TILE, 2, PLOT_TILE_AT[1] * TILE), 26);
+    else if (tile) focus(new T.Vector3(tile[0] * TILE, 2, tile[1] * TILE), 26);
   }
   function closeGen(silent) {
     GEN_OPEN = false; gen.hidden = true; $('dock').hidden = false; uiDirty = true;
-    if (PLOT.preview) { PLOT.preview = null; rebuildPlot(); }
+    if (CURRENT && CURRENT.B) CURRENT.B.hidden = false;
+    PLOT.preview = null; rebuildPlot();
     if (!silent) requestAnimationFrame(function () { if (!userCam) fitVillage(); else frameOffset(); });
   }
   function renderGen() {
-    var q = WAITING[PLOT.q];
-    var h = '<div class="sheet-head"><div><span class="eyebrow">Generate project · Plot ' + gridRef(PLOT_TILE_AT) + '</span><h2>What will this quest build?</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
-    if (WAITING.length > 1) h += '<div class="label">Quest</div><div class="seg" role="group" aria-label="Quest">' + WAITING.map(function (w, i) { return '<button type="button" data-q="' + i + '" aria-pressed="' + (i === PLOT.q) + '">' + esc(shortName(w.name)) + '</button>'; }).join('') + '</div>';
-    h += '<p class="note serif">' + esc(q.name) + '</p>';
-    if (!q.steps) {
-      h += '<p class="note">Its camps don\'t have steps yet. Lay out its steps first, by hand or from a plan, and the three builds will be sized to fit them. Each camp becomes one part.</p>';
-      h += '<div class="actions"><button type="button" class="btn ghost" data-plans>Plans</button><button type="button" class="btn dark" data-camp="' + esc(q.camps[0].id) + '">Add steps</button></div>';
-    } else {
-      h += '<p class="note">' + bandLine(q.steps) + ' Each of its ' + plural(q.camps.length, 'camp', 'camps') + ' builds one part.</p><div class="opts">';
-      PLOT.opts.forEach(function (o, i) {
-        var k = KIND[o.kind];
-        h += '<button type="button" class="opt" data-opt="' + i + '" aria-pressed="' + (i === PLOT.sel) + '"><span class="dot"></span><b>' + k.name + '</b><span>' + k.line + '</span><em>' + o.parts.length + ' parts · ' + fmt(o.units) + ' bricks · about ' + Math.max(1, Math.round(o.units / o.steps)) + ' a step</em></button>';
+    var change = CH.mode === 'change', done = change ? tasksBy(CURRENT.B, MAXDAY) : 0, was = change ? CURRENT.name.toLowerCase() : '';
+    var h = '<div class="sheet-head"><div><span class="eyebrow">' + (change ? 'Build something else' : 'Choose a build') + ' · ' + plotNo(change ? CURRENT.plot : data.nextPlot) + '</span><h2>' + (change ? 'What will you build instead?' : 'What will you build next?') + '</h2></div><button class="close" type="button" data-close aria-label="Close">' + X + '</button></div>';
+    h += '<p class="note">' + (!change ? 'Every task you finish, on any quest or lesson, lays its bricks here until it stands. Then you choose the next.'
+      : done ? 'The ' + plural(done, 'task', 'tasks') + ' already laid on the ' + esc(was) + ' carry over to the new build.' : 'Nothing is laid on the ' + esc(was) + ' yet, so nothing is lost.') + '</p>';
+    SIZES.forEach(function (s) {
+      h += '<div class="label size">' + s.label + '<span>' + s.line + '</span></div><div class="opts">';
+      CATALOG.forEach(function (c) {
+        if (c.size !== s.key) return;
+        var tags = [plural(c.need, 'task', 'tasks')];
+        if (change && c.kind === CURRENT.kind) tags.push('building now');
+        else if (change && done >= c.need) tags.push('stands at once');
+        h += '<button type="button" class="opt" data-kind="' + c.kind + '" aria-pressed="' + (c.kind === CH.kind) + '"><span class="dot"></span><b>' + c.name + '</b><span>' + c.line + '</span><em>' + tags.join(' · ') + '</em></button>';
       });
-      h += '</div><div class="actions"><button type="button" class="btn ghost" data-again' + (PLOT.busy ? ' disabled' : '') + '>Generate again</button><button type="button" class="btn dark" data-build' + (PLOT.busy ? ' disabled' : '') + '>' + (PLOT.busy ? 'Building…' : 'Build this') + '</button></div>';
-    }
+      h += '</div>';
+    });
+    h += '<div class="actions"><button type="button" class="btn ghost" data-again>Another look</button><button type="button" class="btn dark" data-build>' + (change ? 'Build this instead' : 'Build this') + '</button></div>';
     gen.innerHTML = h; uiDirty = true;
   }
+  function setBusy(on) {
+    CH.busy = on;
+    var a = gen.querySelector('[data-again]'), b = gen.querySelector('[data-build]');
+    if (a) a.disabled = on;
+    if (b) { b.disabled = on; b.textContent = on ? 'Saving…' : CH.mode === 'change' ? 'Build this instead' : 'Build this'; }
+  }
   gen.addEventListener('click', function (e) {
-    var t = e.target.closest('button'); if (!t || t.disabled) return;
+    var t = e.target.closest('button'); if (!t || t.disabled || CH.busy) return;
     if (t.hasAttribute('data-close')) { closeGen(); return; }
-    if (t.hasAttribute('data-plans')) { api.open('/ascent/plans'); return; }
-    if (t.hasAttribute('data-camp')) { api.open('/ascent/camp/' + t.getAttribute('data-camp')); return; }
-    if (t.hasAttribute('data-q')) { PLOT.q = +t.getAttribute('data-q'); PLOT.roll = 0; PLOT.sel = 0; genOptions(); previewOpt(); renderGen(); return; }
-    if (t.hasAttribute('data-opt')) { PLOT.sel = +t.getAttribute('data-opt'); previewOpt(); renderGen(); return; }
-    if (t.hasAttribute('data-again')) { PLOT.roll++; PLOT.sel = 0; genOptions(); previewOpt(); renderGen(); return; }
+    if (t.hasAttribute('data-kind')) {
+      CH.kind = t.getAttribute('data-kind'); CH.roll = 0;
+      Array.prototype.forEach.call(gen.querySelectorAll('.opt'), function (o) { o.setAttribute('aria-pressed', String(o === t)); });
+      previewOpt(); return;
+    }
+    if (t.hasAttribute('data-again')) { CH.roll++; previewOpt(); return; }
     if (t.hasAttribute('data-build')) {
-      var o = PLOT.opts[PLOT.sel], q = WAITING[PLOT.q];
-      PLOT.busy = true; renderGen(); haptic('success');
-      api.build({ quest_id: q.id, kind: o.kind, seed: o.seed, plot: data.nextPlot }).catch(function () {
+      var o = PLOT.preview; if (!o) return;
+      setBusy(true); haptic('success');
+      var save = CH.mode === 'change' ? api.change(CURRENT.id, { kind: o.kind, seed: o.seed, need: o.need }) : api.build({ kind: o.kind, seed: o.seed, plot: data.nextPlot, need: o.need });
+      Promise.resolve(save).catch(function () {
         if (dead) return;
-        PLOT.busy = false; renderGen();
+        setBusy(false);
         toast('Couldn\'t save that build. Try again.');
       });
     }
@@ -2118,6 +2624,8 @@ export function mountVillage(host, data, api) {
   var camWas = [0, 0, 0], rdtLast = performance.now();
   function frame(now) {
     var dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (SOLO && !VISIBLE) { raf = requestAnimationFrame(frame); return; }
+    if (SOLO && !REDUCED) goal.th += dt * 0.15;
     if (hintT === null) hintT = setTimeout(interacted, 7000);
     if (playing) {
       playPos = Math.min(1000, playPos + dt * 1000 / PLAY_SECS);
@@ -2128,7 +2636,7 @@ export function mountVillage(host, data, api) {
     }
     var k = 1 - Math.exp(-dt * 5);
     ['th', 'ph', 'dist', 'tx', 'ty', 'tz', 'ox', 'oy'].forEach(function (key) { view[key] += (goal[key] - view[key]) * k; });
-    placeCamera();
+    placeCamera(now);
     camera.updateMatrixWorld();
     // screen-space hatching shimmers while the view turns, so it eases off while moving and back in ~250 ms at rest
     var rdt = Math.min(1, (now - rdtLast) / 1000); rdtLast = now;
@@ -2155,8 +2663,8 @@ export function mountVillage(host, data, api) {
       if (Tl.decor && Tl.decorAt && now >= Tl.decorAt) { Tl.decorAt = null; setCount(Tl.decor, Tl.present ? 1 : 0, true); }
       if (Tl.rise === null) return;
       var t = (now - Tl.rise) / 650;
-      if (t >= 1) { Tl.mesh.position.y = -DEPTH / 2; Tl.rise = null; }
-      else Tl.mesh.position.y = -DEPTH / 2 - 16 * (1 - ease(Math.max(0, t)));
+      if (t >= 1) { Tl.mesh.position.y = Tl.y0; Tl.rise = null; }
+      else Tl.mesh.position.y = Tl.y0 - 16 * (1 - ease(Math.max(0, t)));
     });
     var secs = now / 1000;
     if (!REDUCED) {
@@ -2187,19 +2695,47 @@ export function mountVillage(host, data, api) {
       _b.makeScale(sc / 0.4, sc / 0.4, sc / 0.4); _a.multiply(_b);
       setM(pool, pc.idx, _a);
     }
-    // soldiers walk laps around the plaza
-    var lanes = [[4.0, 14], [5.25, 18], [6.2, 16]], n = GARRISON.n;
-    for (i = 0; i < GARRISON.list.length; i++) {
-      pc = GARRISON.list[i]; var s = pc.fl.walk; if (s >= n) continue;
-      var lane = s < 14 ? 0 : s < 32 ? 1 : 2, idx = lane === 0 ? s : lane === 1 ? s - 14 : s - 32, L = lanes[lane];
-      var dir = lane === 1 ? -1 : 1, a = (REDUCED ? 0 : secs * 0.1 * dir) - dir * idx * (Math.PI * 2 / L[1]) + lane * 0.4;
-      var x = Math.cos(a) * L[0], z = Math.sin(a) * L[0], yaw = Math.atan2(-Math.sin(a) * dir, Math.cos(a) * dir);
-      var bob = REDUCED ? 0 : Math.abs(Math.sin(secs * 6 + s)) * 0.06;
-      _q.setFromAxisAngle(UP, yaw); _v3.set(pc.fl.off[0], pc.fl.off[1] + bob, pc.fl.off[2]).applyQuaternion(_q);
-      _p.set(x + _v3.x, _v3.y, z + _v3.z); _s.set(pc.sx, pc.sy, pc.sz);
-      if (pc.q) _q.multiply(pc.q);
-      _a.compose(_p, _q, _s);
-      setM(POOLS[pc.g], pc.idx, _a);
+    // soldiers march laps around the plaza, every lane at the same pace, alternate lanes the other way round
+    if (GARRISON) {
+      var ns = GARRISON.n, lastS = -1, sx = 0, sz = 0, syaw = 0, sbob = 0;
+      for (i = 0; i < GARRISON.list.length; i++) {
+        pc = GARRISON.list[i]; var s = pc.fl.walk; if (s >= ns) continue;
+        if (s !== lastS) {
+          lastS = s;
+          var lo = LANE_OF[s], L = LANES[lo[0]], dir = lo[0] % 2 ? -1 : 1;
+          var a = (REDUCED ? 0 : secs * 0.4 / L[0] * dir) - dir * lo[1] * (Math.PI * 2 / L[1]) + lo[0] * 0.4;
+          sx = Math.cos(a) * L[0]; sz = Math.sin(a) * L[0]; syaw = Math.atan2(-Math.sin(a) * dir, Math.cos(a) * dir);
+          sbob = REDUCED ? 0 : Math.abs(Math.sin(secs * 6 + s)) * 0.06;
+          SPOS[s * 2] = sx; SPOS[s * 2 + 1] = sz;
+        }
+        _q.setFromAxisAngle(UP, syaw); _v3.set(pc.fl.off[0], pc.fl.off[1] + sbob, pc.fl.off[2]).applyQuaternion(_q);
+        _p.set(sx + _v3.x, _v3.y, sz + _v3.z); _s.set(pc.sx, pc.sy, pc.sz);
+        if (pc.q) _q.multiply(pc.q);
+        _a.compose(_p, _q, _s);
+        setM(POOLS[pc.g], pc.idx, _a);
+      }
+    }
+    // villagers stroll the lanes along the edges of the plots, on three paths a lane, some one way and some the other
+    if (FOLKO && PRESENT.length) {
+      var nv = FOLKO.n, lastV = -1, fx = 0, fz = 0, fyaw = 0, fbob = 0;
+      for (i = 0; i < FOLKO.list.length; i++) {
+        pc = FOLKO.list[i]; var v = pc.fl.folk; if (v >= nv) continue;
+        if (v !== lastV) {
+          lastV = v;
+          var Tl = PRESENT[v % PRESENT.length], hh = 12.7 + (v % 3) * 0.45, per = 8 * hh, fd = v % 2 ? 1 : -1;
+          var ps = ((v * 37.7) % per + (REDUCED ? 0 : secs * 0.5 * fd)) % per; if (ps < 0) ps += per;
+          var ed = Math.min(3, Math.floor(ps / (2 * hh))), et = ps - ed * 2 * hh - hh, lx, lz, ux, uz;
+          if (ed === 0) { lx = et; lz = -hh; ux = 1; uz = 0; } else if (ed === 1) { lx = hh; lz = et; ux = 0; uz = 1; } else if (ed === 2) { lx = -et; lz = hh; ux = -1; uz = 0; } else { lx = -hh; lz = -et; ux = 0; uz = -1; }
+          fx = Tl.tile[0] * TILE + lx; fz = Tl.tile[1] * TILE + lz; fyaw = Math.atan2(ux * fd, uz * fd);
+          fbob = REDUCED ? 0 : Math.abs(Math.sin(secs * 5 + v * 1.7)) * 0.05;
+          FPOS[v * 2] = fx; FPOS[v * 2 + 1] = fz;
+        }
+        _q.setFromAxisAngle(UP, fyaw); _v3.set(pc.fl.off[0], pc.fl.off[1] + fbob, pc.fl.off[2]).applyQuaternion(_q);
+        _p.set(fx + _v3.x, _v3.y, fz + _v3.z); _s.set(pc.sx, pc.sy, pc.sz);
+        if (pc.q) _q.multiply(pc.q);
+        _a.compose(_p, _q, _s);
+        setM(POOLS[pc.g], pc.idx, _a);
+      }
     }
     Object.keys(POOLS).forEach(function (g) {
       var P = POOLS[g];
@@ -2210,32 +2746,57 @@ export function mountVillage(host, data, api) {
     });
     syncTileHull();
     renderer.render(scene, camera);
-    placeLabels(now);
+    if (!SOLO) placeLabels(now);
     raf = requestAnimationFrame(frame);
   }
 
   // ---------------------------------------------------------------- start
-  var raf = 0, dead = false;
-  window.addEventListener('resize', resize);
+  var raf = 0, dead = false, ro = null, io = null, VISIBLE = true;
+  if (SOLO && window.ResizeObserver) { ro = new ResizeObserver(function () { if (!dead) resize(); }); ro.observe(host); }
+  else window.addEventListener('resize', resize);
+  // the floating build rests while it's scrolled out of sight
+  if (SOLO && window.IntersectionObserver) { io = new IntersectionObserver(function (es) { VISIBLE = es[es.length - 1].isIntersecting; }); io.observe(host); }
   $('leave').addEventListener('click', function () { api.close(); });
+  $('armybtn').addEventListener('click', openArmy);
+  $('folkbtn').addEventListener('click', openFolk);
   // the app's tap haptic listens on the page, which can't see into the village, so it plays from here
   root.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('button')) haptic('tap'); });
   rebuildPlot();
   resize();
   applyDay(MAXDAY, false, true);
-  fitVillage();
-  ['th', 'ph', 'dist', 'tx', 'ty', 'tz', 'ox', 'oy'].forEach(function (key) { view[key] = goal[key]; });
+  if (SOLO) soloFit(); else fitVillage();
+  snapView();
   raf = requestAnimationFrame(frame);
-  if (data.focus) { var fb = BUILDINGS.filter(function (B) { return B.def.id === data.focus; })[0]; if (fb) { openBuilding(fb); toast(KIND[fb.kind].name + ' it is. Its plot is staked out.'); } }
+  if (data.focus) {
+    var fb = BUILDINGS.filter(function (B) { return B.def.id === data.focus; })[0];
+    if (fb) { openBuilding(fb); toast(buildOf(fb.kind).name + ' it is. Every task you finish lays its bricks here.', false, 3200); }
+  } else if (data.open) {
+    var ob = BUILDINGS.filter(function (B) { return B.def.id === data.open; })[0];
+    if (ob) openBuilding(ob);
+  } else if (data.choose === 'change') openChoose('change');
+  else if (data.choose) openChoose('new');
+
+  // the floating build, as tasks are ticked on the quest list: `done` tasks laid on it, `today` of them today
+  function setDone(done, today) {
+    var B = BUILDINGS[0]; if (!B || dead) return;
+    done = Math.max(0, done | 0); today = clamp(today | 0, 0, done);
+    var days = [];
+    for (var i = 0; i < done; i++) days.push(i < done - today ? Math.max(0, MAXDAY - 1) : MAXDAY);
+    B.def.days = days;
+    applyDay(MAXDAY, true, false);
+  }
 
   // for the page's own checks: the camera, the day and the buildings
-  host.__village = { renderer: renderer, scene: scene, camera: camera, snap: function () { ['th', 'ph', 'dist', 'tx', 'ty', 'tz', 'ox', 'oy'].forEach(function (k) { view[k] = goal[k]; }); }, applyDay: applyDay, openBuilding: openBuilding, openGen: openGen, BUILDINGS: BUILDINGS, goal: goal, view: view, POOLS: POOLS, get DAY() { return DAY; } };
+  host.__village = { renderer: renderer, scene: scene, camera: camera, snap: snapView, applyDay: applyDay, openBuilding: openBuilding, openChoose: openChoose, openArmy: openArmy, openFolk: openFolk, meet: meet, setDone: setDone, BUILDINGS: BUILDINGS, goal: goal, view: view, POOLS: POOLS, FPOS: FPOS, SPOS: SPOS, get DAY() { return DAY; } };
 
   return {
+    setDone: setDone,
     destroy: function () {
       dead = true;
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
+      if (ro) ro.disconnect();
+      if (io) io.disconnect();
       clearTimeout(hintT); clearTimeout(toastT);
       scene.traverse(function (o) {
         if (o.geometry) o.geometry.dispose();

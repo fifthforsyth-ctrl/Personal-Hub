@@ -22,6 +22,7 @@ import {
   Landmark,
   AlarmClock,
   Castle,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -62,6 +63,7 @@ export const MORE = [
   { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
   { to: "/overview", label: "Big picture", Icon: Compass },
   { to: "/ascent", label: "The Range", Icon: Target },
+  { to: "/quests", label: "Quests", Icon: ListChecks },
   { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/wake", label: "Wake watch", Icon: AlarmClock },

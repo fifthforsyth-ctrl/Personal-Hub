@@ -19,6 +19,7 @@ const TITLES = [
   ["/work", "Work"],
   ["/money", "Money"],
   ["/ascent", "Ascent"],
+  ["/quests", "Quests"],
   ["/village", "Village"],
   ["/tree", "Goal wheel"],
   ["/reflect", "Charts"],

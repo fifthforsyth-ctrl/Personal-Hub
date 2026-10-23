@@ -9,7 +9,8 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
-import { bandFor, bandLine, buildOptions, layout, tileOf, freePlot, assignCamps, dayIndex, villageOf, shortName } from "../src/lib/village.js";
+import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
+import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
 import {
   buildCamp,
   campProgress,
@@ -1810,62 +1811,133 @@ console.log("\nthe mark");
 
 // --- Village ------------------------------------------------------------------
 {
-  ok("under 20 steps is a small build", bandFor(0) === 0 && bandFor(19) === 0 && bandFor(20) === 1 && bandFor(79) === 1 && bandFor(80) === 2 && bandFor(260) === 2);
-  ok("the band line reads", bandLine(260) === "260 steps is a big quest, so it gets a big build." && bandLine(48) === "48 steps is a middle-sized quest. These three fit it.");
-  const a = buildOptions("q1", 260, 0), a2 = buildOptions("q1", 260, 0), b = buildOptions("q1", 260, 1);
-  ok("three builds, the same for the same roll", a.length === 3 && JSON.stringify(a) === JSON.stringify(a2) && a.map((o) => o.kind).sort().join() === "farmstead,fortress,warcamp");
-  ok("Generate again changes the variations", JSON.stringify(a) !== JSON.stringify(b) && b.every((o) => o.seed > 0));
-  ok("small quests get four kinds in turn", new Set([0, 1, 2, 3].flatMap((r) => buildOptions("q", 5, r).map((o) => o.kind))).size === 4);
+  ok("twenty builds, smallest first within each size", CATALOG.length === 20 && SIZES.every((z) => { const n = CATALOG.filter((c) => c.size === z.key).map((c) => c.need); return n.length && n.every((x, i) => !i || x >= n[i - 1]); }));
+  ok("the sword armory takes 40 tasks and the fortress 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("fortress").need === 150);
+  ok("an unknown kind still has a name", buildOf("zeppelin").name === "Build" && buildOf("zeppelin").need > 0);
+  ok("Another look gives a new variation, the same each time", seedFor("chapel", 0) === seedFor("chapel", 0) && seedFor("chapel", 0) !== seedFor("chapel", 1) && seedFor("chapel", 3) > 0);
+  ok("every 5 arrows trains a soldier", soldiersFor(0) === 0 && soldiersFor(4) === 0 && soldiersFor(5) === 1 && soldiersFor(124) === 24);
+  ok("their bows are The Mark's", bowFor(0) === tierOf(0) && bowFor(30) === tierOf(30) && bowFor(30) !== bowFor(0) && bowFor(180) === tierOf(180));
   ok("plots start beside the plaza", JSON.stringify(tileOf(0)) === "[0,-1]" && JSON.stringify(tileOf(3)) === "[0,1]");
   const big = layout(60), seen = new Set();
   for (const t of [...big.plots.map((p) => p.tile), ...big.nature.map((n) => n.tile), [0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]]) seen.add(t.join());
   ok("the village grows forever without two things on one plot", big.plots.length === 60 && seen.size === big.plots.length + big.nature.length + 5);
   ok("the first free plot fills gaps", freePlot([{ plot: 0 }, { plot: 2 }]) === 1 && freePlot([]) === 0);
-  const camps = (n, steps) => Array.from({ length: n }, (_, i) => ({ id: "c" + i, title: "Camp " + i, steps: Array.from({ length: steps }, (_, k) => ({ id: i + "-" + k })) }));
-  const five = assignCamps(camps(5, 52), [1, 1, 1, 1, 1].map((u) => ({ units: u * 40 })));
-  ok("five camps, five parts: one each, in order", five.map((p) => p.title).join() === "Camp 0,Camp 1,Camp 2,Camp 3,Camp 4" && five.every((p) => p.steps.length === 52));
-  const few = assignCamps(camps(2, 10), [{ units: 10 }, { units: 30 }, { units: 20 }, { units: 40 }]);
-  ok("fewer camps: each builds neighbouring parts, its steps shared by size", few.map((p) => p.camps.join()).join("|") === "c0|c0|c1|c1" && few[0].steps.length + few[1].steps.length === 10 && few[1].steps.length > few[0].steps.length && few[3].steps.length === 7);
-  const many = assignCamps(camps(7, 3), [{ units: 1 }, { units: 1 }, { units: 1 }]);
-  ok("more camps: neighbours share a part, none left out", many.flatMap((p) => p.camps).join() === "c0,c1,c2,c3,c4,c5,c6" && many[0].title === "Camp 0 + Camp 1");
-  ok("no camps, no steps anywhere", assignCamps([], [{ units: 4 }]).every((p) => !p.steps.length && !p.camps.length));
   ok("day index counts calendar days", dayIndex("2026-10-22", "2026-10-15") === 7 && dayIndex("2026-11-02", "2026-10-31") === 2);
   ok("short names", shortName("Build the best Premiere Pro plugin") === "Plugin" && shortName("More integrity") === "More integrity" && shortName("Future quest number 15") === "Future quest");
-  const v = villageOf(
-    {
-      quests: [
-        { id: "q1", title: "Build the best Premiere Pro plugin", goal_id: "g1", status: "on" },
-        { id: "q2", title: "Old one", status: "set_aside" },
-        { id: "lq", title: "x", lesson_id: "l1", status: "on" },
-      ],
-      camps: [
-        { id: "c1", quest_id: "q1", title: "Sift tab", position: 0 },
-        { id: "c2", quest_id: "q1", title: "Multicam tab", position: 1 },
-        { id: "c3", quest_id: "lq", title: "Tell the truth", position: 0 },
-        { id: "c4", quest_id: "q2", title: "Old camp", position: 0 },
-      ],
-      sections: [{ id: "s1", camp_id: "c1", position: 0 }, { id: "s2", camp_id: "c1", position: 1 }],
-      steps: [
-        { id: "a", camp_id: "c1", section_id: "s2", text: "late", position: 0, done_on: null },
-        { id: "b", camp_id: "c1", section_id: "s1", text: "early", position: 1, done_on: "2026-10-20" },
-        { id: "c", camp_id: "c1", section_id: null, text: "loose", position: 5, done_on: "2026-10-30" },
-        { id: "d", camp_id: "c3", text: "one", position: 0, done_on: null },
-      ],
-      builds: [{ quest_id: "q1", kind: "fortress", seed: 3, plot: 0, created_at: "2026-10-21T18:00:00Z" }],
-      lessons: [{ id: "l1", title: "More integrity" }],
-      goals: [{ id: "g1", title: "Highly skilled" }],
-      bullseyes: ["2026-10-19", "2026-10-22", "2026-10-25"],
-    },
-    "2026-10-22",
-    () => "2026-10-21"
+
+  const units = finishedUnits({
+    tasks: [
+      { id: "t2", quest_id: "q1", kind: "task", text: "later", done_on: "2026-10-22", done_at: "2026-10-22T18:00:00Z" },
+      { id: "t1", quest_id: "q1", kind: "task", text: "earlier", done_on: "2026-10-22", done_at: "2026-10-22T09:00:00Z" },
+      { id: "t3", quest_id: "q1", kind: "task", text: "open", done_on: null },
+      { id: "n1", quest_id: "q1", kind: "note", text: "a note", done_on: "2026-10-22" },
+    ],
+    steps: [{ id: "s1", camp_id: "c1", text: "a camp step", done_on: "2026-10-21", updated_at: "2026-10-21T10:00:00Z" }],
+    camps: [{ id: "c1", quest_id: "q2" }],
+  });
+  ok("finished tasks and camp steps lay bricks, in the order they were done", units.map((u) => u.id).join() === "s1,t1,t2");
+  ok("a camp step counts for its quest", units[0].src === "step" && units[0].questId === "q2" && units[1].src === "task");
+
+  const u = (id, day) => ({ id, day, at: day + "T12:00:00Z" });
+  const al = allocate(
+    [
+      { id: "b", kind: "well", need: 2, started_on: "2026-10-20", created_at: "2026-10-20T10:00:00Z" },
+      { id: "a", kind: "garden", need: 3, started_on: "2026-10-10", created_at: "2026-10-10T10:00:00Z" },
+    ],
+    [u("1", "2026-10-05"), u("2", "2026-10-11"), u("3", "2026-10-12"), u("4", "2026-10-13"), u("5", "2026-10-21"), u("6", "2026-10-22")]
   );
-  ok("a build carries its camps and steps in camp order", v.builds.length === 1 && v.builds[0].camps.map((c) => c.id).join() === "c1,c2" && v.builds[0].camps[0].steps.map((s) => s.id).join() === "c,b,a");
-  ok("its goal and plot come along", v.builds[0].goal === "Highly skilled" && v.builds[0].plot === 0 && v.builds[0].made === "2026-10-21");
-  ok("only quests still on wait for a build, under a lesson's name", v.waiting.map((w) => w.name).join() === "More integrity" && v.waiting[0].type === "Lesson" && v.waiting[0].steps === 1);
-  ok("the first day is the first thing that happened (a bullseye here)", v.day0 === "2026-10-19" && v.days === 3);
-  ok("bullseyes after today don't count yet", v.bullseyes.length === 2 && v.nextPlot === 1);
-  const empty = villageOf({ quests: [], camps: [], steps: [], builds: [] }, "2026-10-22", () => null);
-  ok("an empty village starts a week back", empty.day0 === "2026-10-15" && empty.days === 7 && empty.waiting.length === 0);
+  ok("builds take tasks in the order they were chosen", al.projects.map((p) => p.id).join() === "a,b" && al.projects[0].items.map((i) => i.id).join() === "1,2,3");
+  ok("a task finished before a build was chosen lays its bricks the day it was", al.projects[0].items[0].laid === "2026-10-10" && al.projects[1].items[0].laid === "2026-10-20");
+  ok("both stand, and the extra task waits for the next build", al.current === -1 && al.projects.every((p) => p.complete) && al.waiting.map((w) => w.id).join() === "6" && al.projects[1].finishedOn === "2026-10-21");
+  const going = allocate([{ id: "a", kind: "garden", need: 3, started_on: "2026-10-10" }], [u("1", "2026-10-11")]);
+  ok("a build still short of its tasks is the one going up", going.current === 0 && going.projects[0].done === 1 && !going.projects[0].complete && !going.waiting.length);
+
+  const people = villagersOf([
+    { pid: "B", name: "Ben", ordinances: [{ date: "2025-03-01", temple: "Provo" }, { date: "2024-12-01", temple: "Mount Timpanogos" }] },
+    { pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] },
+    { pid: "C", name: "Cy", ordinances: [] },
+  ]);
+  ok("villagers arrive on their first ordinance, earliest first", people.map((p) => p.pid).join() === "B,A,C" && people[0].first === "2024-12-01" && people[0].temple === "Mount Timpanogos" && people[2].first === null);
+
+  const raw = {
+    projects: [
+      { id: "p0", kind: "windmill", seed: 3, plot: 0, need: 3, started_on: "2026-10-20" },
+      { id: "p1", kind: "well", seed: 9, plot: 1, need: 4, started_on: "2026-10-22" },
+      { id: "p9", kind: "chapel", seed: 1, plot: 2, need: 4, started_on: "2026-11-01" },
+    ],
+    tasks: [
+      { id: "t1", quest_id: "q1", kind: "task", text: "one", done_on: "2026-10-20", done_at: "2026-10-20T09:00:00Z" },
+      { id: "t2", quest_id: "lq", kind: "task", text: "two", done_on: "2026-10-21", done_at: "2026-10-21T09:00:00Z" },
+      { id: "t3", quest_id: "q1", kind: "task", text: "three", done_on: "2026-10-21", done_at: "2026-10-21T10:00:00Z" },
+      { id: "t4", quest_id: "q1", kind: "task", text: "four", done_on: "2026-10-22", done_at: "2026-10-22T10:00:00Z" },
+      { id: "t5", quest_id: "q1", kind: "task", text: "tomorrow", done_on: "2026-10-23", done_at: "2026-10-23T10:00:00Z" },
+    ],
+    steps: [],
+    camps: [],
+    quests: [{ id: "q1", title: "Build the best Premiere Pro plugin" }, { id: "lq", title: "x", lesson_id: "l1" }],
+    lessons: [{ id: "l1", title: "More integrity" }],
+    shots: [{ date: "2026-10-19", level: 0 }, { date: "2026-10-21", level: 2 }, { date: "2026-10-30", level: 0 }],
+    temple: [{ pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] }, { pid: "B", name: "Ben", ordinances: [{ date: "2026-10-21", temple: "Provo" }] }],
+  };
+  const v = villageOf(raw, "2026-10-22");
+  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill");
+  ok("the windmill stood on its third task, the well is going up", v.projects[0].complete && v.projects[0].finishedOn === "2026-10-21" && v.current === 1 && v.projects[1].done === 1 && v.waiting === 0);
+  ok("each brick knows its quest, a lesson's by the lesson's name", v.projects[0].items[1].quest === "More integrity" && v.projects[0].items[0].quest === "Build the best Premiere Pro plugin");
+  ok("tasks and arrows after today don't count yet", v.arrows.length === 2 && v.bullseyes.length === 1 && v.projects[1].items.every((i) => i.day <= "2026-10-22"));
+  ok("the first day is the first thing that happened (an arrow here)", v.day0 === "2026-10-19" && v.days === 3 && v.nextPlot === 2);
+  ok("villagers from before the village arrive on its first day", v.villagers.map((x) => x.arrive).join() === "2026-10-19,2026-10-21");
+  const st = standingOf(raw.projects, finishedUnits(raw), "2026-10-22");
+  ok("where it stands: the well, 1 of 4, 3 left, 1 today", st.project.id === "p1" && st.done === 1 && st.need === 4 && st.left === 3 && st.today === 1 && st.standing === 1);
+  const none = standingOf([raw.projects[0]], finishedUnits(raw), "2026-10-22");
+  ok("nothing going up: the finished tasks wait for a build", none.project === null && none.waiting === 1 && none.standing === 1 && none.last.id === "p0");
+  const empty = villageOf({}, "2026-10-22");
+  ok("an empty village starts a week back", empty.day0 === "2026-10-15" && empty.days === 7 && empty.current === -1 && empty.nextPlot === 0 && !empty.villagers.length);
+}
+
+// --- Quest lists ------------------------------------------------------------------
+{
+  const T = "2026-10-23";
+  const rows = [
+    { id: "a", day: "2026-10-21", kind: "task", text: "old", position: 0, done_on: null },
+    { id: "b", day: T, kind: "task", text: "second", position: 1, done_on: T },
+    { id: "c", day: T, kind: "task", text: "first", position: 0, done_on: null },
+    { id: "s1", day: T, parent_id: "c", kind: "task", text: "sub", position: 0, done_on: T },
+    { id: "n", day: T, kind: "note", text: "a note", position: 2 },
+    { id: "y", day: "2026-10-22", kind: "note", text: "yesterday's note", position: 0 },
+  ];
+  const days = listDays(rows, T);
+  ok("today first, then the rest newest first", days.map((d) => d.day).join() === "2026-10-23,2026-10-22,2026-10-21");
+  ok("lines in order with their sub-tasks under them", days[0].items.map((i) => i.id).join() === "c,b,n" && days[0].items[0].subs.map((x) => x.id).join() === "s1");
+  ok("tasks and sub-tasks count, note lines don't", days[0].done === 2 && days[0].total === 3 && days[1].total === 0);
+  ok("an earlier day's open task stays on its day", days[2].items[0].id === "a" && days[2].done === 0);
+  ok("today is there even with nothing on it", listDays([], T).length === 1 && listDays([], T)[0].items.length === 0);
+  ok("day names", dayLabel(T, T) === "Today" && dayLabel("2026-10-22", T) === "Yesterday" && dayLabel("2026-10-20", T) === "Tue, Oct 20" && dayLabel("2025-10-20", T).includes("2025"));
+  ok("a new line goes after the last one, a sub-task after its last sibling", nextLinePosition(rows, T) === 3 && nextLinePosition(rows, T, "c") === 1 && nextLinePosition(rows, "2026-10-24") === 0);
+
+  const b = boardOf({
+    quests: [
+      { id: "q2", title: "Second", status: "on", position: 1 },
+      { id: "q1", title: "First", status: "on", position: 0, goal_id: "g1", note: "notes" },
+      { id: "q3", title: "Done", status: "done", position: 2 },
+      { id: "lq", title: "x", lesson_id: "l1", status: "on", note: "lesson notes" },
+    ],
+    lessons: [
+      { id: "l1", title: "More integrity", status: "learning", position: 0 },
+      { id: "l2", title: "Caffeine", status: "learning", position: 1 },
+      { id: "l3", title: "Patience", status: "learned", position: 2 },
+    ],
+  });
+  ok("quests on, in order, then lessons being learned", b.map((i) => i.key).join() === "q1,q2,lq,lesson-l2" && b[0].goalId === "g1" && b[0].note === "notes");
+  ok("a lesson's list is its mountain, or waits for one", b[2].questId === "lq" && b[2].name === "More integrity" && b[2].note === "lesson notes" && b[3].questId === null && b[3].type === "Lesson");
+
+  const parsed = parseLines("- Call Sam\n  - ask about the beta\n\t[ ] check email\n\n2. Write copy");
+  ok("a pasted list: one line each, marks taken off, indented lines as sub-tasks", parsed.map((l) => (l.sub ? ">" : "") + l.text).join("|") === "Call Sam|>ask about the beta|>check email|Write copy");
+  ok("lines indented alike are all top lines", parseLines("  one\n  two\n    three").map((l) => l.sub).join() === "false,false,true");
+
+  const fin = [{ id: "x", kind: "task", done_on: T }];
+  ok("a tick adds a brick, untick takes it off", withFinished(fin, { id: "a", quest_id: "q1", kind: "task", text: "t", done_on: T }).length === 2 && withFinished(fin, { id: "x", kind: "task", done_on: null }).length === 0);
+  ok("a note line never lays a brick", withFinished([], { id: "n", kind: "note", done_on: T }).length === 0);
+  ok("counts read", countLine(1, "task", "tasks") === "1 task" && countLine(3, "task", "tasks") === "3 tasks");
 }
 
 function sectionOf({ x, y }) {
