@@ -10,41 +10,55 @@
 // village and the lists can never disagree, and unticking a task takes its
 // bricks back off.
 //
-// Everything here is pure. The drawing itself is src/village/engine.js.
+// Everything here is pure. The paintings are src/village/paint.js, shown on
+// the village page (src/pages/Village.jsx); the old survey map, with the
+// soldiers, villagers and the replay, is src/village/engine.js.
 
 import { addDays, parseDateStr } from "./planDates.js";
 import { tierOf } from "./mark.js";
 
 // What there is to build, smallest first. `need` is how many finished tasks
 // it takes to stand (Aaron, 2026-10-23: build it over time from all the
-// quests and lessons, not one task per brick).
+// quests and lessons, not one task per brick). These are the 29 of the
+// approved dragon village sketch (https://claude.ai/artifact/5Pw4e13GnTETFHkVthodS5),
+// each painted by src/village/paint.js. `dragon` marks the builds his
+// dragons live in, and `tag` says what's new or what an old build became.
 export const SIZES = [
-  { key: "small", label: "Small builds", line: "A few days of work" },
-  { key: "middle", label: "Middle builds", line: "A week or two" },
-  { key: "big", label: "Big builds", line: "A long campaign" },
+  { key: "small", label: "Small builds", line: "12 to 24 tasks" },
+  { key: "middle", label: "Middle builds", line: "28 to 55 tasks" },
+  { key: "big", label: "Big builds", line: "70 to 150 tasks" },
 ];
 
 export const CATALOG = [
-  { kind: "well", name: "Well", size: "small", need: 12, line: "A stone well with a little roof." },
-  { kind: "garden", name: "Kitchen garden", size: "small", need: 14, line: "Raised beds, a fence and a scarecrow." },
-  { kind: "apiary", name: "Apiary", size: "small", need: 15, line: "Beehive skeps on benches, with flowers all round." },
-  { kind: "watchtower", name: "Watchtower", size: "small", need: 18, line: "A timber lookout on a stone footing." },
-  { kind: "cottage", name: "Cottage", size: "small", need: 20, line: "Whitewashed walls, a steep roof and a garden." },
-  { kind: "forge", name: "Forge", size: "small", need: 22, line: "A stone smithy with a tall chimney and an anvil." },
-  { kind: "outpost", name: "Outpost", size: "middle", need: 30, line: "A watchtower inside a palisade, with a signal fire." },
-  { kind: "range", name: "Archery range", size: "middle", need: 32, line: "Straw targets, a shooting line and a shelter for the bows." },
-  { kind: "storehouse", name: "Storehouse", size: "middle", need: 35, line: "Stone walls, a loading door, barrels and sacks." },
-  { kind: "armory", name: "Sword armory", size: "middle", need: 40, line: "A stone armory, racks of swords and a crossed-sword banner." },
-  { kind: "farm", name: "Farm", size: "middle", need: 40, line: "A barn, a fenced pasture, a small flock and hay." },
-  { kind: "stable", name: "Stable", size: "middle", need: 42, line: "A timber stable, a paddock and horses." },
-  { kind: "windmill", name: "Windmill", size: "middle", need: 45, line: "A stone mill. Its sails turn once it stands." },
-  { kind: "chapel", name: "Chapel", size: "middle", need: 45, line: "Whitewashed walls, tall windows and a steeple." },
-  { kind: "school", name: "Schoolhouse", size: "middle", need: 48, line: "A schoolroom with a bell tower and a reading bench." },
-  { kind: "barracks", name: "Barracks", size: "middle", need: 50, line: "A long hall for the soldiers, with a drill yard." },
-  { kind: "gate", name: "Town gate", size: "big", need: 80, line: "Twin stone towers, a gate and a stretch of wall." },
-  { kind: "farmstead", name: "Frontier farmstead", size: "big", need: 100, line: "A barn, a stone silo, six fields and a flock." },
-  { kind: "warcamp", name: "War camp", size: "big", need: 120, line: "A palisade, two watchtowers and a ring of tents." },
-  { kind: "fortress", name: "Stone fortress", size: "big", need: 150, line: "Towers, curtain walls and a keep. Built to hold." },
+  { kind: "beacon", name: "Signal beacon", size: "small", need: 12, line: "A stone pillar with steps winding up to an iron fire basket, a dragon-head hoist for the firewood, and a horn-blower calling the riders home." },
+  { kind: "liberty", name: "Title of Liberty", size: "small", need: 14, line: "Moroni raises his sword on a stepped stone plinth under his torn coat, written over with the cause of liberty, as the people gather with their shields." },
+  { kind: "trainyard", name: "Training yard", size: "small", need: 16, line: "A raked sand ring with soldiers sparring, a perch gantry for the dragons, straw dummies, and a young rider learning to sit a saddle on a carved sawhorse." },
+  { kind: "fishracks", name: "Fish racks", size: "small", need: 16, dragon: true, tag: "New", line: "Where the dragons eat: a stone trough heaped with fish beside tall racks of split fish. A boulder dragon eats and a young night dragon begs a child for more." },
+  { kind: "watchtower", name: "Watchtower", size: "small", need: 18, line: "A log tower on a stone base with ladders, a watch cabin, the great horn, and a deck at the top wide enough for a dragon to land." },
+  { kind: "fletcher", name: "Fletcher's hut", size: "small", need: 20, line: "The arrow maker's log hut, with shafts in sheaves, feathers drying on lines, a goose pen and the fletcher at his bench." },
+  { kind: "shrine", name: "Prayer shrine", size: "small", need: 20, line: "A small stone shrine under a carved dragon lintel, candles on the altar, the stones of the fallen beside it, and riders kneeling before they fly." },
+  { kind: "hatchery", name: "Hatchery", size: "small", need: 20, dragon: true, tag: "New", line: "A ring of warm dark stone round a pit of glowing coals, where the eggs you buy with wins hatch. A night dragon keeps watch while a white hatchling meets the children." },
+  { kind: "forge", name: "Forge", size: "small", need: 22, line: "An open smithy with a glowing hearth, bellows on a rocking beam, the smith at his anvil, and a rider proving a new sword on the post." },
+  { kind: "archery", name: "Archery range", size: "small", need: 24, line: "Three archers at full draw down a roped lane to straw butts, and a tall riders' mast with a hoop to shoot through from dragonback." },
+  { kind: "tent", name: "Command tent", size: "middle", need: 28, line: "The striped command pavilion, with the map table under the raised flap, war banners, a guard at the door and a sand table of carved dragons in the sun." },
+  { kind: "stalls", name: "Quartermaster's stalls", size: "middle", need: 30, line: "Five awninged stalls of salt fish, rope, leather, lamp oil and grain, with shields and spears waiting to be issued and the quartermaster with his ledger." },
+  { kind: "storehouse", name: "Storehouse", size: "middle", need: 32, line: "A dark-timbered granary on staddle stones, with sacks hoisted from a cart to its loft and a yard stocked for a siege: barrels, crates and a rack of drying fish." },
+  { kind: "healer", name: "Healer's house", size: "middle", need: 36, line: "A stone and timber cottage ringed by raised herb beds and lines of clean linen, where the healer binds a soldier's arm while bearers carry another man in." },
+  { kind: "armorer", name: "Armorer", size: "middle", need: 38, line: "The whole armor of God on six stands across a paved court: belt, breastplate, shoes, shield, helmet, and the sword with the Word open beside it." },
+  { kind: "armory", name: "Sword armory", size: "middle", need: 40, line: "A stone hall with a turret, a timber upper floor, a slate roof and weapons racked under the awning." },
+  { kind: "stables", name: "Dragon stables", size: "middle", need: 42, dragon: true, tag: "Was the stable", line: "Four tall-doored stalls under slate gables carved with dragon heads. The night dragon crouches in the yard eyeing a child's fish, a boulder dragon looks out over its half door, and a dawn dragon sleeps on the grass." },
+  { kind: "flighttower", name: "Flight tower", size: "middle", need: 44, dragon: true, tag: "New", line: "A tall round tower with launch platforms at three heights. A white dawn dragon waits on the middle one while the night dragon and its rider bank away from the top." },
+  { kind: "windmill", name: "Windmill", size: "middle", need: 45, line: "A stone tower mill with canvas sails, a dragon-head hoist on its stage, a bread oven, a field of stooks and the floury miller at his door." },
+  { kind: "chapel", name: "Chapel", size: "middle", need: 45, line: "A grey stone chapel with tall arched windows and a bell tower whose bell calls the muster, a churchyard wall, and a lych-gate carved with dragons." },
+  { kind: "ballista", name: "Ballista tower", size: "middle", need: 48, line: "A square stone tower with a giant crossbow on a turntable on its roof, a hoist lifting bolts up from the yard, and a smith forging bolt heads below." },
+  { kind: "barracks", name: "Barracks", size: "middle", need: 50, line: "The stripling warriors' hall, with a round shield hung for every bed. Young soldiers drill with sword and shield in the yard while a boy beats the drum." },
+  { kind: "saddlery", name: "Saddle and fin workshop", size: "middle", need: 55, dragon: true, tag: "Was the siege workshop", line: "Where saddles are made, and the orange tail fins for dragons that lost theirs. The saddler fits a night dragon while a saddled dawn dragon waits its turn." },
+  { kind: "trebuchet", name: "Trebuchet", size: "big", need: 70, line: "A great oak trebuchet with dragon-head posts, its counterweight raised high, with a windlass, a pile of round shot and a crew at work." },
+  { kind: "ring", name: "Training ring", size: "big", need: 75, dragon: true, tag: "New", line: "A sunken stone arena under a dome of iron ribs and chains, with barred stalls and tiered benches. The night dragon sits on the dome while a white dragon roars at the recruits below." },
+  { kind: "gate", name: "Town gate", size: "big", need: 80, line: "A stone gatehouse between two round towers, its portcullis half raised over a drawbridge, with a little toll house where the guard stops a hay cart." },
+  { kind: "rampart", name: "Moroni's rampart", size: "big", need: 90, line: "A ridge of heaped earth topped with sharpened pickets and a walkway of soldiers, with three timber towers and a staked ditch in front (Alma 50)." },
+  { kind: "warcamp", name: "War camp", size: "big", need: 120, line: "Rows of tents round the striped command pavilion inside a palisade, with a gate between two log towers, cook fires and soldiers at work." },
+  { kind: "citadel", name: "Dragon citadel", size: "big", need: 150, dragon: true, tag: "Was the citadel", line: "The last and greatest build: a stone keep whose four corner towers are open roosts. Dawn, ember, crest and boulder dragons hold the roosts while the night dragon flies overhead." },
 ];
 
 const BY_KIND = new Map(CATALOG.map((c) => [c.kind, c]));

@@ -1,6 +1,29 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+// A fingerprint of the village painter's kit (public/kit, see
+// src/village/paint.js). The app asks for /kit/<file>?v=<this>, so a phone
+// holding the old kit in its cache fetches the new one after a deploy.
+function kitVersion() {
+  const hash = createHash("sha256");
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = `${dir}/${name}`;
+      if (statSync(path).isDirectory()) walk(path);
+      else hash.update(name).update(readFileSync(path));
+    }
+  };
+  try {
+    walk(fileURLToPath(new URL("./public/kit", import.meta.url)));
+  } catch {
+    return "dev";
+  }
+  return hash.digest("hex").slice(0, 12);
+}
 
 // PWA setup is what makes "Add to Home Screen" on iPhone/iPad behave like a
 // real app (own icon, no browser chrome, launches to last route) instead of
@@ -15,7 +38,29 @@ export default defineConfig({
       // tab to close before taking over, so a redeploy can sit behind a
       // stale bundle for days on a home-screen app that is never really
       // closed. Claim the page and activate immediately instead.
-      workbox: { clientsClaim: true, skipWaiting: true },
+      workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
+        // The village painter's kit (about 1.5 MB of scripts) and the village
+        // pictures are fetched only when the village is shown, and kept once
+        // fetched, instead of all of it downloading with every deploy. The
+        // kit's addresses carry its fingerprint, so it is kept for good; the
+        // pictures' don't, so the kept one shows at once and a new one, if
+        // there is one, is fetched behind it for next time.
+        globIgnores: ["**/kit/**", "**/village/**"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/kit/"),
+            handler: "CacheFirst",
+            options: { cacheName: "village-kit", expiration: { maxEntries: 80 } },
+          },
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/village/") && /\.(jpe?g|png|webp)$/.test(url.pathname),
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "village-pictures", expiration: { maxEntries: 120, maxAgeSeconds: 30 * 24 * 60 * 60 } },
+          },
+        ],
+      },
       includeAssets: ["apple-touch-icon.png", "favicon.png"],
       manifest: {
         name: "Personal Hub",
@@ -33,6 +78,9 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __KIT_VERSION__: JSON.stringify(kitVersion()),
+  },
   // Libraries change far less often than the app, so keeping them in their
   // own files means a redeploy only re-downloads the app's code.
   build: {

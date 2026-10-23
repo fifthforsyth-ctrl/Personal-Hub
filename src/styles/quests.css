@@ -36,8 +36,10 @@
 /* --- The floating build ----------------------------------------------------- */
 
 .qs-build { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 0 0 18px; overflow: hidden; }
-.qs-build__scene { display: block; height: 196px; margin: 0 0 -6px; border-radius: var(--r-lg) var(--r-lg) 0 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.qs-build__host { width: 100%; height: 100%; }
+/* The build's painting (src/village/Painting.jsx), edge to edge in the card
+   (card--flush, so the phone's card padding from ascent.css stays off it). */
+.qs-build__scene { display: block; height: 196px; margin: 0 0 8px; overflow: hidden; border-radius: var(--r-lg) var(--r-lg) 0 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.qs-build__host.painting { width: 100%; height: 100%; }
 .qs-build__text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 20px; min-width: 0; }
 .qs-build__name { margin: 0; font-family: var(--font-serif); font-size: 24px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
 .qs-build__count { display: flex; align-items: baseline; gap: 7px; margin-top: 2px; }
@@ -147,7 +149,7 @@
 
   /* the build beside its count, so the list starts higher */
   .qs-build { grid-template-columns: 46% minmax(0, 1fr); align-items: center; gap: 0; padding: 0; }
-  .qs-build__scene { height: 176px; margin: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
+  .qs-build__scene { align-self: stretch; height: auto; min-height: 176px; margin: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
   .qs-build__text { padding: 16px 18px 16px 4px; gap: 5px; }
   .qs-build__name { font-size: 21px; }
   .qs-build__count b { font-size: 24px; }

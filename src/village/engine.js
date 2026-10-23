@@ -9,17 +9,22 @@
 // This is the mockup's engine (https://claude.ai/artifact/7HfmhqkCg8qxuefFbx4abi)
 // fed his real data, so it keeps the mockup's plain ES5 style. It draws into
 // a shadow root on `host`, so its styles and the Hub's never meet.
-// src/lib/village.js shapes the data; src/pages/Village.jsx loads it and
-// saves what's tapped here:
+// src/lib/village.js shapes the data; src/pages/VillageMap.jsx loads it and
+// handles what's tapped here:
 //
-//   api.build({ kind, seed, plot, need })   Build this, in Choose a build
-//   api.change(id, { kind, seed, need })    Build something else, same plot
-//   api.open(path)  a link out (a quest, The Mark, the temple)
+//   api.open(path)  a link out (a quest, The Mark, the temple, and
+//                   Choose a build or Build something else, which now live
+//                   on the painted village page at /village?choose)
 //   api.close()     the close button
 //
-// With data.solo it draws only the build going up, floating on its plot, for
-// the top of a quest's list (src/components/quests/FloatingBuild.jsx), and
-// returns setDone(done, today) to lay bricks as tasks are ticked there.
+// It is the old survey map now, at /village/map (src/pages/VillageMap.jsx):
+// the village page itself paints each build (src/village/paint.js). Builds
+// from the new catalog it has no drawing for are drawn with the nearest old
+// one (OLD_DRAWING below).
+//
+// With data.solo it draws only the build going up, floating on its plot, and
+// returns setDone(done, today) to lay bricks as tasks are ticked. Nothing uses
+// it now: the build on the quests list is painted (src/village/Painting.jsx).
 //
 // Two things matter when changing it, both learned the hard way:
 //   * three r128 sizes instanceColor from .count on the first setColorAt, so
@@ -482,6 +487,13 @@ export function mountVillage(host, data, api) {
 
   // ---------------------------------------------------------------- the builds
   var GEN = {};
+  // The painted catalog's builds this map never had a drawing of, drawn with the
+  // nearest one it has. Anything else falls back to the cottage, as before.
+  var OLD_DRAWING = {
+    citadel: 'fortress', ring: 'fortress', archery: 'range', trainyard: 'range', stables: 'stable', saddlery: 'stable',
+    flighttower: 'watchtower', beacon: 'watchtower', ballista: 'watchtower', shrine: 'chapel', hatchery: 'well',
+    stalls: 'storehouse', armorer: 'armory', rampart: 'gate'
+  };
   GEN.fortress = function (b) {
     var roof = b.pick([PAL.slate, PAL.charcoal, PAL.teal]), tc = 14 + Math.floor(b.r() * 3), kc = 18 + Math.floor(b.r() * 3);
     var TX = 10.3, TZ = 1.8, R = 2.4;
@@ -1697,7 +1709,7 @@ export function mountVillage(host, data, api) {
     return bx;
   }
   function makeBuilding(def, dynamic) {
-    var b = new Builder(def.seed || 1), info = (GEN[def.kind] || GEN.cottage)(b) || {}, ry = def.ry !== undefined ? def.ry : 0, M = tileMatrix(def.tile, ry);
+    var b = new Builder(def.seed || 1), info = (GEN[def.kind] || GEN[OLD_DRAWING[def.kind]] || GEN.cottage)(b) || {}, ry = def.ry !== undefined ? def.ry : 0, M = tileMatrix(def.tile, ry);
     var B = { def: def, kind: def.kind, parts: [], fin: null, info: info, M: M, ry: ry, exists: false, complete: false, hidden: false, mode: def.mode || 'plan', dynamic: !!dynamic, k: 0, n: 0, today: 0 };
     // the parts go up in order: the first task's bricks start the first part, the last task's finish the last
     var off = 0;
@@ -2175,7 +2187,7 @@ export function mountVillage(host, data, api) {
     if (plotEmpty() && PLOT_HIT && DAY >= PLOT_FREE) objs.push(PLOT_HIT);
     var h = ray.intersectObjects(objs, false)[0];
     if (!h) { if (SEL.view) closeSheet(); return; }
-    if (h.object === PLOT_HIT) openChoose('new'); else if (h.object.userData.B.mode === 'preview') return; else openBuilding(h.object.userData.B);
+    if (h.object === PLOT_HIT) api.open('/village?choose'); else if (h.object.userData.B.mode === 'preview') return; else openBuilding(h.object.userData.B);
   }
   // meeting a villager: who they were and where their temple work was done
   function meet(v) {
@@ -2242,7 +2254,7 @@ export function mountVillage(host, data, api) {
     var el = document.createElement('button'); el.type = 'button'; el.className = 'lbl go';
     el.innerHTML = '<b class="tag"><em aria-hidden="true">+</em><span>Choose a build</span></b>' + STEM;
     var at = PLOT_TILE_AT || [0, 0];
-    LABELS.push(addLabel(el, function () { return _lv.set(at[0] * TILE, 0.2, at[1] * TILE); }, function () { return plotEmpty() && DAY >= PLOT_FREE && !GEN_OPEN && !SEL.view; }, function () { openChoose('new'); }));
+    LABELS.push(addLabel(el, function () { return _lv.set(at[0] * TILE, 0.2, at[1] * TILE); }, function () { return plotEmpty() && DAY >= PLOT_FREE && !GEN_OPEN && !SEL.view; }, function () { api.open('/village?choose'); }));
   })();
   // the next plot to be claimed: a faint pencil outline staked on the paper, with its grid reference
   // columns A to E and rows 1 to 5 across the first two rings; further out the letters and numbers keep going
@@ -2509,8 +2521,8 @@ export function mountVillage(host, data, api) {
     if (t.hasAttribute('data-part')) { selectPart(SEL.B.parts[+t.getAttribute('data-part')]); return; }
     if (t.hasAttribute('data-quest')) { api.open('/quests/' + t.getAttribute('data-quest')); return; }
     if (t.hasAttribute('data-open')) { api.open(t.getAttribute('data-open')); return; }
-    if (t.hasAttribute('data-change')) { openChoose('change'); return; }
-    if (t.hasAttribute('data-choose')) { openChoose('new'); return; }
+    // choosing a build happens on the painted village page now
+    if (t.hasAttribute('data-change') || t.hasAttribute('data-choose')) { api.open('/village?choose'); return; }
   });
   var toastT = null;
   // the swatch is a brick: orange when the message is about stones laid today
