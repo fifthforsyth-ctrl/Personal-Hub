@@ -58,7 +58,8 @@ export function buildCamp(sections, steps) {
     loose,
     done,
     total: ordered.length,
-    next: ordered.find((st) => !st.done_on) ?? null,
+    // What you're working on comes first; then the first step not done.
+    next: ordered.find((st) => !st.done_on && st.working_since) ?? ordered.find((st) => !st.done_on) ?? null,
   };
 }
 

@@ -32,8 +32,24 @@ const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
 // the words to open it: change the words, set how urgent it is, write notes,
 // move it or take it off. Its sub-steps come in as `children`. With `sort`
 // (from useDragSort) it has a handle to drag it into a new place.
+// "Working on it…": a badge with a live pulse and dots that keep going.
+function WorkingBadge() {
+  return (
+    <span className="camp-working" title="Working on it">
+      <i className="camp-working__pulse" aria-hidden="true" />
+      Working on it
+      <span className="camp-working__dots" aria-hidden="true">
+        <i>.</i>
+        <i>.</i>
+        <i>.</i>
+      </span>
+    </span>
+  );
+}
+
 export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, sections, sort, children }) {
   const done = Boolean(step.done_on);
+  const working = !done && Boolean(step.working_since);
   const [text, setText] = useState(step.text);
   const [note, setNote] = useState(step.note ?? "");
   useEffect(() => {
@@ -58,7 +74,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
       id={`step-${step.id}`}
       ref={sort?.ref}
       style={sort?.style}
-      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (sort?.lifted ? " lifted" : "")}
+      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (working ? " working" : "") + (sort?.lifted ? " lifted" : "")}
     >
       <div className="camp-step__row">
         <button
@@ -76,6 +92,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
             <Rich text={step.text} />
           </span>
+          {working && <WorkingBadge />}
           {step.note && !open && (
             <small className="camp-step__note">
               <StickyNote size={11} aria-hidden="true" />
@@ -91,6 +108,17 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <span>{step.parent_id ? "Sub-step" : "Step"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
           </label>
+          {!done && (
+            <button
+              type="button"
+              className={"camp-working-toggle" + (working ? " on" : "")}
+              aria-pressed={working}
+              onClick={() => onSave({ working_since: working ? null : new Date().toISOString() })}
+            >
+              <i className="camp-working__pulse" aria-hidden="true" />
+              {working ? "Working on it. Tap to stop" : "I'm working on this"}
+            </button>
+          )}
           <div className="field camp-urgency-pick" role="radiogroup" aria-label="Urgency">
             <span>Urgency</span>
             <div className="camp-urgency-pick__opts">
