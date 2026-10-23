@@ -1700,6 +1700,14 @@ console.log("\nthe mark");
   ok("a section knows how far along it is", camp.sections[0].done === 2 && camp.sections[0].complete && !camp.sections[1].complete);
   ok("steps with no section (or a lost one) sit loose at the top", camp.loose.map((x) => x.id).join() === "e,f");
   ok("the next step is the first open one, top to bottom", camp.next.id === "e" && camp.done === 2 && camp.total === 6);
+  {
+    const w = buildCamp([], [
+      { id: "a", text: "A", position: 0 },
+      { id: "b", text: "B", position: 1, working_since: "2026-10-23T18:00:00Z" },
+      { id: "c", text: "C", position: 2, working_since: "2026-10-23T18:00:00Z", done_on: "2026-10-23" },
+    ]);
+    ok("the step you're working on is the next step", w.next?.id === "b");
+  }
   ok("an empty camp has no next step", buildCamp([], []).next === null && buildCamp(null, null).total === 0);
   ok("an empty section isn't complete", buildCamp([{ id: "x", title: "X" }], []).sections[0].complete === false);
 

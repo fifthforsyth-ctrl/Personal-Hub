@@ -3126,7 +3126,7 @@ export async function setLessonCheckin(userId, lessonId, date, kept) {
 // ---------------------------------------------------------------------------
 
 const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, done_on, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, working_since, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp and whether it's done, for the camp lists on the Range.

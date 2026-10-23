@@ -81,7 +81,9 @@ export default function Camp() {
 
   function toggleDone(st) {
     const done_on = st.done_on ? null : today;
-    setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, done_on } : x)));
+    // Finishing it means you're no longer working on it.
+    const fields = done_on && st.working_since ? { done_on, working_since: null } : { done_on };
+    setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
     if (done_on) {
       // The last step of a section, or of the whole camp, gets a little more.
       const rest = data.steps.filter((x) => x.id !== st.id && !x.done_on);
@@ -93,7 +95,7 @@ export default function Camp() {
         haptic("success");
       } else haptic("tap");
     }
-    updateStep(st.id, { done_on }).catch((err) => failed(err, "Couldn't save that step."));
+    updateStep(st.id, fields).catch((err) => failed(err, "Couldn't save that step."));
   }
 
   function saveStep(st, fields) {
@@ -390,7 +392,7 @@ export default function Camp() {
           {next ? (
             <div className="camp-next">
               <span className="ascent-mini">
-                Next step{nextSection ? ` · ${nextSection.number}. ${nextSection.title}` : ""}
+                {next?.working_since ? "Working on it" : "Next step"}{nextSection ? ` · ${nextSection.number}. ${nextSection.title}` : ""}
               </span>
               <button type="button" className="camp-next__text" onClick={goToNext}>
                 <Rich text={next.text} />
