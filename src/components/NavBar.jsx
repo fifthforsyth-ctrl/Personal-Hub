@@ -22,6 +22,7 @@ import {
   Landmark,
   AlarmClock,
   Castle,
+  Egg,
   ListChecks,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -65,6 +66,7 @@ export const MORE = [
   { to: "/ascent", label: "The Range", Icon: Target },
   { to: "/quests", label: "Quests", Icon: ListChecks },
   { to: "/village", label: "Village", Icon: Castle },
+  { to: "/dragons", label: "Dragons", Icon: Egg },
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/wake", label: "Wake watch", Icon: AlarmClock },
   { to: "/reflect", label: "Charts", Icon: BarChart3 },

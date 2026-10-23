@@ -3698,10 +3698,26 @@ export async function fetchQuestWorkDone(userId, date) {
   return questWorkDone({ date, chunks: tagged, quests: quests.data ?? [], camps: camps.data ?? [], tasks: tasks.data ?? [], steps: steps.data ?? [] });
 }
 
-export async function fetchVillage(userId) {
-  const [[tasks, steps], projects, camps, quests, lessons, shots, temple] = await Promise.all([
-    fetchFinished(userId),
-    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
+// The builds and everything finished, for when the dragons (which bring them) couldn't load.
+async function villageBuilds(userId) {
+  const [[tasks, steps], projects] = await Promise.all([fetchFinished(userId), supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId)]);
+  if (projects.error) throw projects.error;
+  return { tasks, steps, projects: projects.data ?? [] };
+}
+
+// The village page: the builds and everything finished, the quests and
+// lessons that name each brick's quest, the arrows that train the soldiers,
+// the people who live there, and the dragons (fetchDragons, below), for the
+// purse and the dragons painted into the dragon builds. fetchDragons loads
+// the builds and finished tasks too, so they come from it. The dragons are
+// extra: when they can't load (their tables not there yet, say) the village
+// still does, with `dragons` null.
+export async function fetchVillage(userId, today = todayStr()) {
+  const [dragons, camps, quests, lessons, shots, temple] = await Promise.all([
+    fetchDragons(userId, today).catch((err) => {
+      console.warn("The dragons couldn't load", err);
+      return null;
+    }),
     supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
     supabase.from("quests").select("id, title, lesson_id").eq("user_id", userId),
     supabase.from("lessons").select("id, title").eq("user_id", userId),
@@ -3709,16 +3725,18 @@ export async function fetchVillage(userId) {
     selectAllPages(() => supabase.from("mark_shots").select("id, date, level").eq("user_id", userId).not("loosed_at", "is", null).order("id")),
     selectAllPages(() => supabase.from("temple_done").select(TEMPLE_DONE).eq("user_id", userId).order("pid")),
   ]);
-  for (const r of [projects, camps, quests, lessons]) if (r.error) throw r.error;
+  for (const r of [camps, quests, lessons]) if (r.error) throw r.error;
+  const { tasks, steps, projects } = dragons ?? (await villageBuilds(userId));
   return {
     tasks,
     steps,
-    projects: projects.data ?? [],
+    projects,
     camps: camps.data ?? [],
     quests: quests.data ?? [],
     lessons: lessons.data ?? [],
     shots,
     temple,
+    dragons,
   };
 }
 
@@ -3736,6 +3754,128 @@ export async function addVillageProject(userId, { kind, seed, plot, need, today 
 // Build something else on the same plot, keeping the bricks already laid.
 export async function updateVillageProject(id, fields) {
   const { error } = await supabase.from("village_projects").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// The dragons (0087): the purse, his dragons and what was spent on them, the
+// banked days that warm the eggs, and the builds and finished tasks that say
+// when the hatchery stood. Only wins logged after the purse started count,
+// and "today" is the phone's day, from its own midnight to the next.
+// dragonsOf() in dragons.js takes all of this, with hatcheryDay(villageOf(...)).
+const DRAGON = "id, kind, name, bought_on, free, hatched_on, created_at";
+const DRAGON_SPEND = "id, dragon_id, what, cost, day, created_at";
+
+// A name as the table keeps it: trimmed, at most 40 letters, or none.
+const dragonName = (name) => Array.from(String(name ?? "").trim()).slice(0, 40).join("").trim() || null;
+
+export async function fetchDragons(userId, today) {
+  const [purseRes, dragons, spends, [tasks, steps], projects] = await Promise.all([
+    supabase.from("dragon_purse").select("start_wins, started_at").eq("user_id", userId).maybeSingle(),
+    selectAllPages(() => supabase.from("dragons").select(DRAGON).eq("user_id", userId).order("id")),
+    selectAllPages(() => supabase.from("dragon_spends").select(DRAGON_SPEND).eq("user_id", userId).order("id")),
+    fetchFinished(userId),
+    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
+  ]);
+  for (const r of [purseRes, projects]) if (r.error) throw r.error;
+  const purse = purseRes.data ?? null;
+
+  const wins = () => supabase.from("win_losses").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "win").eq("is_example", false);
+  const firstBought = dragons.map((d) => d.bought_on).sort()[0];
+  const [since, todays, banked] = await Promise.all([
+    purse ? wins().gt("occurred_at", purse.started_at) : null,
+    purse
+      ? wins()
+          .gt("occurred_at", purse.started_at)
+          .gte("occurred_at", new Date(`${today}T00:00:00`).toISOString())
+          .lt("occurred_at", new Date(`${addDays(today, 1)}T00:00:00`).toISOString())
+      : null,
+    firstBought
+      ? selectAllPages(() =>
+          supabase
+            .from("day_plans")
+            .select("date")
+            .eq("user_id", userId)
+            .eq("is_example", false)
+            .not("banked_at", "is", null)
+            .gte("date", firstBought)
+            .lte("date", today)
+            .order("date")
+        )
+      : [],
+  ]);
+  for (const r of [since, todays]) if (r?.error) throw r.error;
+  return {
+    purse,
+    winsSince: since?.count ?? 0,
+    winsToday: todays?.count ?? 0,
+    dragons,
+    spends,
+    banked: banked.map((d) => d.date),
+    projects: projects.data ?? [],
+    tasks,
+    steps,
+  };
+}
+
+// A second tap while the first is still on its way gets the first one's
+// answer, so a double tap can't buy two eggs or train two stages.
+const dragonTaps = new Map();
+function oneTap(key, run) {
+  if (!dragonTaps.has(key)) dragonTaps.set(key, run().finally(() => dragonTaps.delete(key)));
+  return dragonTaps.get(key);
+}
+
+// Buys an egg (or takes the one free egg) on the phone's day. The server
+// keeps the prices and checks the purse; it resolves to the new dragon row.
+export function buyEgg({ kind, free = false, today, name = null }) {
+  return oneTap(`buy:${kind}:${!!free}`, async () => {
+    const { data, error } = await supabase.rpc("dragon_buy", {
+      p_kind: kind,
+      p_free: !!free,
+      p_today: today,
+      p_name: dragonName(name),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// Trains a dragon its next stage. Pass the stage he tapped (`next.stage`):
+// then a retry, or a tap on a page that's out of date, never spends on a
+// different stage than the one he saw. Resolves to the spend.
+export function trainDragon(id, today, stage) {
+  return oneTap(`train:${id}`, async () => {
+    const args = { p_dragon: id, p_today: today };
+    if (stage) args.p_stage = stage;
+    const { data, error } = await supabase.rpc("dragon_train", args);
+    if (error) throw error;
+    return data;
+  });
+}
+
+// Keeps the day each of these eggs hatched (`hatchOn` from dragonsOf), the
+// first time a page sees them hatched, so they stay dragons for good even if
+// a task unticked later moves the day the hatchery stood. Resolves to the
+// dragon rows as they are now; one the server can't confirm is left out.
+export async function keepHatches(dragons, today) {
+  const rows = await Promise.all(
+    dragons.map((d) =>
+      oneTap(`hatch:${d.id}`, async () => {
+        const { data, error } = await supabase.rpc("dragon_hatch", { p_dragon: d.id, p_today: today, p_on: d.hatchOn });
+        if (error) throw error;
+        return data;
+      }).catch((err) => {
+        console.warn("Couldn't keep the day a dragon hatched", err);
+        return null;
+      })
+    )
+  );
+  return rows.filter((r) => r?.id && r.hatched_on);
+}
+
+// He names each dragon himself; a blank name takes it off.
+export async function nameDragon(id, name) {
+  const { error } = await supabase.from("dragons").update({ name: dragonName(name) }).eq("id", id);
   if (error) throw error;
 }
 

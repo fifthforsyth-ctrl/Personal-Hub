@@ -1,0 +1,189 @@
+/* ===========================================================================
+   The village, painted: the build going up, the dragons, soldiers and
+   villagers, every build that stands, one build with what laid it, and
+   Choose a build. White cards and black pills like the rest of the Hub, the
+   builds' own paintings, and orange only for today's pieces and today's
+   wins. The paintings (.painting) also show over the quests
+   (FloatingBuild.jsx), so their rules are here for both.
+   =========================================================================== */
+
+/* --- A painting ---------------------------------------------------------------------- */
+
+/* The finished picture first; the live one fades in over it once painted. */
+.painting { position: relative; display: block; width: 100%; overflow: hidden; background: #f4f2ec; }
+.painting img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.painting__live { opacity: 0; transition: opacity 0.4s ease; }
+.painting__live.on { opacity: 1; }
+/* A build still going up: its finished picture isn't how it looks yet. */
+.painting--veiled .painting__thumb { opacity: 0.42; filter: grayscale(0.85); }
+.painting__note {
+  position: absolute; left: 10px; bottom: 10px; padding: 3px 9px; border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.88); box-shadow: 0 0 0 1px rgba(20, 18, 14, 0.06);
+  font: 500 10.5px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2);
+}
+
+/* --- The page ---------------------------------------------------------------------------- */
+
+.vl { max-width: 1120px; display: flex; flex-direction: column; gap: 14px; }
+.vl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+.vl-head__name { min-width: 0; }
+.vl-head .page-title { margin-bottom: 0; }
+.vl-head .page-sub { max-width: 46ch; }
+
+.vl-name { margin: 0; font-family: var(--font-serif); font-size: 26px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.12; text-wrap: balance; }
+.vl-name--big { font-size: 30px; }
+.vl-line { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); max-width: 60ch; }
+.vl-left { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.vl-quiet { margin: 0 4px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.vl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+
+/* "20 of 45 tasks  +3 today" */
+.vl-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; }
+.vl-count b { font: 500 30px var(--font-mono); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.vl-count span { font-size: 13.5px; color: var(--text-2); }
+.vl-count em { font: normal 600 12.5px var(--font); color: var(--accent-text); white-space: nowrap; }
+
+/* How far along: done before today in ink, today's in orange. */
+.vl-bar { display: flex; width: 100%; height: 6px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
+.vl-bar i { display: block; height: 100%; background: var(--ink); transition: width 0.35s ease; }
+.vl-bar i.vl-bar__today { background: var(--accent); }
+
+.vl-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 12px; color: var(--text-2); }
+.vl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.vl-legend i { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.vl-legend__today { background: var(--accent); }
+.vl-legend__pencil { box-shadow: inset 0 0 0 1.5px var(--text-3); }
+
+.vl-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.vl-tag {
+  padding: 2px 8px; border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--line-strong);
+  font: 500 10px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); white-space: nowrap;
+}
+.vl-tag--dragon { background: var(--ink); box-shadow: none; color: var(--on-ink); }
+.vl-tag--new { box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent-text); }
+
+.vl-section { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; min-width: 0; }
+.vl-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 4px; }
+.vl-section__head h2 { margin: 0; }
+.vl-section__count { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* --- The build going up -------------------------------------------------------------------- */
+
+.vl .vl-now { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: stretch; margin: 0; }
+.vl-now__pic { display: block; align-self: center; padding: 0; border: 0; background: none; cursor: pointer; min-width: 0; }
+.vl-now__text { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 24px 26px; min-width: 0; }
+.vl-now__text .vl-bar { margin-top: 2px; }
+
+/* Nothing going up: a staked plot, waiting. */
+.vl .vl-empty { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 18px; margin: 0; }
+.vl-empty__text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.vl-plot {
+  width: 76px; height: 76px; border-radius: 14px; border: 1.5px dashed var(--line-strong);
+  background: radial-gradient(circle at 50% 50%, var(--accent) 0 4px, transparent 5px), var(--surface);
+}
+
+/* --- The dragons, soldiers, villagers and the map ------------------------------------------------ */
+
+.vl-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.vl .vl-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; margin: 0; min-width: 0; color: var(--text); transition: box-shadow 0.15s; }
+@media (hover: hover) { .vl .vl-tile:hover { box-shadow: var(--shadow-lift); } }
+.vl-tile__label { display: inline-flex; align-items: center; gap: 6px; font: 500 10.5px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); }
+.vl-tile__label svg { color: var(--text-2); }
+.vl-tile__n { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; margin-top: 2px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.vl-tile__n b { font: 500 22px var(--font-mono); letter-spacing: -0.04em; color: var(--text); font-variant-numeric: tabular-nums; }
+.vl-tile__n--words { align-items: center; gap: 2px; font-size: 15px; font-weight: 650; color: var(--text); letter-spacing: -0.01em; min-height: 29px; }
+.vl-tile__sub { font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.vl-tile__n em { margin-left: 2px; font-style: normal; font-size: 12px; font-weight: 600; color: var(--accent-text); }
+
+/* --- What stands: a gallery of paintings -------------------------------------------------------- */
+
+.vl-stood { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.vl .vl-card { display: flex; flex-direction: column; width: 100%; height: 100%; margin: 0; padding: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer; transition: box-shadow 0.15s; }
+@media (hover: hover) { .vl .vl-card:hover { box-shadow: var(--shadow-lift); } }
+.vl-card__text { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px 14px; min-width: 0; }
+.vl-card__name { font-family: var(--font-serif); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+.vl-card__meta { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* --- One build ------------------------------------------------------------------------------------ */
+
+.vl-back { display: inline-flex; align-items: center; align-self: flex-start; min-height: 44px; margin: -7px 0 -9px -8px; padding: 0 12px 0 8px; font-size: 13.5px; color: var(--text-2); }
+.vl-one { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.vl .vl-build { margin: 0; }
+.vl-build__text { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 22px 22px; }
+.vl .vl-laid { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 18px 18px 12px; }
+.vl-items { list-style: none; margin: 0; padding: 0; }
+.vl-items li { border-top: 1px solid var(--line); }
+.vl-items li:first-child { border-top: 0; }
+.vl-item { display: flex; align-items: flex-start; gap: 11px; padding: 10px 0; color: var(--text); }
+.vl-item > i { flex: 0 0 auto; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: var(--ink); }
+.vl-item > i.today { background: var(--accent); }
+.vl-item span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vl-item b { font-size: 13.5px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.vl-item small { font: 500 11px var(--font-mono); color: var(--text-2); }
+.vl-item em { font-style: normal; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+@media (hover: hover) { .vl-item:hover b { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
+.vl-more { align-self: flex-start; margin: 2px 0 6px 20px; }
+
+/* --- Choose a build ------------------------------------------------------------------------------- */
+
+.vl-choose__head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.vl-choose__head .page-title { margin: 4px 0 0; text-wrap: balance; }
+.vl-choose__head .page-sub { max-width: 62ch; line-height: 1.55; }
+
+.vl-opts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.vl .vl-opt { display: flex; flex-direction: column; margin: 0; scroll-margin: 90px; }
+.vl-opt--pointed { box-shadow: 0 0 0 2px var(--ink), var(--shadow); }
+.vl-opt__body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px 10px; min-width: 0; }
+.vl-opt__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; }
+.vl-opt__name { margin: 0; font-family: var(--font-serif); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+.vl-need { flex: 0 0 auto; font: 500 12px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vl-opt__line { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.vl-opt__foot { margin-top: auto; padding: 2px 14px 14px; }
+/* Build something else asks first, in place. */
+.vl-ask { display: flex; flex-direction: column; gap: 10px; margin: auto 12px 12px; padding: 12px; border-radius: var(--r); background: var(--inset); }
+.vl-ask p { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.45; }
+.vl-ask__row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.vl-ask .btn:not(.btn--accent) { background: var(--card); border-color: var(--line); }
+
+/* --- Phone ------------------------------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .vl { gap: 12px; }
+  .vl .vl-now { grid-template-columns: minmax(0, 1fr); }
+  .vl-now__pic .painting { height: auto; }
+  .vl-now__text { padding: 16px 18px 20px; gap: 7px; }
+  .vl-name { font-size: 24px; }
+  .vl-name--big { font-size: 27px; }
+  .vl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vl-one { grid-template-columns: minmax(0, 1fr); }
+  .vl-build__text { padding: 16px 18px 20px; }
+}
+
+@media (max-width: 700px) {
+  .vl-head .page-sub { display: none; }
+  .vl .vl-tile { padding: 12px 14px; }
+  .vl-tile__n b { font-size: 20px; }
+
+  /* What stands: two to a row, picture and name. */
+  .vl-stood { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .vl-card__text { padding: 9px 11px 11px; gap: 3px; }
+  .vl-card__name { font-size: 15.5px; }
+  .vl-card__meta { font-size: 10.5px; }
+
+  /* The catalog: the picture beside its name, and the words under both, so
+     it reads like a list. */
+  .vl-opts { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .vl .vl-opt { display: grid; grid-template-columns: 112px minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; gap: 6px 12px; padding: 12px; }
+  .vl-opt__pic { grid-column: 1; grid-row: 1 / span 2; border-radius: 12px; }
+  .vl-opt__body { display: contents; }
+  .vl-opt__head { grid-column: 2; grid-row: 1; flex-direction: column; gap: 1px; }
+  .vl-opt__body > .vl-tags { grid-column: 2; grid-row: 2; }
+  .vl-opt__name { font-size: 16.5px; }
+  .vl-opt__line { grid-column: 1 / -1; margin-top: 4px; }
+  .vl-opt__foot { grid-column: 1 / -1; padding: 0; }
+  .vl-ask { grid-column: 1 / -1; margin: 2px 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .painting__live, .vl-bar i, .vl .vl-tile, .vl .vl-card { transition: none; }
+}

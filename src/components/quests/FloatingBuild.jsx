@@ -1,16 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { countLine } from "../../lib/questTasks";
+import { buildOf } from "../../lib/village";
+import Painting, { rememberedDragons } from "../../village/Painting";
 
 // The build going up in the village, floating at the top of every quest's
-// list: the same drawing as the village, turning slowly on its own plate,
-// with how many tasks it has and how many it still needs. Every task he
-// ticks, on any quest or lesson, lays its bricks on it here as he watches
-// (today's in orange), until it stands; then it asks what to build next.
+// list: the same painting as the village page, with how many tasks it has
+// and how many it still needs. Every task he ticks, on any quest or lesson,
+// lays its pieces on it here (today's in orange, what's to come in pencil),
+// painted again as he ticks, until it stands; then it asks what to build
+// next.
 //
 // `village` is villageOf() over what the page has, kept in step as he ticks.
-// The drawing (three.js) loads the first time this shows, so the list never
-// waits on it.
+// The painter (src/village/paint.js) starts once the list has settled, so
+// the list never waits on it; until then, and between ticks, the last
+// painting shows. The painter keeps the build it made, so a tick only
+// paints it again at its new stage.
 
 // Where it stands: the build going up, or the one that stood today, or null.
 export function buildNow(village, today) {
@@ -41,41 +46,9 @@ export default function FloatingBuild({ village, today, onAway }) {
   const p = buildNow(village, today);
   const { done, laid, need, left } = counts(p, today);
   const card = useRef(null);
-  const host = useRef(null);
-  const engine = useRef(null);
-  const latest = useRef(null);
-  latest.current = { village, p, done, laid };
-  const drawKey = p ? `${p.id}:${p.kind}:${p.seed}:${p.need}` : null;
-
-  // The drawing, made again only when the build itself changes.
-  useEffect(() => {
-    if (!drawKey) return undefined;
-    let dead = false;
-    let v = null;
-    import("../../village/engine")
-      .then(({ mountVillage }) => {
-        const now = latest.current;
-        if (dead || !host.current || !now.p) return;
-        v = mountVillage(
-          host.current,
-          { solo: true, today, day0: now.village.day0, days: now.village.days, projects: [now.p], current: 0, nextPlot: now.p.plot + 1, waiting: 0, arrows: [], bullseyes: [], villagers: [] },
-          {}
-        );
-        engine.current = v;
-        v.setDone(now.done, now.laid);
-      })
-      .catch((err) => console.warn("The floating build couldn't load", err));
-    return () => {
-      dead = true;
-      engine.current = null;
-      v?.destroy();
-    };
-  }, [drawKey, today]);
-
-  // A tick lays its bricks without drawing it all again.
-  useEffect(() => {
-    engine.current?.setDone(done, laid);
-  }, [done, laid]);
+  // A dragon build has his dragons in it, as the village page last painted them.
+  const kind = p?.kind;
+  const dragons = useMemo(() => (kind && buildOf(kind).dragon ? rememberedDragons() : null), [kind]);
 
   // Out of sight, the page shows the slim bar instead.
   useEffect(() => {
@@ -98,8 +71,8 @@ export default function FloatingBuild({ village, today, onAway }) {
           </h2>
           <p className="qs-build__line">
             {waiting
-              ? `${countLine(waiting, "finished task is", "finished tasks are")} waiting to lay the first bricks.`
-              : "An armory, a chapel, a fortress… every task you finish lays its bricks on it."}
+              ? `${countLine(waiting, "finished task is", "finished tasks are")} waiting to lay the first pieces.`
+              : "A forge, a hatchery, a dragon citadel… every task you finish lays its pieces on it."}
           </p>
           <Link to="/village?choose" className="btn btn--sm btn--accent qs-build__go">
             Choose a build
@@ -111,9 +84,22 @@ export default function FloatingBuild({ village, today, onAway }) {
 
   const stands = p.complete;
   return (
-    <section ref={card} className={"card qs-build" + (stands ? " qs-build--stands" : "")} id="qs-build" aria-labelledby="qs-build-h">
+    <section ref={card} className={"card card--flush qs-build" + (stands ? " qs-build--stands" : "")} id="qs-build" aria-labelledby="qs-build-h">
       <Link to={`/village?build=${p.id}`} className="qs-build__scene" aria-label={`See the ${p.name.toLowerCase()} in the village`}>
-        <div ref={host} className="qs-build__host" />
+        <Painting
+          slot="quests:build"
+          kind={p.kind}
+          done={done}
+          need={need}
+          laid={laid}
+          dragons={dragons?.dragons}
+          eggs={dragons?.eggs}
+          live
+          idle
+          stands={stands}
+          aspect="fit"
+          className="qs-build__host"
+        />
       </Link>
       <div className="qs-build__text">
         <span className="eyebrow">{stands ? "Stands today" : "Building now"}</span>
@@ -127,7 +113,7 @@ export default function FloatingBuild({ village, today, onAway }) {
         <Bar done={done} laid={laid} need={need} />
         <p className="qs-build__line">
           {stands ? (
-            "Every brick is laid."
+            "Every piece is laid."
           ) : (
             <>
               {left} more and it stands

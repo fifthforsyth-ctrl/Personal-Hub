@@ -366,7 +366,7 @@ export default function Quests() {
                       </li>
                     ))}
                   </ul>
-                  <p className="ascent-mini">Steps done at a camp lay bricks too.</p>
+                  <p className="ascent-mini">Steps done at a camp lay pieces too.</p>
                 </section>
               )}
             </aside>
@@ -391,7 +391,7 @@ export default function Quests() {
                 {!todayList.items.length && !linesLoading && (
                   <p className="qs-hint">
                     {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
-                    {building && !building.complete ? `Each task you tick lays bricks on the ${building.name.toLowerCase()}.` : "Each task you tick lays bricks in the village."}
+                    {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
                   </p>
                 )}
                 <AddLine key={sel.key} onAdd={addLines} />
