@@ -19,9 +19,17 @@ function useGrow(value) {
   return ref;
 }
 
-// One step: its box, its words and the first of its note. Tap the words to
-// open it: change the words, write notes, move it or take it off. Its
-// sub-steps come in as `children`.
+// How urgent a step is (0084): a coloured mark beside its words.
+export const URGENCY = [
+  { key: "red", label: "Urgent" },
+  { key: "yellow", label: "Soon" },
+  { key: "green", label: "Can wait" },
+];
+const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
+
+// One step: its box, its urgency, its words and the first of its note. Tap
+// the words to open it: change the words, set how urgent it is, write notes,
+// move it or take it off. Its sub-steps come in as `children`.
 export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, children }) {
   const done = Boolean(step.done_on);
   const [text, setText] = useState(step.text);
@@ -58,6 +66,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         </button>
         <button type="button" className="camp-step__text" aria-expanded={open} onClick={onOpen}>
           <span className="camp-step__words">
+            {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
             <Rich text={step.text} />
           </span>
           {step.note && !open && (
@@ -74,6 +83,24 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <span>{step.parent_id ? "Sub-step" : "Step"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
           </label>
+          <div className="field camp-urgency-pick" role="radiogroup" aria-label="Urgency">
+            <span>Urgency</span>
+            <div className="camp-urgency-pick__opts">
+              {URGENCY.map((u) => (
+                <button
+                  key={u.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={step.urgency === u.key}
+                  className={`camp-urgency-opt camp-urgency-opt--${u.key}` + (step.urgency === u.key ? " on" : "")}
+                  onClick={() => onSave({ urgency: step.urgency === u.key ? null : u.key })}
+                >
+                  <i className={`camp-urgency camp-urgency--${u.key}`} aria-hidden="true" />
+                  {u.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="field">
             <span>Notes</span>
             <textarea
