@@ -12,6 +12,7 @@ import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
+import { useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -134,6 +135,20 @@ export default function Camp() {
   }
 
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
+  // Dragged into a new order: `shown` is the list as it stood on screen and
+  // `ids` its new order. Done steps hidden from it keep their places.
+  function reorderSteps(shown, ids) {
+    if (!shown.length) return;
+    const full = siblings(shown[0]).sort(byPos);
+    const byId = new Map(full.map((x) => [x.id, x]));
+    const onScreen = new Set(ids);
+    const queue = [...ids];
+    const next = full.map((x) => (onScreen.has(x.id) ? byId.get(queue.shift()) : x)).filter(Boolean);
+    const at = new Map(next.map((x, k) => [x.id, k]));
+    setSteps((list) => list.map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
+    reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
+  }
+
   async function addTo(sectionId, texts, parent = null) {
     const same = siblings({ section_id: sectionId, parent_id: parent?.id ?? null });
     const start = same.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
@@ -177,6 +192,19 @@ export default function Camp() {
       toast.error(err, "Couldn't save that section.");
     }
   }
+
+  // Sections dragged into a new order.
+  function reorderSections(ids) {
+    const byId = new Map(data.sections.map((x) => [x.id, x]));
+    const next = ids.map((x) => byId.get(x)).filter(Boolean);
+    const at = new Map(next.map((x, k) => [x.id, k]));
+    mutate((d) => d && { ...d, sections: d.sections.map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)) });
+    reorder("camp_sections", next).catch((err) => failed(err, "Couldn't move that section."));
+  }
+  const sectionSort = useDragSort(
+    (view?.sections ?? []).map((x) => x.id),
+    (ids) => reorderSections(ids)
+  );
 
   async function removeSection(s) {
     const n = data.steps.filter((x) => x.section_id === s.id).length;
@@ -335,7 +363,7 @@ export default function Camp() {
 
           {(view.loose.length > 0 || empty) && (
             <section className="card camp-sec open camp-loose" aria-label="Steps">
-              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} />}
+              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} />}
               {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
               <AddStep onAdd={(texts) => addTo(null, texts)} />
             </section>
@@ -352,7 +380,13 @@ export default function Camp() {
               onEdit={() => setSheet(s)}
               onAdd={addTo}
               onAddSubs={addSubs}
+              onReorder={reorderSteps}
               step={stepProps}
+              sort={
+                view.sections.length > 1
+                  ? { ref: sectionSort.ref(s.id), style: sectionSort.style(s.id), handle: sectionSort.handle(s.id), lifted: sectionSort.dragging === s.id }
+                  : null
+              }
             />
           ))}
 

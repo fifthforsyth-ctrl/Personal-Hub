@@ -9,6 +9,7 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { dropIndex, moved } from "../src/lib/dragOrder.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
 import {
@@ -1715,6 +1716,12 @@ console.log("\nthe mark");
   ok("sub-steps aren't steps of their own in the section", s2.steps.map((x) => x.id).join() === "c,d");
   ok("a sub-step whose step is gone stands on its own", s1.steps.map((x) => x.id).join() === "a,b,z1" && !s1.complete);
   ok("sub-steps count on the section and the camp", s2.total === 4 && s1.done === 3 && withSubs.total === 10 && withSubs.done === 3);
+  // Drag to reorder: where a dragged item lands, and the order it makes.
+  const mids = [10, 30, 50, 70];
+  ok("a drag that doesn't cross a neighbour's middle stays put", dropIndex(mids, 1, 38) === 1 && dropIndex(mids, 1, 22) === 1);
+  ok("dragging down past two middles moves two places", dropIndex(mids, 0, 55) === 2 && dropIndex(mids, 0, 99) === 3);
+  ok("dragging up to the top lands first", dropIndex(mids, 3, 5) === 0 && dropIndex(mids, 3, 45) === 2);
+  ok("moved() puts the dragged id in its new place", moved(["a", "b", "c", "d"], 0, 2).join() === "b,c,a,d" && moved(["a", "b", "c"], 2, 0).join() === "c,a,b");
   const deep = buildCamp([], [
     { id: "t", text: "Top", position: 0, done_on: null },
     { id: "t1", parent_id: "t", text: "Sub", position: 0, done_on: "2026-10-23" },
