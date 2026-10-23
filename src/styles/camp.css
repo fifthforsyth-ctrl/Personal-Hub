@@ -123,7 +123,7 @@
   font: inherit; color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 4px;
 }
 .camp-step__words { font-size: 14px; line-height: 1.5; }
-.camp-step.done .camp-step__words { color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.camp-step.done > .camp-step__row .camp-step__words { color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--line-strong); }
 .camp-step__note {
   display: flex; gap: 5px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: var(--text-2);
 }
@@ -135,7 +135,18 @@
 .camp-grow { min-height: 0; resize: none; overflow: hidden; }
 .camp-step__tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .camp-step__tools .btn-icon:disabled { opacity: 0.3; cursor: default; }
-.camp-step.open .camp-step__words { font-weight: 600; }
+.camp-step.open > .camp-step__row .camp-step__words { font-weight: 600; }
+
+/* Sub-steps: a smaller checklist tucked under its step, on a thin rule. */
+.camp-subs { margin: -4px 0 8px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }
+.camp-subs .camp-step { border-top: 0; }
+.camp-subs .camp-check { width: 22px; height: 22px; margin-top: 6px; }
+.camp-subs .camp-step__text { padding: 6px 0; }
+.camp-subs .camp-step__words { font-size: 13.5px; }
+.camp-subs .camp-step__edit { padding-left: 32px; }
+.camp-subs__add { list-style: none; }
+.camp-subs .camp-add { border-top: 0; padding-top: 2px; }
+.camp-subs .camp-add > svg { margin: 7px 4px 0 2px; }
 
 /* Add a step: a quiet line under the steps that grows as you type. */
 .camp-add { display: flex; align-items: flex-start; gap: 10px; border-top: 1px dashed var(--line-strong); padding-top: 9px; }
@@ -301,6 +312,8 @@
   .camp .card:not(.card--flush) { padding: 16px; }
   .camp-tabs { margin: 0 -2px 10px; }
   .camp-step__edit { padding-left: 0; }
+  .camp-subs { margin-left: 14px; }
+  .camp-subs .camp-step__edit { padding-left: 0; }
   .camp-hidden { padding-left: 0; }
   .plans-template ul { padding-left: 34px; }
   .plans-template .camp-sec__why, .plans-template .camp-sec__note { margin-left: 0; }

@@ -15,23 +15,37 @@ const BYPOS = (a, b) =>
 
 // A camp's sections in order, each with its steps in order, the steps that
 // sit in no section, and where it all stands: how many are done, and the
-// first step still to do, reading top to bottom.
+// first step still to do, reading top to bottom. Each step carries its
+// sub-steps (0083) as `subs`; they count like any step, and a sub-step whose
+// step is gone stands on its own.
 export function buildCamp(sections, steps) {
+  const all = [...(steps ?? [])].sort(BYPOS);
+  const ids = new Set(all.map((st) => st.id));
+  const subsOf = new Map();
+  for (const st of all) {
+    if (!st.parent_id || !ids.has(st.parent_id)) continue;
+    if (!subsOf.has(st.parent_id)) subsOf.set(st.parent_id, []);
+    subsOf.get(st.parent_id).push(st);
+  }
   const bySection = new Map();
   const loose = [];
   const known = new Set((sections ?? []).map((s) => s.id));
-  for (const st of [...(steps ?? [])].sort(BYPOS)) {
+  for (const raw of all) {
+    if (raw.parent_id && ids.has(raw.parent_id)) continue;
+    const st = { ...raw, subs: subsOf.get(raw.id) ?? [] };
     if (st.section_id && known.has(st.section_id)) {
       if (!bySection.has(st.section_id)) bySection.set(st.section_id, []);
       bySection.get(st.section_id).push(st);
     } else loose.push(st);
   }
+  const flat = (list) => list.flatMap((st) => [st, ...st.subs]);
   const list = [...(sections ?? [])].sort(BYPOS).map((s, i) => {
     const own = bySection.get(s.id) ?? [];
-    const done = own.filter((st) => st.done_on).length;
-    return { ...s, number: i + 1, steps: own, done, total: own.length, complete: own.length > 0 && done === own.length };
+    const every = flat(own);
+    const done = every.filter((st) => st.done_on).length;
+    return { ...s, number: i + 1, steps: own, done, total: every.length, complete: every.length > 0 && done === every.length };
   });
-  const ordered = [...loose, ...list.flatMap((s) => s.steps)];
+  const ordered = flat([...loose, ...list.flatMap((s) => s.steps)]);
   const done = ordered.filter((st) => st.done_on).length;
   return {
     sections: list,

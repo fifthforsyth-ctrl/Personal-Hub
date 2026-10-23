@@ -4,8 +4,8 @@ import { splitSteps } from "../../lib/camp";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "./Rich";
 
-// The pieces of a camp's checklist: a step, the box to add steps, and a
-// section with its steps.
+// The pieces of a camp's checklist: a step with its sub-steps, the box to
+// add steps, and a section with its steps.
 
 // A textarea that grows with what's in it.
 function useGrow(value) {
@@ -20,8 +20,9 @@ function useGrow(value) {
 }
 
 // One step: its box, its words and the first of its note. Tap the words to
-// open it: change the words, write notes, move it or take it off.
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove }) {
+// open it: change the words, write notes, move it or take it off. Its
+// sub-steps come in as `children`.
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, children }) {
   const done = Boolean(step.done_on);
   const [text, setText] = useState(step.text);
   const [note, setNote] = useState(step.note ?? "");
@@ -43,7 +44,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   }
 
   return (
-    <li id={`step-${step.id}`} className={"camp-step" + (done ? " done" : "") + (open ? " open" : "")}>
+    <li id={`step-${step.id}`} className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "")}>
       <div className="camp-step__row">
         <button
           type="button"
@@ -70,7 +71,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
       {open && (
         <div className="camp-step__edit">
           <label className="field">
-            <span>Step</span>
+            <span>{step.parent_id ? "Sub-step" : "Step"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
           </label>
           <label className="field">
@@ -105,7 +106,38 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
           </div>
         </div>
       )}
+      {children}
     </li>
+  );
+}
+
+// A list of steps, each with its sub-steps under it. An open step also
+// gets the box to add sub-steps; finishing a sub-step lays its bricks the
+// same as a step.
+export function StepList({ list, openStep, hideDone, step, onAddSubs }) {
+  return (
+    <ul className="camp-steps">
+      {list.map((st, i) => {
+        const subs = hideDone ? st.subs.filter((x) => !x.done_on) : st.subs;
+        const open = openStep === st.id;
+        return (
+          <StepRow key={st.id} step={st} open={open} first={i === 0} last={i === list.length - 1} {...step(st, list)}>
+            {(subs.length > 0 || open) && (
+              <ul className="camp-steps camp-subs">
+                {subs.map((x, k) => (
+                  <StepRow key={x.id} step={x} open={openStep === x.id} first={k === 0} last={k === subs.length - 1} {...step(x, subs)} />
+                ))}
+                {open && (
+                  <li className="camp-subs__add">
+                    <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
+                  </li>
+                )}
+              </ul>
+            )}
+          </StepRow>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -161,7 +193,7 @@ export function AddStep({ onAdd, label = "Add a step" }) {
 
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, step }) {
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, step }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -199,13 +231,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
               <Rich text={s.note} />
             </p>
           )}
-          {shown.length > 0 && (
-            <ul className="camp-steps">
-              {shown.map((st, i) => (
-                <StepRow key={st.id} step={st} open={openStep === st.id} first={i === 0} last={i === shown.length - 1} {...step(st, shown)} />
-              ))}
-            </ul>
-          )}
+          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
           <AddStep onAdd={(texts) => onAdd(s.id, texts)} />
         </div>
