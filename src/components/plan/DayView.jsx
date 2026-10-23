@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CalendarCheck,
   Repeat,
+  Mountain,
 } from "lucide-react";
 import {
   fetchDayPlan,
@@ -33,7 +34,9 @@ import {
   deleteTemplate,
   setTaskWork,
   fetchCategories,
+  fetchQuestTagOptions,
 } from "../../lib/api";
+import { tagOf } from "../../lib/questWork";
 import { fmtTimeRange, minutesOf } from "../../lib/planDates";
 import { colorFor } from "../../lib/categories";
 import { useLoad } from "../../lib/useLoad";
@@ -81,6 +84,10 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
   }, [userId, date]);
 
   const presets = useLoad(() => (userId ? fetchTemplates(userId) : []), [userId]);
+  // The quests and camps a block can be tagged with; without them a block
+  // just has no quest to pick.
+  const questTags = useLoad(() => (userId ? fetchQuestTagOptions(userId).catch(() => []) : []), [userId]);
+  const questOptions = questTags.data ?? [];
 
   // Tell the page, once things settle. Debounced so ticking off three tasks
   // in a row refreshes the page once.
@@ -486,6 +493,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
           tasks={byChunk.get(chunk.id) ?? []}
           subsByParent={subsByParent}
           goalOptions={goalOptions}
+          questOptions={questOptions}
           userId={userId}
           date={date}
           editing={editing === chunk.id}
@@ -507,6 +515,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
             userId={userId}
             defaults={nextSlot(chunks)}
             goalOptions={goalOptions}
+            questOptions={questOptions}
             onSave={(fields) => saveBlock(null, fields)}
             onCancel={() => setEditing(null)}
           />
@@ -541,8 +550,9 @@ function nextSlot(chunks) {
   return { start: hhmm(start), end: hhmm(Math.min(start + 60, 23 * 60 + 59)) };
 }
 
-function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, date, editing, onEdit, onCancelEdit, onSave, onDelete, rowProps }) {
+function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, questOptions = [], userId, date, editing, onEdit, onCancelEdit, onSave, onDelete, rowProps }) {
   const goal = goalOptions.find((g) => g.id === chunk.goal_node_id);
+  const quest = tagOf(chunk, questOptions);
   const done = tasks.filter((t) => t.status).length;
 
   // A block waiting on its Undo stays mounted, only hidden, so its notes
@@ -554,6 +564,7 @@ function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, da
           userId={userId}
           chunk={chunk}
           goalOptions={goalOptions}
+          questOptions={questOptions}
           onSave={(fields) => onSave(chunk, fields)}
           onCancel={onCancelEdit}
           onDelete={() => onDelete(chunk)}
@@ -570,7 +581,7 @@ function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, da
               Edit
             </span>
           </button>
-          {(chunk.category || goal || chunk.standing_block_id || tasks.length > 0) && (
+          {(chunk.category || goal || quest || chunk.standing_block_id || tasks.length > 0) && (
             <div className="plan-block__meta">
               {chunk.category && (
                 <span className="pill">
@@ -579,6 +590,12 @@ function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, da
                 </span>
               )}
               {goal && <span className="pill">{goal.title}</span>}
+              {quest && (
+                <span className="pill" title="What you finish on this quest today goes in your work report">
+                  <Mountain size={11} />
+                  {quest.short ?? quest.label}
+                </span>
+              )}
               {chunk.standing_block_id && (
                 <span className="pill" title="Comes from a standing block on the Week page">
                   <Repeat size={11} />
@@ -610,12 +627,13 @@ function BlockCard({ hidden, chunk, tasks, subsByParent, goalOptions, userId, da
 
 // Adds a block, or changes one. Moving a block here keeps its tasks and
 // notes, which deleting and re-adding it never did.
-function BlockForm({ userId, chunk, defaults, goalOptions, onSave, onCancel, onDelete }) {
+function BlockForm({ userId, chunk, defaults, goalOptions, questOptions = [], onSave, onCancel, onDelete }) {
   const [title, setTitle] = useState(chunk?.title ?? "");
   const [start, setStart] = useState(chunk ? chunk.start_time.slice(0, 5) : defaults.start);
   const [end, setEnd] = useState(chunk ? chunk.end_time.slice(0, 5) : defaults.end);
   const [category, setCategory] = useState(chunk?.category ?? "");
   const [goalNodeId, setGoalNodeId] = useState(chunk?.goal_node_id ?? "");
+  const [questTag, setQuestTag] = useState(chunk?.camp_id ? `c:${chunk.camp_id}` : chunk?.quest_id ? `q:${chunk.quest_id}` : "");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(null);
   const cats = useLoad(() => (userId ? fetchCategories(userId) : []), [userId]);
@@ -641,8 +659,15 @@ function BlockForm({ userId, chunk, defaults, goalOptions, onSave, onCancel, onD
       end_time: end,
       category: category || null,
       goal_node_id: goalNodeId || null,
+      ...questFields(),
     });
     if (!ok) setBusy(false);
+  }
+
+  // A camp carries its quest with it.
+  function questFields() {
+    const o = questOptions.find((x) => x.value === questTag);
+    return { quest_id: o?.questId ?? null, camp_id: o?.campId ?? null };
   }
 
   return (
@@ -688,6 +713,21 @@ function BlockForm({ userId, chunk, defaults, goalOptions, onSave, onCancel, onD
           </label>
         )}
       </div>
+      {(questOptions.length > 0 || questTag) && (
+        <label className="field">
+          <span>Quest</span>
+          <select className="input" value={questTag} onChange={(e) => setQuestTag(e.target.value)}>
+            <option value="">No quest</option>
+            {questTag && !questOptions.some((o) => o.value === questTag) && <option value={questTag}>The quest it was on</option>}
+            {questOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.campId ? `\u00a0\u00a0· ${o.short}` : o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {questTag && <p className="block-form__hint">What you finish on it today goes in your end-of-day work report.</p>}
       {chunk?.standing_block_id && (
         <p className="block-form__hint">This is this day's copy of a standing block. Changes here stay on this day.</p>
       )}

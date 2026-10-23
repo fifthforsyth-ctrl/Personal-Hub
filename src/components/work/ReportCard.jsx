@@ -49,6 +49,7 @@ export default function ReportCard({ work, name }) {
           color="var(--good)"
           items={[
             ...r.done.map((t) => ({ key: t.id, text: t.title })),
+            ...r.quest.map((q) => ({ key: q.id, text: q.text })),
             ...r.extras.map((n) => ({ key: n.id, text: n.body, meta: n.minutes ? fmtHours(n.minutes) : null })),
           ]}
         />

@@ -3,6 +3,7 @@ import { parseScriptureRefs } from "./scripture";
 import { todayStr, addDays, toDateStr, startOfMonth, startOfWeek } from "./planDates";
 import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 import { planRows } from "./camp";
+import { questTagOptions, questWorkDone } from "./questWork";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -3654,6 +3655,33 @@ function fetchFinished(userId) {
       supabase.from("camp_steps").select("id, camp_id, text, note, done_on, updated_at").eq("user_id", userId).not("done_on", "is", null).order("id")
     ),
   ]);
+}
+
+// The quests and camps a day's block can be tagged with (0085).
+export async function fetchQuestTagOptions(userId) {
+  const [quests, camps] = await Promise.all([
+    supabase.from("quests").select("id, title, lesson_id, position").eq("user_id", userId),
+    supabase.from("quest_camps").select("id, quest_id, title, position").eq("user_id", userId),
+  ]);
+  for (const r of [quests, camps]) if (r.error) throw r.error;
+  return questTagOptions(quests.data ?? [], camps.data ?? []);
+}
+
+// What got finished on `date` on the quests and camps its blocks are tagged
+// with, for the end-of-day report.
+export async function fetchQuestWorkDone(userId, date) {
+  const chunks = await supabase.from("time_chunks").select("id, quest_id, camp_id").eq("user_id", userId).eq("date", date);
+  if (chunks.error) throw chunks.error;
+  const tagged = (chunks.data ?? []).filter((c) => c.quest_id || c.camp_id);
+  if (!tagged.length) return [];
+  const [quests, camps, tasks, steps] = await Promise.all([
+    supabase.from("quests").select("id, title").eq("user_id", userId),
+    supabase.from("quest_camps").select("id, quest_id, title").eq("user_id", userId),
+    supabase.from("quest_tasks").select("id, quest_id, kind, text, done_on, done_at, updated_at").eq("user_id", userId).eq("done_on", date),
+    supabase.from("camp_steps").select("id, camp_id, text, done_on, updated_at").eq("user_id", userId).eq("done_on", date),
+  ]);
+  for (const r of [quests, camps, tasks, steps]) if (r.error) throw r.error;
+  return questWorkDone({ date, chunks: tagged, quests: quests.data ?? [], camps: camps.data ?? [], tasks: tasks.data ?? [], steps: steps.data ?? [] });
 }
 
 export async function fetchVillage(userId) {

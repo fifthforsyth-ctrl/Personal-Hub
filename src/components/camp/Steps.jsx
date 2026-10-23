@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Pencil, Plus, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, GripVertical, Pencil, Plus, StickyNote } from "lucide-react";
 import { splitSteps } from "../../lib/camp";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "./Rich";
+import { useDragSort } from "../../lib/useDragSort";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
 // add steps, and a section with its steps.
@@ -29,8 +30,9 @@ const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
 
 // One step: its box, its urgency, its words and the first of its note. Tap
 // the words to open it: change the words, set how urgent it is, write notes,
-// move it or take it off. Its sub-steps come in as `children`.
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, children }) {
+// move it or take it off. Its sub-steps come in as `children`. With `sort`
+// (from useDragSort) it has a handle to drag it into a new place.
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, sort, children }) {
   const done = Boolean(step.done_on);
   const [text, setText] = useState(step.text);
   const [note, setNote] = useState(step.note ?? "");
@@ -52,7 +54,12 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   }
 
   return (
-    <li id={`step-${step.id}`} className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "")}>
+    <li
+      id={`step-${step.id}`}
+      ref={sort?.ref}
+      style={sort?.style}
+      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (sort?.lifted ? " lifted" : "")}
+    >
       <div className="camp-step__row">
         <button
           type="button"
@@ -76,6 +83,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             </small>
           )}
         </button>
+        {sort && <DragHandle {...sort.handle} label="Drag to move this step" />}
       </div>
       {open && (
         <div className="camp-step__edit">
@@ -138,19 +146,42 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   );
 }
 
+// The grip a step or section is dragged by. Only it starts a drag.
+export function DragHandle({ label, ...props }) {
+  return (
+    <button type="button" className="drag-handle" aria-label={label} title={label} {...props}>
+      <GripVertical size={16} aria-hidden="true" />
+    </button>
+  );
+}
+
 // A list of steps, each with its sub-steps under it, and theirs under them,
 // as deep as they go. An open step also gets the box to add sub-steps;
-// finishing a sub-step lays its bricks the same as a step.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, sub = false, children }) {
+// finishing a sub-step lays its bricks the same as a step. Each one drags
+// by its handle into a new place among its neighbours; `onReorder` gets the
+// list and its ids in the new order.
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, sub = false, children }) {
+  const sort = useDragSort(
+    list.map((x) => x.id),
+    (ids) => onReorder(list, ids)
+  );
   return (
     <ul className={"camp-steps" + (sub ? " camp-subs" : "")}>
       {list.map((st, i) => {
         const subs = hideDone ? st.subs.filter((x) => !x.done_on) : st.subs;
         const open = openStep === st.id;
         return (
-          <StepRow key={st.id} step={st} open={open} first={i === 0} last={i === list.length - 1} {...step(st, list)}>
+          <StepRow
+            key={st.id}
+            step={st}
+            open={open}
+            first={i === 0}
+            last={i === list.length - 1}
+            sort={list.length > 1 ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
+            {...step(st, list)}
+          >
             {(subs.length > 0 || open) && (
-              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} sub>
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
@@ -217,13 +248,19 @@ export function AddStep({ onAdd, label = "Add a step" }) {
 }
 
 // A section: its number, name and how far along, then (open) why it
-// matters, its note, its steps and the box to add more.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, step }) {
+// matters, its note, its steps and the box to add more. With `sort` it has
+// a handle to drag the whole section into a new place.
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, step, sort }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
   return (
-    <section className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "")} aria-labelledby={`sec-${s.id}`}>
+    <section
+      ref={sort?.ref}
+      style={sort?.style}
+      className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "")}
+      aria-labelledby={`sec-${s.id}`}
+    >
       <div className="camp-sec__head">
         <button type="button" className="camp-sec__toggle" aria-expanded={open} onClick={onToggle}>
           <span className="camp-sec__n" aria-hidden="true">
@@ -238,6 +275,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
         <button type="button" className="btn-icon" onClick={onEdit} aria-label={`Edit ${s.title}`} title="Edit section">
           <Pencil size={14} />
         </button>
+        {sort && <DragHandle {...sort.handle} label={`Drag to move ${s.title}`} />}
       </div>
       {s.total > 0 && (
         <div className="camp-bar" aria-hidden="true">
@@ -256,7 +294,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
               <Rich text={s.note} />
             </p>
           )}
-          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} />}
+          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
           <AddStep onAdd={(texts) => onAdd(s.id, texts)} />
         </div>

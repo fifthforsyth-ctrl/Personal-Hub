@@ -26,6 +26,7 @@ import {
   saveWorkReport,
   fetchWorkCategories,
   setCategoryWork,
+  fetchQuestWorkDone,
 } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useToast } from "../components/ui/Feedback";
@@ -66,8 +67,19 @@ export default function Work() {
   // The day's own line, "What I shipped", lives on the day plan and rides
   // along with the work day so the report can put it first.
   const { data: work, error, reload, mutate } = useLoad(async () => {
-    const [day, plan] = await Promise.all([fetchWorkDay(date), user?.id ? fetchDayPlan(user.id, date) : null]);
-    return day ? { ...day, shipped: plan?.shipped ?? null } : day;
+    // What got done on the quest a block was tagged with counts as work too;
+    // if that can't load, the rest of the report still does.
+    const [day, plan, questDone] = await Promise.all([
+      fetchWorkDay(date),
+      user?.id ? fetchDayPlan(user.id, date) : null,
+      user?.id
+        ? fetchQuestWorkDone(user.id, date).catch((err) => {
+            console.warn(err);
+            return [];
+          })
+        : [],
+    ]);
+    return day ? { ...day, shipped: plan?.shipped ?? null, questDone } : day;
   }, [date, user?.id]);
 
   // The report text. It follows the list (notes and work tasks) until you

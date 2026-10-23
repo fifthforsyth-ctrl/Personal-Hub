@@ -33,6 +33,8 @@ export function buildReport(work) {
   const notes = work?.notes ?? [];
 
   const done = tasks.filter((t) => t.done);
+  // Finished on the quest a block was tagged with (0085): "Multicam tab: …".
+  const quest = (work?.questDone ?? []).map((q) => ({ ...q, text: `${q.where}: ${q.title}` }));
   const open = tasks.filter((t) => !t.done);
 
   // A "did" note is something that happened but was never a planned task —
@@ -51,6 +53,7 @@ export function buildReport(work) {
     minutes: Number(work?.minutes) || 0,
     shipped,
     done,
+    quest,
     open,
     extras,
     blocked,
@@ -59,7 +62,7 @@ export function buildReport(work) {
     tomorrow: work?.tomorrow ?? [],
     hasAnything:
       Boolean(shipped) ||
-      done.length + open.length + extras.length + blocked.length + questions.length + asides.length + (work?.tomorrow?.length ?? 0) > 0 ||
+      done.length + quest.length + open.length + extras.length + blocked.length + questions.length + asides.length + (work?.tomorrow?.length ?? 0) > 0 ||
       Number(work?.minutes) > 0,
   };
 }
@@ -72,9 +75,10 @@ export function reportToText(work, { name } = {}) {
 
   if (r.shipped) lines.push("", "SHIPPED", `· ${r.shipped}`);
 
-  if (r.done.length || r.extras.length) {
+  if (r.done.length || r.quest.length || r.extras.length) {
     lines.push("", "DONE");
     for (const t of r.done) lines.push(`· ${t.title}`);
+    for (const q of r.quest) lines.push(`· ${q.text}`);
     for (const n of r.extras) lines.push(`· ${n.body}${n.minutes ? ` (${fmtHours(n.minutes)})` : ""}`);
   }
 

@@ -9,6 +9,8 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { dropIndex, moved } from "../src/lib/dragOrder.js";
+import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
 import {
@@ -1715,6 +1717,40 @@ console.log("\nthe mark");
   ok("sub-steps aren't steps of their own in the section", s2.steps.map((x) => x.id).join() === "c,d");
   ok("a sub-step whose step is gone stands on its own", s1.steps.map((x) => x.id).join() === "a,b,z1" && !s1.complete);
   ok("sub-steps count on the section and the camp", s2.total === 4 && s1.done === 3 && withSubs.total === 10 && withSubs.done === 3);
+  // Quest tags on the day's blocks (0085).
+  const tq = [{ id: "q1", title: "Plugin", position: 0 }, { id: "ml", title: "Integrity", lesson_id: "l1" }];
+  const tc = [{ id: "c2", quest_id: "q1", title: "Sift tab", position: 1 }, { id: "c1", quest_id: "q1", title: "Multicam tab", position: 0 }];
+  const opts = questTagOptions(tq, tc);
+  ok("a block can take a quest or one of its camps, and not a lesson's mountain", opts.map((o) => o.value).join() === "q:q1,c:c1,c:c2" && opts[1].label === "Plugin · Multicam tab");
+  ok("a block knows its tag", tagOf({ camp_id: "c1", quest_id: "q1" }, opts).short === "Multicam tab" && tagOf({ quest_id: "q1" }, opts).value === "q:q1" && tagOf({}, opts) === null);
+  const qd = (chunks) =>
+    questWorkDone({
+      date: "2026-10-23",
+      chunks,
+      quests: tq,
+      camps: tc,
+      tasks: [
+        { id: "t1", quest_id: "q1", kind: "task", text: "Email beta users", done_on: "2026-10-23", done_at: "2026-10-23T15:00:00Z" },
+        { id: "n1", quest_id: "q1", kind: "note", text: "a note", done_on: "2026-10-23" },
+      ],
+      steps: [
+        { id: "s1", camp_id: "c1", text: "Fix sync drift", done_on: "2026-10-23", updated_at: "2026-10-23T14:00:00Z" },
+        { id: "s2", camp_id: "c2", text: "Sort clips", done_on: "2026-10-23", updated_at: "2026-10-23T16:00:00Z" },
+        { id: "s3", camp_id: "c1", text: "Yesterday's", done_on: "2026-10-22" },
+      ],
+    });
+  ok("a camp tag brings that camp's steps finished today", qd([{ camp_id: "c1", quest_id: "q1" }]).map((x) => `${x.where}: ${x.title}`).join() === "Multicam tab: Fix sync drift");
+  ok("a quest tag brings its tasks and all its camps' steps, in the order done", qd([{ quest_id: "q1" }]).map((x) => x.id).join() === "s1,t1,s2");
+  ok("no tag, no quest work", qd([{}]).length === 0);
+  const rep = { date: "2026-10-23", minutes: 60, tasks: [], notes: [], tomorrow: [], questDone: [{ id: "s1", title: "Fix sync drift", where: "Multicam tab" }] };
+  ok("quest work goes in the report's Done", reportToText(rep).includes("DONE\n· Multicam tab: Fix sync drift") && buildReport(rep).quest.length === 1);
+
+  // Drag to reorder: where a dragged item lands, and the order it makes.
+  const mids = [10, 30, 50, 70];
+  ok("a drag that doesn't cross a neighbour's middle stays put", dropIndex(mids, 1, 38) === 1 && dropIndex(mids, 1, 22) === 1);
+  ok("dragging down past two middles moves two places", dropIndex(mids, 0, 55) === 2 && dropIndex(mids, 0, 99) === 3);
+  ok("dragging up to the top lands first", dropIndex(mids, 3, 5) === 0 && dropIndex(mids, 3, 45) === 2);
+  ok("moved() puts the dragged id in its new place", moved(["a", "b", "c", "d"], 0, 2).join() === "b,c,a,d" && moved(["a", "b", "c"], 2, 0).join() === "c,a,b");
   const deep = buildCamp([], [
     { id: "t", text: "Top", position: 0, done_on: null },
     { id: "t1", parent_id: "t", text: "Sub", position: 0, done_on: "2026-10-23" },

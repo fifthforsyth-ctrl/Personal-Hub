@@ -137,6 +137,20 @@
 .camp-step__tools .btn-icon:disabled { opacity: 0.3; cursor: default; }
 .camp-step.open > .camp-step__row .camp-step__words { font-weight: 600; }
 
+/* Drag to reorder: only the grip starts a drag, so it must not scroll. */
+.drag-handle {
+  flex: 0 0 auto; width: 32px; height: 40px; margin: 2px -6px 0 0; padding: 0; border: 0; background: none;
+  display: grid; place-items: center; color: var(--text-3); cursor: grab; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.camp-subs .drag-handle { height: 34px; }
+.camp-sec__head .drag-handle { margin: 0 -6px 0 0; }
+@media (hover: hover) { .drag-handle:hover { color: var(--ink); } }
+.drag-sorting, .drag-sorting * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
+.camp-step.lifted { background: var(--card); box-shadow: 0 8px 24px rgba(20, 20, 20, 0.14); border-radius: 12px; }
+.camp-step.lifted + .camp-step { border-top-color: transparent; }
+.camp-sec.lifted { box-shadow: 0 14px 36px rgba(20, 20, 20, 0.18); }
+
 /* Urgency: red, yellow or green, a small dot before the step's words. */
 .camp-urgency { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 7px 1px 0; vertical-align: middle; flex: none; }
 .camp-urgency--red { background: #d64541; }
