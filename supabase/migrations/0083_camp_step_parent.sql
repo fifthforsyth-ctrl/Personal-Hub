@@ -2,8 +2,8 @@
 --
 -- A sub-step is a camp_steps row like any other (so a finished one lays its
 -- bricks in the village and counts on the camp), with parent_id pointing at
--- the step it sits under. Only one level: a sub-step's parent is a top step.
--- Taking a step off takes its sub-steps with it.
+-- the step it sits under. They nest as deep as you like: a sub-step can
+-- have sub-steps of its own. Taking a step off takes everything under it.
 --
 -- The parent check runs in a function that reads the table directly, the
 -- way 0082 does for quest tasks, since a policy on camp_steps can't query
@@ -26,7 +26,7 @@ set search_path = ''
 as $$
   select exists (
     select 1 from public.camp_steps s
-    where s.id = p_parent and s.user_id = auth.uid() and s.camp_id = p_camp and s.parent_id is null
+    where s.id = p_parent and s.user_id = auth.uid() and s.camp_id = p_camp
   );
 $$;
 

@@ -145,6 +145,7 @@
 .camp-subs .camp-step__words { font-size: 13.5px; }
 .camp-subs .camp-step__edit { padding-left: 32px; }
 .camp-subs__add { list-style: none; }
+.camp-subs .camp-subs { margin-left: 32px; }
 .camp-subs .camp-add { border-top: 0; padding-top: 2px; }
 .camp-subs .camp-add > svg { margin: 7px 4px 0 2px; }
 
@@ -313,6 +314,7 @@
   .camp-tabs { margin: 0 -2px 10px; }
   .camp-step__edit { padding-left: 0; }
   .camp-subs { margin-left: 14px; }
+  .camp-subs .camp-subs { margin-left: 10px; }
   .camp-subs .camp-step__edit { padding-left: 0; }
   .camp-hidden { padding-left: 0; }
   .plans-template ul { padding-left: 34px; }
