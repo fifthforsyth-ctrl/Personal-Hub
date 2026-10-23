@@ -1,52 +1,81 @@
-// The village (supabase/migrations/0080_village_builds.sql): every quest
-// builds something, each camp builds one of its parts, and each step ticked
-// lays a few bricks. Only the build he picked is kept; how far along it is
-// comes from the steps themselves, so the village and the camps can never
-// disagree.
+// The village (supabase/migrations/0081_quest_tasks_village_projects.sql):
+// he chooses what to build from a catalog, and every task or camp step he
+// finishes, from any quest or lesson, lays the next bricks on it until it
+// stands. Then he chooses the next. Arrows loosed on The Mark train the
+// soldiers, his bullseyes upgrade their bows, and everyone he has done
+// temple work for lives there.
+//
+// Only the choice of build is kept. Which tasks went into which build is
+// worked out here from the tasks in the order they were done, so the
+// village and the lists can never disagree, and unticking a task takes its
+// bricks back off.
 //
 // Everything here is pure. The drawing itself is src/village/engine.js.
 
 import { addDays, parseDateStr } from "./planDates.js";
+import { tierOf } from "./mark.js";
 
-// What a quest's size offers when he taps Generate project, smallest first.
-// Aaron, 2026-10-22: under 20 steps is a small build, 20 to 79 a middle
-// one, 80 or more a big one.
-export const BANDS = [
-  { under: 20, kinds: ["cottage", "forge", "well", "watchtower"], size: "small" },
-  { under: 80, kinds: ["windmill", "farm", "outpost"], size: "middle-sized" },
-  { under: Infinity, kinds: ["fortress", "warcamp", "farmstead"], size: "big" },
+// What there is to build, smallest first. `need` is how many finished tasks
+// it takes to stand (Aaron, 2026-10-23: build it over time from all the
+// quests and lessons, not one task per brick).
+export const SIZES = [
+  { key: "small", label: "Small builds", line: "A few days of work" },
+  { key: "middle", label: "Middle builds", line: "A week or two" },
+  { key: "big", label: "Big builds", line: "A long campaign" },
 ];
 
-export const KINDS = BANDS.flatMap((b) => b.kinds);
+export const CATALOG = [
+  { kind: "well", name: "Well", size: "small", need: 12, line: "A stone well with a little roof." },
+  { kind: "garden", name: "Kitchen garden", size: "small", need: 14, line: "Raised beds, a fence and a scarecrow." },
+  { kind: "apiary", name: "Apiary", size: "small", need: 15, line: "Beehive skeps on benches, with flowers all round." },
+  { kind: "watchtower", name: "Watchtower", size: "small", need: 18, line: "A timber lookout on a stone footing." },
+  { kind: "cottage", name: "Cottage", size: "small", need: 20, line: "Whitewashed walls, a steep roof and a garden." },
+  { kind: "forge", name: "Forge", size: "small", need: 22, line: "A stone smithy with a tall chimney and an anvil." },
+  { kind: "outpost", name: "Outpost", size: "middle", need: 30, line: "A watchtower inside a palisade, with a signal fire." },
+  { kind: "range", name: "Archery range", size: "middle", need: 32, line: "Straw targets, a shooting line and a shelter for the bows." },
+  { kind: "storehouse", name: "Storehouse", size: "middle", need: 35, line: "Stone walls, a loading door, barrels and sacks." },
+  { kind: "armory", name: "Sword armory", size: "middle", need: 40, line: "A stone armory, racks of swords and a crossed-sword banner." },
+  { kind: "farm", name: "Farm", size: "middle", need: 40, line: "A barn, a fenced pasture, a small flock and hay." },
+  { kind: "stable", name: "Stable", size: "middle", need: 42, line: "A timber stable, a paddock and horses." },
+  { kind: "windmill", name: "Windmill", size: "middle", need: 45, line: "A stone mill. Its sails turn once it stands." },
+  { kind: "chapel", name: "Chapel", size: "middle", need: 45, line: "Whitewashed walls, tall windows and a steeple." },
+  { kind: "school", name: "Schoolhouse", size: "middle", need: 48, line: "A schoolroom with a bell tower and a reading bench." },
+  { kind: "barracks", name: "Barracks", size: "middle", need: 50, line: "A long hall for the soldiers, with a drill yard." },
+  { kind: "gate", name: "Town gate", size: "big", need: 80, line: "Twin stone towers, a gate and a stretch of wall." },
+  { kind: "farmstead", name: "Frontier farmstead", size: "big", need: 100, line: "A barn, a stone silo, six fields and a flock." },
+  { kind: "warcamp", name: "War camp", size: "big", need: 120, line: "A palisade, two watchtowers and a ring of tents." },
+  { kind: "fortress", name: "Stone fortress", size: "big", need: 150, line: "Towers, curtain walls and a keep. Built to hold." },
+];
 
-export function bandFor(steps) {
-  return BANDS.findIndex((b) => steps < b.under);
+const BY_KIND = new Map(CATALOG.map((c) => [c.kind, c]));
+
+export function buildOf(kind) {
+  return BY_KIND.get(kind) ?? { kind, name: "Build", size: "middle", need: 40, line: "" };
 }
 
-// "48 steps is a middle-sized quest, so these three fit it."
-export function bandLine(steps) {
-  const b = BANDS[bandFor(steps)];
-  const n = `${steps} ${steps === 1 ? "step" : "steps"}`;
-  return b.size === "middle-sized" ? `${n} is a middle-sized quest. These three fit it.` : `${n} is a ${b.size} quest, so it gets a ${b.size} build.`;
-}
-
-// Three builds for a quest, the same three every time for the same roll, and
-// a different three (or the same kinds in other variations) for each roll of
-// Generate again. A band with only three kinds offers all three every time.
-export function buildOptions(questId, steps, roll = 0) {
-  const band = bandFor(steps);
-  const kinds = BANDS[band].kinds;
-  const base = hash(questId);
-  return [0, 1, 2].map((i) => ({
-    kind: kinds[(roll + i) % kinds.length],
-    seed: ((base + roll * 17 + i * 5 + band * 3) % 100000) + 1,
-  }));
+// A fresh variation of a build: the same three every time for the same
+// roll, and new ones for each "Another look".
+export function seedFor(kind, roll = 0) {
+  return ((hash(kind) + roll * 7919) % 100000) + 1;
 }
 
 function hash(s) {
   let h = 2166136261;
   for (const ch of String(s)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return h >>> 0;
+}
+
+// Every 5 arrows loosed trains a soldier. Their bows are the one he holds on
+// The Mark (a bow of wood, then a longbow at 30 bullseyes, a recurve at 90
+// and a bow of steel at 180).
+export const ARROWS_PER_SOLDIER = 5;
+
+export function soldiersFor(arrows) {
+  return Math.floor(arrows / ARROWS_PER_SOLDIER);
+}
+
+export function bowFor(bullseyes) {
+  return tierOf(bullseyes);
 }
 
 // Plots go out around the plaza in this order: the four beside it first,
@@ -110,130 +139,147 @@ export function freePlot(builds) {
   return p;
 }
 
-// Which camps build which part. With as many camps as parts it's one each,
-// in order (the plugin's five tabs are the fortress's five parts, left tower
-// to right tower). With fewer camps than parts, a camp builds several parts
-// next to each other and its steps are shared out among them by size. With
-// more camps than parts, neighbouring camps share a part.
-//
-// `parts` is [{ units }] in build order; `camps` is [{ id, title, steps }]
-// in camp order with each camp's steps in order. Returns, for each part,
-// { camps: [...ids], title, steps: [...] }.
-export function assignCamps(camps, parts) {
-  const P = parts.length;
-  const C = camps.length;
-  const out = parts.map(() => ({ camps: [], title: null, steps: [] }));
-  if (!P || !C) return out;
-  if (C >= P) {
-    for (let j = 0; j < P; j++) {
-      const mine = camps.slice(Math.floor((j * C) / P), Math.floor(((j + 1) * C) / P));
-      out[j].camps = mine.map((c) => c.id);
-      out[j].title = mine.map((c) => c.title).join(" + ");
-      out[j].steps = mine.flatMap((c) => c.steps);
-    }
-    return out;
-  }
-  for (let i = 0; i < C; i++) {
-    const from = Math.floor((i * P) / C);
-    const to = Math.floor(((i + 1) * P) / C);
-    const span = parts.slice(from, to);
-    const units = span.reduce((s, p) => s + p.units, 0) || 1;
-    const steps = camps[i].steps;
-    let at = 0;
-    let acc = 0;
-    span.forEach((p, k) => {
-      acc += p.units;
-      const end = k === span.length - 1 ? steps.length : Math.round((steps.length * acc) / units);
-      const o = out[from + k];
-      o.camps = [camps[i].id];
-      o.title = camps[i].title;
-      o.steps = steps.slice(at, end);
-      at = end;
-    });
-  }
-  return out;
-}
-
 // Days from the village's first day: 0 is `day0`.
 export function dayIndex(dateStr, day0) {
   return Math.round((parseDateStr(dateStr) - parseDateStr(day0)) / 86400000);
 }
 
-// The village's first day: the first step done or build made, or a week
-// before today when nothing's happened yet, so the replay has somewhere to
-// start from.
+// The village's first day: the first thing that happened, or a week before
+// today when nothing has yet, so the replay has somewhere to start from.
 export function firstDay(dates, today) {
   const real = dates.filter((d) => d && d <= today).sort();
   return real.length ? real[0] : addDays(today, -7);
 }
 
-const BYPOS = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id));
+const later = (a, b) => (a > b ? a : b);
 
-// Everything the drawing needs, from the rows as loaded:
-//   quests  [{ id, title, note, goal_id, lesson_id, status }]
-//   camps   [{ id, quest_id, title, position }]
-//   steps   [{ id, camp_id, section_id, text, done_on, position }]
-//   sections [{ id, camp_id, position }] (steps are read in section order)
-//   builds  [{ quest_id, kind, seed, plot, created_at }]
-//   lessons [{ id, title }]
-//   goals   [{ id, title }]
-//   bullseyes  the days of every bullseye loosed on The Mark
-// `createdDay` turns a build's created_at into the phone's day.
-export function villageOf({ quests, camps, steps, sections = [], builds, lessons = [], goals = [], bullseyes = [] }, today, createdDay) {
-  const secPos = new Map(sections.map((s) => [s.id, s.position ?? 0]));
-  const stepsByCamp = new Map();
-  for (const st of steps) {
-    if (!stepsByCamp.has(st.camp_id)) stepsByCamp.set(st.camp_id, []);
-    stepsByCamp.get(st.camp_id).push(st);
+// Everything finished that lays bricks, in the order it was finished: quest
+// tasks and sub-tasks (not note lines) and camp steps, each
+//   { id, src, text, note, questId, day, at }
+// `quests` names each task's quest, `camps` each step's.
+export function finishedUnits({ tasks = [], steps = [], camps = [] }) {
+  const campQuest = new Map(camps.map((c) => [c.id, c.quest_id]));
+  const out = [];
+  for (const t of tasks) {
+    if (!t.done_on || (t.kind && t.kind !== "task")) continue;
+    out.push({ id: t.id, src: "task", text: t.text, note: t.note ?? null, questId: t.quest_id, day: t.done_on, at: t.done_at ?? t.updated_at ?? "" });
   }
-  // Loose steps sit at a camp's top, then each section's in order, as the camp page reads.
-  const ordered = (list) =>
-    [...list].sort((a, b) => (a.section_id ? 1 : 0) - (b.section_id ? 1 : 0) || (secPos.get(a.section_id) ?? 0) - (secPos.get(b.section_id) ?? 0) || BYPOS(a, b));
-  const lessonById = new Map(lessons.map((l) => [l.id, l]));
-  const goalById = new Map(goals.map((g) => [g.id, g]));
-  const buildByQuest = new Map(builds.map((b) => [b.quest_id, b]));
-
-  const mountains = quests.map((q) => {
-    const lesson = q.lesson_id ? lessonById.get(q.lesson_id) : null;
-    const own = camps
-      .filter((c) => c.quest_id === q.id)
-      .sort(BYPOS)
-      .map((c) => ({
-        id: c.id,
-        title: c.title,
-        steps: ordered(stepsByCamp.get(c.id) ?? []).map((st) => ({ id: st.id, text: st.text, done_on: st.done_on ?? null })),
-      }));
-    const total = own.reduce((s, c) => s + c.steps.length, 0);
-    return {
-      id: q.id,
-      name: lesson ? lesson.title : q.title,
-      type: lesson ? "Lesson" : "Quest",
-      status: q.status,
-      note: q.note || null,
-      goal: goalById.get(q.goal_id)?.title ?? null,
-      camps: own,
-      steps: total,
-      build: buildByQuest.get(q.id) ?? null,
-    };
-  });
-
-  const built = mountains
-    .filter((m) => m.build)
-    .map((m) => ({ ...m, kind: m.build.kind, seed: m.build.seed, plot: m.build.plot, made: createdDay(m.build.created_at) }));
-  // Waiting for a build: quests still on, with camps. The ones with steps
-  // come first, since only they can be generated yet.
-  const waiting = mountains
-    .filter((m) => !m.build && m.status === "on" && m.camps.length)
-    .sort((a, b) => (b.steps > 0) - (a.steps > 0));
-
-  const dates = [...built.map((b) => b.made), ...built.flatMap((b) => b.camps.flatMap((c) => c.steps.map((s) => s.done_on))), ...bullseyes];
-  const day0 = firstDay(dates, today);
-  return { today, day0, days: Math.max(1, dayIndex(today, day0)), builds: built, waiting, bullseyes: bullseyes.filter((d) => d <= today).sort(), nextPlot: freePlot(built) };
+  for (const s of steps) {
+    if (!s.done_on) continue;
+    out.push({ id: s.id, src: "step", text: s.text, note: s.note ?? null, questId: campQuest.get(s.camp_id) ?? null, day: s.done_on, at: s.updated_at ?? "" });
+  }
+  return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) || String(a.at).localeCompare(String(b.at)) || String(a.id).localeCompare(String(b.id)));
 }
 
-// The label over a building: a short name whole, or a long one's last word
-// ("Build the best Premiere Pro plugin" → "Plugin"), unless that word is too
-// small to name anything, when it's the first two words instead.
+const byStart = (a, b) =>
+  (a.started_on < b.started_on ? -1 : a.started_on > b.started_on ? 1 : 0) ||
+  String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) ||
+  String(a.id).localeCompare(String(b.id));
+
+// Hands the finished units to the builds in the order he chose them: the
+// first build takes the first `need`, the next build the next, and so on.
+// A unit finished while nothing was being built waits, and lands on the day
+// the next build is chosen. Each build gets
+//   { ...project, items: [{ ...unit, laid }], done, complete, finishedOn }
+// where `laid` is the day that unit's bricks went down. `current` is the
+// build still going up (or -1), `waiting` the units nothing has taken yet.
+export function allocate(projects, units) {
+  let at = 0;
+  const out = [...projects].sort(byStart).map((p) => {
+    const mine = units.slice(at, at + p.need).map((u) => ({ ...u, laid: later(u.day, p.started_on) }));
+    at += mine.length;
+    const complete = mine.length >= p.need;
+    return { ...p, items: mine, done: mine.length, complete, finishedOn: complete ? mine[mine.length - 1].laid : null };
+  });
+  return { projects: out, current: out.findIndex((p) => !p.complete), waiting: units.slice(at) };
+}
+
+// The people he has done temple work for, each arriving on the day of the
+// first ordinance done for them: { pid, name, gender, lifespan, first, temple }.
+export function villagersOf(done = []) {
+  return done
+    .map((p) => {
+      const ords = (Array.isArray(p.ordinances) ? p.ordinances : []).filter((o) => o && o.date).sort((a, b) => (a.date < b.date ? -1 : 1));
+      return { pid: p.pid, name: p.name, gender: p.gender ?? null, lifespan: p.lifespan ?? null, first: ords[0]?.date ?? null, temple: ords[0]?.temple ?? null };
+    })
+    .sort((a, b) => String(a.first ?? "9999").localeCompare(String(b.first ?? "9999")) || String(a.name).localeCompare(String(b.name)));
+}
+
+// Everything the drawing needs, from the rows as loaded:
+//   projects  [{ id, kind, seed, plot, need, started_on, created_at }]
+//   tasks     finished quest tasks [{ id, quest_id, kind, text, note, done_on, done_at }]
+//   steps     finished camp steps [{ id, camp_id, text, note, done_on, updated_at }]
+//   camps     [{ id, quest_id }]
+//   quests    [{ id, title, lesson_id }]  lessons [{ id, title }]
+//   shots     arrows loosed on The Mark [{ date, level }] (level 0 is a bullseye)
+//   temple    temple_done rows
+export function villageOf({ projects = [], tasks = [], steps = [], camps = [], quests = [], lessons = [], shots = [], temple = [] }, today) {
+  const lessonName = new Map(lessons.map((l) => [l.id, l.title]));
+  const questName = new Map(quests.map((q) => [q.id, q.lesson_id && lessonName.has(q.lesson_id) ? lessonName.get(q.lesson_id) : q.title]));
+  const units = finishedUnits({ tasks, steps, camps }).filter((u) => u.day <= today);
+  const { projects: built, current, waiting } = allocate(
+    projects.filter((p) => p.started_on <= today),
+    units
+  );
+  const arrows = shots.filter((s) => s.date && s.date <= today).map((s) => s.date).sort();
+  const bullseyes = shots.filter((s) => s.date && s.date <= today && s.level === 0).map((s) => s.date).sort();
+  const dates = [...built.map((p) => p.started_on), ...built.flatMap((p) => p.items.map((i) => i.laid)), ...arrows];
+  const day0 = firstDay(dates, today);
+  const villagers = villagersOf(temple).map((v) => ({ ...v, arrive: v.first && v.first > day0 ? v.first : day0 }));
+  return {
+    today,
+    day0,
+    days: Math.max(1, dayIndex(today, day0)),
+    projects: built.map((p) => {
+      const b = buildOf(p.kind);
+      return {
+        id: p.id,
+        kind: p.kind,
+        name: b.name,
+        line: b.line,
+        seed: p.seed,
+        plot: p.plot,
+        need: p.need,
+        start: p.started_on,
+        done: p.done,
+        complete: p.complete,
+        finishedOn: p.finishedOn,
+        items: p.items.map((i) => ({ ...i, quest: questName.get(i.questId) ?? null })),
+      };
+    }),
+    current,
+    waiting: waiting.length,
+    nextPlot: freePlot(built),
+    arrows,
+    bullseyes,
+    villagers,
+  };
+}
+
+// Where the build going up stands, for the top of every quest's list:
+// { project, done, need, left, today, waiting } or null when nothing is
+// being built (then `waiting` is how many finished tasks wait for one).
+export function standingOf(projects, units, today) {
+  const { projects: built, current, waiting } = allocate(
+    projects.filter((p) => p.started_on <= today),
+    units.filter((u) => u.day <= today)
+  );
+  if (current < 0) return { project: null, waiting: waiting.length, standing: built.filter((p) => p.complete).length, last: built[built.length - 1] ?? null };
+  const p = built[current];
+  return {
+    project: p,
+    done: p.done,
+    need: p.need,
+    left: p.need - p.done,
+    today: p.items.filter((i) => i.laid === today).length,
+    waiting: 0,
+    standing: built.filter((x) => x.complete).length,
+  };
+}
+
+// The label over a building or a quest's tab: a short name whole, or a long
+// one's last word ("Build the best Premiere Pro plugin" → "Plugin"), unless
+// that word is too small to name anything, when it's the first two words.
 export function shortName(name) {
   const words = String(name).trim().split(/\s+/);
   if (words.length <= 2) return words.join(" ");

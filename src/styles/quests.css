@@ -1,0 +1,165 @@
+/* ===========================================================================
+   Quests: each quest's running list and notepad, with the village's build
+   floating above it. The rows wear the camp checklist (camp.css); this adds
+   the page's frame, the days, sub-tasks, note lines and the floating build.
+   Ink on white; orange only for today's bricks and what's added today.
+   =========================================================================== */
+
+.qs { max-width: 1120px; }
+
+.qs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.qs-head__name { display: flex; flex-direction: column; min-width: 0; }
+.qs-title { text-wrap: balance; margin-bottom: 2px; }
+.qs-head__village { display: inline-flex; align-items: center; flex: 0 0 auto; }
+
+/* The quests and lessons, one tap apart. */
+.qs .qs-tabs { align-items: center; }
+.qs-tabs__label { flex: 0 0 auto; font: 500 10px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); padding: 0 2px 0 8px; }
+.qs .qs-tab { padding: 8px 14px; }
+.qs .qs-tab--new { border: 0; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-2); gap: 5px; padding: 8px 14px 8px 11px; }
+@media (hover: hover) { .qs .qs-tab--new:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--ink); } }
+
+/* The list beside the build and the notes; on a phone, one column with the
+   build on top, then the list, then the notes. */
+.qs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  grid-template-areas: "main rail";
+  gap: 16px;
+  align-items: start;
+}
+.qs-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.qs-rail { grid-area: rail; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.qs-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.qs .card + .card { margin-top: 0; }
+
+/* --- The floating build ----------------------------------------------------- */
+
+.qs-build { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 0 0 18px; overflow: hidden; }
+.qs-build__scene { display: block; height: 196px; margin: 0 0 -6px; border-radius: var(--r-lg) var(--r-lg) 0 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.qs-build__host { width: 100%; height: 100%; }
+.qs-build__text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 20px; min-width: 0; }
+.qs-build__name { margin: 0; font-family: var(--font-serif); font-size: 24px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
+.qs-build__count { display: flex; align-items: baseline; gap: 7px; margin-top: 2px; }
+.qs-build__count b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.qs-build__count span { font-size: 13px; color: var(--text-2); }
+.qs-build__line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.qs-build__today { color: var(--accent-text); font-weight: 600; white-space: nowrap; }
+.qs-build__go { display: inline-flex; align-items: center; margin-top: 6px; }
+.qs-build .qs-bar { width: 100%; }
+
+/* Nothing going up: an empty staked plot instead of a building. */
+.qs-build--none { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; padding: 20px; }
+.qs-build--none .qs-build__text { padding: 0; }
+.qs-plot {
+  width: 64px; height: 64px; border-radius: 12px; border: 1.5px dashed var(--line-strong);
+  background:
+    radial-gradient(circle at 50% 50%, var(--accent) 0 4px, transparent 5px),
+    var(--surface);
+}
+
+/* How far along: done before today in ink, today's in orange. */
+.qs-bar { display: flex; height: 6px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
+.qs-bar i { display: block; height: 100%; background: var(--ink); transition: width 0.35s ease; }
+.qs-bar i.qs-bar__today { background: var(--accent); }
+
+/* The slim bar that keeps the build in view while the list scrolls past it.
+   It takes no room in the list: a zero-height sticky holder with the bar
+   hung in it, shown once the build's card is out of sight. */
+.qs-mini { position: sticky; top: 8px; height: 0; z-index: 6; }
+.qs-mini__bar {
+  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border: 0; border-radius: var(--r-pill); background: var(--card); box-shadow: var(--shadow-lift);
+  font: inherit; color: var(--text); cursor: pointer; text-align: left;
+  opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.qs-mini.on .qs-mini__bar { opacity: 1; transform: none; pointer-events: auto; }
+.qs-mini__name { flex: 0 0 auto; font-family: var(--font-serif); font-size: 15px; font-weight: 500; }
+.qs-mini .qs-bar { flex: 1; height: 5px; }
+.qs-mini__left { flex: 0 0 auto; font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* --- The days --------------------------------------------------------------- */
+
+.qs-day { display: flex; flex-direction: column; gap: 6px; }
+.qs-day__head { display: flex; align-items: center; min-height: 28px; }
+.qs-day__title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.qs-day__title h2 { margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -0.01em; }
+.qs-day__title small { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.qs-day__toggle { border: 0; background: none; padding: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer; align-items: center; flex-wrap: nowrap; touch-action: manipulation; }
+.qs-day__toggle small { flex: 1; }
+.qs-day__chev { flex: 0 0 auto; color: var(--text-3); transition: transform 0.2s ease; }
+.qs-day.open .qs-day__chev { transform: rotate(180deg); }
+.qs-day--today .qs-day__title h2 { font-family: var(--font-serif); font-size: 21px; font-weight: 500; letter-spacing: -0.015em; }
+.qs-day:not(.open) { padding-top: 14px; padding-bottom: 14px; }
+.qs-hint { margin: 2px 0 4px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); max-width: 60ch; }
+.qs-earlier { margin: 10px 4px 0; }
+.qs-older { align-self: flex-start; }
+
+/* Sub-tasks sit under their task, a step in from its box. */
+.qs .qs-subs { margin: -4px 0 6px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }
+.qs-subs .camp-step { border-top: 0; }
+.qs-subs .camp-check { width: 22px; height: 22px; margin-top: 6px; }
+.qs-subs .camp-step__text { padding: 6px 0; }
+.qs-subs .camp-step__words { font-size: 13.5px; }
+.qs-subs .camp-step__edit { padding-left: 32px; }
+.qs-subs__add { list-style: none; }
+.qs .qs-add--sub { border-top: 0; padding-top: 2px; }
+.qs .qs-add--sub > svg { margin: 7px 4px 0 2px; }
+
+/* A line of notes: no box to tick, a pen instead, and words that read as notes. */
+.qs-pen { flex: 0 0 auto; width: 28px; height: 28px; margin: 7px 0 0; display: grid; place-items: center; color: var(--text-3); }
+.qs-line--note .camp-step__words { color: var(--text-2); }
+.qs-subs .qs-pen { width: 22px; height: 22px; margin-top: 6px; }
+
+/* The box: its button switches between adding a task and a note line. */
+.qs-kind {
+  flex: 0 0 auto; width: 28px; height: 28px; margin: 2px 0 0; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; background: var(--inset); color: var(--text-2); cursor: pointer; touch-action: manipulation;
+}
+@media (hover: hover) { .qs-kind:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); } }
+.qs .qs-add { align-items: flex-start; }
+.qs-add .camp-add__input { padding-top: 6px; }
+
+/* --- Notes and camps ------------------------------------------------------------ */
+
+.qs-notes, .qs-camps { display: flex; flex-direction: column; gap: 10px; }
+.qs-notes .textarea { min-height: 120px; }
+.qs-camps ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.qs-camps li { border-top: 1px solid var(--line); }
+.qs-camps li:first-child { border-top: 0; }
+.qs-camp { display: flex; align-items: center; gap: 10px; padding: 9px 0; color: var(--text); text-decoration: none; }
+.qs-camp b { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.qs-camp small { font: 500 11px var(--font-mono); color: var(--text-2); }
+.qs-camp svg { color: var(--accent); flex: 0 0 auto; }
+.qs-camp__dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); flex: 0 0 auto; margin: 0 2px; }
+@media (hover: hover) { .qs-camp:hover b { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
+.qs-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.qs-empty p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); max-width: 56ch; }
+.qs-empty .btn { display: inline-flex; align-items: center; }
+
+/* --- Phone ---------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .qs-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "build" "main" "side"; }
+  .qs-rail { display: contents; }
+  .qs-rail__build { grid-area: build; }
+  .qs-side { grid-area: side; }
+
+  /* the build beside its count, so the list starts higher */
+  .qs-build { grid-template-columns: 46% minmax(0, 1fr); align-items: center; gap: 0; padding: 0; }
+  .qs-build__scene { height: 176px; margin: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
+  .qs-build__text { padding: 16px 18px 16px 4px; gap: 5px; }
+  .qs-build__name { font-size: 21px; }
+  .qs-build__count b { font-size: 24px; }
+  .qs-build--none { grid-template-columns: auto minmax(0, 1fr); padding: 18px; gap: 14px; }
+  .qs-build--none .qs-build__text { padding: 0; }
+}
+
+@media (max-width: 700px) {
+  .qs .qs-subs { margin-left: 18px; padding-left: 10px; }
+  .qs-subs .camp-step__edit { padding-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-mini__bar, .qs-bar i { transition: none; }
+}

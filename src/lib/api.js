@@ -3225,7 +3225,7 @@ export async function deleteSection(id) {
 // Saves a new order: `rows` in the order they should be, each { id,
 // position } as it was. Only the ones that moved are written.
 export async function reorder(table, rows) {
-  if (table !== "camp_steps" && table !== "camp_sections") throw new Error(`Can't reorder ${table}.`);
+  if (table !== "camp_steps" && table !== "camp_sections" && table !== "quest_tasks") throw new Error(`Can't reorder ${table}.`);
   for (const [i, r] of rows.entries()) {
     if (r.position === i) continue;
     const { error } = await supabase.from(table).update({ position: i }).eq("id", r.id);
@@ -3627,42 +3627,123 @@ export function sendWakeTest(peerId) {
 }
 
 // ---------------------------------------------------------------------------
-// The village (0080): what each quest builds. Everything else on the map
-// (which parts stand, how many bricks are down, the soldiers) comes from the
-// camps, their steps and The Mark, so this loads those beside the builds.
+// Quest lists and the village (0081). Each quest (and each lesson, on its own
+// mountain) keeps a running list of tasks, sub-tasks and notes. The village
+// keeps only the builds he chose; how far along each is comes from every
+// task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const VILLAGE_BUILD = "id, quest_id, kind, seed, plot, created_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, day, done_on, done_at, position, created_at, updated_at";
+const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
-export async function fetchVillage(userId, today) {
-  const [quests, camps, sections, steps, builds, lessons, goals, bulls] = await Promise.all([
-    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
-    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
-    selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, position").eq("user_id", userId).order("id")),
-    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).order("id")),
-    supabase.from("village_builds").select(VILLAGE_BUILD).eq("user_id", userId),
-    supabase.from("lessons").select("id, title").eq("user_id", userId),
-    selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
-    // A bullseye is a shot at level 0 that has flown (loosed on Bank the day).
+// What lays bricks: every finished task (not note lines) and camp step, with
+// enough to say what it was and where it came from.
+function fetchFinished(userId) {
+  return Promise.all([
     selectAllPages(() =>
-      supabase.from("mark_shots").select("id, date").eq("user_id", userId).eq("level", 0).not("loosed_at", "is", null).lte("date", today).order("id"),
+      supabase
+        .from("quest_tasks")
+        .select("id, quest_id, kind, text, note, done_on, done_at, updated_at")
+        .eq("user_id", userId)
+        .eq("kind", "task")
+        .not("done_on", "is", null)
+        .order("id")
+    ),
+    selectAllPages(() =>
+      supabase.from("camp_steps").select("id, camp_id, text, note, done_on, updated_at").eq("user_id", userId).not("done_on", "is", null).order("id")
     ),
   ]);
-  for (const r of [quests, camps, builds, lessons]) if (r.error) throw r.error;
+}
+
+export async function fetchVillage(userId) {
+  const [[tasks, steps], projects, camps, quests, lessons, shots, temple] = await Promise.all([
+    fetchFinished(userId),
+    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
+    supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
+    supabase.from("quests").select("id, title, lesson_id").eq("user_id", userId),
+    supabase.from("lessons").select("id, title").eq("user_id", userId),
+    // Arrows that have flown (loosed on Bank the day); level 0 is a bullseye.
+    selectAllPages(() => supabase.from("mark_shots").select("id, date, level").eq("user_id", userId).not("loosed_at", "is", null).order("id")),
+    selectAllPages(() => supabase.from("temple_done").select(TEMPLE_DONE).eq("user_id", userId).order("pid")),
+  ]);
+  for (const r of [projects, camps, quests, lessons]) if (r.error) throw r.error;
   return {
-    quests: quests.data ?? [],
-    camps: camps.data ?? [],
-    sections,
+    tasks,
     steps,
-    builds: builds.data ?? [],
+    projects: projects.data ?? [],
+    camps: camps.data ?? [],
+    quests: quests.data ?? [],
     lessons: lessons.data ?? [],
-    goals,
-    bullseyes: bulls.map((s) => s.date),
+    shots,
+    temple,
   };
 }
 
-export async function addVillageBuild(userId, { quest_id, kind, seed, plot }) {
-  const { data, error } = await supabase.from("village_builds").insert({ user_id: userId, quest_id, kind, seed, plot }).select(VILLAGE_BUILD).single();
+// A build chosen: it stands on `plot` and starts taking bricks today.
+export async function addVillageProject(userId, { kind, seed, plot, need, today }) {
+  const { data, error } = await supabase
+    .from("village_projects")
+    .insert({ user_id: userId, kind, seed, plot, need, started_on: today })
+    .select(VILLAGE_PROJECT)
+    .single();
   if (error) throw error;
   return data;
+}
+
+// Build something else on the same plot, keeping the bricks already laid.
+export async function updateVillageProject(id, fields) {
+  const { error } = await supabase.from("village_projects").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// The quests page: the lists along the top, the goals they serve, the camps
+// on each, the builds and everything finished (for the build going up).
+export async function fetchQuestBoard(userId) {
+  const [[tasks, steps], projects, quests, lessons, camps, goals] = await Promise.all([
+    fetchFinished(userId),
+    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
+    selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
+  ]);
+  for (const r of [projects, quests, lessons, camps]) if (r.error) throw r.error;
+  return {
+    finished: { tasks, steps },
+    projects: projects.data ?? [],
+    quests: quests.data ?? [],
+    lessons: lessons.data ?? [],
+    camps: camps.data ?? [],
+    goals,
+  };
+}
+
+// Every line on one quest's list.
+export function fetchQuestTasks(userId, questId) {
+  return selectAllPages(() => supabase.from("quest_tasks").select(QUEST_TASK).eq("user_id", userId).eq("quest_id", questId).order("id"));
+}
+
+// A new line (or several, in order). Resolves to the rows as saved.
+export async function addQuestTasks(userId, rows) {
+  if (!rows.length) return [];
+  const { data, error } = await supabase
+    .from("quest_tasks")
+    .insert(rows.map((r) => ({ user_id: userId, ...r })))
+    .select(QUEST_TASK);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function updateQuestTask(id, fields) {
+  const { error } = await supabase
+    .from("quest_tasks")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// Its sub-tasks go with it.
+export async function deleteQuestTask(id) {
+  const { error } = await supabase.from("quest_tasks").delete().eq("id", id);
+  if (error) throw error;
 }

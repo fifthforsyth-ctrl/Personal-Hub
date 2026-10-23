@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BookOpen, Castle, ChevronRight, Flag, Pencil, Plus } from "lucide-react";
+import { BookOpen, Castle, ChevronRight, Flag, ListChecks, Pencil, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchRange,
@@ -368,6 +368,10 @@ export default function Ascent() {
           <h1 className="page-title">The Range</h1>
         </div>
         <div className="ascent-head__links">
+          <Link to="/quests" className="btn btn--sm btn--on-page">
+            <ListChecks size={14} />
+            Quests
+          </Link>
           <Link to="/village" className="btn btn--sm btn--on-page">
             <Castle size={14} />
             Village
@@ -602,6 +606,10 @@ function QuestCard({ quest: q, kind = "Quest", progress, planted, onReach, onEdi
           Bring in a plan for its camps
         </Link>
       )}
+      <Link to={`/quests/${q.id}`} className="btn-link ascent-quest__camps">
+        <ListChecks size={13} />
+        Its daily list and notes
+      </Link>
       {children}
     </section>
   );
