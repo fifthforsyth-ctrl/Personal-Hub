@@ -16,29 +16,35 @@ const BYPOS = (a, b) =>
 // A camp's sections in order, each with its steps in order, the steps that
 // sit in no section, and where it all stands: how many are done, and the
 // first step still to do, reading top to bottom. Each step carries its
-// sub-steps (0083) as `subs`; they count like any step, and a sub-step whose
-// step is gone stands on its own.
+// sub-steps (0083) as `subs`, nested as deep as they go; they count like any
+// step, and a sub-step whose step is gone stands on its own.
 export function buildCamp(sections, steps) {
   const all = [...(steps ?? [])].sort(BYPOS);
   const ids = new Set(all.map((st) => st.id));
-  const subsOf = new Map();
+  const kids = new Map();
   for (const st of all) {
     if (!st.parent_id || !ids.has(st.parent_id)) continue;
-    if (!subsOf.has(st.parent_id)) subsOf.set(st.parent_id, []);
-    subsOf.get(st.parent_id).push(st);
+    if (!kids.has(st.parent_id)) kids.set(st.parent_id, []);
+    kids.get(st.parent_id).push(st);
   }
+  // `seen` keeps a loop in the data (which the app never makes) from going round forever.
+  const seen = new Set();
+  const tree = (raw) => {
+    seen.add(raw.id);
+    return { ...raw, subs: (kids.get(raw.id) ?? []).filter((k) => !seen.has(k.id)).map(tree) };
+  };
   const bySection = new Map();
   const loose = [];
   const known = new Set((sections ?? []).map((s) => s.id));
   for (const raw of all) {
     if (raw.parent_id && ids.has(raw.parent_id)) continue;
-    const st = { ...raw, subs: subsOf.get(raw.id) ?? [] };
+    const st = tree(raw);
     if (st.section_id && known.has(st.section_id)) {
       if (!bySection.has(st.section_id)) bySection.set(st.section_id, []);
       bySection.get(st.section_id).push(st);
     } else loose.push(st);
   }
-  const flat = (list) => list.flatMap((st) => [st, ...st.subs]);
+  const flat = (list) => list.flatMap((st) => [st, ...flat(st.subs)]);
   const list = [...(sections ?? [])].sort(BYPOS).map((s, i) => {
     const own = bySection.get(s.id) ?? [];
     const every = flat(own);
@@ -54,6 +60,19 @@ export function buildCamp(sections, steps) {
     total: ordered.length,
     next: ordered.find((st) => !st.done_on) ?? null,
   };
+}
+
+// Every step under `id` in a camp's steps, however deep.
+export function stepsUnder(steps, id) {
+  const out = [];
+  const seen = new Set([id]);
+  for (let at = [id]; at.length; ) {
+    const next = (steps ?? []).filter((x) => x.parent_id && at.includes(x.parent_id) && !seen.has(x.id));
+    for (const x of next) seen.add(x.id);
+    out.push(...next);
+    at = next.map((x) => x.id);
+  }
+  return out;
 }
 
 // Steps done and in all, by camp, for the camp list on the Range.

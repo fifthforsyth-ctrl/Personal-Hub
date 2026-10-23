@@ -111,32 +111,30 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   );
 }
 
-// A list of steps, each with its sub-steps under it. An open step also
-// gets the box to add sub-steps; finishing a sub-step lays its bricks the
-// same as a step.
-export function StepList({ list, openStep, hideDone, step, onAddSubs }) {
+// A list of steps, each with its sub-steps under it, and theirs under them,
+// as deep as they go. An open step also gets the box to add sub-steps;
+// finishing a sub-step lays its bricks the same as a step.
+export function StepList({ list, openStep, hideDone, step, onAddSubs, sub = false, children }) {
   return (
-    <ul className="camp-steps">
+    <ul className={"camp-steps" + (sub ? " camp-subs" : "")}>
       {list.map((st, i) => {
         const subs = hideDone ? st.subs.filter((x) => !x.done_on) : st.subs;
         const open = openStep === st.id;
         return (
           <StepRow key={st.id} step={st} open={open} first={i === 0} last={i === list.length - 1} {...step(st, list)}>
             {(subs.length > 0 || open) && (
-              <ul className="camp-steps camp-subs">
-                {subs.map((x, k) => (
-                  <StepRow key={x.id} step={x} open={openStep === x.id} first={k === 0} last={k === subs.length - 1} {...step(x, subs)} />
-                ))}
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
                   </li>
                 )}
-              </ul>
+              </StepList>
             )}
           </StepRow>
         );
       })}
+      {children}
     </ul>
   );
 }

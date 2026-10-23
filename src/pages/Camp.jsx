@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder } from "../lib/api";
-import { buildCamp, stepsLine } from "../lib/camp";
+import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
@@ -100,10 +100,10 @@ export default function Camp() {
     updateStep(st.id, fields).catch((err) => failed(err, "Couldn't save that step."));
   }
 
-  // Its sub-steps go with it.
+  // Everything under it goes with it.
   function removeStep(st) {
     setOpenStep(null);
-    const gone = data.steps.filter((x) => x.id === st.id || x.parent_id === st.id);
+    const gone = [...data.steps.filter((x) => x.id === st.id), ...stepsUnder(data.steps, st.id)];
     const ids = new Set(gone.map((x) => x.id));
     setSteps((list) => list.filter((x) => !ids.has(x.id)));
     toast.undoable({

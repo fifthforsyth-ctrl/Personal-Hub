@@ -13,6 +13,7 @@ import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, 
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
 import {
   buildCamp,
+  stepsUnder,
   campProgress,
   stepsLine,
   splitSteps,
@@ -1714,6 +1715,16 @@ console.log("\nthe mark");
   ok("sub-steps aren't steps of their own in the section", s2.steps.map((x) => x.id).join() === "c,d");
   ok("a sub-step whose step is gone stands on its own", s1.steps.map((x) => x.id).join() === "a,b,z1" && !s1.complete);
   ok("sub-steps count on the section and the camp", s2.total === 4 && s1.done === 3 && withSubs.total === 10 && withSubs.done === 3);
+  const deep = buildCamp([], [
+    { id: "t", text: "Top", position: 0, done_on: null },
+    { id: "t1", parent_id: "t", text: "Sub", position: 0, done_on: "2026-10-23" },
+    { id: "t11", parent_id: "t1", text: "Sub-sub", position: 0, done_on: null },
+    { id: "t111", parent_id: "t11", text: "Deeper still", position: 0, done_on: "2026-10-23" },
+    { id: "x", parent_id: "y", text: "loop", position: 1, done_on: null },
+    { id: "y", parent_id: "x", text: "loop", position: 2, done_on: null },
+  ]);
+  ok("sub-steps nest as deep as they go", deep.loose[0].subs[0].subs[0].subs[0].id === "t111" && deep.loose.length === 1 && deep.total === 4 && deep.done === 2 && deep.next.id === "t");
+  ok("everything under a step, however deep", stepsUnder([{ id: "t" }, { id: "t1", parent_id: "t" }, { id: "t11", parent_id: "t1" }, { id: "o", parent_id: "z" }], "t").map((x) => x.id).join() === "t1,t11");
   ok("the next step can be a sub-step", buildCamp(sections, [...steps.slice(0, 3), { id: "c1", section_id: "s2", parent_id: "c", text: "x", position: 0, done_on: null }].map((x) => (x.id === "c" ? { ...x, done_on: "2026-10-23" } : x))).next.id === "c1");
 
   const tally = campProgress([{ camp_id: "c1", done_on: "2026-10-22" }, { camp_id: "c1", done_on: null }, { camp_id: "c2", done_on: null }]);
