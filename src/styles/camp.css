@@ -137,6 +137,21 @@
 .camp-step__tools .btn-icon:disabled { opacity: 0.3; cursor: default; }
 .camp-step.open > .camp-step__row .camp-step__words { font-weight: 600; }
 
+/* Urgency: red, yellow or green, a small dot before the step's words. */
+.camp-urgency { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 7px 1px 0; vertical-align: middle; flex: none; }
+.camp-urgency--red { background: #d64541; }
+.camp-urgency--yellow { background: #e2a72e; }
+.camp-urgency--green { background: #3d9a5b; }
+.camp-step.done > .camp-step__row .camp-urgency { opacity: 0.45; }
+.camp-urgency-pick > span { display: block; margin-bottom: 6px; }
+.camp-urgency-pick__opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.camp-urgency-opt {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px;
+  background: var(--inset); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; touch-action: manipulation;
+}
+.camp-urgency-opt .camp-urgency { margin: 0 6px 0 0; }
+.camp-urgency-opt.on { background: var(--ink); color: var(--on-ink); }
+
 /* Sub-steps: a smaller checklist tucked under its step, on a thin rule. */
 .camp-subs { margin: -4px 0 8px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }
 .camp-subs .camp-step { border-top: 0; }
