@@ -176,11 +176,13 @@ export function DragHandle({ label, ...props }) {
 // as deep as they go. An open step also gets the box to add sub-steps;
 // finishing a sub-step lays its bricks the same as a step. Each one drags
 // by its handle into a new place among its neighbours; `onReorder` gets the
-// list and its ids in the new order.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, sub = false, children }) {
+// list and its ids in the new order. Carried out of its list, a step goes
+// to `onDragOut(phase, x, y, step)`, which can drop it in another section.
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, sub = false, children }) {
   const sort = useDragSort(
     list.map((x) => x.id),
-    (ids) => onReorder(list, ids)
+    (ids) => onReorder(list, ids),
+    { onOut: onDragOut && ((phase, x, y, id) => onDragOut(phase, x, y, list.find((st) => st.id === id))) }
   );
   return (
     <ul className={"camp-steps" + (sub ? " camp-subs" : "")}>
@@ -194,11 +196,11 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
             open={open}
             first={i === 0}
             last={i === list.length - 1}
-            sort={list.length > 1 ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
+            sort={list.length > 1 || onDragOut ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
             {...step(st, list)}
           >
             {(subs.length > 0 || open) && (
-              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} sub>
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
@@ -267,7 +269,7 @@ export function AddStep({ onAdd, label = "Add a step" }) {
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
 // a handle to drag the whole section into a new place.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, step, sort }) {
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, step, sort }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -277,6 +279,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
       style={sort?.style}
       className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "")}
       aria-labelledby={`sec-${s.id}`}
+      data-drop={s.id}
     >
       <div className="camp-sec__head">
         <button type="button" className="camp-sec__toggle" aria-expanded={open} onClick={onToggle}>
@@ -311,7 +314,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
               <Rich text={s.note} />
             </p>
           )}
-          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} />}
+          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
           <AddStep onAdd={(texts) => onAdd(s.id, texts)} />
         </div>

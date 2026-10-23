@@ -149,6 +149,10 @@
 .drag-sorting, .drag-sorting * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
 .camp-step.lifted { background: var(--card); box-shadow: 0 8px 24px rgba(20, 20, 20, 0.14); border-radius: 12px; }
 .camp-step.lifted + .camp-step { border-top-color: transparent; }
+.camp-sec.drop-here { box-shadow: 0 0 0 2px var(--accent); }
+/* Room opens where a step carried in from elsewhere will land. */
+.camp-step.drop-before, .camp-sec.drop-end > .camp-sec__body > .camp-add, .camp-loose.drop-end > .camp-add { margin-top: 52px; }
+.camp-step, .camp-add { transition: margin-top 0.15s ease; }
 .camp-sec.lifted { box-shadow: 0 14px 36px rgba(20, 20, 20, 0.18); }
 
 /* Urgency: red, yellow or green, a small dot before the step's words. */

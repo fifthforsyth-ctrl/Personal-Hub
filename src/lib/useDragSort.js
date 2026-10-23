@@ -11,16 +11,21 @@ import { dropIndex, moved } from "./dragOrder";
 //   const sort = useDragSort(ids, (newIds) => save(newIds));
 //   <li ref={sort.ref(id)} style={sort.style(id)} className={sort.dragging === id ? "lifted" : ""}>
 //     <button {...sort.handle(id)} />
+//
+// With `onOut`, an item can also be carried out of its list: once the pointer
+// is clear of the list, the others close back up and `onOut(phase, x, y, id)`
+// hears "move" as it goes ("back" if it comes home), then "drop" (or
+// "cancel") where it was let go.
 
 const EDGE = 72; // px from the top or bottom of the screen where it scrolls
 const SPEED = 14; // px per frame at the very edge
 
-export function useDragSort(ids, onDrop) {
+export function useDragSort(ids, onDrop, { onOut } = {}) {
   const els = useRef(new Map());
   const live = useRef(null);
   const [drag, setDrag] = useState(null); // { id, from, to, dy, step }
-  const latest = useRef({ ids, onDrop });
-  latest.current = { ids, onDrop };
+  const latest = useRef({ ids, onDrop, onOut });
+  latest.current = { ids, onDrop, onOut };
 
   const ref = useCallback(
     (id) => (el) => {
@@ -40,6 +45,11 @@ export function useDragSort(ids, onDrop) {
     window.removeEventListener("pointercancel", d.onCancel);
     document.documentElement.classList.remove("drag-sorting");
     setDrag(null);
+    if (d.out) {
+      latest.current.onOut?.(commit ? "drop" : "cancel", d.x, d.y, d.id);
+      if (commit) haptic("tap");
+      return;
+    }
     if (commit && d.to !== d.from) {
       haptic("tap");
       latest.current.onDrop(moved(d.ids, d.from, d.to));
@@ -52,7 +62,7 @@ export function useDragSort(ids, onDrop) {
     if (e.button !== undefined && e.button !== 0) return;
     const list = latest.current.ids;
     const from = list.indexOf(id);
-    if (from < 0 || list.length < 2) return;
+    if (from < 0 || (list.length < 2 && !latest.current.onOut)) return;
     e.preventDefault();
     e.stopPropagation();
     const rects = list.map((x) => els.current.get(x)?.getBoundingClientRect());
@@ -66,16 +76,25 @@ export function useDragSort(ids, onDrop) {
       from,
       to: from,
       startY: e.clientY,
+      x: e.clientX,
       y: e.clientY,
+      out: false,
       scroll0: window.scrollY,
       mids: rects.map((r) => r.top + r.height / 2 + window.scrollY),
+      // The list's own stretch of the page; past it (by half a step) is out.
+      span: [rects[0].top + window.scrollY, rects[rects.length - 1].bottom + window.scrollY],
       step: me.height + gap,
       frame: 0,
     };
     const update = () => {
       const dy = d.y - d.startY + (window.scrollY - d.scroll0);
-      d.to = dropIndex(d.mids, d.from, d.mids[d.from] + dy);
+      const at = d.y + window.scrollY;
+      const slack = d.step / 2;
+      d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
+      d.to = d.out ? d.from : dropIndex(d.mids, d.from, d.mids[d.from] + dy);
       setDrag({ id: d.id, from: d.from, to: d.to, dy, step: d.step });
+      if (d.out || d.wasOut) latest.current.onOut?.(d.out ? "move" : "back", d.x, d.y, d.id);
+      d.wasOut = d.out;
     };
     const tick = () => {
       if (live.current !== d) return;
@@ -89,6 +108,7 @@ export function useDragSort(ids, onDrop) {
     };
     d.onMove = (ev) => {
       ev.preventDefault();
+      d.x = ev.clientX;
       d.y = ev.clientY;
       update();
     };
