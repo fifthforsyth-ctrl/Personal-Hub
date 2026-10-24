@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { villagePic } from "./pictures";
 import "../styles/village.css";
 
 // A build as a painting, for the village page and the build floating over
@@ -28,7 +29,7 @@ import "../styles/village.css";
 // pictures) or "fit" for the box's own shape.
 
 // paint.js's thumbOf, kept here so the picture shows before the painter (and three.js) has loaded
-const thumbOf = (kind) => `/village/builds/${kind}.jpg`;
+const thumbOf = (kind) => villagePic(`builds/${kind}.jpg`);
 
 let painter = null;
 const loadPainter = () => {

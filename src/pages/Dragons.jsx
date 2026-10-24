@@ -11,6 +11,7 @@ import { haptic } from "../lib/haptics";
 import { useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import { rememberDragons } from "../village/Painting";
+import { villagePic } from "../village/pictures";
 import "../styles/dragons.css";
 
 // Dragons: tasks build the village; wins raise the dragons. Every win he
@@ -40,8 +41,8 @@ const CALM = [
   },
 ];
 
-const portrait = (d) => `/village/dragons/${d.kind}-${d.stage}.jpg`;
-const eggPicture = (kind) => `/village/dragons/${kind}-egg.jpg`;
+const portrait = (d) => villagePic(`dragons/${d.kind}-${d.stage}.jpg`);
+const eggPicture = (kind) => villagePic(`dragons/${kind}-egg.jpg`);
 const kindName = (kind) => kindOf(kind).name;
 // "Night dragon" -> "night", for "a night egg".
 const kindWord = (kind) => kindName(kind).split(" ")[0].toLowerCase();
@@ -177,7 +178,7 @@ export default function Dragons() {
           <div className="dr-main">
             <figure className="card card--flush dr-hero">
               <img
-                src="/village/dragons/hero.jpg"
+                src={villagePic("dragons/hero.jpg")}
                 width="1200"
                 height="800"
                 alt="A rider on the black night dragon banks low past the painted armory on its floating island, while a white dawn dragon waits in the yard."
@@ -428,7 +429,7 @@ function Start({ stands, rising, going }) {
     : "";
   return (
     <section className={"card card--flush dr-start" + (stands ? " dr-start--wide" : "")} aria-labelledby="dr-start-h">
-      <img className="dr-start__pic" src="/village/builds/hatchery.jpg" width="720" height="540" alt="The hatchery: a ring of warm dark stone round a pit of glowing coals." />
+      <img className="dr-start__pic" src={villagePic("builds/hatchery.jpg")} width="720" height="540" alt="The hatchery: a ring of warm dark stone round a pit of glowing coals." />
       <div className="dr-start__body">
         <div className="eyebrow">Your first dragon</div>
         <h2 id="dr-start-h">{stands ? "The hatchery stands" : rising ? "The hatchery is going up" : "Build the hatchery first"}</h2>

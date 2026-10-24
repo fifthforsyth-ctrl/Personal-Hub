@@ -625,11 +625,8 @@
         // the night dragon, saddled, stands in the yard to be fitted; the saddler buckles the girth at its flank, the
         // rider waits at its head; inside an apprentice stitches the new fin, the smith forges a frame at the anvil
         var dxp = 1.5, dzp = 5.3, dry = -1.5, ds = 1.2, rdx = -2.2, rdz = 6.54;
-        b.dragon(dxp, 0, dzp, { kind: 'night', pose: 'alert', ry: dry, s: ds, saddle: true, wing: 0.0 });
-        b.push(dxp, 0, dzp, dry, ds); b.push(0, 1.17, 0.11, 0); b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationX(-0.27));
-        saddleryArc(b, 0, 0, 0, 0.585, 0.615, 0.1 * Math.PI, 0.9 * Math.PI, 1.05, { c: '#e9e4da', m: M.cloth, ao: 0.15 });
-        [[0.1, 0.135], [0.865, 0.9]].forEach(function (a) { saddleryArc(b, 0, 0, 0, 0.6, 0.625, a[0] * Math.PI, a[1] * Math.PI, 1.07, { c: '#1f1e1c', m: M.cloth, ao: 0 }); });
-        b.pop(); b.pop();
+        // (its pale saddle cloth is laid on its back by the dragon itself, so it follows the back's shape)
+        b.dragon(dxp, 0, dzp, { kind: 'night', pose: 'alert', ry: dry, s: ds, saddle: true, wing: 0.0, blanket: '#e9e4da' });
         var sp = saddleryBy(dxp, dzp, dry, 1.25, -0.45);
         b.figure(sp[0], sp[1], { role: 'villager', pose: 'saddleryReach', ry: dry - Math.PI / 2 + 0.1, beard: true, c: '#6e5a44' });
         b.figure(rdx, rdz, { role: 'villager', pose: 'talk', ry: 1.9, cape: '#1f1e1c', c: '#3b3a38' });

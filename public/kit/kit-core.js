@@ -86,7 +86,13 @@
   };
 
   // material ids (the shader reads these per vertex)
-  var M = KIT.M = { stone: 0, plaster: 1, wood: 2, tile: 3, thatch: 4, cloth: 5, metal: 6, gold: 7, leaf: 8, grass: 9, dirt: 10, window: 11, dark: 12, skin: 13, hair: 14, straw: 15, rope: 16, rock: 17, soil: 18, water: 19, paint: 20, scale: 21, glow: 22 };
+  var M = KIT.M = { stone: 0, plaster: 1, wood: 2, tile: 3, thatch: 4, cloth: 5, metal: 6, gold: 7, leaf: 8, grass: 9, dirt: 10, window: 11, dark: 12, skin: 13, hair: 14, straw: 15, rope: 16, rock: 17, soil: 18, water: 19, paint: 20, scale: 21, glow: 22, hide: 23 };
+  // a pale matte hide (a white dragon's): see the painted surface below
+  M.pale = 24;
+  // a thin membrane (a wing's sail, lit through from behind) and a warm pale hide (a cream dragon's): see the painted
+  // surface below
+  M.memb = 25;
+  M.hidePale = 26;
 
   // ------------------------------------------------------------------ painted textures
   // Brush texture, tileable. R: directional paint strokes; G: broad wet-in-wet mottling; B: bristle streaks; A: canvas weave.
@@ -279,11 +285,15 @@
     'float sk = 1.0; float gloss = 0.0; float spec = 0.0;',
     'if (mt == 0.0 || mt == 17.0) { sk = 1.25; } else if (mt == 1.0) { sk = 0.95; } else if (mt == 2.0) { sk = 1.1; } else if (mt == 3.0) { sk = 1.2; }',
     'else if (mt == 4.0 || mt == 15.0) { sk = 1.5; } else if (mt == 5.0) { sk = 0.7; } else if (mt == 6.0) { sk = 0.6; spec = 1.0; gloss = 46.0; } else if (mt == 7.0) { sk = 0.6; spec = 0.8; gloss = 22.0; }',
-    'else if (mt == 13.0) { sk = 0.35; } else if (mt == 20.0) { sk = 0.5; } else if (mt == 21.0) { sk = 0.5; spec = 0.16; gloss = 34.0; }',
+    'else if (mt == 13.0) { sk = 0.35; } else if (mt == 20.0) { sk = 0.5; } else if (mt == 21.0) { sk = 0.5; spec = 0.16; gloss = 34.0; } else if (mt == 23.0) { sk = 0.6; }',
+    'if (mt == 24.0) sk = 0.5;',
+    'if (mt == 26.0 || mt == 25.0) sk = 0.6;',
     'sk *= uPaint;',
     'vec3 alb = diffuseColor.rgb;',
     'alb *= 1.0 + sS * 0.26 * sk + sB * 0.12 * sk;',
-    'float hueK = (mt == 3.0 || mt == 12.0) ? 0.15 : 1.0;',
+    'float hueK = (mt == 3.0 || mt == 12.0) ? 0.15 : mt == 23.0 ? 0.25 : 1.0;',
+    'if (mt == 24.0) hueK = 0.3;',
+    'if (mt == 26.0 || mt == 25.0) hueK = 0.25;',
     'alb = mix(alb, alb * mix(vec3(1.0), vec3(1.1, 0.98, 0.84), hueK), clamp(sM * 2.2, 0.0, 1.0) * 0.7 * sk);',
     'alb = mix(alb, alb * mix(vec3(1.0), vec3(0.86, 0.95, 1.06), hueK), clamp(-sM * 2.2, 0.0, 1.0) * 0.7 * sk);',
     'alb *= 1.0 + (st2.r - 0.5) * 0.18 * sk;',
@@ -292,19 +302,52 @@
     '#ifdef PAINT_LEAF',
     '  float lit = smoothstep(-0.35, 0.45, ndl + wob * 0.8);',
     '#else',
-    '  float lit = smoothstep(-0.03, 0.17, ndl + wob * 0.45);',
+    '  float lit;',
+    // (a pale hide turns from the sun over a broader band, a thin membrane of it broader still, so a white wing's flat
+    // panels shade from lit to cool across their billow instead of flipping from white to blue)
+    '  if (mt == 24.0) {',
+    '#ifdef DOUBLE_SIDED',
+    '    lit = smoothstep(-0.16, 0.36, ndl + wob * 0.45);',
+    '#else',
+    '    lit = smoothstep(-0.08, 0.26, ndl + wob * 0.45);',
     '#endif',
+    // (a warm pale hide (26) turns into its shade softly, like rounded flesh, never along a drawn line; a thin membrane
+    // (25) the same, and lit through from behind: the side turned from the sun glows warm with the light that comes
+    // through it, so a spread wing reads as one taut sail instead of panels of light and dark)
+    '  } else if (mt == 26.0 || mt == 25.0) lit = smoothstep(-0.2, 0.32, ndl + wob * 0.45);',
+    '  else lit = smoothstep(-0.03, 0.17, ndl + wob * 0.45);',
+    '#endif',
+    'float lb = 0.0;',
+    'if (mt == 25.0) { lb = smoothstep(-0.1, 0.3, -ndl + wob * 0.45); lit = max(lit, lb * 0.85); }',
     'float shd = smoothstep(0.2, 0.8, pShadow + wob * 0.7);',
     '#ifdef PAINT_LEAF',
     '  shd = mix(1.0, shd, 0.7);',
     '#endif',
     'if (mt == 18.0) shd = 1.0;',
+    // (a pale hide takes a cast shadow a little lighter than its own shade, so the shadow of a big head on the chest
+    // under it is a soft cool grey, never a collar)
+    'if (mt == 24.0) shd = mix(1.0, shd, 0.86);',
+    // (a pale membrane seen from its back face: the shadow test's offset runs along the face's own normal, which points
+    // the other way, so it would shadow itself where the sun falls on it; there its light is taken unshadowed, or a
+    // white wing turns blue panel by panel)
+    '#ifdef DOUBLE_SIDED',
+    '  if (mt == 24.0 && !gl_FrontFacing) shd = 1.0;',
+    '#endif',
+    // (a membrane takes only a little of the shadows: the light comes through it, and the shadow map's normal offset,
+    // taken from the side its triangles face, would shade a thin sheet by itself wherever its other side is lit)
+    'if (mt == 25.0) shd = mix(1.0, shd, 0.25);',
+    // (a warm pale hide's cast shadows a little open, so a big head's shadow on its chest is a soft shade, never a dark
+    // scarf)
+    'if (mt == 26.0) shd = mix(1.0, shd, 0.6);',
     // a cloud's shadow drifting over part of the island, found by following the sun down to the ground
     'vec2 cgp = vPW.xz - uSunDir.xz * (vPW.y / max(uSunDir.y, 0.1));',
     'float cld = length(cgp - uCloud.xy) / uCloud.z + (st2.g - 0.5) * 0.5 + sM * 0.25;',
     'shd *= 1.0 - (1.0 - smoothstep(0.78, 1.0, cld)) * uCloud.w;',
     'lit *= shd;',
     'vec3 direct = uSunCol * lit * mix(0.78, 1.0, smoothstep(0.15, 0.85, ndl));',
+    // (a pale hide turns from the sun through a broader half-tone, so white shows its form in the light too, and takes
+    // only a little of the sun's warmth, its light leaning a touch cool and lilac: pearl, never ivory or cream)
+    'if (mt == 24.0) { direct *= mix(0.3, 1.0, smoothstep(0.0, 1.0, ndl)); direct = mix(vec3(dot(direct, vec3(0.2126, 0.7152, 0.0722))), direct, 0.25) * vec3(0.96, 0.98, 1.04); }',
     'float up = N.y * 0.5 + 0.5;',
     'if (mt == 18.0) up = 0.55 + up * 0.35;',
     'vec3 amb = mix(uGndCol, uSkyCol, smoothstep(0.0, 1.0, up));',
@@ -320,6 +363,35 @@
     'if (spec > 0.0) { vec3 H = normalize(uSunDir + V); float sp = pow(max(dot(N, H), 0.0), gloss); sp = smoothstep(0.25, 0.6, sp + sS * 0.25); c += uSunCol * sp * lit * spec * 0.9; c += uSkyCol * alb * fr * 1.4 * spec; }',
     // dragon hide: a broad cool sheen on the grazing edges and a soft sun gloss, so a black hide still shows its form
     'if (mt == 21.0) { vec3 H2 = normalize(uSunDir + V); c += uSkyCol * fr * 0.12 * (0.4 + 0.6 * up) + uSunCol * lit * pow(max(dot(N, H2), 0.0), 8.0) * 0.1; }',
+    // a matte dark hide (the night dragon's): no gloss, only a soft cool sheen where it turns from you or faces the sky,
+    // and a broad, faint one where the sun catches it, so near-black still shows its form without looking like plastic
+    'if (mt == 23.0) { vec3 H3 = normalize(uSunDir + V); float shn = pow(max(dot(N, H3), 0.0), 4.0); c += uSkyCol * (fr * 0.14 * (0.3 + 0.7 * up) + shn * lit * 0.075) + uSkyCol * alb * up * 0.3; }',
+    // a pale hide (a white dragon's): cool pearl in the sun, and in its shade the cool blue-grey of the sky it takes,
+    // so it models in light and shade and never turns navy or paper. Its shade is filled with the light thrown back
+    // into it: the sky's from above, and from below the sunlit ground's with some sky in it, so a belly or a throat is
+    // a mid cool grey, never charcoal. A thin wing's membrane (drawn two-sided) lets a little of the sun through where
+    // it turns away (its own shadow test is its other face, so that light is not shadowed). It greys a little where it
+    // turns edge-on, so its outline holds against a pale sky or pale stone
+    'if (mt == 24.0) { vec3 fill = mix(uSunCol * 0.24 + uGndCol * 1.6 + uSkyCol * 1.1, uSkyCol * 1.8, smoothstep(0.0, 1.0, up)); fill = mix(vec3(dot(fill, vec3(0.2126, 0.7152, 0.0722))), fill, 0.8);',
+    // (the fill is least just past the turn from the sun and grows deeper into the shade: a cool core shadow on the
+    // turn of every mass, the head, the chest, the haunch, with the light thrown back into the shade beyond it; a face
+    // turned to the sun but in a cast shadow takes the whole fill, so the shadow of the head on the throat is a soft
+    // grey and never a dark collar)
+    // (a membrane's far face takes less of it, and only a little of the sun through it, so a wing turned from the sun
+    // or seen from under it is a cool mid grey that sets off its lit panels, never paper)
+    '  float fk = 0.85;',
+    '#ifdef DOUBLE_SIDED',
+    '  fk = 0.6; c += alb * uSunCol * max(-ndl, 0.0) * 0.28;',
+    '#endif',
+    '  c += alb * fill * (1.0 - lit) * mix(0.85, 1.0, ao) * fk * mix(0.6, 1.0, max(smoothstep(-0.02, -0.6, ndl), smoothstep(0.12, 0.4, ndl)));',
+    // (and a faint, broad cool sheen where the sun and the eye meet on it, so its lit planes have a lustre)
+    '  vec3 H4 = normalize(uSunDir + V); c += uSkyCol * vec3(0.95, 0.97, 1.08) * pow(max(dot(N, H4), 0.0), 6.0) * lit * 0.16;',
+    '  c *= 1.0 - 0.3 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.0); c = mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, mix(0.92, 1.0, lit)); }',
+    // a warm pale hide (a cream dragon's): its shade lit by the light thrown back off the sunlit ground and the body
+    // itself, warm and soft, strongest on the planes turned down and away from the sky, so a pale hide in shade turns
+    // a soft warm grey instead of slate; a little of the sky on the planes that face it
+    'if (mt == 26.0) { c += alb * (uSunCol * vec3(1.0, 0.8, 0.58) * 0.24 * (1.0 - lit) * mix(1.0, 0.55, up) * ao - uSkyCol * 0.3 * (1.0 - lit) * up * ao + uSkyCol * up * 0.06); }',
+    'if (mt == 25.0) { c *= mix(vec3(1.0), vec3(1.12, 0.92, 0.7), lb); c += alb * uSunCol * vec3(1.0, 0.8, 0.58) * 0.16 * (1.0 - lit) * ao; }',
     // torches
     'for (int i = 0; i < ' + MAXT + '; i++) { if (float(i) >= uTorchN) break; vec3 d = uTorchPos[i] - vPW; float L2 = dot(d, d); float att = 1.0 / (1.0 + L2 * 0.22); float nl = clamp(dot(N, d * inversesqrt(L2 + 1e-4)) * 0.75 + 0.25, 0.0, 1.0); c += alb * uTorchCol[i] * att * nl * (0.85 + sS * 0.3); }',
     // window panes and dark openings
@@ -346,8 +418,13 @@
     '#ifdef GRASS',
     '  pv = 5.0;',
     '#endif',
+    // (a pale hide is never hatched: its shade is a colour, not a dark; flagged +12 so the pen draws its folds lightly)
+    'if (mt == 24.0) pv = 12.0 + mix(0.55, 1.0, pv);',
     'if (mt == 11.0 && uWindow > 0.5) pv = 1.0;',
     'if (mt == 22.0) pv = 1.0;',
+    // (a warm pale hide's shade, and a membrane's, hatched more lightly: it is a soft warm grey, never a dark)
+    'if (mt == 26.0) pv = max(pv, 0.42);',
+    'if (mt == 25.0) pv = max(pv, 0.55);',
     '#ifndef PAINT_LEAF',
     '  if (mt == 9.0) pv += 8.0;',
     '#endif',
