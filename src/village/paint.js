@@ -31,9 +31,11 @@
 // zero GL errors, as the notes at the top of ./engine.js ask.
 
 import * as THREE from "three";
+import { villagePic } from "./pictures.js";
 
-// The static, finished painting of a build (public/village/builds/).
-export const thumbOf = (kind) => `/village/builds/${kind}.jpg`;
+// The static, finished painting of a build (public/village/builds/), at an
+// address that changes whenever the pictures do.
+export const thumbOf = (kind) => villagePic(`builds/${kind}.jpg`);
 
 const KIT_FILES = ["kit-core.js", "kit-build.js", "kit-world.js", "kit-people.js", "kit-stage.js", "kit-dragons.js"];
 // vite.config.js stamps a hash of public/kit, so a new kit is never served from an old cache.
