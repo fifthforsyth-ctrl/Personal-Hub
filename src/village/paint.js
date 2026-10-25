@@ -77,7 +77,7 @@ export function preloadKit() {
 }
 
 const buildP = new Map();
-function loadBuild(kind) {
+export function loadBuild(kind) {
   if (window.KIT.builds[kind]) return Promise.resolve();
   if (!buildP.has(kind)) {
     const p = loadScript(kitUrl(`builds/${kind}.js`)).then(() => {
