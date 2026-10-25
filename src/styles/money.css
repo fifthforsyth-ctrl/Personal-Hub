@@ -47,7 +47,6 @@
 .money-history__sub { display: block; color: var(--text-2); font-size: 12px; line-height: 1.5; margin-top: 2px; }
 
 .money-caught-up { gap: 10px; }
-.money-caught-up__text { flex: 1; font-size: 13.5px; }
 .money-stale { margin-bottom: 12px; }
 
 .money-nudge { gap: 10px; color: inherit; }
@@ -91,7 +90,6 @@
 .money-sheet__actions > .btn--accent { margin-left: auto; }
 
 .money-section { margin-top: 18px; }
-.money-section__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 
 /* --- Fields ---------------------------------------------------------------- */
 
