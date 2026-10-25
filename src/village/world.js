@@ -230,7 +230,10 @@ class World {
     if (was.top === this.insets.top && was.bottom === this.insets.bottom && was.left === this.insets.left && was.right === this.insets.right) return;
     // the whole village, or the build he flew to, framed again in what is left free
     if (this.focusId) this.focus(this.focusId);
-    else if (!this.userMoved && !this.anim) this.view = this.wholeView();
+    else if (!this.userMoved) {
+      if (this.anim) this.fly(this.wholeView());
+      else this.view = this.wholeView();
+    }
     this.later(60);
   }
 

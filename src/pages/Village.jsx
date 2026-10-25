@@ -186,7 +186,9 @@ export default function Village() {
     haptic("tap");
     setPlaying(false);
     setSheet({ type });
+    // the garrison drills in the plaza; the villagers stand about every lane
     if (type === "soldiers") worldRef.current?.focus("soldiers");
+    else if (type === "villagers") worldRef.current?.fitAll();
   };
   const closeSheet = () => {
     setSheet(null);
