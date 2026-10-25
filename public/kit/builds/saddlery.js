@@ -103,6 +103,31 @@
     }
     b.pop();
   }
+  // a hide thrown over a rail whose top is at y (the rail along local x, less than R deep each side), centred at x and w
+  // long: it wraps the rail and hangs hangF down the +z side and hangB down the -z side, flaring out a little toward
+  // a wavy hem, the leg flaps at its corners hanging lower and rounder than the belly between them, the leather
+  // paler where it thins at the edges
+  function saddleryDrape(b, x, y, w, hangF, hangB, o) {
+    o = o || {}; var U = KIT.util, R = o.R || 0.2, nA = 3, nH = 8, nu = 12, yc = y + 0.03 - R, ph = x * 3.7;
+    var g = new T.PlaneGeometry(1, 1, nu, 2 * (nA + nH)), p = g.attributes.position, col = [];
+    for (var i = 0; i < p.count; i++) {
+      var q = (i % (nu + 1)) / nu * 2 - 1, k = Math.floor(i / (nu + 1)) - nA - nH, sd = k < 0 ? -1 : 1, m = Math.abs(k), aq = Math.abs(q);
+      var px = q * w / 2, py, pz, rim = U.smooth(0.8, 1, aq);
+      if (m <= nA) { var th = m / nA * Math.PI / 2 * sd; py = yc + R * Math.cos(th); pz = R * Math.sin(th); }
+      else {
+        var t = (m - nA) / nH, d = t * (sd > 0 ? hangF : hangB) * (0.86 + 0.24 * U.smooth(0.45, 0.95, aq) + 0.05 * Math.sin(q * 5 + ph + sd));
+        px *= 1 - 0.22 * t * t * U.smooth(0.4, 1, aq);
+        py = yc - d;
+        pz = sd * (R + 0.07 * d + 0.08 * d * d + 0.035 * Math.sin(q * 6.5 + ph + sd * 2) * t);
+        rim = Math.max(rim, U.smooth(0.75, 1, t));
+      }
+      p.setXYZ(i, x + px, py, pz);
+      var v = 0.92 + 0.22 * rim; col.push(v, v * 0.97, v * 0.92);
+    }
+    g.setAttribute('color', new T.Float32BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    return b.addGeo(g, { c: o.c || '#7a5f47', m: KIT.M.cloth, bucket: 'cloth', ao: 0.1, jit: 0.03, vary: 0.1 });
+  }
   // a round shield on a wall facing +z, painted in quarters
   function saddleryShield(b, x, y, z, c1, c2, s) {
     var M = KIT.M, r = 0.42 * s * 0.97, n = 8;
@@ -592,12 +617,12 @@
         });
         b.box(0, 2.2, 0, 2.9, 0.3, 0.34, { c: 'beam', m: M.wood, bevel: 0.04 });
         [-1.25, 1.25].forEach(function (lx) { b.box(lx, 2.18, 0, 0.1, 0.34, 0.37, { c: 'iron', m: M.metal, bevel: 0.01 }); });
-        b.addGeo(new T.TorusGeometry(0.22, 0.045, 5, 16), { x: 0.2, y: 1.85, z: 0.2, c: 'rope', m: M.rope, ao: 0.1 });
-        b.addGeo(new T.TorusGeometry(0.17, 0.045, 5, 16), { x: 0.24, y: 1.82, z: 0.23, c: 'rope', m: M.rope, ao: 0.1 });
-        [[-0.62, '#7a5f47'], [0.68, '#5a4434']].forEach(function (q) {
-          b.box(q[0], 2.5, 0, 1.0, 0.03, 0.44, { c: q[1], m: M.cloth, bevel: 0.01, jit: 0.03 });
-          [-1, 1].forEach(function (sd) { b.box(q[0], 1.62, sd * 0.215, 0.98 + b.j(0.08), 0.9, 0.025, { rx: sd * 0.05, c: q[1], m: M.cloth, bevel: 0.008, jit: 0.03, vary: 0.1 }); });
-        });
+        // the coil hangs from an iron hook under the rail, between the hides
+        b.beam([0.12, 2.24, 0.1], [0.12, 2.12, 0.27], 0.018, { c: 'iron', m: M.metal, round: true, seg: 5 });
+        b.addGeo(new T.TorusGeometry(0.15, 0.04, 5, 14), { x: 0.12, y: 1.98, z: 0.27, c: 'rope', m: M.rope, ao: 0.1 });
+        b.addGeo(new T.TorusGeometry(0.12, 0.04, 5, 14), { x: 0.14, y: 2.0, z: 0.3, c: 'rope', m: M.rope, ao: 0.1 });
+        saddleryDrape(b, -0.66, 2.5, 0.92, 0.95, 0.8, { c: '#553f2f' });
+        saddleryDrape(b, 0.78, 2.5, 0.84, 0.75, 0.95, { c: '#8a6e52' });
         b.pop();
         b.flag(9.4 + 1.0 * Math.cos(0.17), 2.5, 3.0 - 1.0 * Math.sin(0.17) - 0.05, 1.2, 0.85, 0.32, { c: 'bone', pennant: true, pr: 0.035, ry: -2.3 });
       });
