@@ -205,6 +205,19 @@
     }
   }
 
+  // a burlap sack of sand lying flat like a pillow, its neck gathered and tied off in a short tuft toward local +x;
+  // the sack's foot at (x, y, z), turned ry, s its size
+  var SACK = ['#857559', '#7a6b52', '#8e7e60'];
+  function ringSack(b, x, y, z, ry, s) {
+    s = s || 1; var M = KIT.M, c = b.pick(SACK), cy = 0.13 * s;
+    b.push(x, y, z, ry);
+    b.box(0, 0, 0, 0.66 * s, 0.26 * s, 0.44 * s, { c: c, m: M.cloth, bevel: 0.09 * s, ao: 0.4 });
+    b.cyl(0.31 * s, cy, 0, 0.09 * s, 0.09 * s, { c: c, m: M.cloth, r2: 0.035 * s, seg: 6, rz: -Math.PI / 2, ao: 0.1 });
+    b.cyl(0.39 * s, cy, 0, 0.042 * s, 0.03 * s, { c: 'rope', m: M.rope, seg: 6, rz: -Math.PI / 2, ao: 0 });
+    b.cyl(0.41 * s, cy, 0, 0.03 * s, 0.05 * s, { c: c, m: M.cloth, r2: 0.055 * s, seg: 6, rz: -Math.PI / 2, ao: 0 });
+    b.pop();
+  }
+
   // a banner pole at the turn of the path: a square post with bone-painted bands, an arm with a bone banner bearing
   // three ink claw slashes, a dragon head carved on top looking out along the arm (local +x); the banner faces +z
   function ringBannerPole(b, x, y, z, ry, h) {
@@ -666,7 +679,8 @@
         var cp = ringPol(15.3, 1.78), cry = 1.36, cy0 = Math.min(gh(cp[0], cp[1]), gh(cp[0] - 0.4, cp[1] + 0.8)) - 0.02;
         b.push(0, cy0, 0, 0);
         b.cart(cp[0], cp[1], { ry: cry, load: function (bb) {
-          bb.sack(-0.3, 0.74, -0.55, 0.5); bb.sack(0.3, 0.74, -0.5, 0.48); bb.sack(-0.22, 0.74, 0.3, 0.52); bb.sack(0.0, 1.1, -0.5, 0.42, {});
+          ringSack(bb, -0.3, 0.76, -0.45, Math.PI / 2 + 0.1, 0.95); ringSack(bb, 0.3, 0.76, -0.5, Math.PI / 2 - 0.12, 0.9);
+          ringSack(bb, -0.3, 0.76, 0.42, -Math.PI / 2 + 0.08, 0.95); ringSack(bb, 0.0, 1.0, -0.42, Math.PI / 2 + 0.05, 0.85);
           bb.barrel(0.34, 0.77, 0.5, { h: 0.7, r: 0.26 });
         } });
         b.pop();
@@ -674,8 +688,8 @@
         [[ringPol(15.3, 1.98), 0.9, 0], [ringPol(14.75, 2.07), 0.8, 0]].forEach(function (q) { b.barrel(q[0][0], gh(q[0][0], q[0][1]) - 0.03, q[0][1], { h: q[1] }); });
         var lb = ringPol(15.6, 2.03); b.barrel(lb[0], gh(lb[0], lb[1]) - 0.04, lb[1], { lie: true, ry: 0.4, h: 0.85 });
         var cr = ringPol(14.75, 1.92); b.crate(cr[0], gh(cr[0], cr[1]) - 0.02, cr[1], 0.62, { ry: 0.3 }); b.crate(cr[0] + 0.05, gh(cr[0], cr[1]) + 0.6, cr[1] - 0.02, 0.5, { ry: 0.6 });
-        var fb = ringPol(15.75, 1.9); b.sack(fb[0], gh(fb[0], fb[1]) - 0.03, fb[1], 0.55);
-        var fb2 = ringPol(16.1, 1.98); b.sack(fb2[0], gh(fb2[0], fb2[1]) - 0.03, fb2[1], 0.5);
+        var fb = ringPol(15.75, 1.9); ringSack(b, fb[0], gh(fb[0], fb[1]) - 0.03, fb[1], 0.7, 1.05);
+        var fb2 = ringPol(16.1, 1.98); ringSack(b, fb2[0], gh(fb2[0], fb2[1]) - 0.03, fb2[1], 2.3, 0.95);
       });
       b.unit(function () {
         // a banner pole at the turn of the path, its banner toward the road
