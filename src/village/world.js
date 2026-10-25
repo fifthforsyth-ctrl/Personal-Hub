@@ -34,7 +34,7 @@
 import * as THREE from "three";
 import { loadBuild, preloadKit } from "./paint.js";
 import { seedFor } from "../lib/village.js";
-import { MAX_SOLDIERS, PLAZA, TILE, formationOf, pathsOf, planOf, scaleFor, spanOf, spotsOf, stageOf, stateOn } from "./plots.js";
+import { MAX_SOLDIERS, TILE, formationOf, pathsOf, planOf, scaleFor, spanOf, spotsOf, stageOf, stateOn } from "./plots.js";
 
 const KIT_V = typeof __KIT_VERSION__ !== "undefined" ? __KIT_VERSION__ : "dev";
 const kitUrl = (file) => `${import.meta.env.BASE_URL}kit/${file}?v=${KIT_V}`;
@@ -45,10 +45,10 @@ const ATTRS = { alpha: false, depth: true, stencil: true, antialias: false, prem
 const LOOK_TIME = 1.3;
 const FOV = 28;
 // the first view: a little above (higher on a tall screen), from the side of
-// the build going up, turned at most this far from it to frame the village closest
+// the build going up, turned this far from it
 const EL0 = 0.56;
-const EL_TALL = 0.7;
-const TURN = 1.1;
+const EL_TALL = 0.74;
+const TURN = 0.45;
 const STILL_AFTER = 150;
 const FLY_MS = 650;
 // the pen in CSS pixels, the same in a cheap frame and a still
@@ -195,6 +195,8 @@ class World {
     r.shadowMap.autoUpdate = false;
     r.shadowMap.needsUpdate = true;
     this.stage.skyU.uGlowC.value.set(0.66, 0.86);
+    // a build in pencil veils the ink of what stands behind it (the island's far rim, say), as it veils the hatching
+    this.stage.mFinal.uniforms.uGhostVeil.value = 0.9;
     this.stats.kit = performance.now() - this.t0;
     this.cb.onState?.({ phase: "kit" });
     this.pump();
@@ -314,7 +316,11 @@ class World {
     if (!this.ground || this.ground.key !== gk) return { what: "ground", opts: go, key: gk };
     const sk = this.key([this.plan.stake.x, this.plan.stake.z, this.plan.stake.ry]);
     if (!this.stake || this.stake.key !== sk) return { what: "stake", key: sk };
-    if (this.previewKind && (!this.shown || this.shown.kind !== this.previewKind)) return { what: "preview" };
+    if (this.previewKind && (!this.shown || this.shown.kind !== this.previewKind)) {
+      // (not over the very build it would draw: that one is already there, in its own progress)
+      const there = this.made.get(this.previewPlot().replaces);
+      if (!there || there.kind !== this.previewKind) return { what: "preview" };
+    }
     const want = v.projects.map((p) => ({ p, at: this.plan.plots.find((q) => q.id === p.id) }));
     const todo = want.filter(({ p, at }) => {
       const B = this.made.get(p.id);
@@ -323,7 +329,9 @@ class World {
     if (todo.length) {
       const going = v.current >= 0 ? v.projects[v.current].id : null;
       const t = new THREE.Vector3(this.view.tx, 0, this.view.tz);
-      todo.sort((a, b) => (a.p.id === going ? -1 : b.p.id === going ? 1 : Math.hypot(a.at.x - t.x, a.at.z - t.z) - Math.hypot(b.at.x - t.x, b.at.z - t.z)));
+      // the one going up, then the one he is flying to, then the nearest
+      const rank = (x) => (x.p.id === going ? 0 : x.p.id === this.focusId ? 1 : 2);
+      todo.sort((a, b) => rank(a) - rank(b) || Math.hypot(a.at.x - t.x, a.at.z - t.z) - Math.hypot(b.at.x - t.x, b.at.z - t.z));
       return { what: "build", p: todo[0].p, at: todo[0].at };
     }
     const s = stateOn(v, spanOf(v));
@@ -349,7 +357,8 @@ class World {
         this.apply();
         if (job.what !== "scripts") this.drawSoon();
       }
-      this.dropSpare();
+      // a pencil build left over is let go, unless it is the chosen one waiting for the saved village
+      if (!this.spare?.kept) this.dropSpare();
       if (this.village && !this.stats.full && this.made.size === this.village.projects.length) {
         this.draw("still");
         this.stats.full = performance.now() - this.t0;
@@ -411,11 +420,14 @@ class World {
       const old = this.made.get(p.id);
       let mk = null;
       let ghost = !p.complete;
-      // a build he just chose was already drawn in pencil on its plot: it becomes the build
-      if (this.spare && this.spare.kind === p.kind && this.spare.seed === (p.seed || 1) && this.spare.plot === at.plot) {
-        mk = this.spare.mk;
+      // a build he just chose was already drawn in pencil on its plot: it becomes the build, with its progress
+      const same = (x) => x && x.kind === p.kind && x.seed === (p.seed || 1) && x.plot === at.plot;
+      if (same(this.spare) || same(this.shown)) {
+        const was = same(this.spare) ? this.spare : this.shown;
+        mk = was.mk;
         ghost = true;
-        this.spare = null;
+        if (was === this.spare) this.spare = null;
+        else this.shown = null;
       } else {
         mk = this.makeBuild(p.kind, p.seed || 1, ghost, at);
       }
@@ -462,6 +474,7 @@ class World {
       st.scene.add(ppl.group);
       this.soldiers = ppl;
       this.stats.people.push({ what: "soldiers", n: list.length, ms: Math.round(performance.now() - t0) });
+      if (this.focusId === "soldiers") this.focus("soldiers");
       return;
     }
     if (job.what === "folk") {
@@ -527,10 +540,12 @@ class World {
     const KIT = window.KIT;
     const s = stateOn(v, this.today());
     const by = new Map(s.builds.map((b) => [b.id, b]));
+    // what the pencil preview (or a chosen one waiting to become the build) stands in for
+    const instead = new Set([this.shown?.replaces, this.spare?.kept ? this.spare.replaces : null].filter(Boolean));
     for (const B of this.made.values()) {
       const b = by.get(B.id);
       if (!b) continue;
-      B.group.visible = b.exists && !(this.shown && this.shown.replaces === B.id);
+      B.group.visible = b.exists && !instead.has(B.id);
       const { frac, today } = stageOf(B.mk.units, b.done, b.need, b.laid);
       B.mk.show(frac, today);
       const ghost = b.exists && !b.complete;
@@ -540,7 +555,7 @@ class World {
       }
     }
     // the next plot is today's: not staked yet on a day of the replay
-    if (this.stake) this.stake.group.visible = !(this.shown && this.shown.replaces === "stake") && this.today() >= spanOf(v);
+    if (this.stake) this.stake.group.visible = !instead.has("stake") && this.today() >= spanOf(v);
     if (this.soldiers) this.soldiers.show(Math.min(s.soldiers, this.soldiers.units));
     if (this.folk) this.folk.show(Math.min(s.villagers, this.folk.units));
     this.state = s;
@@ -571,6 +586,21 @@ class World {
     this.pump();
   }
 
+  // He chose the build drawn in pencil and it is saved: it stays on its plot, standing in for what it replaces, until
+  // the saved build takes it over (made() adopts it), so the plot never shows the old build or nothing meanwhile.
+  keepPreview() {
+    if (this.dead || !this.shown) return;
+    this.dropSpare();
+    this.spare = { ...this.shown, kept: true };
+    this.shown = null;
+    this.previewKind = null;
+    // (if the saved village never comes, what it stands in for comes back after a while)
+    clearTimeout(this.keptT);
+    this.keptT = setTimeout(() => {
+      if (!this.dead && this.spare?.kept) this.dropSpare();
+    }, 10000);
+  }
+
   clearShown() {
     if (!this.shown) return;
     this.stage.scene.remove(this.shown.group);
@@ -580,8 +610,15 @@ class World {
 
   dropSpare() {
     if (!this.spare) return;
+    const kept = this.spare.kept;
+    this.stage?.scene.remove(this.spare.group);
     window.KIT.village.dispose(this.spare.mk);
     this.spare = null;
+    // nothing took it over: what it stood in for comes back
+    if (kept) {
+      this.apply();
+      this.drawSoon();
+    }
   }
 
   // ------------------------------------------------------------------ the camera
@@ -596,21 +633,24 @@ class World {
     return Math.atan2(p.x, p.z);
   }
 
-  // The whole village in the free part of the screen, from the first view's
-  // angle: close enough that the builds, the plaza and the next plot fill it
-  // (the meadow round them may run off the sides), never farther than the
-  // whole island needs. Plots not made yet count by their levelled ground,
-  // so the first view doesn't move as the builds come in.
+  // The whole village in the free part of the screen: the island to its rim
+  // and the skirt below it, every build on it (a plot not made yet by its
+  // levelled ground and a likely height, so the view hardly moves as the
+  // builds come in), seen a little turned from the side of the build going
+  // up, so that build stands near and the lanes run across the picture.
   wholeView() {
+    if (!this.stage) return { ...this.view };
     const R = this.R;
-    const disk = [];
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      disk.push(new THREE.Vector3(Math.cos(a) * R * 0.94, 0, Math.sin(a) * R * 0.94));
+    const depth = Math.max(14, R * 0.3);
+    const pts = [];
+    for (let i = 0; i < 32; i++) {
+      const c = Math.cos((i / 32) * Math.PI * 2);
+      const s = Math.sin((i / 32) * Math.PI * 2);
+      // the rim wavers a few percent either side of R; the skirt narrows as it hangs
+      pts.push(new THREE.Vector3(c * R * 1.05, 0.4, s * R * 1.05), new THREE.Vector3(c * R * 0.64, -depth * 0.55, s * R * 0.64));
     }
-    const near = [];
     const corners = (b) => {
-      for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) near.push(new THREE.Vector3(x, y, z));
+      for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(x, y, z));
     };
     const flat = (x, z, w, d, ry, h) => {
       const c = Math.abs(Math.cos(ry));
@@ -619,8 +659,6 @@ class World {
       const hd = (w * s + d * c) / 2;
       corners(new THREE.Box3(new THREE.Vector3(x - hw, 0, z - hd), new THREE.Vector3(x + hw, h, z + hd)));
     };
-    const P = PLAZA / 2;
-    corners(new THREE.Box3(new THREE.Vector3(-P, 0, -P), new THREE.Vector3(P, 3, P)));
     if (this.plan) {
       for (const p of this.plan.plots) {
         const B = this.made.get(p.id);
@@ -631,55 +669,26 @@ class World {
           flat(p.x, p.z, f.w, f.d, p.ry, Math.min(24, Math.max(f.w, f.d) * 0.8));
         } else flat(p.x, p.z, 20, 20, p.ry, 14);
       }
-      const k = this.plan.stake;
-      flat(k.x, k.z, STAKED.w, STAKED.d, k.ry, 3);
     }
-    // from the build's side (it stands near), turned to where the village frames closest
     const { cw, ch } = this.css();
     const ins = this.insets;
     const tall = ch - ins.top - ins.bottom > (cw - ins.left - ins.right) * 1.1;
-    const side = this.sideOf();
-    const view = { tx: 0, ty: 2, tz: 0, az: side, el: tall ? EL_TALL : EL0, dist: 100 };
-    // looking at the middle of what stands, as seen from that side
-    const aim = (az) => {
-      const rx = Math.cos(az);
-      const rz = -Math.sin(az);
-      let r0 = Infinity;
-      let r1 = -Infinity;
-      let f0 = Infinity;
-      let f1 = -Infinity;
-      for (const q of near) {
-        const r = q.x * rx + q.z * rz;
-        const f = q.x * -rz + q.z * rx;
-        r0 = Math.min(r0, r);
-        r1 = Math.max(r1, r);
-        f0 = Math.min(f0, f);
-        f1 = Math.max(f1, f);
-      }
-      const mr = (r0 + r1) / 2;
-      const mf = (f0 + f1) / 2;
-      let tx = mr * rx - mf * rz;
-      let tz = mr * rz + mf * rx;
-      const far = Math.hypot(tx, tz);
-      if (far > R * 0.4) {
-        tx *= (R * 0.4) / far;
-        tz *= (R * 0.4) / far;
-      }
-      return { tx, tz };
-    };
-    let content = Infinity;
-    for (let i = 0; i <= 12; i++) {
-      const t = -TURN + (2 * TURN * i) / 12;
-      const v = { ...view, az: side + t, ...aim(side + t) };
-      const d = this.fitDist(near, v, 0.92);
-      if (d * (1 + 0.12 * Math.abs(t)) < content * (1 + 0.12 * Math.abs(view.az - side))) {
-        content = d;
-        Object.assign(view, { az: v.az, tx: v.tx, tz: v.tz });
-      }
+    const view = { tx: 0, ty: 2, tz: 0, az: this.sideOf() + TURN, el: tall ? EL_TALL : EL0, dist: 100 };
+    // the near rim looks bigger than the far one: the point looked at slides along the ground, toward or away from
+    // the eye, to where the island sits in the middle of the free part, top to bottom
+    const fx = -Math.sin(view.az);
+    const fz = -Math.cos(view.az);
+    let best = null;
+    for (let i = -6; i <= 6; i++) {
+      const k = (i / 6) * R * 0.35;
+      const v = { ...view, tx: fx * k, tz: fz * k };
+      v.dist = this.fitDist(pts, v, 0.97);
+      const { y0, y1 } = this.spanOn(pts, v);
+      const off = Math.abs((y0 + y1) / 2);
+      if (!best || off < best.off) best = { off, v };
     }
-    const all = this.fitDist(disk, view, 0.96);
-    view.dist = Math.min(all, Math.max(content, all * 0.55));
-    this.maxDist = all * 1.5;
+    Object.assign(view, best.v);
+    this.maxDist = view.dist * 1.5;
     return view;
   }
 
@@ -693,6 +702,72 @@ class World {
     const view = { tx: c.x, ty: b.min.y + (b.max.y - b.min.y) * 0.32, tz: c.z, az: B.ry - 0.62, el: 0.4, dist: 50 };
     view.dist = this.fitDist(pts, view, 0.9);
     return view;
+  }
+
+  // The garrison close, from in front of it where nothing stands between: of
+  // the ways round the plaza, the one nearest its front from which no build
+  // (nor the pencil preview) hides the soldiers, a little higher if every
+  // way is blocked.
+  soldiersView() {
+    const b = this.soldiers?.box;
+    if (!b || b.isEmpty()) return null;
+    const c = new THREE.Vector3();
+    b.getCenter(c);
+    // the ranks with a stride of room round them, never framed closer than a few soldiers wide
+    const hx = Math.max(7, (b.max.x - b.min.x) / 2 + 2);
+    const hz = Math.max(7, (b.max.z - b.min.z) / 2 + 2);
+    const pts = [];
+    for (const x of [c.x - hx, c.x + hx]) for (const z of [c.z - hz, c.z + hz]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, b.max.y + 0.5, z));
+    const blocks = [...this.made.values()].filter((B) => B.group.visible).map((B) => B.box);
+    if (this.shown) blocks.push(this.shown.box);
+    // what must be seen: the middle of the ranks and their two ends, at chest height
+    const dx = (b.max.x - b.min.x) / 2;
+    const dz = (b.max.z - b.min.z) / 2;
+    const marks = [new THREE.Vector3(c.x, 1.1, c.z), new THREE.Vector3(c.x - dx, 1.1, c.z - dz), new THREE.Vector3(c.x + dx, 1.1, c.z + dz), new THREE.Vector3(c.x - dx, 1.1, c.z + dz), new THREE.Vector3(c.x + dx, 1.1, c.z - dz)];
+    const ray = new THREE.Ray();
+    const hit = new THREE.Vector3();
+    const front = this.formationTurn();
+    let best = null;
+    for (const el of [0.5, 0.78]) {
+      for (let k = -6; k <= 6; k++) {
+        const view = { tx: c.x, ty: 1, tz: c.z, az: front + (k * Math.PI) / 8, el, dist: 50 };
+        view.dist = this.fitDist(pts, view, 0.9);
+        const ce = Math.cos(el);
+        const eye = new THREE.Vector3(view.tx + view.dist * ce * Math.sin(view.az), view.ty + view.dist * Math.sin(el), view.tz + view.dist * ce * Math.cos(view.az));
+        let hidden = 0;
+        for (const m of marks) {
+          const far = eye.distanceTo(m);
+          ray.set(eye, m.clone().sub(eye).normalize());
+          if (blocks.some((box) => ray.intersectBox(box, hit) && hit.distanceTo(eye) < far - 0.5)) hidden++;
+        }
+        const score = hidden * 10 + Math.abs(k) * 0.4 + (el > 0.6 ? 1.5 : 0);
+        if (!best || score < best.score) best = { score, view };
+      }
+    }
+    return best.view;
+  }
+
+  // How far up and down the free part of the screen the points reach from a view: -1 its bottom, 1 its top.
+  spanOn(pts, view) {
+    const { cw, ch } = this.css();
+    const ins = this.insets;
+    const yb = -1 + (2 * ins.bottom) / ch;
+    const yt = 1 - (2 * ins.top) / ch;
+    const saved = this.view;
+    this.view = view;
+    this.camera(cw, ch, 1);
+    this.view = saved;
+    const v3 = new THREE.Vector3();
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const p of pts) {
+      v3.copy(p).project(this.stage.camera);
+      y0 = Math.min(y0, v3.y);
+      y1 = Math.max(y1, v3.y);
+    }
+    const m = (yt + yb) / 2;
+    const h = (yt - yb) / 2;
+    return { y0: (y0 - m) / h, y1: (y1 - m) / h };
   }
 
   // The nearest distance at which every point is inside the free part of the screen.
@@ -780,16 +855,8 @@ class World {
     this.focusId = id;
     if (!this.stage) return;
     if (id === "soldiers") {
-      // the plaza, from where he is looking, the garrison in the middle of it
-      const b = this.soldiers?.box;
-      if (!b || b.isEmpty()) return;
-      const c = new THREE.Vector3();
-      b.getCenter(c);
-      const P = PLAZA / 2 + 2;
-      const pts = [];
-      for (const x of [-P, P]) for (const z of [-P, P]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, b.max.y, z));
-      const view = { tx: c.x, ty: 1, tz: c.z, az: this.view.az, el: 0.5, dist: 50 };
-      view.dist = this.fitDist(pts, view, 0.94);
+      const view = this.soldiersView();
+      if (!view) return;
       this.userMoved = true;
       this.fly(view);
       return;
@@ -945,6 +1012,26 @@ class World {
     for (const B of this.made.values()) if (B.group.visible) put(B.id, "build", B.box);
     if (this.shown) put("preview", "preview", this.shown.box);
     if (this.stake?.group.visible) put("stake", "plot", this.stake.box, -0.5);
+    // where the garrison is on the screen, so a label can keep off it while the soldiers are shown
+    const b = this.soldiers?.box;
+    if (b && !b.isEmpty() && this.state?.soldiers) {
+      let l = Infinity;
+      let r = -Infinity;
+      let t = Infinity;
+      let btm = -Infinity;
+      let on = true;
+      for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+        v3.set(x, y, z).project(cam);
+        if (v3.z <= -1 || v3.z >= 1) on = false;
+        const sx = ((v3.x + 1) / 2) * cw;
+        const sy = ((1 - v3.y) / 2) * ch;
+        l = Math.min(l, sx);
+        r = Math.max(r, sx);
+        t = Math.min(t, sy);
+        btm = Math.max(btm, sy);
+      }
+      if (on) out.push({ id: "soldiers", kind: "soldiers", rect: { l, r, t, b: btm } });
+    }
     this.cb.onLabels?.(out);
   }
 
@@ -1109,6 +1196,7 @@ class World {
     if (this.tornDown) return;
     this.tornDown = true;
     clearTimeout(this.tapT);
+    clearTimeout(this.keptT);
     const KIT = window.KIT;
     try {
       const all = [...this.made.values()].map((B) => B.mk);

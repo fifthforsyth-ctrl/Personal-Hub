@@ -2239,6 +2239,16 @@ function sectionOf({ x, y }) {
     rect
   );
   ok("labels: the first placed wins an overlap, off-screen and behind hide", shown.has("b") && !shown.has("a") && shown.has("c") && !shown.has("d") && !shown.has("e"));
+  const kept = P.placeLabels(
+    [
+      { id: "over", x: 200, y: 300, w: 80, h: 24, prio: 0 },
+      { id: "clear", x: 200, y: 500, w: 80, h: 24, prio: 1 },
+    ],
+    rect,
+    4,
+    [{ l: 150, r: 260, t: 280, b: 340 }]
+  );
+  ok("labels keep off what must stay in sight (the soldiers)", !kept.has("over") && kept.has("clear"));
 
   // Links.
   ok("?build=<id> opens that build", JSON.stringify(P.linkOf("?build=abc")) === '{"build":"abc","choose":null}');

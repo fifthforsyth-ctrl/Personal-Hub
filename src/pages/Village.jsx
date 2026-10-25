@@ -68,6 +68,8 @@ export default function Village() {
   const close = () => (first.current ? navigate("/", { replace: true }) : navigate(-1));
 
   const [sheet, setSheet] = useState(null);
+  const sheetNow = useRef(sheet);
+  sheetNow.current = sheet;
   const [replayDay, setReplayDay] = useState(null);
   const [playing, setPlaying] = useState(false);
   const span = village ? spanOf(village) : 0;
@@ -118,6 +120,10 @@ export default function Village() {
     setGl("on");
     worldRef.current = w;
     if (import.meta.env.DEV) window.__village = w;
+    // started afresh (the phone took the GPU back) with a sheet open: back to what the sheet is about, once it is made
+    const open = sheetNow.current;
+    if (open?.type === "build") w.focus(open.id);
+    else if (open?.type === "soldiers") w.focus("soldiers");
     return () => {
       w.dispose();
       if (worldRef.current === w) worldRef.current = null;
@@ -130,6 +136,16 @@ export default function Village() {
   useEffect(() => {
     worldRef.current?.setDay(replayDay);
   }, [replayDay, gen]);
+  // Choose draws the build he points at in pencil on its plot; the one already going up is there as it is.
+  const pick = sheet?.type === "choose" ? sheet.pick : null;
+  const pickIsGoing = Boolean(pick && going && going.kind === pick);
+  const previewKind = pick && !pickIsGoing ? pick : null;
+  useEffect(() => {
+    worldRef.current?.preview(previewKind);
+  }, [previewKind, gen, gl]);
+  useEffect(() => {
+    if (pickIsGoing && going) worldRef.current?.focus(going.id);
+  }, [pickIsGoing, going, gen]);
 
   // The part of the screen the cards leave free, so the world frames what it shows there.
   const topRef = useRef(null);
@@ -267,6 +283,8 @@ export default function Village() {
       if (was) await updateVillageProject(was.id, { kind: c.kind, seed: seedFor(c.kind), need: c.need });
       else await addVillageProject(userId, { kind: c.kind, seed: seedFor(c.kind), plot: village.nextPlot, need: c.need, today });
       haptic("success");
+      // the pencil build on the plot becomes the build itself: it stays there until the saved one takes it over
+      worldRef.current?.keepPreview();
       const fresh = await reload();
       closeSheet();
       const laid = was ? was.done : village.waiting;
@@ -288,14 +306,25 @@ export default function Village() {
   // ------------------------------------------------------------ what shows
   const flat = gl === "off" || Boolean(kitError);
   const laying = village && !flat && (gl !== "on" || phase === "kit");
-  const sheetOpen = Boolean(sheet) && !flat;
+  // (the plain page has Choose on the page itself; its other sheets are the same)
+  const sheetOpen = Boolean(sheet) && !(flat && sheet.type === "choose");
   const describe = village ? describeVillage(village, going) : "Your village, loading";
 
   return (
     <div className={`vg${sheetOpen ? " vg--sheet" : ""}${flat ? " vg--flat" : ""}`}>
       {gl !== "off" && !kitError && <canvas key={gen} ref={canvasRef} className="vg-canvas" tabIndex={0} role="img" aria-label={describe} />}
       {!flat && village && (
-        <Labels apiRef={labelsRef} village={village} state={state} going={going} span={span} shownDay={shownDay} onBuild={openBuild} onPlot={() => openChoose()} />
+        <Labels
+          apiRef={labelsRef}
+          village={village}
+          state={state}
+          going={going}
+          span={span}
+          shownDay={shownDay}
+          soldiers={sheet?.type === "soldiers"}
+          onBuild={openBuild}
+          onPlot={() => openChoose()}
+        />
       )}
 
       <header ref={topRef} className="vg-top">
@@ -343,6 +372,10 @@ export default function Village() {
           going={going}
           noGL={gl === "off"}
           saving={saving}
+          choose={sheet?.type === "choose" ? sheet : null}
+          onOpen={openBuild}
+          onSoldiers={() => openSheet("soldiers")}
+          onVillagers={() => openSheet("villagers")}
           onBuild={build}
           onRetry={() => {
             setKitError(null);
@@ -376,7 +409,7 @@ export default function Village() {
       {sheetOpen && sheet.type === "build" && (
         <BuildSheet key={sheet.id} sheetRef={sheetRef} p={village.projects.find((x) => x.id === sheet.id)} village={village} today={today} onClose={closeSheet} onChoose={() => openChoose()} />
       )}
-      {sheetOpen && sheet.type === "choose" && (
+      {sheetOpen && !flat && sheet.type === "choose" && (
         <Sheet sheetRef={sheetRef} labelId="vg-choose-h" onClose={closeSheet} className="vg-sheet--choose">
           <ChooseList
             village={saving ? saving.village : village}
@@ -388,7 +421,6 @@ export default function Village() {
               setSheet({ type: "choose", pick: kind });
             }}
             onBuild={build}
-            world={worldRef}
           />
         </Sheet>
       )}
@@ -411,8 +443,9 @@ function describeVillage(village, going) {
 
 // The world says where each build is on the screen after every frame; each
 // label shows only if it fits clear of the others and of the cards: the
-// build going up first, then the next plot, then the nearest.
-function Labels({ apiRef, village, state, going, span, shownDay, onBuild, onPlot }) {
+// build going up first, then the next plot, then the nearest. While the
+// soldiers' sheet is open, none covers the garrison.
+function Labels({ apiRef, village, state, going, span, shownDay, soldiers, onBuild, onPlot }) {
   const [list, setList] = useState([]);
   const host = useRef(null);
   useEffect(() => {
@@ -444,12 +477,14 @@ function Labels({ apiRef, village, state, going, span, shownDay, onBuild, onPlot
         const prio = l.kind === "preview" || l.id === state?.going ? 0 : l.kind === "plot" ? 1 : 2 + l.d / 10000;
         return { ...l, w: k.offsetWidth, h: k.offsetHeight + 7, prio };
       });
-    const shown = placeLabels(sized, rect);
+    const blocks = soldiers ? list.filter((l) => l.kind === "soldiers").map((l) => l.rect) : [];
+    const shown = placeLabels(sized, rect, 4, blocks);
     for (const [id, k] of kids) k.classList.toggle("vg-label--hidden", !shown.has(id));
   });
   return (
     <div ref={host} className="vg-labels">
       {list.map((l) => {
+        if (l.kind === "soldiers") return null;
         const style = { transform: `translate3d(${Math.round(l.x)}px, ${Math.round(l.y)}px, 0) translate(-50%, -100%)` };
         if (l.kind === "plot") {
           return choosing ? (
@@ -543,27 +578,57 @@ function Legend({ laid }) {
 
 const Dock = forwardRef(function Dock({ village, state, going, today, span, replayDay, playing, onOpen, onChoose, onSoldiers, onVillagers, onScrub, onPlay }, ref) {
   const replaying = replayDay !== null && replayDay < span;
-  const tier = TIERS[state.tier];
+  // while the slider is held or the replay runs, its date rides above it where the chips are (the card says the same counts)
+  const [scrub, setScrub] = useState(false);
+  const dated = scrub || playing;
   return (
     <div ref={ref} className="vg-dock">
       {replaying ? <ReplayCard village={village} state={state} d={replayDay} span={span} onToday={() => onScrub(span)} /> : <Now village={village} going={going} today={today} onOpen={onOpen} onChoose={onChoose} />}
-      <div className="vg-chips">
-        <button type="button" className="vg-chip" onClick={onSoldiers} aria-label={`${countLine(state.soldiers, "soldier", "soldiers")}, ${tier.name.toLowerCase()}`}>
-          <Target size={14} strokeWidth={2.2} aria-hidden="true" />
-          <b>{state.soldiers}</b>
-          <span>{state.soldiers === 1 ? "soldier" : "soldiers"}</span>
-          <small>{tier.short}</small>
-        </button>
-        <button type="button" className="vg-chip" onClick={onVillagers} aria-label={countLine(state.villagers, "villager", "villagers")}>
-          <Users size={14} strokeWidth={2.2} aria-hidden="true" />
-          <b>{state.villagers}</b>
-          <span>{state.villagers === 1 ? "villager" : "villagers"}</span>
-        </button>
-        {span > 0 && (village.projects.length > 0 || village.arrows.length > 0 || village.villagers.length > 0) && <Replay village={village} span={span} replayDay={replayDay} playing={playing} onScrub={onScrub} onPlay={onPlay} />}
+      <div className={`vg-chips${dated ? " vg-chips--dated" : ""}`}>
+        <SoldiersChip n={state.soldiers} tier={state.tier} onClick={onSoldiers} />
+        <VillagersChip n={state.villagers} onClick={onVillagers} />
+        {span > 0 && (village.projects.length > 0 || village.arrows.length > 0 || village.villagers.length > 0) && (
+          <Replay village={village} span={span} replayDay={replayDay} playing={playing} scrub={scrub} setScrub={setScrub} onScrub={onScrub} onPlay={onPlay} />
+        )}
       </div>
     </div>
   );
 });
+
+// The garrison in a chip: how many, and their bows once there are any.
+function SoldiersChip({ n, tier, onClick }) {
+  const t = TIERS[tier];
+  return (
+    <button type="button" className="vg-chip" onClick={onClick} aria-label={n ? `${countLine(n, "soldier", "soldiers")}, ${t.name.toLowerCase()}` : "No soldiers yet"}>
+      <Target size={14} strokeWidth={2.2} aria-hidden="true" />
+      {n ? (
+        <>
+          <b>{n}</b>
+          <span>{n === 1 ? "soldier" : "soldiers"}</span>
+          <small>{t.short}</small>
+        </>
+      ) : (
+        <span>No soldiers yet</span>
+      )}
+    </button>
+  );
+}
+
+function VillagersChip({ n, onClick }) {
+  return (
+    <button type="button" className="vg-chip" onClick={onClick} aria-label={n ? countLine(n, "villager", "villagers") : "No villagers yet"}>
+      <Users size={14} strokeWidth={2.2} aria-hidden="true" />
+      {n ? (
+        <>
+          <b>{n}</b>
+          <span>{n === 1 ? "villager" : "villagers"}</span>
+        </>
+      ) : (
+        <span>No villagers yet</span>
+      )}
+    </button>
+  );
+}
 
 // The build going up, the one that stood today, or the empty plot waiting for a choice.
 function Now({ village, going, today, onOpen, onChoose }) {
@@ -657,8 +722,7 @@ function ReplayCard({ village, state, d, span, onToday }) {
   );
 }
 
-function Replay({ village, span, replayDay, playing, onScrub, onPlay }) {
-  const [scrub, setScrub] = useState(false);
+function Replay({ village, span, replayDay, playing, scrub, setScrub, onScrub, onPlay }) {
   const d = replayDay ?? span;
   const date = addDays(village.day0, d);
   return (
@@ -744,6 +808,8 @@ function Sheet({ sheetRef, labelId, onClose, className = "", children }) {
     };
   }, []);
   const down = (e) => {
+    // the close button is in the same row, and keeps its own click
+    if (e.target.closest("button")) return;
     drag.current = { y: e.clientY };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
@@ -779,12 +845,13 @@ function Sheet({ sheetRef, labelId, onClose, className = "", children }) {
         tabIndex={-1}
         style={dy ? { transform: `translateY(${dy}px)`, transition: "none" } : undefined}
       >
-        <div className="vg-sheet__grab" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} aria-hidden="true">
-          <span />
+        {/* its own row, above what scrolls: the handle to swipe it down by, and the close button */}
+        <div className="vg-sheet__head" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+          <span className="vg-sheet__grab" aria-hidden="true" />
+          <button type="button" className="btn-icon vg-sheet__close" onClick={() => closeRef.current()} aria-label="Close">
+            <X size={18} strokeWidth={2.2} aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" className="btn-icon vg-sheet__close" onClick={() => closeRef.current()} aria-label="Close">
-          <X size={18} strokeWidth={2.2} aria-hidden="true" />
-        </button>
         <div className="vg-sheet__body">{children}</div>
       </section>
     </div>
@@ -887,21 +954,12 @@ function Laid({ p, today }) {
 // The catalog by size, each with its finished picture. In the 3D village the
 // one he taps is drawn in pencil on the plot it would take; `inline` is the
 // plain page without WebGL.
-function ChooseList({ village, going, pick, saving, onPick, onBuild, world, inline = false }) {
+function ChooseList({ village, going, pick, saving, onPick, onBuild, inline = false }) {
   const change = Boolean(going);
   const laid = change ? going.done : village.waiting;
   const have = new Set(village.projects.filter((p) => p.complete).map((p) => p.kind));
   // Build something else asks first, in place: it replaces what's going up.
   const [asking, setAsking] = useState(null);
-  useEffect(() => {
-    if (!inline) world?.current?.preview(pick);
-  }, [pick, inline, world]);
-  useEffect(
-    () => () => {
-      if (!inline) world?.current?.preview(null);
-    },
-    [inline, world]
-  );
   useEffect(() => {
     if (pick) document.getElementById(`vg-opt-${pick}`)?.scrollIntoView({ block: "nearest" });
   }, [pick]);
@@ -962,6 +1020,13 @@ function ChooseList({ village, going, pick, saving, onPick, onBuild, world, inli
                       <span className="vg-opt__line">{c.line}</span>
                     </span>
                   </button>
+                  {picked && now && (
+                    <div className="vg-opt__foot">
+                      <p className="vg-opt__note">
+                        Already going up{inline ? "" : " on its plot"}: {going.done} of {countLine(going.need, "task", "tasks")} laid.
+                      </p>
+                    </div>
+                  )}
                   {picked && !now && (
                     <div className="vg-opt__foot">
                       {change && asking === c.kind ? (
@@ -1008,19 +1073,19 @@ function SoldiersSheet({ sheetRef, village, onClose }) {
     <Sheet sheetRef={sheetRef} labelId="vg-sol-h" onClose={onClose}>
       <span className="eyebrow">The garrison · the plaza</span>
       <h2 className="vg-sheet__title" id="vg-sol-h">
-        {countLine(n, "soldier", "soldiers")}
+        {n ? countLine(n, "soldier", "soldiers") : "No soldiers yet"}
       </h2>
       <p className="vl-tags">
         <span className="vl-tag">{countLine(arrows, "arrow", "arrows")} loosed</span>
-        <span className="vl-tag">{tier.short}</span>
+        {n > 0 && <span className="vl-tag">{tier.short}</span>}
       </p>
       <p className="vg-sheet__text">
-        Every {ARROWS_PER_SOLDIER} arrows trains one: each arrow you loose on The Mark counts. {countLine(left, "more arrow trains", "more arrows train")} the next one.
+        Every {ARROWS_PER_SOLDIER} arrows trains one: each arrow you loose on The Mark counts. {countLine(left, "more arrow trains", "more arrows train")} {n ? "the next one" : "the first"}.
       </p>
       {n > MAX_SOLDIERS && <p className="vg-sheet__note">{MAX_SOLDIERS} drill in the plaza at a time.</p>}
-      <h3 className="vg-sub">Their bows: {tier.name.toLowerCase()}</h3>
-      <p className="vg-sheet__text">{bowLine(hits)}</p>
-      {tier.verse && (
+      {n > 0 && <h3 className="vg-sub">Their bows: {tier.name.toLowerCase()}</h3>}
+      {n > 0 && <p className="vg-sheet__text">{bowLine(hits)}</p>}
+      {n > 0 && tier.verse && (
         <blockquote className="vg-verse">
           {tier.verse.text}
           <cite>{tier.verse.cite}</cite>
@@ -1077,11 +1142,16 @@ function VillagersSheet({ sheetRef, village, onClose }) {
 
 // --- Without WebGL: the same village as a plain page --------------------------------------------------
 
-function Flat({ village, today, going, noGL, saving, onBuild, onRetry }) {
+function Flat({ village, today, going, noGL, saving, choose, onOpen, onSoldiers, onVillagers, onBuild, onRetry }) {
   const [pick, setPick] = useState(null);
+  // Choose (a ?choose link, or Build something else) is the list on this page: there, pointed at the build asked for
+  const chooseRef = useRef(null);
+  useEffect(() => {
+    if (!choose) return;
+    setPick(choose.pick ?? null);
+    chooseRef.current?.scrollIntoView({ block: "start" });
+  }, [choose]);
   const standing = village.projects.filter((p) => p.complete).sort((a, b) => String(b.finishedOn).localeCompare(String(a.finishedOn)));
-  const soldiers = soldiersFor(village.arrows.length);
-  const tier = TIERS[bowFor(village.bullseyes.length)];
   const p = going;
   const laid = p ? laidOn(p, today) : 0;
   return (
@@ -1119,18 +1189,9 @@ function Flat({ village, today, going, noGL, saving, onBuild, onRetry }) {
             <p className="vl-left">{village.waiting ? `${countLine(village.waiting, "finished task is", "finished tasks are")} waiting to lay the first pieces.` : "Choose one below."}</p>
           </section>
         )}
-        <div className="vg-chips vg-chips--flat">
-          <Link to="/ascent" className="vg-chip">
-            <Target size={14} strokeWidth={2.2} aria-hidden="true" />
-            <b>{soldiers}</b>
-            <span>{soldiers === 1 ? "soldier" : "soldiers"}</span>
-            <small>{tier.short}</small>
-          </Link>
-          <Link to="/temple" className="vg-chip">
-            <Users size={14} strokeWidth={2.2} aria-hidden="true" />
-            <b>{village.villagers.length}</b>
-            <span>{village.villagers.length === 1 ? "villager" : "villagers"}</span>
-          </Link>
+        <div className="vg-chips">
+          <SoldiersChip n={soldiersFor(village.arrows.length)} tier={bowFor(village.bullseyes.length)} onClick={onSoldiers} />
+          <VillagersChip n={village.villagers.length} onClick={onVillagers} />
         </div>
         <section className="vg-flat__sec" aria-labelledby="vg-flat-standing">
           <h2 className="eyebrow" id="vg-flat-standing">
@@ -1140,13 +1201,15 @@ function Flat({ village, today, going, noGL, saving, onBuild, onRetry }) {
             <ul className="vg-stood">
               {standing.map((s) => (
                 <li key={s.id} className="card card--flush">
-                  <img src={thumbOf(s.kind)} alt="" loading="lazy" className="vg-stood__pic" />
-                  <span>
-                    <b>{s.name}</b>
-                    <small>
-                      {s.finishedOn === today ? "Stood today" : `Stood ${day(s.finishedOn)}`} · {countLine(s.need, "task", "tasks")}
-                    </small>
-                  </span>
+                  <button type="button" className="vg-stood__btn" onClick={() => onOpen(s.id)}>
+                    <img src={thumbOf(s.kind)} alt="" loading="lazy" className="vg-stood__pic" />
+                    <span>
+                      <b>{s.name}</b>
+                      <small>
+                        {s.finishedOn === today ? "Stood today" : `Stood ${day(s.finishedOn)}`} · {countLine(s.need, "task", "tasks")}
+                      </small>
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -1154,7 +1217,7 @@ function Flat({ village, today, going, noGL, saving, onBuild, onRetry }) {
             <p className="card-note">{going ? `Nothing stands yet. ${cap(the(going))} will be the first.` : "Nothing stands yet."}</p>
           )}
         </section>
-        <section className="card vg-flat__choose">
+        <section ref={chooseRef} className="card vg-flat__choose">
           <ChooseList village={village} going={going} pick={pick} saving={saving?.kind ?? null} onPick={setPick} onBuild={onBuild} inline />
         </section>
       </div>

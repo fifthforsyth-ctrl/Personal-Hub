@@ -264,10 +264,11 @@ export function spotsOf(paths, villagers, seed = 5) {
 // Which labels show: each { id, x, y (its anchor, bottom centre, CSS px),
 // w, h, prio (lower first), on (false: behind the camera) }. A label shows when
 // it is all inside `rect` ({ left, top, right, bottom }) and clear of every
-// label placed before it.
-export function placeLabels(list, rect, gap = 4) {
+// label placed before it and of every one of `blocks` ({ l, r, t, b }: what
+// must stay in sight, the soldiers say).
+export function placeLabels(list, rect, gap = 4, blocks = []) {
   const shown = new Set();
-  const placed = [];
+  const placed = [...blocks];
   for (const l of [...list].sort((a, b) => a.prio - b.prio)) {
     if (l.on === false) continue;
     const box = { l: l.x - l.w / 2, r: l.x + l.w / 2, t: l.y - l.h, b: l.y };
