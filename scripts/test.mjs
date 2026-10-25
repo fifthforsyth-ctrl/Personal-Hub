@@ -1884,9 +1884,9 @@ console.log("\nthe mark");
 {
   ok("the sketch's 29 builds, smallest first within each size", CATALOG.length === 29 && new Set(CATALOG.map((c) => c.kind)).size === 29 && SIZES.every((z) => { const n = CATALOG.filter((c) => c.size === z.key).map((c) => c.need); return n.length && n.every((x, i) => !i || x >= n[i - 1]); }));
   ok("small, middle and big run 12 to 24, 28 to 55 and 70 to 150 tasks", ["small:12:24", "middle:28:55", "big:70:150"].every((r) => { const [z, lo, hi] = r.split(":"); const n = CATALOG.filter((c) => c.size === z).map((c) => c.need); return Math.min(...n) === +lo && Math.max(...n) === +hi && SIZES.find((x) => x.key === z).line === `${lo} to ${hi} tasks`; }));
-  ok("the sword armory takes 40 tasks and the dragon citadel 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("citadel").need === 150 && buildOf("citadel").name === "Dragon citadel");
+  ok("the sword armory takes 40 tasks and the citadel 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("citadel").need === 150 && buildOf("citadel").name === "Citadel");
   ok("the windmill going up keeps its kind and its 45", buildOf("windmill").need === 45 && buildOf("windmill").size === "middle" && !buildOf("windmill").line.startsWith("Your build"));
-  ok("seven dragon builds, each saying what's new or what it was", CATALOG.filter((c) => c.dragon).map((c) => c.kind).join() === "fishracks,hatchery,stables,flighttower,saddlery,ring,citadel" && CATALOG.filter((c) => c.dragon).every((c) => c.tag) && buildOf("stables").tag === "Was the stable" && buildOf("hatchery").tag === "New");
+  ok("no build is a dragon build, and the old dragon builds go by plain names", CATALOG.every((c) => !("dragon" in c) && !("tag" in c) && !/dragon/i.test(c.name + c.line)) && ["stables:Stables", "citadel:Citadel", "saddlery:Saddlery", "hatchery:Fire ring", "flighttower:Round tower", "ring:Training ring", "fishracks:Fish racks"].every((r) => { const [k, n] = r.split(":"); return buildOf(k).name === n; }));
   ok("every build has a name and a line", CATALOG.every((c) => c.name && c.line.length > 40 && /[.)]$/.test(c.line)));
   const has = (path) => { try { return readFileSync(new URL(`../${path}`, import.meta.url)).length > 0; } catch { return false; } };
   ok("every build has its painting and its finished picture", CATALOG.every((c) => has(`public/kit/builds/${c.kind}.js`) && has(`public/village/builds/${c.kind}.jpg`)));
@@ -1966,7 +1966,7 @@ console.log("\nthe mark");
     temple: [{ pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] }, { pid: "B", name: "Ben", ordinances: [{ date: "2026-10-21", temple: "Provo" }] }],
   };
   const v = villageOf(raw, "2026-10-22");
-  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill" && v.projects[1].name === "Hatchery");
+  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill" && v.projects[1].name === "Fire ring");
   ok("the windmill stood on its third task, the hatchery is going up", v.projects[0].complete && v.projects[0].finishedOn === "2026-10-21" && v.current === 1 && v.projects[1].done === 1 && v.waiting === 0);
   ok("each brick knows its quest, a lesson's by the lesson's name", v.projects[0].items[1].quest === "More integrity" && v.projects[0].items[0].quest === "Build the best Premiere Pro plugin");
   ok("tasks and arrows after today don't count yet", v.arrows.length === 2 && v.bullseyes.length === 1 && v.projects[1].items.every((i) => i.day <= "2026-10-22"));
