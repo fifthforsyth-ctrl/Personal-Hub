@@ -99,19 +99,76 @@
     b.box(x, y, z, w, h, d, { c: b.pick(HAY), m: M.straw, bevel: 0.09, ry: ry, ao: 0.35 });
     [-0.28, 0.28].forEach(function (f) { var c = Math.cos(ry), s = Math.sin(ry); b.box(x + f * w * c, y - 0.005, z - f * w * s, 0.04, h + 0.02, d + 0.02, { c: '#6a5940', m: M.rope, ry: ry, bevel: 0.01, ao: 0.2 }); });
   }
-  // a hitching rail: two posts and a rail along local x, L long, a saddle and its blanket over the rail
+  // a curved band (an arc between radii r1 and r2, angles a0..a1 in the XY plane) run len along z
+  function stablesArc(b, x, y, z, r1, r2, a0, a1, len, o) {
+    var sh = new T.Shape(), n = 12, i, a;
+    for (i = 0; i <= n; i++) { a = a0 + (a1 - a0) * i / n; if (i === 0) sh.moveTo(Math.cos(a) * r2, Math.sin(a) * r2); else sh.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); }
+    for (i = n; i >= 0; i--) { a = a0 + (a1 - a0) * i / n; sh.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); }
+    var g = new T.ExtrudeGeometry(sh, { depth: len, bevelEnabled: false, curveSegments: 1 }); g.translate(0, 0, -len / 2); g.deleteAttribute('uv');
+    g.computeVertexNormals();
+    return b.addGeo(g, Object.assign({ m: KIT.M.wood }, o, { x: x, y: y, z: z }));
+  }
+  // a riding saddle (as the saddlery makes them) sitting over a rounded top at (x, y, z), radius R, its length along
+  // local z (front +z): the pad under it, the leather seat dipping between a raised cantle and the pommel, flaps down
+  // each side, stirrups on their straps and the girth hanging free
+  function stablesSaddle(b, x, y, z, o) {
+    o = o || {}; var M = KIT.M, R = o.R || 0.2, lc = o.c || '#2a211b', lc2 = o.c2 || '#45352a', iron = '#8f8a80', drop = o.drop === undefined ? 1 : o.drop;
+    b.push(x, y - R, z, o.ry || 0);
+    stablesArc(b, 0, 0, 0, R, R + 0.022, 0.12, Math.PI - 0.12, 0.84, { c: o.blanket || '#7a3b2c', m: M.cloth, ao: 0.15 });
+    stablesArc(b, 0, 0, 0, R + 0.02, R + 0.075, 0.5, Math.PI - 0.5, 0.62, { c: lc, m: M.wood, ao: 0.2 });
+    stablesArc(b, 0, 0, 0.02, R + 0.07, R + 0.1, 1.0, Math.PI - 1.0, 0.36, { c: lc2, m: M.wood, ao: 0.2 });
+    stablesArc(b, 0, 0, -0.28, R + 0.06, R + 0.22, 1.08, Math.PI - 1.08, 0.07, { c: lc, m: M.wood, ao: 0.1, rx: -0.15 });
+    stablesArc(b, 0, 0, 0.29, R + 0.06, R + 0.14, 1.2, Math.PI - 1.2, 0.08, { c: lc2, m: M.wood, ao: 0.1, rx: 0.1 });
+    [-1, 1].forEach(function (sd) {
+      var a = sd > 0 ? 0.5 : Math.PI - 0.5, ex = Math.cos(a) * (R + 0.05), ey = Math.sin(a) * (R + 0.05);
+      b.push(ex, ey, 0.0, 0); b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationZ(sd * 0.32));
+      b.box(sd * 0.012, -0.36, 0, 0.03, 0.38, 0.5, { c: lc, m: M.wood, bevel: 0.012, ao: 0.15 });
+      b.pop();
+      var sx = ex + sd * 0.16, sy = ey - 0.5 * drop;
+      b.beam([ex + sd * 0.05, ey - 0.08, 0.1], [sx, sy, 0.12], 0.018, { c: lc2, m: M.wood, r2: 0.006 });
+      b.addGeo(new T.TorusGeometry(0.07, 0.013, 4, 10), { x: sx, y: sy - 0.07, z: 0.12, ry: Math.PI / 2, sy: 0.85, c: iron, m: M.metal, ao: 0 });
+      b.box(sx, sy - 0.15, 0.12, 0.05, 0.025, 0.12, { c: iron, m: M.metal, bevel: 0.005 });
+    });
+    b.beam([Math.cos(0.5) * (R + 0.04), Math.sin(0.5) * (R + 0.04) - 0.2, -0.12], [R + 0.16, -0.55 * drop, -0.14], 0.026, { c: lc2, m: M.wood, r2: 0.007 });
+    b.pop();
+  }
+  // a wool blanket folded over a round rail whose top is at y (the rail along local x), centred at x and w long: it
+  // hangs hangF down the +z side and hangB down the -z side, its hem flaring a little and rippling, with two stripes
+  // of o.band across it near the hem on both sides
+  function stablesBlanket(b, x, y, w, hangF, hangB, o) {
+    o = o || {}; var M = KIT.M, R = o.R || 0.08, nA = 3, nH = 6, nu = 8, yc = y + 0.015 - R, ph = x * 4.1;
+    function at(q, sd, t, out) {
+      if (t <= 0) { var th = (1 + t) * Math.PI / 2 * sd; return [x + q * w / 2, yc + (R + out) * Math.cos(th), (R + out) * Math.sin(th)]; }
+      var d = t * (sd > 0 ? hangF : hangB) * (1 + 0.05 * Math.sin(q * 4 + ph + sd));
+      return [x + q * w / 2, yc - d, sd * (R + out + 0.05 * d + 0.05 * d * d + 0.022 * Math.sin(q * 7 + ph + sd * 2) * t)];
+    }
+    // the fold over the rail (t from -1 at the top to 0 where it leaves the rail), then the hang (t from 0 to 1)
+    var g = new T.PlaneGeometry(1, 1, nu, 2 * (nA + nH)), p = g.attributes.position, i;
+    for (i = 0; i < p.count; i++) {
+      var q = (i % (nu + 1)) / nu * 2 - 1, k = Math.floor(i / (nu + 1)) - nA - nH, sd = k < 0 ? -1 : 1, m = Math.abs(k);
+      var v = at(q, sd, m <= nA ? m / nA - 1 : (m - nA) / nH, 0); p.setXYZ(i, v[0], v[1], v[2]);
+    }
+    g.computeVertexNormals();
+    b.addGeo(g, { c: o.c || '#4f5b66', m: M.cloth, bucket: 'cloth', ao: 0.15, jit: 0.02, vary: 0.06 });
+    if (!o.band) return;
+    [-1, 1].forEach(function (sd) {
+      [[0.6, 0.72], [0.8, 0.88]].forEach(function (tb) {
+        var gb = new T.PlaneGeometry(1, 1, nu, 1), pb = gb.attributes.position;
+        for (var j = 0; j < pb.count; j++) { var v = at((j % (nu + 1)) / nu * 2 - 1, sd, j > nu ? tb[1] : tb[0], 0.008); pb.setXYZ(j, v[0], v[1], v[2]); }
+        gb.computeVertexNormals();
+        b.addGeo(gb, { c: o.band, m: M.cloth, bucket: 'cloth', ao: 0, jit: 0.01, vary: 0.02 });
+      });
+    });
+  }
+  // a hitching rail: two posts and a rail along local x, L long, a saddle and a folded blanket over the rail
   function stablesRail(b, x, z, ry, L) {
     var M = KIT.M;
     b.push(x, 0, z, ry);
     [-1, 1].forEach(function (sd) { b.box(sd * L / 2, 0, 0, 0.36, 0.14, 0.36, { c: 'stoneDark', m: M.stone, bevel: 0.03 }); b.post(sd * L / 2, 0.1, 0, 0.09, 1.05, { c: 'beam' }); b.box(sd * L / 2, 1.13, 0, 0.24, 0.06, 0.24, { c: 'beam', m: M.wood, bevel: 0.02 }); });
     b.beam([-L / 2 - 0.12, 1.0, 0], [L / 2 + 0.12, 1.0, 0], 0.06, { c: 'beam', round: true, seg: 7 });
-    // the blanket hangs both sides of the rail, the saddle sits over it
-    b.box(-0.35, 0.58, 0, 0.75, 0.46, 0.2, { c: '#7a3b2c', m: M.cloth, bevel: 0.04, ao: 0.2 });
-    b.box(-0.35, 1.0, 0, 0.78, 0.06, 0.48, { c: '#7a3b2c', m: M.cloth, bevel: 0.02, ao: 0.1 });
-    b.box(-0.35, 1.06, 0, 0.6, 0.12, 0.42, { c: '#3a2c22', m: M.wood, bevel: 0.05, taper: 0.85 });
-    b.box(-0.63, 1.12, 0, 0.1, 0.18, 0.36, { c: '#33271e', m: M.wood, bevel: 0.03, rz: -0.25 });
-    b.box(-0.06, 1.14, 0, 0.1, 0.22, 0.34, { c: '#33271e', m: M.wood, bevel: 0.03, rz: 0.2 });
-    [-1, 1].forEach(function (sd) { b.beam([-0.3, 1.04, sd * 0.24], [-0.3, 0.55, sd * 0.27], 0.012, { c: '#2a221b', m: M.wood, round: true, seg: 4 }); b.box(-0.3, 0.45, sd * 0.27, 0.12, 0.1, 0.03, { c: '#8f8a80', m: M.metal, bevel: 0.005 }); });
+    // the saddle astride the rail on its red pad, and a striped wool blanket folded over the rail beside it
+    stablesSaddle(b, -0.55, 1.075, 0, { R: 0.16, ry: Math.PI / 2, drop: 0.75 });
+    stablesBlanket(b, 0.42, 1.06, 0.66, 0.46, 0.4, { c: '#5d6a73', band: '#d8ccb4' });
     // a halter rope looped round the far post and a bucket under it
     b.addGeo(new T.TorusGeometry(0.14, 0.022, 5, 12), { x: L / 2, y: 0.85, z: 0, rx: Math.PI / 2, c: 'rope', m: M.rope });
     b.beam([L / 2 + 0.05, 0.85, 0.12], [L / 2 + 0.2, 0.25, 0.3], 0.018, { c: 'rope', m: M.rope, round: true, seg: 4 });
@@ -463,8 +520,19 @@
         stablesFork(b, x0 - 2.35, z1 + 2.7, { ry: 0.6, lean: 0.25 });
       });
       b.unit(function () {
-        // the hitching rail out in the yard, a saddle and its blanket over it
+        // the hitching rail out in the yard, a saddle and a blanket over it
         stablesRail(b, 1.6, 5.4, -0.12, 2.6);
+      });
+      b.unit(function () {
+        // a stack of bales on the green past the yard, three by two, two by two and one across the top, loose hay
+        // at its foot and a fork leant on it
+        b.push(6.4, 0, 8.9, 0.35);
+        [-1.08, 0, 1.08].forEach(function (lx) { [-0.32, 0.32].forEach(function (lz) { stablesBale(b, lx + b.j(0.03), 0, lz, { ry: b.j(0.04) }); }); });
+        [-0.54, 0.54].forEach(function (lx) { [-0.32, 0.32].forEach(function (lz) { stablesBale(b, lx + b.j(0.04), 0.5, lz + b.j(0.02), { ry: b.j(0.05) }); }); });
+        stablesBale(b, 0.05, 1.0, 0, { ry: Math.PI / 2 + 0.06 });
+        [[-1.9, 0.5], [1.85, -0.3], [0.4, 0.95], [-0.7, 0.9]].forEach(function (q) { b.ball(q[0], 0, q[1], 0.22 + b.r() * 0.1, { c: b.pick(HAY), m: M.straw, sy: 0.3, detail: 1, ao: 0.3 }); });
+        stablesFork(b, -1.1, 0.95, { ry: 0.1, lean: -0.3 });
+        b.pop();
       });
       b.unit(function () {
         // a barrow of straw and a fork at the last stall
@@ -524,6 +592,11 @@
         b.figure(-5.7, 3.7, { role: 'villager', pose: 'talk', ry: 0.6, cape: '#1f1e1c', c: '#3b3a38' });
         b.figure(-4.4, 4.0, { role: 'villager', pose: 'stand', ry: -2.2, beard: true, c: '#5c5e62' });
         b.figure(lx0 + 1.3, z1 + 0.9, { role: 'villager', pose: 'carry', ry: -0.4, c: '#8a857c' });
+        // a second hand walking an armful of hay in from the stack on the green
+        var sh2 = [5.0, 7.9, Math.atan2(1.6 - 5.0, 5.4 - 7.9)];
+        b.figure(sh2[0], sh2[1], { role: 'villager', pose: 'carry', ry: sh2[2], c: '#7a6a55' });
+        var hp2 = stablesBy(sh2[0], sh2[1], sh2[2], 0.3, 1.6, -0.05);
+        b.ball(hp2[0], hp2[1], hp2[2], 0.3, { c: '#bba574', m: M.straw, sx: 0.75, sy: 0.6, sz: 1.6, ry: sh2[2] + 0.15, detail: 1, ao: 0.25 });
       });
     }
   });
