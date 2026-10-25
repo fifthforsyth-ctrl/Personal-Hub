@@ -76,7 +76,7 @@
     'uniform float uExposure; uniform float uSat; uniform float uContrast;',
     'uniform vec3 uShadowTint; uniform vec3 uHighTint; uniform float uSplit; uniform float uVignette; uniform float uBloom; uniform float uGrain;',
     'uniform vec3 uInk; uniform vec3 uPaperS; uniform vec3 uSplat; uniform vec3 uToday; uniform float uInkA; uniform float uLineW; uniform float uSilK; uniform float uCreaseK; uniform float uHatchA; uniform float uHatchGap; uniform float uHatchW; uniform float uCross;',
-    'uniform float uWob; uniform float uSheet; uniform float uGrid; uniform float uPen; uniform float uDbg; uniform float uLift; uniform sampler2D tGhost; uniform float uGhostOn; uniform vec3 uGraphite; uniform float uTick;',
+    'uniform float uWob; uniform float uSheet; uniform float uGrid; uniform float uPen; uniform float uDbg; uniform float uLift; uniform sampler2D tGhost; uniform float uGhostOn; uniform float uGhostVeil; uniform vec3 uGraphite; uniform float uTick;',
     'varying vec2 vUv;',
     'vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }',
     'vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }',
@@ -140,6 +140,8 @@
     '    gFront = 1.0 - smoothstep(0.0, 0.05, g0 - d0 * 1.001);',
     '    pl = max(smoothstep(0.006, 0.024, gs), gc) * gFront * (0.55 + 0.45 * smoothstep(0.25, 0.65, nB.g)) * uPen;',
     '  }',
+    // the ink of what stands behind the pencil, veiled by it as its hatching is (stage.mFinal's uGhostVeil, 0 by default)
+    '  inkL *= 1.0 - gFront * uGhostVeil;',
     // hatching: one direction, in the shade only, a little wavy and laid in patches; a crossing set only in the deepest dark
     '  vec2 fp = gl_FragCoord.xy + (nB.rg - 0.5) * 2.2;',
     '  float dark = 1.0 - pv, mot = nA.g - 0.5, lum = dot(s, vec3(0.2126, 0.7152, 0.0722));',
@@ -303,7 +305,7 @@
       tDepth: { value: this.rtScene.depthTexture }, uTexel: { value: texel }, uCam: { value: new T.Vector2(0.5, 2000) },
       uInk: { value: srgb('#1f1e1c') }, uPaperS: { value: srgb('#f2f1ee') }, uSplat: { value: new T.Vector3(0.8, 0.84, 0.9) },
       uInkA: { value: 0.9 }, uLineW: { value: 1.7 * Math.max(1, w / 1400) }, uSilK: { value: 0.006 }, uCreaseK: { value: 0.0012 }, uHatchA: { value: 0.42 },
-      uHatchGap: { value: Math.max(5.0, 7.0 * w / 1600) }, uHatchW: { value: Math.max(1.0, 1.35 * w / 1600) }, uCross: { value: 1 }, uWob: { value: 1.3 }, uSheet: { value: 0.72 }, uGrid: { value: Math.round(48 * w / 1600) }, uPen: { value: opts.pen === undefined ? 1 : opts.pen }, uDbg: { value: opts.dbg || 0 }, uLift: { value: 0.18 }, tGhost: { value: this.rtGhost.depthTexture }, uGhostOn: { value: 0 }, uGraphite: { value: srgb('#5f5d59') }, uToday: { value: srgb('#f26a1b') }, uTick: { value: Math.round(20 * Math.max(0.6, w / 1600)) }
+      uHatchGap: { value: Math.max(5.0, 7.0 * w / 1600) }, uHatchW: { value: Math.max(1.0, 1.35 * w / 1600) }, uCross: { value: 1 }, uWob: { value: 1.3 }, uSheet: { value: 0.72 }, uGrid: { value: Math.round(48 * w / 1600) }, uPen: { value: opts.pen === undefined ? 1 : opts.pen }, uDbg: { value: opts.dbg || 0 }, uLift: { value: 0.18 }, tGhost: { value: this.rtGhost.depthTexture }, uGhostOn: { value: 0 }, uGhostVeil: { value: 0 }, uGraphite: { value: srgb('#5f5d59') }, uToday: { value: srgb('#f26a1b') }, uTick: { value: Math.round(20 * Math.max(0.6, w / 1600)) }
     });
     this.look('day');
   }

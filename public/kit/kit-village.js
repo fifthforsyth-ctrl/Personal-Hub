@@ -57,7 +57,22 @@
     var NS = o.ns || Math.max(192, Math.min(360, Math.round(R * 3.2))), NR = o.nr || Math.max(26, Math.round(R / 1.15));
     var flats = (o.flats || []).map(prep), paths = o.paths || [], plaza = o.plaza ? prep(Object.assign({ ground: 'paving' }, o.plaza)) : null;
     if (plaza) flats.push(plaza);
-    var ponds = (o.nature || []).filter(function (n) { return n.kind === 'pond'; }).map(function (n) { return { x: n.x + (r() - 0.5) * n.s * 0.15, z: n.z + (r() - 0.5) * n.s * 0.15, r: n.s * (0.22 + r() * 0.05) }; });
+    var ponds = (o.nature || []).filter(function (n) { return n.kind === 'pond'; }).map(function (n) { return { x: n.x + (r() - 0.5) * n.s * 0.15, z: n.z + (r() - 0.5) * n.s * 0.15, r: n.s * (0.22 + r() * 0.05), s: n.s }; });
+    // A pond stays on the turf: its mud and reeds reach about 1.32 times its radius, so one whose reeds would reach the
+    // lip is drawn in toward the middle (a little: it keeps to its own tile), then made smaller; one that would run onto a
+    // plot or the plaza is made smaller too, and one left too small to read is dropped.
+    var PONDR = 1.32;
+    ponds = ponds.filter(function (p) {
+      var lim = R * 0.84, d = Math.hypot(p.x, p.z), over = d + p.r * PONDR - lim;
+      if (over > 0 && d > 0) {
+        var pull = Math.min(over, p.s * 0.3), k = (d - pull) / d;
+        p.x *= k; p.z *= k; d -= pull;
+        if (d + p.r * PONDR > lim) p.r = (lim - d) / PONDR;
+      }
+      var room = inFlat(p.x, p.z, 0) - 1;
+      if (p.r * PONDR > room) p.r = room / PONDR;
+      return p.r >= 3.5;
+    });
     function edgeR(a) { return R * (1 + 0.04 * noise3(Math.cos(a) * 1.6 + sd, Math.sin(a) * 1.6, 0.5) + 0.02 * noise3(Math.cos(a) * 4 + sd, Math.sin(a) * 4, 2.5)); }
     function inFlat(x, z, m) { var best = 1e9; for (var i = 0; i < flats.length; i++) best = Math.min(best, rectD(flats[i], x, z, m)); return best; }
     function pathD(x, z) { var best = 1e9; for (var p = 0; p < paths.length; p++) for (var i = 0; i < paths[p].length - 1; i++) best = Math.min(best, segD(x, z, paths[p][i], paths[p][i + 1])); return best; }
@@ -129,6 +144,8 @@
         b.addGeo(g, { x: p.x, y: -0.2, z: p.z, c: '#8aa3a6', m: M.water, ao: 0, jit: 0, vary: 0.03 });
         for (var e = 0; e < 26; e++) {
           var a4 = r() * Math.PI * 2, d4 = p.r * (0.95 + r() * 0.3), x4 = p.x + Math.cos(a4) * d4, z4 = p.z + Math.sin(a4) * d4;
+          // never out over the lip, as the trees keep off it
+          if (Math.hypot(x4, z4) > R * 0.9) continue;
           if (r() < 0.75) b.grass(x4, H(x4, z4), z4, 0.6 + r() * 0.5, { c: b.pick(['#7d8a5e', '#6e7b52', '#8d9668']) });
           else b.rock(x4, H(x4, z4) - 0.08, z4, 0.25 + r() * 0.3);
         }
