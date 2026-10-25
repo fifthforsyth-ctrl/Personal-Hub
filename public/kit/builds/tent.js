@@ -1,7 +1,7 @@
 // Command tent: a long two-pole marquee striped ink and bone on a plank deck raised on stone pads, its front flap
 // raised on carved posts over the map table, dragon heads carved on the pole tops, a small round annex for the
-// chieftain, war banners with the dragon crest, a war horn, a rail of round shields, a cook fire, a messenger perch
-// and, out in the sun, a sand table of the coast with carved dragons and the enemy fleet on it.
+// chieftain, war banners with the dragon crest, a war horn, a rail of round shields, a cook fire, a signal post
+// and, out in the sun, a sand table of the coast with our ships and the enemy fleet on it.
 // Built pads first, the deck plank by plank, the poles, the walls and roof gore by gore, the porch, the annex, then
 // the banners, the tables, the stores, and last the people.
 (function () {
@@ -114,16 +114,12 @@
     b.pop();
   }
 
-  // a carved dragon token for the sand table: a body in profile, wings raised in a V, on a round foot; facing +x
-  function tentToken(b, x, y, z, ry, s, c) {
+  // a carved ship token for the sand table: a hull along x, a mast and a square sail of colour c
+  function tentShip(b, x, y, z, ry, s, c) {
     var M = KIT.M;
     b.push(x, y, z, ry);
-    b.cyl(0, 0, 0, 0.07 * s, 0.03 * s, { c: 'woodDark', m: M.wood, seg: 10 });
-    var body = [[-0.2, 0.07], [-0.1, 0.085], [0.0, 0.08], [0.07, 0.1], [0.11, 0.15], [0.16, 0.165], [0.19, 0.15], [0.12, 0.12], [0.08, 0.065], [0.03, 0.04], [0.02, 0.025], [-0.02, 0.025], [-0.04, 0.05], [-0.12, 0.06]];
-    b.extrude(0, 0.005 * s, 0, body.map(function (p) { return [p[0] * s, p[1] * s]; }), 0.045 * s, { c: c, m: M.paint, ao: 0.1, bevel: 0.004 * s });
-    [1, -1].forEach(function (sd) {
-      b.extrude(0, 0.08 * s, sd * 0.012 * s, [[-0.07 * s, 0], [0.06 * s, 0], [-0.04 * s, 0.17 * s], [-0.07 * s, 0.1 * s]], 0.008 * s, { c: c, m: M.paint, ao: 0, rx: sd * 1.0, bevel: 0.002 });
-    });
+    b.lathe(0, 0, 0, [[0.01, 0], [0.05 * s, 0.02 * s], [0.06 * s, 0.05 * s], [0.01, 0.05 * s]], { c: '#3a2f27', m: M.wood, seg: 8, sx: 2.3 });
+    b.cyl(0, 0.04 * s, 0, 0.006 * s, 0.18 * s, { c: 'woodDark', m: M.wood, seg: 4 }); b.box(0, 0.1 * s, 0, 0.012 * s, 0.09 * s, 0.1 * s, { c: c, m: M.cloth, bevel: 0 });
     b.pop();
   }
 
@@ -159,12 +155,11 @@
 
   KIT.defineBuild('tent', {
     name: 'Command tent', size: 'middle', need: 28,
-    line: 'A striped black and bone command pavilion with a map table under its raised flap, war banners, and a sand table of carved dragons.',
+    line: 'A striped black and bone command pavilion with a map table under its raised flap, war banners, guards at the door, a signal post and a sand table of the coast with the fleets on it.',
     r: 11.8, flat: [16.4, 11.2], ground: 'grass', path: [[0.9, 12.6], [0.3, 5.5]],
     frameY: 2.5, frameR: 10.4, glowAt: [1.9, 7.9, -1.3],
     trees: [{ x: -4.6, z: -8.6, kind: 'pine', h: 8.4 }, { x: 9.7, z: -3.0, kind: 'round', h: 5.6 }, { x: -9.9, z: 3.0, kind: 'olive', h: 4.4 }, { x: 10.1, z: 1.4, kind: 'cypress', h: 7.4 }],
     bushes: [{ x: 8.0, z: 5.6, r: 0.85, flowers: '#f3f1ec' }, { x: -8.1, z: 7.1, r: 0.8 }, { x: -9.4, z: -2.6, r: 0.7 }],
-    perches: [{ x: 7.0, y: 3.5, z: -2.6, ry: 0 }, { x: -6.3, y: 0, z: 7.3, ry: 0.7 }, { x: 8.0, y: 0, z: 3.2, ry: -1.9 }],
     build: function (b) {
       var M = KIT.M, gh = function (x, z) { return b.ground ? b.ground.height(x, z) : 0; };
       var DY = 0.42, TZ = -1.3, LS = 3.8, RR = 3.0, WH = 2.6, RH = 3.4;
@@ -392,7 +387,7 @@
         b.cyl(0.95, 0.04, -0.3, 0.05, 0.85, { c: '#e6dcc4', m: M.paint, seg: 8, rz: Math.PI / 2, ry: 0.4 });
         b.cyl(0.92, 0.1, -0.15, 0.04, 0.7, { c: '#ddd2b8', m: M.paint, seg: 8, rz: Math.PI / 2, ry: 0.2 });
         b.beam([0.05, 0.015, 0.0], [0.2, 0.015, 0.16], 0.008, { c: 'iron', m: M.metal }); b.beam([0.05, 0.015, 0.0], [0.24, 0.015, 0.05], 0.008, { c: 'iron', m: M.metal });
-        tentToken(b, -0.2, 0.0, -0.05, 2.6, 0.9, INK);
+        tentShip(b, -0.2, 0.012, -0.05, 2.6, 1.2, INK);
         b.pop();
       });
 
@@ -432,14 +427,9 @@
         // pins: bone for the watch, one ember where the enemy will land
         [[0.45, -0.1, 'bone'], [0.95, 0.1, 'bone'], [-0.25, 0.32, 'ink'], [-0.3, -0.25, 'ember']].forEach(function (p) { b.cyl(p[0], 0, p[1], 0.008, 0.22, { c: 'iron', m: M.metal, seg: 4 }); b.extrude(p[0] + 0.05, 0.16, p[1], [[-0.05, 0], [0.06, 0.03], [-0.05, 0.06]], 0.005, { c: p[2], m: M.cloth, ao: 0 }); });
         // the enemy fleet on the water
-        [[-1.0, -0.5, 0.3], [-0.85, -0.05, 0.2], [-1.05, 0.35, 0.5], [-0.75, 0.6, 0.1]].forEach(function (s) {
-          b.push(s[0], 0.01, s[1], s[2]);
-          b.lathe(0, 0, 0, [[0.01, 0], [0.05, 0.02], [0.06, 0.05], [0.01, 0.05]], { c: '#3a2f27', m: M.wood, seg: 8, sx: 2.3 });
-          b.cyl(0, 0.04, 0, 0.006, 0.18, { c: 'woodDark', m: M.wood, seg: 4 }); b.box(0, 0.1, 0, 0.012, 0.09, 0.1, { c: INK, m: M.cloth, bevel: 0 });
-          b.pop();
-        });
-        // carved dragons, ours in bone and the scouts in ink, flying out to meet them
-        [[0.3, 0.05, 2.9, BONE], [0.55, -0.3, 3.3, BONE], [0.0, 0.3, 2.6, BONE], [-0.2, -0.05, 3.1, INK], [0.85, 0.55, 3.6, INK]].forEach(function (t) { tentToken(b, t[0], 0.0, t[1], t[2], 1.25, t[3]); });
+        [[-1.0, -0.5, 0.3], [-0.85, -0.05, 0.2], [-1.05, 0.35, 0.5], [-0.75, 0.6, 0.1]].forEach(function (s) { tentShip(b, s[0], 0.01, s[1], s[2], 1, INK); });
+        // our own ships in bone, rowing out from under the coast to meet them
+        [[-0.62, -0.55, Math.PI + 0.25], [-0.7, 0.12, Math.PI - 0.15], [-0.6, -0.68, Math.PI + 0.4]].forEach(function (s) { tentShip(b, s[0], 0.01, s[1], s[2], 1.1, BONE); });
         // a pointer laid across the corner
         b.beam([0.9, 0.08, 0.95], [1.5, 0.08, 0.6], 0.012, { c: 'woodLight', round: true });
         b.pop();
@@ -504,8 +494,9 @@
         [[0.45, 0.2, 0.5], [0.35, -0.35, 1.9]].forEach(function (c) { b.log(kx + c[0], gh(kx + c[0], kz + c[1]) + 0.08, kz + c[1], 0.08, 0.38, { rz: Math.PI / 2, ry: c[2], c: 'woodLight' }); });
       });
 
-      b.part('Messenger perch');
+      b.part('Signal post');
       b.unit(function () {
+        // a tall post with a rope-bound crossbar, a ladder up to it and a pennant to signal the fleet
         var px = 7.0, pz = -2.6, y0 = gh(px, pz);
         b.log(px, y0 - 0.1, pz, 0.17, 3.55, { c: 'woodDark', r2: 0.14 });
         b.beam([px - 0.85, y0 + 3.4, pz], [px + 0.85, y0 + 3.4, pz], 0.1, { c: 'wood', round: true });
@@ -513,6 +504,7 @@
         [-1, 1].forEach(function (s) { b.beam([px + s * 0.11, y0 + 2.4, pz], [px + s * 0.66, y0 + 3.32, pz], 0.05, { c: 'woodDark' }); });
         for (var q = 0; q < 4; q++) { var a = q * 1.57 + 0.4; b.rock(px + Math.cos(a) * 0.45, y0, pz + Math.sin(a) * 0.45, 0.22); }
         b.ladder(px, y0, pz + 0.3, 3.0, { w: 0.42, ry: 0, lean: 0.3 });
+        b.flag(px, y0 + 3.42, pz, 1.1, 0.9, 0.34, { c: 'ember', pennant: true, pr: 0.035, ry: -0.4 });
         b.bucket(px + 0.8, y0, pz + 0.8);
       });
 

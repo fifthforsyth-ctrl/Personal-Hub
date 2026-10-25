@@ -1,5 +1,5 @@
-// Watchtower: a stone base, a tapering log tower clad and braced stage by stage, a wide top deck with a landing
-// tongue for a dragon, a watch cabin under a shingled gable with carved dragon-head barge boards, and the great horn.
+// Watchtower: a stone base, a tapering log tower clad and braced stage by stage, a wide top deck with a tongue
+// jutting out at the front, a watch cabin under a shingled gable with carved dragon-head barge boards, and the great horn.
 // Built footings first, the stone course by course, the frame stage by stage, the deck plank by plank, the roof row
 // by row, then the horn, the ladders, the shields and stores, and last the people.
 (function () {
@@ -15,7 +15,7 @@
   // a carpenter's mallet raised over a plank on the trestle in front
   KIT.people.poses.watchtowerMallet = function () { return { feet: [V(-0.2, 0.09, 0.1), V(0.16, 0.09, -0.12)], hands: [V(0.2, 1.62, 0.22), V(-0.2, 0.86, 0.42)], lean: 0.2, twist: 0.1, side: 0, hip: 0, drop: 0.05, head: [0, 0.4], pole: [V(1, 0.2, -0.4), V(-0.6, -0.6, 0)] }; };
 
-  // a rack of fish hung to dry for the dragons: two A-frames and a ridge pole, fish hung in pairs
+  // a rack of fish hung to dry for the watch: two A-frames and a ridge pole, fish hung in pairs
   function fishRack(b, x, z, ry, L) {
     var y0 = (b.ground ? b.ground.height(x, z) : 0) - 0.06, hp = 1.72;
     b.push(x, y0, z, ry);
@@ -103,12 +103,11 @@
 
   KIT.defineBuild('watchtower', {
     name: 'Watchtower', size: 'small', need: 18,
-    line: 'A log watchtower on a stone base, with ladders, a shingled watch cabin, the great horn, a landing deck for a dragon, and fish and sheep kept below for the dragons.',
+    line: 'A log watchtower on a stone base with ladders, a shingled watch cabin, the great horn, a wide deck jutting out at the top, fish drying on a rack and a sheep fold at its foot.',
     r: 9.5, flat: [7.4, 7.4], ground: 'grass', path: [[3.2, 9.8], [0.5, 2.6]],
     frameY: 4.4, frameR: 11.2, glowAt: [0.6, 12.6, 0.8],
     trees: [{ x: -6.4, z: -5.2, kind: 'pine', h: 6.8 }, { x: 6.9, z: -3.6, kind: 'pine', h: 6.2 }, { x: -7.3, z: -0.6, kind: 'birch', h: 5.2 }],
     bushes: [{ x: 6.4, z: 3.4, r: 0.8, flowers: '#f3f1ec' }, { x: -5.0, z: 5.8, r: 0.75 }, { x: 4.4, z: -6.0, r: 0.7 }],
-    perches: [{ x: 0, y: 8.6, z: 3.9, ry: 0 }, { x: -0.5, y: 12.4, z: 0, ry: Math.PI / 2 }],
     build: function (b) {
       var W = 4.0, Tk = 0.55, base = 0.45, H1 = 2.4, top1 = base + H1, fl = top1 + 0.12;
       var x0 = -W / 2, x1 = W / 2, z0 = -W / 2, z1 = W / 2;
@@ -215,7 +214,7 @@
         });
       });
 
-      b.part('Landing tongue');
+      b.part('Deck tongue');
       var tz0 = E, tz1 = 5.1, tw = 1.25;
       b.unit(function () {
         [-1, 1].forEach(function (s) {
@@ -248,7 +247,7 @@
         [1.6, 0.7].forEach(function (z, i) { shield(b, -E - 0.04, yD + 0.78, z, -Math.PI / 2, cs[(i + 3) % 5], null); });
       });
       b.unit(function () {
-        // the landing's end posts, carved into dragon heads that look out over the drop
+        // the tongue's end posts, carved into dragon heads that look out over the drop
         [-1, 1].forEach(function (s) {
           b.post(s * (tw - 0.1), yD - 0.5, tz1 - 0.1, 0.1, 1.35, { c: 'woodDark' });
           dragonHead(b, s * (tw - 0.1), yD + 0.75, tz1 - 0.1, 0.62, -Math.PI / 2 + s * 0.25, {});
@@ -318,7 +317,7 @@
 
       b.part('Banner and shields');
       b.unit(function () {
-        // hung from the landing's end beam, in the low sun
+        // hung from the tongue's end beam, in the low sun
         [-0.45, 0.45].forEach(function (x) { b.beam([x, yD - 0.3, tz1 + 0.02], [x, yD - 0.4, tz1 + 0.1], 0.02, { c: 'iron', m: M.metal }); });
         b.banner(0, yD - 0.4, tz1 + 0.1, 1.15, 2.7, { c: 'ink', emblem: 'none', tail: 'swallow', band: 'ember', bandAt: 0.74, bandH: 0.05, trim: 'iron' });
         headEmblem(b, 0, yD - 0.4 - 2.7 * 0.44, tz1 + 0.1, 0.95, '#f1eee8');
@@ -333,7 +332,7 @@
       b.part('Stores at the foot');
       b.unit(function () { b.barrel(2.75, 0, 2.2, {}); b.barrel(3.35, 0, 1.6, { h: 0.82 }); b.barrel(3.0, 0, 0.7, { lie: true, ry: 0.2 }); b.crate(2.6, 0, 3.1, 0.66, { ry: 0.3 }); });
       b.unit(function () {
-        // a basket of fish for the dragons
+        // a basket of fish for the watch
         var fx = 1.75, fz = 3.05;
         b.lathe(fx, 0, fz, [[0.01, 0], [0.32, 0], [0.42, 0.3], [0.44, 0.42], [0.4, 0.42], [0.36, 0.08], [0.01, 0.06]], { c: 'woodLight', m: M.straw, seg: 14, flat: true });
         for (var i = 0; i < 9; i++) { var a = i * 2.4, rr = 0.06 + (i % 3) * 0.09; b.ball(fx + Math.cos(a) * rr, 0.42 + (i % 2) * 0.05, fz + Math.sin(a) * rr, 0.07, { c: b.pick(['#9aa3a6', '#b8bfc0', '#7f898d']), m: M.metal, sx: 2.6, sz: 0.8, ry: a, detail: 1 }); }
@@ -344,7 +343,7 @@
         b.woodpile(3.4, -1.3, { n: 4, len: 1.5, ry: 0.15 });
       });
       b.unit(function () {
-        // a dragon saddle on a trestle, ready for the rider
+        // a saddle on a trestle, ready for the messenger
         var sx = -3.4, sz = 2.6;
         b.push(sx, 0, sz, 0.5);
         [-1, 1].forEach(function (s) { b.beam([s * 0.5, 0, -0.3], [s * 0.5, 0.75, 0], 0.04, { c: 'wood' }); b.beam([s * 0.5, 0, 0.3], [s * 0.5, 0.75, 0], 0.04, { c: 'wood' }); });
@@ -371,7 +370,7 @@
         b.cart(-2.3, 5.7, { ry: 1.0, load: function () { for (var r = 0; r < 3; r++) for (var i = 0; i < 5 - r; i++) b.log((i - (4 - r) / 2) * 0.25, 0.84 + r * 0.2, -0.92 + b.j(0.08), 0.115, 1.8, { c: b.pick(PAL.wood), rx: Math.PI / 2 }); } });
       });
       b.unit(function () {
-        // the beacon: an iron fire basket stacked with split logs on a post, ready to be lit when riders are sighted
+        // the beacon: an iron fire basket stacked with split logs on a post, ready to be lit when raiders are sighted
         var gx = 6.0, gz = 0.3;
         b.stoneRing(gx, gz, 0.55, 0, 0.6, 0.35, { pal: 'stone', course: 0.3, len: 0.45 });
         b.log(gx, 0.6, gz, 0.13, 2.1, { c: 'woodDark' });
@@ -394,7 +393,7 @@
         b.bucket(gx + 1.15, gy, gz - 0.75); b.ropeCoil(-4.4, gy, -0.1, 0.22);
       });
       b.unit(function () {
-        // fish hung to dry for the dragons, in the low sun at the front right
+        // fish hung to dry, in the low sun at the front right
         fishRack(b, 4.55, 4.4, -0.62, 1.9);
         var bx = 3.6, bz = 5.4, by = (b.ground ? b.ground.height(bx, bz) : 0) - 0.04;
         b.lathe(bx, by, bz, [[0.01, 0], [0.32, 0], [0.42, 0.3], [0.44, 0.42], [0.4, 0.42], [0.36, 0.08], [0.01, 0.06]], { c: 'woodLight', m: M.straw, seg: 14, flat: true });
@@ -404,7 +403,7 @@
       b.part('Sheep fold');
       var fx = -5.4, fz = 3.6, fr = 1.2;
       b.unit(function () {
-        // a ring of stakes woven with withies, a gap to the tower; sheep kept for the dragons
+        // a ring of stakes woven with withies, a gap to the tower; sheep kept for the watch's table
         var np = 14;
         for (var i = 0; i < np; i++) {
           var a = i / np * Math.PI * 2, a2 = (i + 1) / np * Math.PI * 2, gap = function (q) { return Math.abs(q - 5.95) < 0.25; };

@@ -321,7 +321,6 @@
     frameY: 3.4, frameR: 12, glowAt: [0.75, 9.6, 3.3],
     trees: [{ x: -10.6, z: -5.6, kind: 'pine', h: 7.8 }, { x: -7.6, z: -9.0, kind: 'pine', h: 6.2 }, { x: 10.2, z: -5.6, kind: 'birch', h: 6.0 }, { x: 12.2, z: 2.0, kind: 'round', h: 4.6 }],
     bushes: [{ x: 9.8, z: 6.6, r: 0.9, flowers: '#f3f1ec' }, { x: -8.8, z: 6.4, r: 0.8 }, { x: 11.8, z: -1.4, r: 0.7 }],
-    perches: [{ x: -3.85, y: 8.85, z: -3.2, ry: -Math.PI / 2 }, { x: 3.75, y: 8.85, z: -3.2, ry: Math.PI / 2 }, { x: 0.75, y: 8.1, z: 1.6, ry: 0 }, { x: -6.55, y: 6.7, z: -5.6, ry: 0.4 }],
     build: function (b) {
       var M = KIT.M;
       // the hall: x -4.8..4.8, z -6.4..-0.8, ridge along x; a gabled wing comes forward over the door, x -1.6..2.8,

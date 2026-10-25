@@ -1,24 +1,19 @@
-// Saddle and fin workshop: an open timber workshop on a plank floor under a dark shingle roof, a carved cross gable over
-// the big work table with a fin painted on its shield, a stone back wall hung with spare tail fins and harness, a forge
-// wing with a stone gable and a tall chimney at one end, saddles on sawhorse stands, hides laced on frames in the yard and rope
-// coils everywhere; in the yard a saddled night dragon stands to be fitted while its rider waits at its head.
-// Built footings first, the floor plank by plank, the walls course by course, the frame post by post, the roofs row by
-// row, the chimney course by course, then the fittings, last the dragon and the people.
+// Saddlery: an open timber workshop on a plank floor under a dark shingle roof, a carved cross gable over the big work
+// table with a horseshoe painted on its shield, a stone back wall hung with saddle blankets and harness, a forge wing
+// with a stone gable and a tall chimney at one end, saddles on sawhorse stands, hides laced on frames in the yard and
+// drying over a tall rail, and rope coils everywhere; in the yard the saddler works on a saddle on its stand while a
+// customer waits. Built footings first, the floor plank by plank, the walls course by course, the frame post by post,
+// the roofs row by row, the chimney course by course, then the fittings, last the people.
 (function () {
   var T = THREE;
   function V(x, y, z) { return new T.Vector3(x, y, z); }
 
-  // poses: bent over a job at a bench, and reaching up to a saddle on a dragon's back
+  // poses: bent over a job at a bench, and reaching up to throw a hide over a rail
   if (KIT.people && KIT.people.poses) {
     KIT.people.poses.saddleryWork = function (r) { return { feet: [V(-0.15, 0.09, 0.06), V(0.15, 0.09, -0.04)], hands: [V(-0.17, 0.98, 0.44), V(0.19, 0.96, 0.4)], lean: 0.34, twist: r(0.08), side: 0, hip: 0, drop: 0.03, head: [r(0.15), 0.45], pole: [V(-0.7, -0.5, -0.3), V(0.7, -0.5, -0.3)] }; };
     KIT.people.poses.saddleryReach = function (r) { return { feet: [V(-0.14, 0.09, 0.06), V(0.15, 0.09, -0.06)], hands: [V(-0.2, 1.3, 0.46), V(0.22, 1.42, 0.4)], lean: 0.06, twist: 0.1, side: 0.02, hip: 0, drop: 0.0, head: [0.15, -0.12], pole: [V(-0.7, -0.5, -0.3), V(0.7, -0.5, -0.3)] }; };
   }
-  // a point in the build's frame turned into a dragon's own frame (for o.look)
-  function saddleryLook(dx, dy, dz, ry, s, wx, wy, wz) {
-    var x = wx - dx, y = wy - dy, z = wz - dz, c = Math.cos(-ry), sn = Math.sin(-ry);
-    return [(x * c + z * sn) / s, y / s, (-x * sn + z * c) / s];
-  }
-  // a point in a dragon's (or a figure's) own frame at (x, z) turned ry, back in the build's frame
+  // a point in a figure's (or a stand's) own frame at (x, z) turned ry, back in the build's frame
   function saddleryBy(x, z, ry, lx, lz) { return [x + lx * Math.cos(ry) + lz * Math.sin(ry), z - lx * Math.sin(ry) + lz * Math.cos(ry)]; }
 
   // a carved dragon-head finial, the profile in the local XY plane, snout toward local +x, neck foot at (x, y, z)
@@ -49,7 +44,7 @@
     g.computeVertexNormals();
     return b.addGeo(g, Object.assign({ m: KIT.M.wood }, o, { x: x, y: y, z: z }));
   }
-  // a dragon saddle sitting on a rounded back whose top is at (x, y, z), radius R, length along local z (front +z):
+  // a riding saddle sitting on a rounded back whose top is at (x, y, z), radius R, length along local z (front +z):
   // a bone-white blanket, the leather seat with a raised cantle and a pommel with iron grab handles, flaps down each
   // side, stirrups on straps and a girth hanging free
   function saddlerySaddle(b, x, y, z, o) {
@@ -89,21 +84,6 @@
     });
     b.beam([0, 0.3, -0.44], [0, 0.3, 0.44], 0.022, { c: 'wood' });
     if (o.saddle !== false) saddlerySaddle(b, 0, Hs, 0, { R: 0.2, c: o.c, c2: o.c2, blanket: o.blanket, drop: 0.9 });
-    b.pop();
-  }
-  // a made tail fin: cloth on an iron frame, in the local XY plane, root at the origin, along +x
-  function saddleryFin(b, x, y, z, o) {
-    o = o || {}; var M = KIT.M, s = o.s || 1, len = 0.9 * s, wid = 0.55 * s;
-    var pts = [[0, 0], [len * 0.25, wid * 0.55], [len * 0.62, wid * 0.92], [len * 0.92, wid * 0.7], [len, wid * 0.25], [len * 0.82, -wid * 0.08], [len * 0.55, -wid * 0.04], [len * 0.3, -wid * 0.14], [len * 0.08, -wid * 0.05]];
-    b.push(x, y, z, o.ry || 0);
-    b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationFromEuler(new T.Euler(o.rx || 0, 0, o.rz || 0)));
-    b.extrude(0, 0, 0, pts, 0.022, { c: o.c || 'ember', m: o.cm === undefined ? M.cloth : o.cm, ao: 0.05, jit: 0.01 });
-    var ic = '#2b2b2c';
-    [[0, 0.02], [len * 0.25, wid * 0.5], [len * 0.62, wid * 0.86], [len * 0.92, wid * 0.66], [len * 0.98, wid * 0.25]].reduce(function (a, p) { b.beam([a[0], a[1], 0.014], [p[0], p[1], 0.014], 0.011 * Math.max(1, s), { c: ic, m: M.metal, round: true, seg: 5 }); return p; });
-    b.beam([0, 0.0, 0.014], [len * 0.92, wid * 0.18, 0.014], 0.013 * Math.max(1, s), { c: ic, m: M.metal, round: true, seg: 5 });
-    b.beam([len * 0.5, 0.0, 0.014], [len * 0.5, wid * 0.75, 0.014], 0.01 * Math.max(1, s), { c: ic, m: M.metal, round: true, seg: 5 });
-    b.box(0.02, -0.05, 0, 0.12, 0.1, 0.06, { c: ic, m: M.metal, bevel: 0.01 });
-    if (o.mark) b.extrude(len * 0.55, wid * 0.32, 0.02, [[-0.05, -0.05], [0.05, -0.05], [0.06, 0.04], [0, 0.09], [-0.06, 0.04]].map(function (p) { return [p[0] * s, p[1] * s]; }), 0.006, { c: 'bone', m: M.paint, ao: 0 });
     b.pop();
   }
   // a hide stretched and laced on a standing timber frame, facing +z
@@ -204,13 +184,12 @@
   }
 
   KIT.defineBuild('saddlery', {
-    name: 'Saddle and fin workshop', size: 'middle', need: 55,
-    line: 'An open timber workshop with a forge corner, where a saddler fits a saddle to the night dragon while a dawn dragon waits on the grass.',
+    name: 'Saddlery', size: 'middle', need: 55,
+    line: 'An open timber workshop with a forge corner and a tall chimney, saddles on their stands, hides laced on frames and drying over a rail, and the saddler at work while a customer waits.',
     r: 14, flat: [19, 13], ground: 'paving', path: [[0.8, 14.5], [0.6, 6.2]],
     frameY: 2.8, frameR: 12, glowAt: [-7.42, 7.0, -1.85],
     trees: [{ x: -10.8, z: -6.2, kind: 'pine', h: 8.0 }, { x: 11.4, z: -5.0, kind: 'pine', h: 7.2 }, { x: -11.9, z: 2.6, kind: 'round', h: 5.0 }],
     bushes: [{ x: 10.4, z: 5.4, r: 0.85, flowers: '#f3f1ec' }, { x: -8.8, z: 6.4, r: 0.8 }, { x: 11.4, z: 1.2, r: 0.7 }],
-    perches: [{ x: -2.3, y: 6.15, z: -1.8, ry: -Math.PI / 2 }, { x: 9.4, y: 2.5, z: 3.0, ry: -1.4 }],
     build: function (b) {
       var M = KIT.M;
       // the hall: x -4.4..5.2 between the back wall (z -4.55) and the front posts (z 0.95), open to the front and the
@@ -412,14 +391,14 @@
       b.part('Cross gable');
       var gz = pzF + 0.44;
       b.unit(function () {
-        // a board gable over the work table, jettied out on carved brackets, its shield painted with a fin
+        // a board gable over the work table, jettied out on carved brackets, its shield painted with a horseshoe
         b.box(gx, eave - 0.28, gz - 0.02, gW * 2 + 0.5, 0.28, 0.26, { c: 'beam', m: M.wood, bevel: 0.03 });
         [-1, 1].forEach(function (e) { b.beam([gx + e * gW, eave - 1.05, pzF + 0.1], [gx + e * gW, eave - 0.3, gz - 0.06], 0.07, { c: 'beam', r2: 0.09 }); b.box(gx + e * gW, eave - 0.3, (pzF + gz) / 2, 0.22, 0.22, gz - pzF + 0.2, { c: 'beam', m: M.wood, bevel: 0.03 }); });
         b.extrude(gx, eave, gz, [[-(gW + 0.1), 0], [gW + 0.1, 0], [0, gRise + 0.1]], 0.12, { c: '#7d6a57', m: M.wood, ao: 0.2 });
         for (var k = -5; k <= 5; k++) { var ox = k * 0.3, hh = gRise + 0.05 - Math.abs(ox) - 0.06; if (hh > 0.12) b.box(gx + ox, eave, gz + 0.08, 0.05, hh, 0.05, { c: 'beam', m: M.wood, bevel: 0.01 }); }
         b.box(gx, eave + 0.02, gz + 0.1, gW * 2 + 0.1, 0.12, 0.08, { c: 'beam', m: M.wood, bevel: 0.02 });
         b.shield(gx, eave + 0.74, gz + 0.12, { kind: 'round', c: 'ink', s: 0.95 });
-        saddleryFin(b, gx - 0.2, eave + 0.62, gz + 0.19, { s: 0.42, c: '#f1eee8', cm: M.paint, rz: 0.3 });
+        b.addGeo(new T.TorusGeometry(0.21, 0.04, 4, 16, Math.PI * 1.5), { x: gx, y: eave + 0.74, z: gz + 0.185, rz: -Math.PI / 4, sz: 0.4, c: '#f1eee8', m: M.paint, ao: 0 });
       });
 
       b.part('Shingle roof');
@@ -472,8 +451,12 @@
         b.pop();
       });
       b.unit(function () {
-        // on the table: the new fin being stitched, a saddle half made on its form, cut leather, tools
-        saddleryFin(b, tx + 0.3, ty + 0.012, tz + 0.3, { rx: -Math.PI / 2, ry: 0.25, s: 1.1, mark: true });
+        // on the table: a saddle flap being stitched, a saddle half made on its form, cut leather, tools
+        b.push(tx + 0.3, ty + 0.012, tz + 0.3, 0.25);
+        b.extrude(0, 0, 0, [[-0.42, -0.26], [0.38, -0.3], [0.47, 0.0], [0.36, 0.28], [-0.4, 0.3], [-0.49, 0.0]], 0.02, { rx: -Math.PI / 2, c: '#8a6e52', m: M.cloth, ao: 0.05 });
+        for (var st = 0; st < 10; st++) { var sx = -0.36 + st * 0.08; b.ball(sx, 0.025, 0.22, 0.012, { c: '#d8ccb4', m: M.rope, detail: 0, ao: 0 }); }
+        b.beam([0.42, 0.03, 0.2], [0.62, 0.03, 0.12], 0.006, { c: 'steel', m: M.metal, round: true, seg: 3 });
+        b.pop();
         b.box(tx - 1.05, ty, tz - 0.1, 0.36, 0.24, 0.62, { c: 'woodLight', m: M.wood, bevel: 0.03, ry: 0.4 });
         saddlerySaddle(b, tx - 1.05, ty + 0.27, tz - 0.1, { R: 0.18, ry: 0.4, drop: 0.35, blanket: false, girth: false, c: '#5a4434', c2: '#6b5440' });
         [[tx + 1.2, tz - 0.3, 0.3, '#6b5440'], [tx + 1.05, tz + 0.35, -0.5, '#3b2e25'], [tx - 0.25, tz - 0.45, 0.9, '#7a5f47']].forEach(function (L) {
@@ -502,12 +485,13 @@
 
       b.part('Wall racks');
       b.unit(function () {
-        // spare fins hung on the back wall: one finished, one of old black leather, one bone-white trial
+        // saddle blankets hung on the back wall to air: a red, a black and a bone-white one, each with a stripe
         var wz = pzB + Tk / 2;
         b.box(0.8, fl + 2.55, wz + 0.04, 4.4, 0.12, 0.08, { c: 'beam', m: M.wood, bevel: 0.02 });
-        saddleryFin(b, -0.85, fl + 1.85, wz + 0.1, { rz: 0.35, s: 1.0, mark: true });
-        saddleryFin(b, 0.45, fl + 1.9, wz + 0.1, { rz: 0.15, s: 0.9, c: '#24201d', cm: M.wood });
-        saddleryFin(b, 1.65, fl + 1.85, wz + 0.1, { rz: 0.4, s: 0.85, c: '#e9e4da' });
+        [[-0.85, '#7a3b2c', '#e9e4da'], [0.45, '#24201d', '#e9e4da'], [1.65, '#e9e4da', '#24201d']].forEach(function (q) {
+          b.box(q[0], fl + 1.6, wz + 0.1, 0.8, 0.88, 0.04, { rz: b.j(0.03), c: q[1], m: M.cloth, bevel: 0.01, ao: 0.15 });
+          b.box(q[0], fl + 1.76, wz + 0.125, 0.8, 0.06, 0.01, { c: q[2], m: M.cloth, bevel: 0, ao: 0 });
+        });
         [-0.85, 0.45, 1.65].forEach(function (px) { b.beam([px + 0.05, fl + 2.5, wz + 0.04], [px + 0.06, fl + 2.5, wz + 0.2], 0.02, { c: 'woodDark', round: true, seg: 5 }); });
       });
       b.unit(function () {
@@ -522,13 +506,13 @@
       b.part('Saddle stands');
       b.unit(function () { saddleryStand(b, 3.75, fl, -3.2, Math.PI / 2, { c: '#2a211b' }); saddleryStand(b, 3.75, fl, -2.0, Math.PI / 2, { c: '#5a4434', c2: '#2a211b', blanket: '#24201d' }); });
       b.unit(function () { saddleryStand(b, -2.95, fl, -2.6, 0.1, { c: '#3a2c22' }); saddleryStand(b, -3.0, fl, -0.9, -0.1, { saddle: false }); });
-      [[-3.9, 2.35, 0.25, '#2a211b', 0], [-2.65, 2.75, 0.05, '#5a4434', '#24201d'], [-1.4, 2.45, -0.15, '#2a211b', 0]].forEach(function (p) {
+      [[-3.9, 2.35, 0.25, '#2a211b', 0], [-2.65, 2.75, 0.05, '#5a4434', '#24201d'], [-1.4, 2.45, -0.15, '#2a211b', 0], [1.35, 5.2, -0.35, '#5a4434', '#7a3b2c']].forEach(function (p) {
         b.unit(function () { saddleryStand(b, p[0], 0, p[1], p[2], { c: p[3], blanket: p[4] || undefined }); });
       });
 
       b.part('Forge yard');
       b.unit(function () {
-        // the anvil in the open before the forge, a quench tub, iron rods for fin frames, wood and charcoal
+        // the anvil in the open before the forge, a quench tub, iron rods for buckles and stirrups, wood and charcoal
         b.anvil(-5.25, 0.0, -0.1, { ry: 0.55 });
         b.lathe(-6.35, 0, -0.55, [[0.01, 0], [0.3, 0], [0.33, 0.5], [0.01, 0.49]], { c: 'wood', m: M.wood, seg: 12, flat: true });
         b.cyl(-6.35, 0.45, -0.55, 0.29, 0.02, { c: '#445459', m: M.water, seg: 12 });
@@ -596,9 +580,9 @@
         [postX[0], postX[3]].forEach(function (px) { b.torch(px, 2.0, pzF + 0.15, { s: 0.6 }); });
       });
 
-      b.part('Landing rail');
+      b.part('Hide rail');
       b.unit(function () {
-        // a stout rail on two carved posts where a dragon lands to wait its turn, a coil of rope and a bone pennant
+        // a stout rail on two carved posts with hides thrown over it to dry, a coil of rope and a bone pennant
         b.push(9.4, 0, 3.0, 0.17);
         [-1.0, 1.0].forEach(function (lx) {
           b.box(lx, 0, 0, 0.56, 0.26, 0.56, { c: 'stoneDark', bevel: 0.05 });
@@ -610,6 +594,10 @@
         [-1.25, 1.25].forEach(function (lx) { b.box(lx, 2.18, 0, 0.1, 0.34, 0.37, { c: 'iron', m: M.metal, bevel: 0.01 }); });
         b.addGeo(new T.TorusGeometry(0.22, 0.045, 5, 16), { x: 0.2, y: 1.85, z: 0.2, c: 'rope', m: M.rope, ao: 0.1 });
         b.addGeo(new T.TorusGeometry(0.17, 0.045, 5, 16), { x: 0.24, y: 1.82, z: 0.23, c: 'rope', m: M.rope, ao: 0.1 });
+        [[-0.62, '#7a5f47'], [0.68, '#5a4434']].forEach(function (q) {
+          b.box(q[0], 2.5, 0, 1.0, 0.03, 0.44, { c: q[1], m: M.cloth, bevel: 0.01, jit: 0.03 });
+          [-1, 1].forEach(function (sd) { b.box(q[0], 1.62, sd * 0.215, 0.98 + b.j(0.08), 0.9, 0.025, { rx: sd * 0.05, c: q[1], m: M.cloth, bevel: 0.008, jit: 0.03, vary: 0.1 }); });
+        });
         b.pop();
         b.flag(9.4 + 1.0 * Math.cos(0.17), 2.5, 3.0 - 1.0 * Math.sin(0.17) - 0.05, 1.2, 0.85, 0.32, { c: 'bone', pennant: true, pr: 0.035, ry: -2.3 });
       });
@@ -622,19 +610,14 @@
       });
 
       b.life(function () {
-        // the night dragon, saddled, stands in the yard to be fitted; the saddler buckles the girth at its flank, the
-        // rider waits at its head; inside an apprentice stitches the new fin, the smith forges a frame at the anvil
-        var dxp = 1.5, dzp = 5.3, dry = -1.5, ds = 1.2, rdx = -2.2, rdz = 6.54;
-        b.dragon(dxp, 0, dzp, { kind: 'night', pose: 'alert', ry: dry, s: ds, saddle: true, wing: 0.0 });
-        b.push(dxp, 0, dzp, dry, ds); b.push(0, 1.17, 0.11, 0); b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationX(-0.27));
-        saddleryArc(b, 0, 0, 0, 0.585, 0.615, 0.1 * Math.PI, 0.9 * Math.PI, 1.05, { c: '#e9e4da', m: M.cloth, ao: 0.15 });
-        [[0.1, 0.135], [0.865, 0.9]].forEach(function (a) { saddleryArc(b, 0, 0, 0, 0.6, 0.625, a[0] * Math.PI, a[1] * Math.PI, 1.07, { c: '#1f1e1c', m: M.cloth, ao: 0 }); });
-        b.pop(); b.pop();
-        var sp = saddleryBy(dxp, dzp, dry, 1.25, -0.45);
-        b.figure(sp[0], sp[1], { role: 'villager', pose: 'saddleryReach', ry: dry - Math.PI / 2 + 0.1, beard: true, c: '#6e5a44' });
-        b.figure(rdx, rdz, { role: 'villager', pose: 'talk', ry: 1.9, cape: '#1f1e1c', c: '#3b3a38' });
-        // a dawn dragon, saddled already, crouches on the grass in the sun waiting its turn
-        b.dragon(6.6, 0, 8.5, { kind: 'dawn', pose: 'crouch', ry: -1.35, s: 1.0, saddle: true });
+        // the saddler at work on the saddle on its stand out in the yard, a customer waiting on him; inside an
+        // apprentice stitches a saddle flap, the smith forges at the anvil, and a tanner throws a hide over the rail
+        var sx0 = 1.35, sz0 = 5.2, sry = -0.35, rdx = -0.35, rdz = 6.3;
+        var sp = saddleryBy(sx0, sz0, sry, 0.68, 0.1);
+        b.figure(sp[0], sp[1], { role: 'villager', pose: 'saddleryWork', ry: sry - Math.PI / 2, beard: true, c: '#6e5a44' });
+        b.figure(rdx, rdz, { role: 'villager', pose: 'talk', ry: Math.atan2(sp[0] - rdx, sp[1] - rdz), cape: '#1f1e1c', c: '#3b3a38' });
+        var hp = saddleryBy(9.4, 3.0, 0.17, 0.68, 0.75);
+        b.figure(hp[0], hp[1], { role: 'villager', pose: 'saddleryReach', ry: 0.17 + Math.PI, c: '#5c5e62' });
         b.figure(tx + 2.0, tz + 0.05, { role: 'villager', pose: 'saddleryWork', ry: -Math.PI / 2, y: fl, c: '#8a857c' });
         b.figure(-4.85, -0.55, { role: 'smith', pose: 'hammer', ry: -0.72, c: '#6e5a44' });
         b.figure(-2.4, 7.3, { role: 'child', pose: 'point', ry: 2.05 });

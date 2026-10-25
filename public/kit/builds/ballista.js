@@ -628,7 +628,6 @@
         b.figure(-0.15, 4.55, { role: 'villager', pose: 'carry', ry: Math.PI - 0.35 });
         b.figure(1.3, 6.4, { role: 'child', pose: 'point', ry: Math.PI + 0.25, toy: false });
       });
-    },
-    perches: [{ x: -1.7, y: 11.93, z: -2.5, ry: 0 }, { x: 3.0, y: 9.32, z: 2.1, ry: 0.8 }, { x: 3.0, y: 9.32, z: -3.3, ry: 2.3 }]
+    }
   });
 })();

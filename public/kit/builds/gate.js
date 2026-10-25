@@ -202,7 +202,6 @@
     frameY: 5.0, frameR: 15.8, glowAt: [TX, BASE + 15.3, TZ],
     trees: [{ x: -12.6, z: 4.6, kind: 'round', h: 6.2 }, { x: -10.5, z: -8.4, kind: 'pine', h: 8.2 }, { x: 12.6, z: 4.4, kind: 'cypress', h: 7.4 }, { x: 10.6, z: -8.6, kind: 'pine', h: 7.6 }, { x: -5.4, z: -11.2, kind: 'round', h: 5.6 }, { x: 5.0, z: -11.8, kind: 'olive', h: 4.8 }],
     bushes: [{ x: -14.5, z: 1.0, r: 0.85 }, { x: 14.4, z: -1.4, r: 0.8, flowers: '#f3f1ec' }, { x: -2.9, z: 14.7, r: 0.7, flowers: '#f3f1ec' }, { x: 5.3, z: 13.7, r: 0.75 }, { x: -9.5, z: 10.3, r: 0.72 }],
-    perches: [{ x: 0, y: EAVE + 2.95, z: (HZ0 + HZ1) / 2, ry: 0 }, { x: -8.8, y: BASE + WH + 0.1, z: WZ - 0.1, ry: 0.2 }, { x: 8.6, y: BASE + WH + 0.1, z: WZ - 0.1, ry: -0.2 }],
     build: function (b, opts) {
       var self = b;
       gSD = ((opts && opts.seed) || 1) * 7.3;   // the island's own seed, so the banks can find its edge

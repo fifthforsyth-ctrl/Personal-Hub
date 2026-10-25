@@ -1,8 +1,9 @@
-// Hatchery: where the eggs bought with wins hatch. A ring of warm dark stone round a pit of glowing coals, nests of
-// twigs and ash holding an egg of every kind at its own stage, a keeper's lean-to with a slate roof, and the brooding
-// rock where a night dragon keeps watch. Built footings first, the ring course by course, the coals, then each egg
-// spot as its own step, the rock, the lean-to wall by course and its roof row by row, the tools, and last the people
-// and the dragons: the watcher on the rock and the hatchling just out of its shell.
+// Fire ring (kind 'hatchery'): a ring of warm dark stone round a pit of glowing coals with an iron pot hung over it on
+// a tripod, log seats about the fire, braziers at the way in, a great iron fire basket on a rock of stacked slabs, and
+// a keeper's lean-to with a slate roof. Built footings first, the ring course by course, the coals and the pot, then
+// each seat as its own step, the braziers, the rock and its fire basket, the lean-to wall by course and its roof row by
+// row, the tools and stores, the way in, and last the people: the keeper raking the coals, a child warming his hands,
+// a villager bringing in an armful of firewood and the woodcutter at his block.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL, U = KIT.util, G = KIT.geo;
   PAL.hatchery_stone = ['#6f665c', '#675e55', '#786d62', '#5f5750', '#80756a', '#6b6259', '#736a5f'];
@@ -15,22 +16,13 @@
   var P = KIT.people.poses;
   // kneeling on one knee at the coals, leaning in, both hands low on a poker
   P.hatchery_tend = function (r) { return { feet: [V(-0.16, 0.09, 0.32), V(0.15, 0.12, -0.42)], hands: [V(-0.1, 0.8, 0.5), V(0.12, 0.72, 0.4)], lean: 0.42, twist: r(0.08), side: 0.02, hip: 0, drop: 0.38, head: [r(0.1), 0.35], pole: [V(-0.6, -0.4, -0.3), V(0.6, -0.4, -0.3)] }; };
-  // carrying an egg against the belly in both arms, walking
+  // carrying an armful of firewood against the chest, walking
   P.hatchery_hold = function (r) { return { feet: [V(-0.1, 0.12, 0.22), V(0.11, 0.1, -0.2)], hands: [V(-0.17, 1.0, 0.3), V(0.17, 1.0, 0.3)], lean: -0.04, twist: 0, side: 0, hip: 0, drop: 0.02, head: [r(0.1), 0.25], pole: [V(-0.8, -0.4, -0.2), V(0.8, -0.4, -0.2)] }; };
-  // a child kneeling, one hand held out to the hatchling
+  // a child kneeling, one hand held out to the warmth
   P.hatchery_kneel = function (r) { return { feet: [V(-0.15, 0.09, 0.3), V(0.15, 0.12, -0.42)], hands: [V(-0.12, 0.9, 0.62), V(0.22, 0.6, 0.22)], lean: 0.3, twist: -0.1, side: 0, hip: 0, drop: 0.4, head: [0.1, 0.3], pole: [V(-0.6, -0.3, -0.4), V(0.6, -0.4, -0.3)] }; };
-
-  // a dragon keeping watch from a rock: crouched on all fours, head raised and turned down, the tail curled round its
-  // left side to its front foot, wings half open (registered once, under this build's name)
-  KIT.dragonPoses.hatchery_watch = {
-    spine: [[1.35, 0.1, 0.95], [1.62, 0.1, 0.25], [1.6, 0.12, -0.6], [1.15, 0.17, -1.45], [0.45, 0.42, -1.75], [0, 0.84, -1.45], [0, 1.0, -0.8], [0, 1.1, -0.12], [0, 1.22, 0.45], [0, 1.62, 0.88], [0, 2.0, 1.1], [0, 2.2, 1.26]],
-    head: [0.05, -0.32, 1], feet: { fl: [0.42, 0, 0.78], fr: [-0.4, 0, 0.6], hl: [0.5, 0, -1.0], hr: [-0.48, 0, -1.3] }, wing: 0.45, tilt: 0
-  };
 
   // a point in figure space (x, y, z) for a figure at (fx, fz) turned ry, in the build frame
   function fig(fx, fz, ry, x, y, z, s) { s = s || 1; return [fx + (x * Math.cos(ry) + z * Math.sin(ry)) * s, y * s, fz + (-x * Math.sin(ry) + z * Math.cos(ry)) * s]; }
-  // the dragon's look target is taken in its own frame: turn a build point into it
-  function lookAt(d, wx, wy, wz) { var dx = wx - d[0], dz = wz - d[2], c = Math.cos(d[3]), s = Math.sin(d[3]), k = d[4] || 1; return [(dx * c - dz * s) / k, (wy - d[1]) / k, (dx * s + dz * c) / k]; }
 
   // ---------------------------------------------------------------- pieces
   // a slate or shingle, darker at its upper end where the row above covers it
@@ -66,75 +58,16 @@
       })(r);
     }
   }
-  // a nest of dark twigs on a bed of ash: (x, y, z) the floor at its middle, r its radius
-  function nest(b, x, y, z, r) {
-    b.cyl(x, y, z, r * 1.02, 0.05, { c: '#55504a', m: M.soil, seg: 14, flat: true, ao: 0.1 });
-    b.ball(x, y + 0.03, z, r * 0.78, { c: '#77716a', m: M.soil, sy: 0.16, detail: 1, ao: 0.2 });
-    for (var L = 0; L < 3; L++) {
-      var n = Math.round(r * 34) - L * 3, rr = r * (0.8 + L * 0.05);
-      for (var i = 0; i < n; i++) {
-        var a = i / n * Math.PI * 2 + b.j(0.25), len = r * (0.7 + b.r() * 0.55), ta = a + Math.PI / 2 + b.j(0.55);
-        var mx = x + Math.cos(a) * rr * (0.95 + b.r() * 0.12), mz = z + Math.sin(a) * rr * (0.95 + b.r() * 0.12), my = y + 0.07 + L * 0.065 + b.r() * 0.03;
-        var hx = Math.cos(ta) * len / 2, hz = Math.sin(ta) * len / 2, hy = b.j(0.04);
-        b.beam([mx - hx, my - hy, mz - hz], [mx + hx, my + hy, mz + hz], 0.016 + b.r() * 0.011, { round: true, seg: 5, c: b.pick(PAL.hatchery_twig), m: M.wood, ao: 0.15 });
-      }
-    }
-    // a few strays poking out, and tufts of pale down in the lining
-    for (var k = 0; k < 7; k++) { var a2 = b.r() * Math.PI * 2, r0 = r * 0.85, r1 = r * (1.25 + b.r() * 0.2); b.beam([x + Math.cos(a2) * r0, y + 0.1, z + Math.sin(a2) * r0], [x + Math.cos(a2 + 0.3) * r1, y + 0.03 + b.r() * 0.1, z + Math.sin(a2 + 0.3) * r1], 0.013, { round: true, seg: 4, c: b.pick(PAL.hatchery_twig), m: M.wood, ao: 0 }); }
-    for (var d = 0; d < 5; d++) { var a3 = b.r() * Math.PI * 2; b.ball(x + Math.cos(a3) * r * 0.62, y + 0.12, z + Math.sin(a3) * r * 0.62, 0.05 + b.r() * 0.03, { c: '#d8d2c6', m: M.cloth, detail: 0, ao: 0.1 }); }
-  }
-  // cracks over an egg laid by b.dragonEgg(x, y, z, {s, ry, tilt}): zigzags on the side facing local angle a0;
-  // glow: a warm light inside the cracks
-  function eggCracks(b, x, y, z, o, a0, glow) {
-    var s = (o.s || 1) * 0.58;
-    b.push(x, y, z, o.ry || 0, s);
-    if (o.tilt) b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationZ(o.tilt));
-    function pt(el, az, k) { k = k || 1.02; return [Math.cos(el) * Math.cos(az) * 0.28 * k, 0.37 + Math.sin(el) * 0.37 * k, Math.cos(el) * Math.sin(az) * 0.28 * k]; }
-    var lines = [[[-0.15, a0 - 0.5], [0.05, a0 - 0.32], [0.0, a0 - 0.12], [0.2, a0 + 0.05], [0.12, a0 + 0.25], [0.32, a0 + 0.42], [0.26, a0 + 0.62]], [[0.2, a0 + 0.05], [0.42, a0 - 0.04], [0.55, a0 + 0.12], [0.72, a0 + 0.02]], [[0.0, a0 - 0.12], [-0.25, a0 - 0.05], [-0.38, a0 + 0.15]]];
-    lines.forEach(function (ln) {
-      for (var i = 0; i < ln.length - 1; i++) {
-        var p0 = pt(ln[i][0], ln[i][1]), p1 = pt(ln[i + 1][0], ln[i + 1][1]);
-        b.beam(p0, p1, 0.011, { round: true, seg: 4, c: '#151413', m: M.dark, ao: 0, bevel: 0 });
-        if (glow) { var q0 = pt(ln[i][0], ln[i][1], 1.035), q1 = pt(ln[i + 1][0], ln[i + 1][1], 1.035); b.beam(q0, q1, 0.004, { round: true, seg: 3, c: '#ffb052', bucket: 'glow', glow: 2.0, ao: 0, jit: 0 }); }
-      }
-    });
-    // a chip of shell knocked loose near the top
-    var cp = pt(0.62, a0 + 0.3, 1.0);
-    b.box(cp[0], cp[1], cp[2], 0.07, 0.016, 0.05, { ry: a0, rx: 0.4, c: '#2b2e33', m: M.scale, bevel: 0.005, ao: 0 });
+  // a seat by the fire: a split log, flat face up, on two short stumps, centred at (x, y, z) and running along local x
+  // turned ry, L long
+  function logSeat(b, x, y, z, ry, L) {
+    b.push(x, y, z, ry);
+    [-1, 1].forEach(function (sd) { b.cyl(sd * L * 0.32, 0, b.j(0.03), 0.15 + b.r() * 0.02, 0.28, { c: b.pick(PAL.wood), m: M.wood, seg: 9, ao: 0.25 }); b.cyl(sd * L * 0.32, 0.28, 0, 0.15, 0.012, { c: '#b89a74', m: M.wood, seg: 9, ao: 0 }); });
+    var half = [], n = 8;
+    for (var i = 0; i <= n; i++) { var t = Math.PI + i / n * Math.PI; half.push([Math.cos(t) * 0.17, Math.sin(t) * 0.17 * 0.9]); }
+    b.addGeo(G.extrude(half, L, { bevel: 0.012 }), { x: -L / 2, y: 0.28 + 0.155, z: 0, ry: Math.PI / 2, c: b.pick(PAL.wood), m: M.wood, ao: 0.2, jit: 0.01 });
+    b.box(0, 0.28 + 0.15, 0, L - 0.04, 0.012, 0.3, { c: '#b89a74', m: M.wood, bevel: 0.004 });
     b.pop();
-  }
-  // a hatched egg's shell: a jagged bottom half standing in the nest, and the cap lying beside it
-  function shellGeo(top, inner, cut, jag, seed) {
-    var g = new T.SphereGeometry(0.28, 40, 28).toNonIndexed(); g.scale(1, 1.32, 1); g.translate(0, 0.37, 0);
-    var p = g.attributes.position, out = [];
-    function edge(a) { var t = ((a / (Math.PI * 2)) * 8 + seed) % 1; t = (t + 1) % 1; return cut + jag * ((Math.abs(t - 0.5) * 2 - 0.5) + 0.35 * Math.sin(a * 3 + seed * 5)); }
-    for (var i = 0; i < p.count; i += 3) {
-      var cx = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, cy = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, cz = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
-      var e = edge(Math.atan2(cz, cx)); if (top ? cy < e : cy > e) continue;
-      var tri = [0, 1, 2].map(function (k) { return [p.getX(i + k), p.getY(i + k), p.getZ(i + k)]; });
-      if (inner) { tri = [tri[0], tri[2], tri[1]].map(function (v) { return [v[0] * 0.93, 0.37 + (v[1] - 0.37) * 0.95, v[2] * 0.93]; }); }
-      tri.forEach(function (v) { out.push(v[0], v[1], v[2]); });
-    }
-    var ng = new T.BufferGeometry(); ng.setAttribute('position', new T.Float32BufferAttribute(out, 3)); ng.computeVertexNormals();
-    return ng;
-  }
-  function eggShell(b, x, y, z, o) {
-    var s = (o.s || 1) * 0.58, K = KIT.dragonKinds[o.kind || 'night'];
-    var c1 = new T.Color(K.col), c2 = new T.Color(K.col2), sp = new T.Color('#4a5560');
-    var outer = function (wx, wy, wz, lx, ly, lz) { var n = U.noise3(lx * 9, ly * 9, lz * 9); return n > 0.45 ? c2.clone().lerp(sp, 0.55) : c1.clone().lerp(c2, n * 0.5 + 0.5); };
-    var memb = function (wx, wy, wz, lx, ly, lz) { var n = U.noise3(lx * 14, ly * 14, lz * 14); return new T.Color('#d7d0c3').offsetHSL(0, 0, n * 0.05); };
-    b.push(x, y, z, o.ry || 0, s);
-    b.addGeo(shellGeo(false, false, 0.38, 0.1, 0.3), { c: '#ffffff', m: M.scale, ao: 0.3, vary: 0.04, colors: outer });
-    b.addGeo(shellGeo(false, true, 0.38, 0.1, 0.3), { c: '#ffffff', m: M.cloth, ao: 0.5, vary: 0.03, colors: memb });
-    b.pop();
-    // the cap, tipped over beside it, rim up
-    b.push(x + (o.capDx || 0.42), y, z + (o.capDz || 0.12), (o.ry || 0) + 0.8, s);
-    b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeTranslation(0, 0.3, 0)).multiply(new T.Matrix4().makeRotationX(2.35)).multiply(new T.Matrix4().makeTranslation(0, -0.5, 0));
-    b.addGeo(shellGeo(true, false, 0.38, 0.1, 0.3), { c: '#ffffff', m: M.scale, ao: 0.2, vary: 0.04, colors: outer });
-    b.addGeo(shellGeo(true, true, 0.38, 0.1, 0.3), { c: '#ffffff', m: M.cloth, ao: 0.4, vary: 0.03, colors: memb });
-    b.pop();
-    // two loose chips in the ash
-    [[-0.3, 0.25], [0.15, -0.32]].forEach(function (q, i) { b.box(x + q[0], y + 0.02, z + q[1], 0.09, 0.02, 0.06, { ry: i * 1.3, rx: 0.2, c: K.col2, m: M.scale, bevel: 0.006, ao: 0 }); });
   }
   // a slab of rock: an irregular outline (radius rx by rz, turned rot), h thick, its top at y + h; lumpy flanks
   function rockSlab(b, x, y, z, rx, rz, h, rot, seed, pal) {
@@ -204,19 +137,6 @@
     [-1, 1].forEach(function (sd) { b.beam([sd * 0.06, 0.17, -0.26], [sd * 0.06, 0.2, -0.46], 0.015, { round: true, seg: 5, c: 'woodLight', m: M.wood }); });
     b.pop();
   }
-  // an open crate packed with straw holding eggs
-  function eggCrate(b, x, z, ry, eggs, y) {
-    y = y || 0;
-    b.push(x, y, z, ry);
-    b.box(0, 0, 0, 1.0, 0.08, 0.7, { c: 'wood', m: M.wood, bevel: 0.015 });
-    [[0, 0.33, 1.0, 0.06], [0, -0.33, 1.0, 0.06]].forEach(function (s) { for (var k = 0; k < 3; k++) b.box(s[0], 0.08 + k * 0.14, s[1], s[2], 0.12, s[3], { c: b.pick(PAL.woodLight), m: M.wood, bevel: 0.012 }); });
-    [-0.47, 0.47].forEach(function (sx) { for (var k = 0; k < 3; k++) b.box(sx, 0.08 + k * 0.14, 0, 0.06, 0.12, 0.6, { c: b.pick(PAL.woodLight), m: M.wood, bevel: 0.012 }); });
-    [-0.47, 0.47].forEach(function (sx) { [-0.33, 0.33].forEach(function (sz) { b.box(sx, 0, sz, 0.09, 0.52, 0.09, { c: 'wood', m: M.wood, bevel: 0.015 }); }); });
-    b.box(0, 0.08, 0, 0.88, 0.3, 0.6, { c: 'straw', m: M.straw, bevel: 0.1 });
-    for (var t = 0; t < 14; t++) { var a = b.r() * 6.28, rr = 0.25 + b.r() * 0.15; b.beam([Math.cos(a) * rr * 1.2, 0.36, Math.sin(a) * rr * 0.8], [Math.cos(a + 0.4) * rr * 1.5, 0.42 + b.r() * 0.06, Math.sin(a + 0.4) * rr], 0.008, { round: true, seg: 3, c: 'straw', m: M.straw, ao: 0 }); }
-    b.pop();
-    eggs.forEach(function (e) { var p = fig(x, z, ry, e[0], 0, e[1]); b.dragonEgg(p[0], y + 0.27, p[2], { kind: e[2], s: e[3] || 1.2, ry: e[4] || 0, tilt: e[5] || 0 }); });
-  }
 
   // a fish: a flat silver body with a darker back, a forked tail, local +x toward its head, lying in the XY plane
   // turned ry, tipped rz; s its length
@@ -226,40 +146,23 @@
     b.addGeo(g, { x: x, y: y, z: z, ry: ry, rz: rz || 0, rx: rx || 0, c: '#ffffff', m: M.scale, bucket: 'cloth', ao: 0.1, jit: 0, vary: 0.04, colors: function (wx, wy, wz, lx, ly) { var t = ly / (0.16 * s); return t > 0.35 ? '#5d666c' : t > -0.2 ? '#a9b2b6' : '#c9ced0'; } });
   }
 
-  // a riding saddle of black leather resting on a trestle, along local x
-  function saddleTrestle(b, x, z, ry) {
-    b.push(x, 0, z, ry);
-    [-0.55, 0.55].forEach(function (sx) { [-1, 1].forEach(function (sd) { b.beam([sx, 0, sd * 0.32], [sx, 0.85, 0], 0.04, { c: 'wood' }); }); });
-    b.beam([-0.7, 0.86, 0], [0.7, 0.86, 0], 0.06, { c: 'woodLight' });
-    b.box(0, 0.9, 0, 0.72, 0.1, 0.5, { c: '#1f1e1c', m: M.wood, bevel: 0.04 });
-    b.box(-0.3, 0.98, 0, 0.12, 0.2, 0.48, { c: '#252321', m: M.wood, bevel: 0.03, rz: 0.25 });
-    [-1, 1].forEach(function (sd) {
-      b.box(0.05, 0.38, sd * 0.27, 0.12, 0.54, 0.03, { c: '#2e2c29', m: M.wood, bevel: 0.008, rx: -sd * 0.12 });
-      b.box(0.05, 0.36, sd * 0.29, 0.1, 0.06, 0.02, { c: '#8f8a80', m: M.metal, bevel: 0.005 });
-      b.beam([0.3, 1.0, sd * 0.1], [0.36, 1.14, sd * 0.1], 0.02, { round: true, seg: 5, c: '#8f8a80', m: M.metal });
-    });
-    b.pop();
-  }
-
   KIT.defineBuild('hatchery', {
-    name: 'Hatchery', size: 'small', need: 20,
-    line: 'A ring of warm dark stone round a pit of glowing coals, where the eggs bought with wins hatch under a night dragon\'s watch and a white hatchling meets the children.',
+    name: 'Fire ring', size: 'small', need: 20,
+    line: "A low ring of stone round a pit of glowing coals with an iron pot hung over the fire, log seats about it, braziers at the way in, a fire basket on a rock of stacked slabs, a slate-roofed lean-to and a cart of firewood by the woodcutter's block.",
     r: 9.5, flat: [11.5, 10], ground: 'cobble', path: [[0.2, 9.8], [-0.75, 5.0]],
     frameY: 1.5, frameR: 7.4, glowAt: [1.3, 4.5, -3.2],
     trees: [{ x: -7.5, z: -4.7, kind: 'pine', h: 6.8 }, { x: 6.6, z: 2.6, kind: 'birch', h: 5.4 }, { x: -3.4, z: -6.9, kind: 'pine', h: 5.4 }],
     bushes: [{ x: 4.4, z: 6.0, r: 0.75, flowers: '#f3f1ec' }, { x: -6.4, z: 3.4, r: 0.7 }, { x: 6.4, z: -1.4, r: 0.6, flowers: '#efebe4' }],
-    perches: [{ x: 2.0, y: 0.97, z: 1.3, ry: 0.1 }, { x: -4.5, y: 3.0, z: -4.05, ry: -1.57 }, { x: 2.75, y: 1.7, z: -3.55, ry: -1.42 }],
     islandOpts: { cobbleSkip: function (x, z) { return Math.hypot(x + 0.7, z - 1.3) < 3.2 || Math.hypot((x - 3.2) / 2.3, (z + 3.2) / 2.0) < 1 || (x < -2.8 && x > -6.3 && z < -1.9 && z > -4.5); } },
     build: function (b) {
       var cx = -0.7, cz = 1.3, ringR = 2.7, thick = 0.62, wallH = 0.62, top = 0.18 + wallH;
       // the way in faces the path (and the camera); gap is its half-width in radians
       var GA = 1.55, gap = 0.36, jamb = gap + 0.13;
-      // the brooding rock (R0) and the watcher on it: [x, y, z, ry, s]
-      var R0 = [3.2, -3.2], D = [2.75, 1.7, -3.55, -1.42, 1.15];
+      // the rock of stacked slabs, its fire basket on top
+      var R0 = [3.2, -3.2];
       // the lean-to: x0..x1, back wall at zb, posts at zf
       var lx0 = -6.0, lx1 = -3.0, lzb = -4.0, lzf = -2.1;
       var at = function (a, d) { return [cx + Math.cos(a) * d, cz + Math.sin(a) * d]; };
-      var hatch = [0.4, 5.7, -1.35, 1.4];
       var adiff = function (a, c) { return Math.abs(((a - c) + Math.PI * 3) % (Math.PI * 2) - Math.PI); };
       var inGap = function (a) { return adiff(a, GA) < gap; };
 
@@ -270,7 +173,7 @@
       });
       b.unit(function () { b.box((lx0 + lx1) / 2, -0.1, lzb, lx1 - lx0 + 0.5, 0.36, 0.8, { c: 'stoneDark', bevel: 0.06 }); b.box(lx0 + 0.27, -0.1, (lzb + lzf) / 2, 0.75, 0.36, lzf - lzb + 0.2, { c: 'stoneDark', bevel: 0.06 }); });
 
-      b.part('Hatching ring');
+      b.part('Fire ring');
       b.stoneRing(cx, cz, ringR, 0.18, wallH, thick, { pal: 'hatchery_stone', course: 0.31, len: 0.62, core: false, hole: function (a) { return inGap(a); } });
       b.unit(function () {
         // the capstones, laid flat and a little proud of both faces
@@ -315,32 +218,22 @@
         [[0.05, -0.04, 0.3, true], [-0.2, 0.12, 0.22, false], [0.2, 0.16, 0.2, false]].forEach(function (q) { b.flame(cx + q[0], 0.3, cz + q[1], q[2], { i: 1.3, light: q[3] }); });
       });
       b.unit(function () {
-        // an ember egg, set right in the coals where it likes it, already glowing through its cracks
-        var e = at(1.72, 0.48), eo = { kind: 'ember', s: 1.5, ry: 0.6, tilt: 0.08 };
-        b.dragonEgg(e[0], 0.16, e[1], Object.assign({ then: function () { eggCracks(b, e[0], 0.16, e[1], eo, 1.0, true); } }, eo));
+        // an iron pot hung over the coals on a chain from a tripod of iron bars
+        var apex = [cx, 1.78, cz];
+        [0.35, 2.45, 4.55].forEach(function (a) { var f = [cx + Math.cos(a) * 1.02, 0.16, cz + Math.sin(a) * 1.02]; b.beam(f, apex, 0.028, { round: true, seg: 6, c: 'iron', m: M.metal }); b.box(f[0], 0.15, f[2], 0.09, 0.04, 0.09, { c: 'iron', m: M.metal, bevel: 0.01 }); });
+        b.ball(apex[0], apex[1] + 0.02, apex[2], 0.05, { c: 'iron', m: M.metal, detail: 0 });
+        for (var k = 0; k < 6; k++) b.addGeo(new T.TorusGeometry(0.035, 0.009, 4, 8), { x: cx, y: apex[1] - 0.06 - k * 0.075, z: cz, ry: k * 1.57, c: 'iron', m: M.metal, ao: 0 });
+        b.beam([cx - 0.27, 1.15, cz], [cx, 1.32, cz], 0.01, { round: true, seg: 4, c: 'iron', m: M.metal }); b.beam([cx + 0.27, 1.15, cz], [cx, 1.32, cz], 0.01, { round: true, seg: 4, c: 'iron', m: M.metal });
+        b.lathe(cx, 0.76, cz, [[0.01, 0], [0.16, 0.02], [0.25, 0.1], [0.28, 0.24], [0.26, 0.36], [0.28, 0.4], [0.24, 0.41], [0.01, 0.39]], { c: '#2c2a28', m: M.metal, seg: 16 });
       });
 
-      b.part('Egg spots');
-      // each spot is a nest and its egg, laid in turn
-      var spots = [
-        { a: 0.38, kind: 'dawn', s: 1.6, ry: 0.4 },
-        { a: -1.28, kind: 'night', s: 1.6, ry: 0.0, cracks: 2.3, tilt: -0.1 },
-        { a: -2.08, kind: 'boulder', s: 1.75, ry: 2.0 },
-        { a: 3.4, kind: 'crest', s: 1.5, ry: 1.2, tilt: 0.06 }
-      ];
-      spots.forEach(function (sp) {
+      b.part('Log seats');
+      // a seat of split log at each of four places round the fire, laid in turn
+      [0.38, -1.28, -2.08, 3.4].forEach(function (a) {
         b.unit(function () {
-          var p = at(sp.a, 1.72), eo = { kind: sp.kind, s: sp.s, ry: sp.ry, tilt: sp.tilt || 0 };
-          nest(b, p[0], 0.15, p[1], 0.5);
-          // the cracks go with the egg (in the Hub a spot can stand empty, waiting for his)
-          b.dragonEgg(p[0], 0.2, p[1], Object.assign({ then: sp.cracks === undefined ? null : function () { eggCracks(b, p[0], 0.2, p[1], eo, sp.cracks, sp.glow); } }, eo));
+          var p = at(a, 1.75);
+          logSeat(b, p[0], 0.15, p[1], -a + Math.PI / 2 + b.j(0.08), 1.15);
         });
-      });
-      b.unit(function () {
-        // the hatched one: an empty white shell in its nest just inside the way in
-        var p = at(GA, 1.7);
-        nest(b, p[0], 0.15, p[1], 0.5);
-        eggShell(b, p[0], 0.18, p[1], { kind: 'dawn', s: 1.6, ry: 0.5, capDx: -0.35, capDz: 0.62 });
       });
 
       b.part('Braziers');
@@ -352,11 +245,16 @@
         });
       });
 
-      b.part('Brooding rock');
+      b.part('Rock and fire basket');
       var rrot = 0.37, rc = Math.cos(rrot), rs = Math.sin(rrot), rp = function (u, v) { return [R0[0] + u * rc + v * rs, R0[1] - u * rs + v * rc]; };
       b.unit(function () { rockSlab(b, R0[0], 0, R0[1], 2.25, 1.95, 0.44, rrot, 3.1); for (var i = 0; i < 9; i++) { var a = i / 9 * 6.28 + 0.3, q = rp(Math.cos(a) * 2.2, Math.sin(a) * 1.9); b.rock(q[0], 0.1, q[1], 0.3 + b.r() * 0.26, { c: b.pick(PAL.hatchery_rock) }); } });
       b.unit(function () { var q = rp(-0.05, 0.05); rockSlab(b, q[0], 0.5, q[1], 2.05, 1.78, 0.39, rrot + 0.05, 7.7); });
       b.unit(function () { var q = rp(0.05, 0.0); rockSlab(b, q[0], 1.05, q[1], 1.88, 1.62, 0.34, rrot - 0.06, 12.4); });
+      b.unit(function () {
+        // a great iron fire basket on the top slab, and a little stack of firewood beside it
+        var q = rp(0.1, 0.05); brazier(b, q[0], 1.39, q[1], 1.6);
+        var w = rp(-0.95, 0.35); b.push(0, 1.39, 0, 0); b.woodpile(w[0], w[1], { n: 2, len: 0.75, ry: rrot + 0.3 }); b.pop();
+      });
       b.unit(function () {
         // grass in the cracks, a few stones at its foot
         for (var i = 0; i < 18; i++) { var a = b.r() * 6.28, rr = 0.98 + b.r() * 0.1, q = rp(Math.cos(a) * 2.25 * rr, Math.sin(a) * 1.95 * rr); b.grass(q[0], 0.02, q[1], 0.35 + b.r() * 0.3); }
@@ -415,7 +313,12 @@
         b.sack(-4.35, 0, -2.55, 0.55, { c: '#3d3b38' }); b.sack(-3.85, 0, -2.45, 0.5, { c: '#47443f' }); b.sack(-4.1, 0.38, -2.62, 0.42, { c: '#3a3835' });
         for (var i = 0; i < 28; i++) { var a = b.r() * 6.28, d = Math.sqrt(b.r()) * 0.55; b.ball(-4.05 + Math.cos(a) * d, 0.04 + (0.55 - d) * 0.35, -1.75 + Math.sin(a) * d * 0.7, 0.06 + b.r() * 0.04, { c: b.pick(['#242220', '#2e2b28', '#1c1b1a']), m: M.rock, detail: 0, ao: 0.2 }); }
       });
-      b.unit(function () { b.cart(3.4, 3.4, { ry: 0.6 }); eggCrate(b, 3.4, 3.4, 0.6, [[-0.2, -0.05, 'night', 1.15, 0.2, 0.15], [0.22, 0.05, 'dawn', 1.15, 1.0, -0.12]], 0.77); });
+      b.unit(function () {
+        // a cart loaded with split firewood
+        b.cart(3.4, 3.4, { ry: 0.6, load: function () {
+          for (var row = 0; row < 3; row++) for (var i = 0; i < 5 - row; i++) b.log((i - (4 - row) / 2) * 0.25, 0.71 + 0.11 + row * 0.2, 0.97, 0.11, 1.95, { c: b.pick(PAL.wood), rz: -Math.PI / 2, ry: Math.PI / 2 });
+        } });
+      });
       b.unit(function () {
         // round shields hung on the side wall, facing out, a water barrel at the corner
         [[-3.4, 'ink'], [-2.75, 'bone']].forEach(function (s, i) { b.shield(lx0 - 0.02, 1.02 - i * 0.04, s[0], { kind: 'round', c: s[1], s: 0.76, ry: -Math.PI / 2 }); });
@@ -423,7 +326,12 @@
         b.ivy([[lx0 - 0.02, 0.3, lzb + 0.4], [lx0 - 0.02, 1.2, lzb + 0.6], [lx0 - 0.02, 2.0, lzb + 0.45], [lx0 - 0.02, 2.5, lzb + 0.75]], [-1, 0, 0], { density: 6, spread: 0.4 });
         b.ivy([[lx0 + 0.3, 0.3, lzb - 0.28], [lx0 + 0.8, 1.4, lzb - 0.28], [lx0 + 0.5, 2.3, lzb - 0.28]], [0, 0, -1], { density: 5, spread: 0.4 });
       });
-      b.unit(function () { saddleTrestle(b, 4.9, -0.7, 0.5); });
+      b.unit(function () {
+        // the woodcutter's block: a broad stump, split logs fallen round it and chips in the grass
+        b.cyl(4.9, 0, -0.7, 0.36, 0.52, { c: '#6b5843', m: M.wood, seg: 12, ao: 0.3 }); b.cyl(4.9, 0.52, -0.7, 0.35, 0.015, { c: '#c2a47c', m: M.wood, seg: 12, ao: 0 });
+        [[5.55, -0.45, 0.6], [4.35, -0.15, 2.2], [5.25, -1.35, -0.8]].forEach(function (q) { b.log(q[0], 0.1, q[1], 0.1, 0.55, { c: b.pick(PAL.wood), rz: -Math.PI / 2, ry: q[2] }); });
+        for (var c = 0; c < 10; c++) b.box(4.9 + b.j(0.8), 0.02, -0.7 + b.j(0.8), 0.08, 0.02, 0.05, { ry: b.r() * 3, c: '#c2a47c', m: M.wood, bevel: 0.004, ao: 0 });
+      });
 
       b.part('Way in');
       var post = function (sd) { return at(GA + sd * jamb, ringR + 0.8); }, pA = post(-1), pB = post(1);
@@ -440,8 +348,9 @@
         b.push(m[0], ay, m[1], sry);
         [-0.2, 0.2].forEach(function (cxr) { b.beam([cxr, 0, 0], [cxr, -0.22, 0], 0.008, { round: true, seg: 3, c: 'iron', m: M.metal }); });
         b.box(0, -0.75, 0, 0.54, 0.52, 0.05, { c: 'ink', m: M.paint, bevel: 0.015 });
-        var egg = []; for (var i = 0; i < 18; i++) { var t = i / 18 * Math.PI * 2; egg.push([Math.cos(t) * 0.11, Math.sin(t) * (Math.sin(t) > 0 ? 0.17 : 0.135)]); }
-        [0.03, -0.03].forEach(function (dz) { b.extrude(0, -0.49, dz, egg, 0.008, { c: '#f1eee8', m: M.paint, ao: 0 }); });
+        // a flame painted on both faces
+        var flame = [[0.0, -0.15], [0.09, -0.13], [0.135, -0.05], [0.125, 0.04], [0.07, 0.12], [0.075, 0.03], [0.03, 0.07], [0.0, 0.19], [-0.05, 0.08], [-0.1, 0.12], [-0.135, 0.02], [-0.12, -0.09], [-0.07, -0.14]];
+        [0.03, -0.03].forEach(function (dz) { b.extrude(0, -0.49, dz, flame, 0.008, { c: '#f1eee8', m: M.paint, ao: 0 }); });
         b.box(0, -0.72, 0.028, 0.54, 0.03, 0.008, { c: 'ember', m: M.paint, bevel: 0 });
         b.pop();
         var lp = [pB[0] + ux * 0.45, pB[1] + uz * 0.45], ly2 = 2.3;
@@ -456,14 +365,14 @@
         b.pop();
       });
       b.unit(function () {
-        // grass at the wall foot, a water butt by the way in, a pile of fresh twigs for the next nest
+        // grass at the wall foot, a water butt by the way in, a pile of kindling for the fire
         for (var i = 0; i < 26; i++) { var a = b.r() * 6.28; if (adiff(a, GA) < 0.7) continue; var rr = ringR + thick / 2 + 0.42 + b.r() * 0.2; b.grass(cx + Math.cos(a) * rr, 0.05, cz + Math.sin(a) * rr, 0.3 + b.r() * 0.3); }
         b.barrel(-4.2, 0, 2.6, { h: 0.95, r: 0.36 }); b.bucket(-4.7, 0, 2.95); b.barrel(-4.6, 0, 1.95, { h: 0.8, lie: true, ry: 0.4 });
         b.woodpile(4.6, 0.6, { n: 3, len: 1.1, ry: 0.9 });
         for (var t = 0; t < 30; t++) { var a2 = b.r() * 6.28, d = Math.sqrt(b.r()) * 0.5, x = 3.0 + Math.cos(a2) * d, z = 1.25 + Math.sin(a2) * d, ta = b.r() * 6.28, L = 0.35 + b.r() * 0.3; b.beam([x - Math.cos(ta) * L / 2, 0.05 + (0.5 - d) * 0.4, z - Math.sin(ta) * L / 2], [x + Math.cos(ta) * L / 2, 0.05 + (0.5 - d) * 0.4 + b.j(0.05), z + Math.sin(ta) * L / 2], 0.016, { round: true, seg: 4, c: b.pick(PAL.hatchery_twig), m: M.wood, ao: 0.2 }); }
       });
       b.unit(function () {
-        // a bench by the way in with a basket of fish for the hatchlings, and straw bales for lining the next nests
+        // a bench by the way in with a basket of fish for the pot, and straw bales
         b.bench(2.35, 6.1, 1.5, { ry: -0.35 });
         var bk = fig(2.35, 6.1, -0.35, 0.35, 0, 0);
         b.lathe(bk[0], 0.49, bk[2], [[0.01, 0], [0.19, 0], [0.25, 0.22], [0.27, 0.27], [0.01, 0.26]], { c: '#8a6a45', m: M.straw, seg: 12, flat: true });
@@ -491,30 +400,28 @@
       });
 
       b.life(function () {
-        // the watcher on the brooding rock, wings half open, looking down at the hatchling
-        b.dragon(D[0], D[1], D[2], { kind: 'night', pose: 'hatchery_watch', ry: D[3], s: D[4], look: lookAt(D, hatch[0], 0.4, hatch[1]) });
-        // the hatchling, just out of its shell and through the way in, and a child kneeling to meet it
-        // (turned so its sunlit left flank and its face are toward you; the child kneels in front of its nose)
-        var hd = [Math.sin(hatch[2]), Math.cos(hatch[2])], cp = [hatch[0] - 1.5, hatch[1] - 0.8], chr = Math.atan2(hatch[0] - cp[0], hatch[1] - cp[1]), hand = fig(cp[0], cp[1], chr, -0.12, 0.9, 0.62, 0.62);
+        // a child kneeling inside the ring, warming his hands at the coals, and another running in along the path
+        var cp = at(2.3, 1.3), chr = Math.atan2(cx - cp[0], cz - cp[1]);
         b.figure(cp[0], cp[1], { role: 'child', pose: 'hatchery_kneel', ry: chr, toy: false });
-        b.dragon(hatch[0], 0.0, hatch[1], { kind: 'dawn', age: 'hatchling', pose: 'crouch', s: hatch[3], ry: hatch[2], look: lookAt([hatch[0], 0, hatch[1], hatch[2], 0.34 * hatch[3]], hand[0], hand[1] + 0.1, hand[2]) });
-        fish(b, hand[0], hand[1] - 0.04, hand[2], chr + Math.PI / 2, 0.5, -1.2);
-        b.figure(2.1, 5.05, { role: 'child', pose: 'cheer', ry: Math.atan2(hatch[0] - 2.1, hatch[1] - 5.05) });
-        // chips of white shell it carried out on its back, dropped along the path
-        [[1.05, 6.25, 0.4], [-0.25, 6.3, 1.9], [0.55, 6.55, 3.1]].forEach(function (q) { b.box(q[0], 0.015, q[1], 0.1, 0.02, 0.07, { ry: q[2], rx: 0.25, c: '#ece9e2', m: M.scale, bevel: 0.006, ao: 0 }); });
+        b.figure(0.55, 5.9, { role: 'child', pose: 'run', ry: Math.atan2(cx - 0.55, cz - 5.9) });
         // the keeper raking the coals
         var kp = at(-0.5, 1.38), kry = Math.atan2(cx - kp[0], cz - kp[1]);
         b.figure(kp[0], kp[1], { role: 'villager', pose: 'hatchery_tend', ry: kry, c: '#5c5e62', beard: true });
         var h0 = fig(kp[0], kp[1], kry, -0.02, 0.86, 0.3), h1 = fig(kp[0], kp[1], kry, 0.0, 0.24, 1.1);
         b.beam(h0, h1, 0.016, { round: true, seg: 5, c: 'iron', m: M.metal });
         b.beam([h0[0], h0[1], h0[2]], [h0[0] + (h0[0] - h1[0]) * 0.2, h0[1] + (h0[1] - h1[1]) * 0.2, h0[2] + (h0[2] - h1[2]) * 0.2], 0.026, { round: true, seg: 6, c: 'wood', m: M.wood });
-        // carrying a new egg from the lean-to to the ring
+        // carrying an armful of firewood from the lean-to to the ring
         var cxp = -4.3, czp = 0.9, cry = 0.56;
         b.figure(cxp, czp, { role: 'villager', pose: 'hatchery_hold', ry: cry, c: '#8a857c' });
-        var ep = fig(cxp, czp, cry, 0, 0.74, 0.34);
-        b.dragonEgg(ep[0], ep[1], ep[2], { kind: 'crest', s: 1.25, ry: 0.5 });
-        // a rider by the saddle, looking up at the watcher
-        b.figure(4.25, -1.35, { role: 'villager', pose: 'point', ry: -2.55, c: '#3b3a38', cape: '#1f1e1c' });
+        b.push(cxp, 0, czp, cry);
+        [[-0.07, 0.98, 0.34], [0.07, 0.98, 0.32], [0.0, 1.11, 0.33]].forEach(function (q) { b.log(-0.36, q[1], q[2] + q[0] * 0.2, 0.07, 0.72, { c: b.pick(PAL.wood), rz: -Math.PI / 2 }); });
+        b.pop();
+        // the woodcutter at his block, the axe raised
+        var wp = [4.3, -1.25], wry = Math.atan2(4.9 - wp[0], -0.7 - wp[1]);
+        b.figure(wp[0], wp[1], { role: 'villager', pose: 'hammer', ry: wry, c: '#3b3a38' });
+        var a0 = fig(wp[0], wp[1], wry, -0.24, 1.78, 0.1), a1 = fig(wp[0], wp[1], wry, -0.2, 2.32, -0.3);
+        b.beam(a0, a1, 0.022, { round: true, seg: 6, c: 'woodLight', m: M.wood });
+        b.push(a1[0], a1[1], a1[2], wry - Math.PI / 2); b.extrude(0, 0, -0.022, [[-0.04, -0.045], [0.05, -0.045], [0.12, -0.12], [0.16, -0.11], [0.15, 0.1], [0.11, 0.11], [0.05, 0.045], [-0.04, 0.045]], 0.045, { rz: 0.5, c: 'iron', m: M.metal, bevel: 0.006 }); b.pop();
       });
     }
   });

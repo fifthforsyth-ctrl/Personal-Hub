@@ -160,7 +160,6 @@
     frameY: 6.0, frameR: 13.0, glowAt: [0.5, 14.2, -0.6],
     trees: [{ x: -9.8, z: -5.2, kind: 'pine', h: 7.2 }, { x: -7.4, z: -8.2, kind: 'pine', h: 6.0 }, { x: 8.6, z: 7.4, kind: 'round', h: 5.4 }, { x: -10.6, z: -1.2, kind: 'olive', h: 4.4 }],
     bushes: [{ x: 10.4, z: 4.6, r: 0.9, flowers: '#f3f1ec' }, { x: -8.6, z: 7.2, r: 0.8 }, { x: 10.6, z: -2.6, r: 0.7 }, { x: -2.6, z: -9.6, r: 0.8 }],
-    perches: [{ x: 0.58, y: 13.95, z: -0.7, ry: 2.94 }, { x: 3.91, y: 3.5, z: -0.3, ry: 1.42 }, { x: -6.3, y: 4.5, z: 0.6, ry: -Math.PI / 2 }],
     islandOpts: { cobbleSkip: function (x, z) { return Math.hypot(x - 0.6, z + 0.8) < 2.6; } },
     build: function (b) {
       var tx = 0.6, tz = -0.8, yb = 0.45, yS = 3.5, yTop = 10.6, R0 = 2.65, R1 = 1.9, TH = 0.6;

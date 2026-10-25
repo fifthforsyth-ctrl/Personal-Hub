@@ -68,7 +68,6 @@
     frameY: 3.5, frameR: 8.2, glowAt: [1.4, 9.4, -1.2],
     trees: [{ x: -4.6, z: -5.0, kind: 'pine', h: 6.6 }, { x: 6.0, z: 0.4, kind: 'birch', h: 5.0 }, { x: -6.1, z: -1.8, kind: 'round', h: 3.4 }],
     bushes: [{ x: 5.4, z: 3.0, r: 0.7, flowers: '#f3f1ec' }, { x: -4.6, z: 4.6, r: 0.65, flowers: '#f3f1ec' }, { x: 4.6, z: -4.6, r: 0.6 }],
-    perches: [{ x: -1.5, y: 1.45, z: -1.9, ry: 0.6 }, { x: 1.2, y: 0.95, z: -2.6, ry: 0.9 }, { x: 3.6, y: 2.4, z: 2.2, ry: -0.35 }],
     build: function (b) {
       var cx = -0.5, cz = -0.9;
       var tiers = [{ w: 5.6, y: 0, h: 0.45 }, { w: 4.2, y: 0.45, h: 0.45 }, { w: 2.8, y: 0.9, h: 0.5 }];

@@ -1,16 +1,12 @@
-// Dragon stables: a long stone stable of four tall stalls under a row of stone cross gables, each stall with a pair of
-// plank doors open a different amount and straw inside, crossed barge boards carved into dragon heads, a hay hoist,
-// a louvred cupola with a night-dragon weathervane, harness on hooks, a stone water trough and a fish store lean-to.
-// Built footings first, the stall floors, the walls course by course, the stall frames and doors, the hayloft floor,
-// the gables course by course, the slate roofs row by row, the cupola, then the yard, and last the dragons and people.
+// Stables: a long stone stable of four tall stalls under a row of stone cross gables, each stall with a pair of plank
+// doors open a different amount and straw inside, crossed barge boards carved into dragon heads, a hay hoist, a louvred
+// cupola with an iron weathervane, harness on hooks, a stone water trough, a hitching rail with a saddle over it and a
+// store lean-to. Built footings first, the stall floors, the walls course by course, the stall frames and doors, the
+// hayloft floor, the gables course by course, the slate roofs row by row, the cupola, then the yard, and last the
+// people.
 (function () {
   var T = THREE;
 
-  // a point in the build's frame turned into a dragon's own frame (for o.look)
-  function stablesLook(dx, dy, dz, ry, s, wx, wy, wz) {
-    var x = wx - dx, y = wy - dy, z = wz - dz, c = Math.cos(-ry), sn = Math.sin(-ry);
-    return [(x * c + z * sn) / s, y / s, (-x * sn + z * c) / s];
-  }
   // a point beside a figure standing at (x, z) turned ry, from its own frame (lx, ly, lz)
   function stablesBy(x, z, ry, lx, ly, lz) { return [x + lx * Math.cos(ry) + lz * Math.sin(ry), ly, z - lx * Math.sin(ry) + lz * Math.cos(ry)]; }
 
@@ -81,20 +77,19 @@
     b.pop();
   }
 
-  // a small fish, lying in the local XY plane, head at the origin, 0.4 long
-  var FISH = [[0, 0], [0.08, 0.05], [0.24, 0.045], [0.32, 0.01], [0.4, 0.065], [0.39, -0.06], [0.32, -0.01], [0.24, -0.045], [0.08, -0.05]];
-  function stablesFish(b, x, y, z, o) {
-    o = o || {}; var M = KIT.M, s = o.s || 1;
-    b.extrude(x, y, z, FISH.map(function (p) { return [p[0] * s, p[1] * s]; }), 0.05 * s, { rx: o.rx || 0, ry: o.ry || 0, rz: o.rz || 0, c: b.pick(['#6f7b80', '#647076', '#7c868a']), m: M.metal, ao: 0.1, jit: 0.03, bevel: 0.01 });
+  // a heap of oats filling the top of a barrel whose lid is off, the barrel's foot at (x, z), h tall
+  function stablesOats(b, x, z, h) {
+    var M = KIT.M;
+    b.ball(x, h - 0.04, z, 0.3, { c: '#c4ad78', m: M.straw, sy: 0.32, detail: 1, ao: 0.15 });
   }
-  // a wicker basket heaped with fish
-  function stablesFishBasket(b, x, z, o) {
+  // a wicker basket heaped with apples
+  function stablesAppleBasket(b, x, z, o) {
     o = o || {}; var M = KIT.M, r = o.r || 0.34, h = o.h || 0.42;
     b.lathe(x, 0, z, [[0.01, 0], [r * 0.8, 0], [r, h * 0.85], [r * 1.04, h], [r * 0.9, h * 0.98], [0.01, h * 0.8]], { c: '#8c7658', m: M.straw, seg: 14, flat: true });
     [0.25, 0.55, 0.85].forEach(function (f) { b.cyl(x, h * f - 0.02, z, r * (0.8 + 0.2 * f) + 0.012, 0.04, { c: '#6a5940', m: M.rope, seg: 14, open: true }); });
     for (var i = 0; i < (o.n || 7); i++) {
-      var a = i / (o.n || 7) * Math.PI * 2 + b.j(0.4), d = r * (0.2 + b.r() * 0.4);
-      stablesFish(b, x + Math.cos(a) * d - 0.12, h * 0.86 + b.r() * 0.08, z + Math.sin(a) * d, { ry: a + b.j(0.5), rx: Math.PI / 2 + b.j(0.4), s: 0.9 + b.r() * 0.3 });
+      var a = i / (o.n || 7) * Math.PI * 2 + b.j(0.4), d = r * (0.15 + b.r() * 0.5);
+      b.ball(x + Math.cos(a) * d, h * 0.9 + b.r() * 0.06, z + Math.sin(a) * d, 0.075, { c: b.pick(['#9c3b2a', '#a8452e', '#8f6a2c', '#7f8a3a']), m: M.paint, detail: 1, ao: 0.1 });
     }
   }
   // a bale of hay bound with two cords
@@ -103,6 +98,25 @@
     o = o || {}; var M = KIT.M, w = o.w || 1.05, h = o.h || 0.5, d = o.d || 0.62, ry = o.ry || 0;
     b.box(x, y, z, w, h, d, { c: b.pick(HAY), m: M.straw, bevel: 0.09, ry: ry, ao: 0.35 });
     [-0.28, 0.28].forEach(function (f) { var c = Math.cos(ry), s = Math.sin(ry); b.box(x + f * w * c, y - 0.005, z - f * w * s, 0.04, h + 0.02, d + 0.02, { c: '#6a5940', m: M.rope, ry: ry, bevel: 0.01, ao: 0.2 }); });
+  }
+  // a hitching rail: two posts and a rail along local x, L long, a saddle and its blanket over the rail
+  function stablesRail(b, x, z, ry, L) {
+    var M = KIT.M;
+    b.push(x, 0, z, ry);
+    [-1, 1].forEach(function (sd) { b.box(sd * L / 2, 0, 0, 0.36, 0.14, 0.36, { c: 'stoneDark', m: M.stone, bevel: 0.03 }); b.post(sd * L / 2, 0.1, 0, 0.09, 1.05, { c: 'beam' }); b.box(sd * L / 2, 1.13, 0, 0.24, 0.06, 0.24, { c: 'beam', m: M.wood, bevel: 0.02 }); });
+    b.beam([-L / 2 - 0.12, 1.0, 0], [L / 2 + 0.12, 1.0, 0], 0.06, { c: 'beam', round: true, seg: 7 });
+    // the blanket hangs both sides of the rail, the saddle sits over it
+    b.box(-0.35, 0.58, 0, 0.75, 0.46, 0.2, { c: '#7a3b2c', m: M.cloth, bevel: 0.04, ao: 0.2 });
+    b.box(-0.35, 1.0, 0, 0.78, 0.06, 0.48, { c: '#7a3b2c', m: M.cloth, bevel: 0.02, ao: 0.1 });
+    b.box(-0.35, 1.06, 0, 0.6, 0.12, 0.42, { c: '#3a2c22', m: M.wood, bevel: 0.05, taper: 0.85 });
+    b.box(-0.63, 1.12, 0, 0.1, 0.18, 0.36, { c: '#33271e', m: M.wood, bevel: 0.03, rz: -0.25 });
+    b.box(-0.06, 1.14, 0, 0.1, 0.22, 0.34, { c: '#33271e', m: M.wood, bevel: 0.03, rz: 0.2 });
+    [-1, 1].forEach(function (sd) { b.beam([-0.3, 1.04, sd * 0.24], [-0.3, 0.55, sd * 0.27], 0.012, { c: '#2a221b', m: M.wood, round: true, seg: 4 }); b.box(-0.3, 0.45, sd * 0.27, 0.12, 0.1, 0.03, { c: '#8f8a80', m: M.metal, bevel: 0.005 }); });
+    // a halter rope looped round the far post and a bucket under it
+    b.addGeo(new T.TorusGeometry(0.14, 0.022, 5, 12), { x: L / 2, y: 0.85, z: 0, rx: Math.PI / 2, c: 'rope', m: M.rope });
+    b.beam([L / 2 + 0.05, 0.85, 0.12], [L / 2 + 0.2, 0.25, 0.3], 0.018, { c: 'rope', m: M.rope, round: true, seg: 4 });
+    b.bucket(L / 2 - 0.45, 0, 0.35);
+    b.pop();
   }
   // a pitchfork leaning on a wall
   function stablesFork(b, x, z, o) {
@@ -156,13 +170,12 @@
   }
 
   KIT.defineBuild('stables', {
-    name: 'Dragon stables', size: 'middle', need: 42,
-    line: 'A long stone stable of four tall-doored stalls under slate gables carved with dragon heads, where the night dragon crouches in the yard and a dawn dragon sleeps on the grass.',
+    name: 'Stables', size: 'middle', need: 42,
+    line: 'A long stone stable of four tall-doored stalls under slate cross gables, with a hay hoist, a louvred cupola, a stone water trough, a wagon of hay bales, and a stable hand bringing in the hay.',
     r: 14, flat: [20, 13], ground: 'cobble', path: [[1.8, 14.5], [1.2, 6.2]],
     frameY: 3.0, frameR: 12.5, glowAt: [1.65, 10.2, -2.2],
     trees: [{ x: -11.6, z: -5.4, kind: 'pine', h: 8.4 }, { x: -9.6, z: -8.2, kind: 'pine', h: 6.6 }, { x: 12.0, z: -4.2, kind: 'pine', h: 7.6 }, { x: 12.6, z: 3.6, kind: 'round', h: 5.2 }],
     bushes: [{ x: 10.4, z: 6.6, r: 0.9, flowers: '#f3f1ec' }, { x: -8.6, z: 7.4, r: 0.8 }, { x: -12.2, z: 1.2, r: 0.75 }],
-    perches: [{ x: -4.6, y: 7.45, z: -2.2, ry: -Math.PI / 2 }, { x: 8.3, y: 4.35, z: 3.1, ry: -0.7 }, { x: -8.0, y: 3.4, z: -2.2, ry: -Math.PI / 2 + 0.3 }],
     build: function (b) {
       var M = KIT.M;
       // the stable: x -6.6..6.6, z -5.1..0.7; four stalls open to the front (+z), each under its own cross gable
@@ -355,7 +368,7 @@
       });
       b.coneRoof(cpx, rTop + 1.55, rcz, 0.95, 1.3, { m: 'slate', rows: 3, flare: 0.18, seg: 8 });
       b.unit(function () {
-        // the weathervane: a night dragon in flight, cut from iron, its made tail fin in the Hub's orange
+        // the weathervane: a flying dragon cut from iron (one of the carved and wrought dragon ornaments), its tail fin in the Hub's orange
         var vy = rTop + 2.8;
         b.cyl(cpx, vy - 0.05, rcz, 0.03, 1.0, { c: 'iron', m: M.metal, seg: 6 });
         b.ball(cpx, vy + 0.02, rcz, 0.07, { c: 'iron', m: M.metal, detail: 1 });
@@ -370,7 +383,7 @@
         b.pop();
       });
 
-      b.part('Fish store');
+      b.part('Store lean-to');
       var lx0 = x0 - 2.75, lzA = z0 + 0.55, lzB = z1 - 0.45, lyHi = 3.85, lyLo = 2.55;
       b.unit(function () {
         [lzA, (lzA + lzB) / 2, lzB].forEach(function (zz) {
@@ -399,11 +412,11 @@
         }
       })();
       b.unit(function () {
-        // barrels of fish, crates and a basket under the lean-to, a net hung from the beam
+        // barrels of oats, crates and a basket of apples under the lean-to, hay nets hung from the beam
         b.barrel(lx0 + 0.9, 0, lzA + 0.6, { h: 0.95 }); b.barrel(lx0 + 1.7, 0, lzA + 0.45, {}); b.barrel(lx0 + 1.2, 0, lzA + 1.35, { h: 0.85 });
-        [[lx0 + 0.9, lzA + 0.6, 0.95], [lx0 + 1.2, lzA + 1.35, 0.85]].forEach(function (bb) { for (var k = 0; k < 4; k++) stablesFish(b, bb[0] - 0.1 + b.j(0.12), bb[2] - 0.02, bb[1] + b.j(0.12), { rz: Math.PI / 2 + 0.4 + b.j(0.3), ry: b.r() * 6.28, s: 1.1 }); });
+        stablesOats(b, lx0 + 0.9, lzA + 0.6, 0.95); stablesOats(b, lx0 + 1.2, lzA + 1.35, 0.85);
         b.crate(lx0 + 1.8, 0, lzB - 0.6, 0.7, { ry: 0.2 }); b.crate(lx0 + 1.75, 0.7, lzB - 0.55, 0.55, { ry: -0.15 });
-        stablesFishBasket(b, lx0 + 0.9, lzB - 0.9, {});
+        stablesAppleBasket(b, lx0 + 0.9, lzB - 0.9, {});
         for (var k = 0; k < 7; k++) { var zz = lzA + 0.4 + k * 0.38; b.beam([lx0 + 0.28, lyLo - 0.25, zz], [lx0 + 0.34, lyLo - 1.1 - b.r() * 0.3, zz + b.j(0.08)], 0.012, { c: '#5e584f', m: M.rope, round: true, seg: 4 }); }
         b.beam([lx0 + 0.32, lyLo - 1.0, lzA + 0.4], [lx0 + 0.32, lyLo - 1.1, lzA + 2.7], 0.012, { c: '#5e584f', m: M.rope, round: true, seg: 4 });
       });
@@ -435,7 +448,7 @@
 
       b.part('Hay and feed');
       b.unit(function () {
-        // bales stacked by the hoist, a haystack by the fish store
+        // bales stacked by the hoist, a haystack by the store lean-to
         var bx = hx - 1.1, bz = z1 + 1.7;
         stablesBale(b, bx, 0, bz, { ry: 0.05 }); stablesBale(b, bx + 1.08, 0, bz + 0.05, { ry: -0.04 }); stablesBale(b, bx + 0.5, 0.5, bz, { ry: 0.1 });
         stablesBale(b, bx - 0.2, 0, bz + 0.75, { ry: 1.45, w: 1.0 });
@@ -450,10 +463,8 @@
         stablesFork(b, x0 - 2.35, z1 + 2.7, { ry: 0.6, lean: 0.25 });
       });
       b.unit(function () {
-        // fish for the dragon in the open stall
-        stablesFishBasket(b, stalls[2] - 1.75, z1 + 1.45, {});
-        stablesFishBasket(b, stalls[2] - 2.3, z1 + 1.05, { r: 0.28, h: 0.36, n: 5 });
-        for (var k = 0; k < 4; k++) stablesFish(b, stalls[2] - 1.15 + b.j(0.3), 0.03, z1 + 1.75 + b.j(0.3), { rx: Math.PI / 2, ry: b.r() * 6.28, s: 1.1 });
+        // the hitching rail out in the yard, a saddle and its blanket over it
+        stablesRail(b, 1.6, 5.4, -0.12, 2.6);
       });
       b.unit(function () {
         // a barrow of straw and a fork at the last stall
@@ -477,9 +488,9 @@
         b.crate(x1 + 1.5, 0, cz + 1.7, 0.7, { ry: 0.3 }); b.sack(x1 + 2.1, 0, cz + 1.4, 0.5); b.sack(x1 + 1.9, 0, cz + 2.0, 0.45);
       });
 
-      b.part('Perch post');
+      b.part('Banner post');
       b.unit(function () {
-        // a tall carved post with a crossbar, where a dragon lands to wait its turn
+        // a tall post with a crossbar, the stable's shield on it and its pennant flying from the top
         var ppx = 8.3, ppz = 3.1;
         b.box(ppx, 0, ppz, 0.7, 0.3, 0.7, { c: 'stoneDark', bevel: 0.05 });
         b.box(ppx, 0.3, ppz, 0.34, 3.7, 0.34, { c: 'beam', m: M.wood, bevel: 0.04 });
@@ -500,22 +511,16 @@
       });
 
       b.life(function () {
-        // the night dragon has come out of its open stall and crouches in the sun, curious, eyes on the child's fish; a
-        // boulder dragon looks out over the half door of the last stall; a dawn dragon sleeps curled on the warm grass
-        var nx = 1.5, ny = 0, nz = 5.6, nry = -1.35, ns = 1.15, chx = -2.9, chz = 6.55;
-        b.dragon(nx, ny, nz, { kind: 'night', pose: 'crouch', ry: nry, s: ns, look: stablesLook(nx, ny, nz, nry, ns, chx, 1.0, chz) });
-        var bx2 = stalls[3] + 0.05, bz2 = z1 - 1.0;
-        b.dragon(bx2, base, bz2, { kind: 'boulder', pose: 'alert', ry: -0.3, s: 0.95, wing: 0.0, look: stablesLook(bx2, base, bz2, -0.3, 0.95, -2.0, 1.2, 4.0) });
-        b.dragon(5.2, 0, 7.5, { kind: 'dawn', pose: 'curl', ry: 0.45, s: 1.05 });
-        // the stable hand with an armful of hay, a child holding out a fish, riders at the trough
+        // the stable hand with an armful of hay, a child pointing up at the weathervane, two men talking at the trough
+        var chx = -2.9, chz = 6.55;
         var sh = [-2.0, 3.05, 1.0];
         b.figure(sh[0], sh[1], { role: 'villager', pose: 'carry', ry: sh[2], c: '#6f6a62' });
         var hp = stablesBy(sh[0], sh[1], sh[2], 0.3, 1.6, -0.05);
         b.ball(hp[0], hp[1], hp[2], 0.3, { c: '#bba574', m: M.straw, sx: 0.75, sy: 0.6, sz: 1.6, ry: sh[2] + 0.15, detail: 1, ao: 0.25 });
-        var ch = [chx, chz, 1.87];
+        var ch = [chx, chz, Math.atan2(cpx - chx, cz - chz) + 0.35];
         b.figure(ch[0], ch[1], { role: 'child', pose: 'point', ry: ch[2], toy: false });
-        var fp = stablesBy(ch[0], ch[1], ch[2], -0.26, 0.98, 0.27);
-        stablesFish(b, fp[0], fp[1], fp[2], { rz: -1.2, ry: ch[2] + 1.5, s: 1.0 });
+        // the groom at the rail, about to lift the saddle
+        b.figure(2.95, 6.15, { role: 'villager', pose: 'talk', ry: -2.2, c: '#5c4a3a', beard: true });
         b.figure(-5.7, 3.7, { role: 'villager', pose: 'talk', ry: 0.6, cape: '#1f1e1c', c: '#3b3a38' });
         b.figure(-4.4, 4.0, { role: 'villager', pose: 'stand', ry: -2.2, beard: true, c: '#5c5e62' });
         b.figure(lx0 + 1.3, z1 + 0.9, { role: 'villager', pose: 'carry', ry: -0.4, c: '#8a857c' });

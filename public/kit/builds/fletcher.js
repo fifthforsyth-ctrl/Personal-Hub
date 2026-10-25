@@ -61,7 +61,6 @@
     frameY: 2.3, frameR: 8.1, glowAt: [-0.9, 6.1, -1.0],
     trees: [{ x: -5.6, z: -4.6, kind: 'round', h: 5.2 }, { x: 6.4, z: -3.2, kind: 'pine', h: 6.0 }],
     bushes: [{ x: 6.6, z: 0.4, r: 0.75, flowers: '#f3f1ec' }, { x: -5.7, z: 4.4, r: 0.7 }, { x: 3.0, z: -5.2, r: 0.7 }, { x: -6.6, z: 1.6, r: 0.8 }],
-    perches: [{ x: 0.1, y: 5.3, z: -1.0, ry: Math.PI / 2 }],
     build: function (b) {
       var hx = -0.9, hz = -1.0, W = 4.8, D = 3.8, r = 0.15, p0 = 0.45, step = 0.28, n = 9;
       var yT = p0 + r + (n - 1) * step + 0.14 + r, rise = 2.1, over = 0.48, overX = 0.5;
