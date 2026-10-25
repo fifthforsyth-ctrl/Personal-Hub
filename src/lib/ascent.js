@@ -21,13 +21,6 @@ import { addDays, parseDateStr, startOfWeek, fmtShortDate } from "./planDates.js
 // The footprints cover the last 30 days, ending today.
 export const WINDOW_DAYS = 30;
 
-export const ZONES = {
-  ridge: "Above treeline",
-  switch: "Switchbacks",
-  foot: "Foothills",
-  trail: "Trailhead",
-};
-
 // A lifetime goal's zone, from the share of the last 30 days with a step on
 // any of its focuses.
 export function zoneOf(pct) {

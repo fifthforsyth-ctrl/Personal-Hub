@@ -15,7 +15,6 @@ export const TRACKING_LABEL = {
 };
 
 export const FOCUS_COLOR = "#f26a1b";
-export const FOCUS_RING = "0 0 0 3px #f26a1b, 0 0 16px rgba(242, 106, 27, 0.35)";
 export const HOVER_COLOR = "#141414";
 
 // A page-coloured, hue-independent divider — visible against any fill color.
@@ -47,13 +46,6 @@ function rampAt(stops, t) {
     }
   }
   return stops[stops.length - 1].rgb;
-}
-
-// Hex color for a given ring depth (0 = center), walking the multi-stop
-// gradient above rather than sweeping a raw hue wheel (which would cross
-// straight through an off-brand green between indigo and gold).
-export function ringHue(ringIndex) {
-  return rgbToHex(rampAt(RING_STOPS, Math.max(0, ringIndex) / HUE_RINGS));
 }
 
 // The colour a translucent fill actually shows on the white page — what
@@ -134,12 +126,6 @@ function intensityPoint(t) {
 
 export function intensityColor(t) {
   return rgbToHex(rampAt(INTENSITY_STOPS, intensityPoint(t)));
-}
-
-// Every step of the light ramp takes ink text (even the full orange clears
-// 5:1 with it); kept as a function so callers don't have to know that.
-export function intensityTextColor(t) {
-  return labelColorOn(rampAt(INTENSITY_STOPS, intensityPoint(t)));
 }
 
 function rgbToHex([r, g, b]) {

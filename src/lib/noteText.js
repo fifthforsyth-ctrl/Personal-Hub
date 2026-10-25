@@ -97,62 +97,6 @@ export function segmentsFor(paragraph, resolved) {
   return segments.length > 0 ? segments : [{ text: paragraph.text, highlight: null }];
 }
 
-// How many characters into `root` a DOM position falls.
-//
-// Walking the text nodes is the only reliable way to do this: the paragraph is
-// rendered as a run of spans (one per highlight segment), so the browser's own
-// node offset is relative to whichever span the selection happens to land in,
-// not to the paragraph.
-export function offsetWithin(root, node, nodeOffset) {
-  if (!root || !node) return 0;
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let total = 0;
-  let current = walker.nextNode();
-
-  while (current) {
-    if (current === node) return total + nodeOffset;
-    total += current.textContent.length;
-    current = walker.nextNode();
-  }
-
-  // The selection ended on an element rather than inside a text node, which
-  // happens when you drag past the end of a paragraph.
-  return node.contains?.(root) ? 0 : total;
-}
-
-// Reads the live selection and returns where it sits in the whole body, or
-// null when there's nothing usable selected.
-export function selectionRange(containerEl) {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
-
-  const range = selection.getRangeAt(0);
-  if (!containerEl?.contains(range.commonAncestorContainer)) return null;
-
-  const paraEl = findParagraph(range.startContainer, containerEl);
-  const endParaEl = findParagraph(range.endContainer, containerEl);
-  if (!paraEl || paraEl !== endParaEl) return null; // one paragraph at a time
-
-  const base = Number(paraEl.dataset.start ?? 0);
-  const start = base + offsetWithin(paraEl, range.startContainer, range.startOffset);
-  const end = base + offsetWithin(paraEl, range.endContainer, range.endOffset);
-  const text = selection.toString();
-
-  if (end <= start || !text.trim()) return null;
-
-  return { start, end, text, rect: range.getBoundingClientRect() };
-}
-
-function findParagraph(node, containerEl) {
-  let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-  while (el && el !== containerEl) {
-    if (el.dataset?.start !== undefined) return el;
-    el = el.parentElement;
-  }
-  return null;
-}
-
 // A tree from the flat list, sorted the way the directory shows it.
 export function buildTree(notes) {
   const byParent = new Map();
@@ -165,13 +109,6 @@ export function buildTree(notes) {
     list.sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at).localeCompare(String(b.created_at)));
   }
   return byParent;
-}
-
-export function descendantsOf(byParent, id, seen = new Set()) {
-  if (seen.has(id)) return [];
-  seen.add(id);
-  const children = byParent.get(id) ?? [];
-  return children.flatMap((c) => [c, ...descendantsOf(byParent, c.id, seen)]);
 }
 
 

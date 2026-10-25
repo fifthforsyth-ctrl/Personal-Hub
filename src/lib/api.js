@@ -494,13 +494,6 @@ export async function saveBodyMetric(userId, { kind = "weight", value, unit = "l
   return data;
 }
 
-export async function updateBodyMetric(id, value) {
-  const n = Number(value);
-  if (!(n > 0)) throw new Error("Enter a number.");
-  const { error } = await supabase.from("body_metrics").update({ value: n }).eq("id", id);
-  if (error) throw error;
-}
-
 // Readings of one kind, newest first. Examples are left out.
 export async function fetchBodyMetrics(userId, { kind = "weight", sinceISO, limit = 400 } = {}) {
   let q = supabase
@@ -886,17 +879,6 @@ export async function createStudyNote(userId, { title, body, sourceKind, sourceR
   if (error) throw error;
   await syncScriptureRefs(userId, "study_note", data.id, title, body, sourceRef).catch((err) => console.warn(err));
   return data;
-}
-
-export async function fetchStudyNotes(userId, { limit = 50 } = {}) {
-  const { data, error } = await supabase
-    .from("study_notes")
-    .select("*")
-    .eq("user_id", userId)
-    .order("studied_on", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return data ?? [];
 }
 
 export async function fetchOnThisDay() {
@@ -1402,11 +1384,6 @@ export async function archiveCategory(categoryId) {
 
 export async function restoreCategory(categoryId) {
   const { error } = await supabase.from("user_categories").update({ archived: false }).eq("id", categoryId);
-  if (error) throw error;
-}
-
-export async function updateCategory(categoryId, fields) {
-  const { error } = await supabase.from("user_categories").update(fields).eq("id", categoryId);
   if (error) throw error;
 }
 
@@ -2153,16 +2130,6 @@ export async function reopenTransaction(id, { budgetId = null, kind = null } = {
       suggested_kind: kind || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
-  if (error) throw error;
-}
-
-// A note on any transaction, without answering anything else about it — the
-// one thing that can be said about a deposit.
-export async function updateTransactionNote(id, note) {
-  const { error } = await supabase
-    .from("bank_transactions")
-    .update({ note: note?.trim() || null, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
@@ -2917,19 +2884,6 @@ export async function deleteLesson(id) {
   if (error) throw error;
 }
 
-// Kept (true), slipped (false), or null to take the answer back.
-export async function setLessonCheckin(userId, lessonId, date, kept) {
-  if (kept === null) {
-    const { error } = await supabase.from("lesson_checkins").delete().eq("lesson_id", lessonId).eq("date", date);
-    if (error) throw error;
-    return;
-  }
-  const { error } = await supabase
-    .from("lesson_checkins")
-    .upsert({ user_id: userId, lesson_id: lessonId, date, kept }, { onConflict: "lesson_id,date" });
-  if (error) throw error;
-}
-
 // ---------------------------------------------------------------------------
 // Camps (0079): the steps under each camp, grouped into sections, with a note
 // on each, and the plans that fill them. A plan is read once by the `plan`
@@ -3087,11 +3041,6 @@ export async function savePlan(userId, { title, summary, notes, sections, source
     .single();
   if (error) throw error;
   return data.id;
-}
-
-export async function updatePlan(id, fields) {
-  const { error } = await supabase.from("quest_plans").update(fields).eq("id", id);
-  if (error) throw error;
 }
 
 // The camps it filled keep their sections and steps.
