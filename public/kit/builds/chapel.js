@@ -581,7 +581,7 @@
       b.unit(function () {
         // a handcart of grain sacks left by the churchyard wall for the muster
         var kx = 0.5, kz = 10.0;
-        b.push(0, b.ground.height(kx, kz) - 0.02, 0, 0);
+        b.push(0, (b.ground ? b.ground.height(kx, kz) : 0) - 0.02, 0, 0);
         b.cart(kx, kz, { ry: Math.PI / 2 + 0.05, load: function () {
           [[-0.3, -0.5], [0.3, -0.35], [-0.25, 0.25], [0.28, 0.45]].forEach(function (q, i) { b.sack(q[0], 0.7, q[1], 0.5, { c: i % 2 ? 'canvasDusty' : '#d9d4c8' }); });
           b.sack(0.0, 1.08, -0.1, 0.44, {});
@@ -617,8 +617,8 @@
         b.figure(p2[0], p2[1], { role: 'villager', pose: 'chapelSit', ry: Math.PI / 2, c: '#6f6a62', beard: true });
         // soldiers answering the bell
         b.figure(5.95, 5.6, { role: 'soldier', pose: 'walk', ry: Math.PI - 0.08 });
-        b.figure(6.55, 9.55, { role: 'soldier', pose: 'spear', ry: -0.5, team: 'bone', y: b.ground.height(6.55, 9.55) });
-        b.figure(4.85, 10.5, { role: 'child', pose: 'run', ry: Math.PI - 0.25, y: b.ground.height(4.85, 10.5) });
+        b.figure(6.55, 9.55, { role: 'soldier', pose: 'spear', ry: -0.5, team: 'bone', y: b.ground ? b.ground.height(6.55, 9.55) : 0 });
+        b.figure(4.85, 10.5, { role: 'child', pose: 'run', ry: Math.PI - 0.25, y: b.ground ? b.ground.height(4.85, 10.5) : 0 });
       });
     }
   });
