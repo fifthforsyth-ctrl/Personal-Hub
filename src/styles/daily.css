@@ -274,28 +274,6 @@
 }
 @media (hover: hover) { .day-win:hover { background: var(--card-hover); } }
 
-/* "Goal links for this day": closed until asked for. */
-.day-fold__toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 50px;
-  padding: 13px 18px;
-  border: none;
-  border-radius: var(--r-lg);
-  background: var(--card);
-  box-shadow: var(--shadow);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: left;
-}
-.day-fold__toggle svg { color: var(--text-3); flex-shrink: 0; }
-.day-fold__chev { transition: transform 0.15s; }
-.day-fold__chev--open { transform: rotate(180deg); }
-
 /* --- The curator's cards --------------------------------------------------- */
 
 .curated__again,

@@ -116,7 +116,7 @@ export function getWedgeVisual(ringIndex, brightness) {
 }
 
 // ---------------------------------------------------------------------------
-// Day intensity — the Year view and "What today fed".
+// Day intensity — the Year view.
 //
 // Light on a light page: a quiet day is barely off the card, a full one is
 // the app's orange. (The old ramp ran from near-black to coral, which on

@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   CalendarDays,
   CalendarPlus,
   Clock,
@@ -12,7 +11,6 @@ import {
   BookOpen,
   Plus,
   CheckSquare,
-  Link2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -28,8 +26,6 @@ import {
 import { useLoad } from "../lib/useLoad";
 import LoadError from "../components/ui/LoadError";
 import DayView from "../components/plan/DayView";
-import GoalFruits from "../components/GoalFruits";
-import GoalLinkSuggestions from "../components/GoalLinkSuggestions";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import Tomorrow from "../components/day/Tomorrow";
 import CloseOut from "../components/day/CloseOut";
@@ -280,8 +276,6 @@ function WorkingDay({ userId, date, isToday, archive: a, tasks, ringArcs, goalOp
               answer the questions, not after you've closed them. */}
           {isToday && <CuratedCards slot="day" date={date} title="Worth holding today" />}
 
-          <GoalLinks key={`links-${date}`} date={date} isToday={isToday} onApplied={reload} />
-
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={experiences} onSaved={reload} />
 
           {canPlanTomorrow && <PlanTomorrow key={`tomorrow-${date}`} userId={userId} date={date} reflectionDone={reflectionDone} />}
@@ -331,35 +325,6 @@ function DayWins({ wins, isToday }) {
       </div>
       <p className="evening-wl__hint">{isToday ? "Tap one to rename or remove it." : "Tap one to rename or remove it. Losses are on the evening page."}</p>
     </div>
-  );
-}
-
-// Which goals the day's time fed, for when you want it: closed until asked,
-// because tallying minutes against goals isn't part of the evening.
-function GoalLinks({ date, isToday, onApplied }) {
-  const [open, setOpen] = useState(false);
-  const [version, setVersion] = useState(0);
-
-  return (
-    <section className="day-fold">
-      <button type="button" className="day-fold__toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Link2 size={14} />
-        <span style={{ flex: 1 }}>Goal links for this day</span>
-        <ChevronDown size={16} className={"day-fold__chev" + (open ? " day-fold__chev--open" : "")} />
-      </button>
-      {open && (
-        <div className="stack" style={{ marginTop: 10 }}>
-          <GoalLinkSuggestions
-            date={date}
-            onApplied={() => {
-              setVersion((v) => v + 1);
-              onApplied?.();
-            }}
-          />
-          <GoalFruits key={version} startDate={date} endDate={date} title={isToday ? "What today fed" : "What the day fed"} />
-        </div>
-      )}
-    </section>
   );
 }
 

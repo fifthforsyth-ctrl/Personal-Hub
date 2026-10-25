@@ -1065,66 +1065,6 @@ export function proposePlans({ notes, forDate } = {}) {
   return callAssistant("propose_plan", { notes: notes || null, for_date: forDate || null });
 }
 
-// Reads descriptions over a date range and proposes which goal each stretch
-// fed. Returns suggestions only — nothing is written until they're accepted.
-//
-// One page per call. The work is bounded by the Edge Function's 150-second
-// wall clock rather than by any token limit, so a backlog is walked in short
-// requests; the reply carries `remaining_after` so the caller knows whether
-// to ask again.
-export function suggestGoalLinks({ start, end, onlyUnlinked = false, limit, offset }) {
-  return callAssistant("suggest_goal_links", {
-    start,
-    end: end ?? start,
-    onlyUnlinked,
-    limit,
-    offset,
-  });
-}
-
-// How much there is to review, and how much has no link at all — so the
-// button can say what it will actually do.
-export async function fetchLinkStats(startDate, endDate) {
-  const { data, error } = await supabase.rpc("link_stats", {
-    p_start: startDate,
-    p_end: endDate ?? startDate,
-    p_tz: localZone(),
-  });
-  if (error) throw error;
-  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0, unread: 0, serves_none: 0 };
-}
-
-// Accepting a suggestion stamps it as the model's read, not the category
-// rule's guess — which is what stops apply_goal_mappings from later
-// flattening it back onto whatever pillar the tag defaults to.
-//
-// Grouped by goal so accepting a whole evening is a handful of round trips
-// rather than one per entry.
-export async function applyGoalLinks(links) {
-  const byGoal = new Map();
-  for (const link of links) {
-    const key = link.goal_id ?? "__none__";
-    if (!byGoal.has(key)) byGoal.set(key, []);
-    byGoal.get(key).push(link.entry_id);
-  }
-  for (const [goalId, entryIds] of byGoal) {
-    const goal_node_id = goalId === "__none__" ? null : goalId;
-    // Chunked because `in` travels in the query string: accepting a whole
-    // backlog can put two hundred uuids behind one goal, which is a URL long
-    // enough to be refused.
-    for (let i = 0; i < entryIds.length; i += 50) {
-      const { error } = await supabase
-        .from("time_log_entries")
-        // Stamped 'ai' even when the goal is null: "this served nothing" is a
-        // decision, and leaving the source null would let the category rule
-        // quietly refill the slot on its next run.
-        .update({ goal_node_id, goal_link_source: "ai" })
-        .in("id", entryIds.slice(i, i + 50));
-      if (error) throw error;
-    }
-  }
-}
-
 // The record one goal keeps: every entry, finished task and win that landed
 // on it or anywhere beneath it, each labelled with the node it actually
 // landed on. Answers "what time went to this, and through what".
