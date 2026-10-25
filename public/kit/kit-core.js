@@ -217,11 +217,16 @@
   };
   for (var ti = 0; ti < MAXT; ti++) { G.uTorchPos.value.push(new T.Vector3()); G.uTorchCol.value.push(new T.Vector3()); }
   KIT.MAXT = MAXT;
+  // KIT.air, when set, overrides the look's air for a scene the looks weren't tuned for (a whole village seen from
+  // hundreds of metres): { fog: [near, far], cloud: strength of the cloud's shadow }. It holds through every look.
+  KIT.air = null;
   KIT.applyLook = function (name) {
     var L = KIT.LOOKS[name] || KIT.LOOKS.day; KIT.look = L; KIT.lookName = name;
     G.uSunDir.value.set(L.sunDir[0], L.sunDir[1], L.sunDir[2]).normalize();
     G.uSunCol.value.copy(lv(L.sun, L.sunI)); G.uSkyCol.value.copy(lv(L.sky, L.skyI)); G.uGndCol.value.copy(lv(L.gnd, L.gndI));
     G.uRimCol.value.copy(lv(L.rim, L.rimI)); G.uFogCol.value.copy(lv(L.fog)); G.uFog.value.set(L.fogNear, L.fogFar, L.mist); G.uWindow.value = L.window; G.uShadeLift.value = L.shadeLift || 0; var cl = L.cloud || [0, 0, 1, 0]; G.uCloud.value.set(cl[0], cl[1], cl[2], cl[3]);
+    var A = KIT.air;
+    if (A) { if (A.fog) { G.uFog.value.x = A.fog[0]; G.uFog.value.y = A.fog[1]; } if (A.cloud !== undefined) G.uCloud.value.w = A.cloud; }
     return L;
   };
   KIT.setTorches = function (list) {
