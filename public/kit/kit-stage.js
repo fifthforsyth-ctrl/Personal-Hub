@@ -231,12 +231,48 @@
   ].join('\n');
 
   function v3(hex, k) { var c = U.tone(hex); return new T.Vector3(c.r * (k || 1), c.g * (k || 1), c.b * (k || 1)); }
+
+  // The render targets for one output size: the supersampled scene (with its depth), two output-size paint targets,
+  // the pencil pass's depth, and two quarter-size targets for the bloom.
+  function makeTargets(w, h, ss, ft) {
+    var W = Math.round(w * ss), H = Math.round(h * ss), t = {};
+    t.rtScene = new T.WebGLRenderTarget(W, H, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: true });
+    t.rtScene.depthTexture = new T.DepthTexture(W, H); t.rtScene.depthTexture.type = T.UnsignedIntType;
+    t.rtA = new T.WebGLRenderTarget(w, h, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
+    t.rtB = new T.WebGLRenderTarget(w, h, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
+    t.rtGhost = new T.WebGLRenderTarget(w, h, { type: T.UnsignedByteType, minFilter: T.NearestFilter, magFilter: T.NearestFilter, depthBuffer: true });
+    t.rtGhost.depthTexture = new T.DepthTexture(w, h); t.rtGhost.depthTexture.type = T.UnsignedIntType;
+    // the pen reads flags from the paint's alpha, so these two are never blended between texels
+    [t.rtA, t.rtB].forEach(function (rt) { rt.texture.minFilter = rt.texture.magFilter = T.NearestFilter; });
+    var bw = Math.max(1, Math.round(w / 4)), bh = Math.max(1, Math.round(h / 4));
+    t.rtBl1 = new T.WebGLRenderTarget(bw, bh, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
+    t.rtBl2 = t.rtBl1.clone();
+    return t;
+  }
+  var TARGETS = ['rtScene', 'rtA', 'rtB', 'rtGhost', 'rtBl1', 'rtBl2'];
+  // put a set of targets on the stage, and point the passes made before at them
+  function useTargets(st, t) {
+    TARGETS.forEach(function (k) { st[k] = t[k]; });
+    if (!st.mFinal) return;
+    st.mResolve.uniforms.tColor.value = t.rtScene.texture; st.mResolve.uniforms.tDepth.value = t.rtScene.depthTexture;
+    var ks = st._kuwa || {}; ks[st.radius] = st.mKuwa;
+    for (var r in ks) ks[r].uniforms.tColor.value = t.rtA.texture;
+    st.mFinal.uniforms.tBloom.value = t.rtBl1.texture; st.mFinal.uniforms.tDepth.value = t.rtScene.depthTexture; st.mFinal.uniforms.tGhost.value = t.rtGhost.depthTexture;
+  }
+  function disposeTargets(t) { TARGETS.forEach(function (k) { if (t[k]) { if (t[k].depthTexture) t[k].depthTexture.dispose(); t[k].dispose(); } }); }
   function srgb(hex) { var c = new T.Color(hex); return new T.Vector3(c.r, c.g, c.b); }
 
+  // opts: { ss, radius, paint, edge, fov, pen, dbg, shadowSize, float, context, renderer, preserve, pencil, keepTargets }
+  //   context      a WebGL context to draw on (the app's own); renderer: an existing WebGLRenderer to reuse instead
+  //   preserve     false for a canvas on screen that is never read back (default true: paint.js reads its stills back)
+  //   pencil       false skips the pencil pass (what is still to come, as lines) until set again on stage.pencil
+  //   keepTargets  setSize keeps the render targets of the last few sizes, so switching between a drag size and a
+  //                still size costs no reallocation (default: one set, reallocated on every new size)
   function Stage(canvas, w, h, opts) {
     opts = opts || {};
     this.w = w; this.h = h; this.ss = opts.ss || 2; this.radius = opts.radius || 4; this.paint = opts.paint !== false;
-    var r = this.renderer = new T.WebGLRenderer({ canvas: canvas, context: opts.context, antialias: false, preserveDrawingBuffer: true, alpha: false });
+    this.pencil = opts.pencil !== false; this.keepTargets = !!opts.keepTargets;
+    var r = this.renderer = opts.renderer || new T.WebGLRenderer({ canvas: canvas, context: opts.context, antialias: false, preserveDrawingBuffer: opts.preserve !== false, alpha: false });
     r.setPixelRatio(1); r.setSize(w, h, false);
     r.shadowMap.enabled = true; r.shadowMap.type = T.PCFSoftShadowMap; r.outputEncoding = T.LinearEncoding; r.toneMapping = T.NoToneMapping;
     r.autoClear = true;
@@ -250,19 +286,9 @@
     var sky = new T.Mesh(new T.SphereGeometry(900, 32, 16), new T.ShaderMaterial({ vertexShader: SKY_VS, fragmentShader: SKY_FS, uniforms: this.skyU, side: T.BackSide, depthWrite: false }));
     sky.frustumCulled = false; sky.renderOrder = -10; this.sky = sky; this.scene.add(sky);
     // targets
-    var ft = opts.float === false ? T.UnsignedByteType : T.HalfFloatType;
+    var ft = this.ft = opts.float === false ? T.UnsignedByteType : T.HalfFloatType;
     var W = Math.round(w * this.ss), H = Math.round(h * this.ss);
-    this.rtScene = new T.WebGLRenderTarget(W, H, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: true });
-    this.rtScene.depthTexture = new T.DepthTexture(W, H); this.rtScene.depthTexture.type = T.UnsignedIntType;
-    this.rtA = new T.WebGLRenderTarget(w, h, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
-    this.rtB = new T.WebGLRenderTarget(w, h, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
-    this.rtGhost = new T.WebGLRenderTarget(w, h, { type: T.UnsignedByteType, minFilter: T.NearestFilter, magFilter: T.NearestFilter, depthBuffer: true });
-    this.rtGhost.depthTexture = new T.DepthTexture(w, h); this.rtGhost.depthTexture.type = T.UnsignedIntType;
-    // the pen reads flags from the paint's alpha, so these two are never blended between texels
-    [this.rtA, this.rtB].forEach(function (rt) { rt.texture.minFilter = rt.texture.magFilter = T.NearestFilter; });
-    var bw = Math.max(1, Math.round(w / 4)), bh = Math.max(1, Math.round(h / 4));
-    this.rtBl1 = new T.WebGLRenderTarget(bw, bh, { type: ft, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: false });
-    this.rtBl2 = this.rtBl1.clone();
+    useTargets(this, makeTargets(w, h, this.ss, ft));
     this.quadScene = new T.Scene(); this.quadCam = new T.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quad = new T.Mesh(new T.PlaneGeometry(2, 2)); this.quad.frustumCulled = false; this.quadScene.add(this.quad);
     var texel = new T.Vector2(1 / w, 1 / h);
@@ -305,15 +331,30 @@
   };
   // A new size (and supersampling) for the same renderer: the targets follow, and so do the pen's widths, which scale
   // with the picture's width just as they do when a stage is made.
+  // With keepTargets the targets of the last three sizes are kept, so a stage that switches between a drag size and a
+  // still size swaps them instead of reallocating tens of MB each time.
   S.setSize = function (w, h, ss) {
     ss = ss || this.ss;
     if (w === this.w && h === this.h && ss === this.ss) return;
+    var was = this.w + 'x' + this.h + 'x' + this.ss;
     this.w = w; this.h = h; this.ss = ss;
     var W = Math.round(w * ss), H = Math.round(h * ss), bw = Math.max(1, Math.round(w / 4)), bh = Math.max(1, Math.round(h / 4));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
-    this.rtScene.setSize(W, H); this.rtA.setSize(w, h); this.rtB.setSize(w, h); this.rtGhost.setSize(w, h);
-    this.rtBl1.setSize(bw, bh); this.rtBl2.setSize(bw, bh);
+    if (this.keepTargets) {
+      var key = w + 'x' + h + 'x' + ss, sets = this._sets || (this._sets = []), self = this;
+      var cur = {}; TARGETS.forEach(function (k) { cur[k] = self[k]; }); cur.key = was;
+      sets = sets.filter(function (x) { return x.key !== was; }); sets.unshift(cur);
+      var hit = sets.filter(function (x) { return x.key === key; })[0];
+      if (hit) sets = sets.filter(function (x) { return x !== hit; });
+      else { hit = makeTargets(w, h, ss, this.ft); hit.key = key; }
+      while (sets.length > 2) disposeTargets(sets.pop());
+      this._sets = sets;
+      useTargets(this, hit);
+    } else {
+      this.rtScene.setSize(W, H); this.rtA.setSize(w, h); this.rtB.setSize(w, h); this.rtGhost.setSize(w, h);
+      this.rtBl1.setSize(bw, bh); this.rtBl2.setSize(bw, bh);
+    }
     this.skyU.uRes.value.set(W, H);
     [this.mResolve, this.mKuwa, this.mFinal].forEach(function (m) { m.uniforms.uTexel.value.set(1 / w, 1 / h); });
     this.mResolve.uniforms.uSceneRes.value.set(W, H); this.mResolve.uniforms.uSS.value = ss;
@@ -344,6 +385,27 @@
     this.camera.updateMatrixWorld(); var v = p.clone().project(this.camera);
     this.skyU.uGlowC.value.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5);
   };
+  // Paint with a smaller (cheaper) or larger Kuwahara radius from now on; 0 paints nothing. The radius is baked into the
+  // filter's loops, so each radius is its own material, made the first time it is asked for and kept.
+  S.setRadius = function (R) {
+    var ks = this._kuwa || (this._kuwa = {});
+    if (this.radius > 0) ks[this.radius] = this.mKuwa;
+    if (R > 0 && !ks[R]) {
+      var u = this.mKuwa.uniforms;
+      ks[R] = pass(kuwaharaFS(R), { tColor: { value: this.rtA.texture }, uTexel: u.uTexel, uQ: u.uQ, uRad: { value: R } });
+    }
+    if (R > 0) this.mKuwa = ks[R];
+    this.radius = R;
+  };
+  // Everything the stage made on the GPU (its targets, passes, sky and quad); the renderer is left to its owner.
+  S.dispose = function () {
+    disposeTargets(this); (this._sets || []).forEach(disposeTargets); this._sets = [];
+    var ks = this._kuwa || {}; ks[this.radius] = this.mKuwa;
+    for (var r in ks) if (ks[r]) ks[r].dispose();
+    [this.mResolve, this.mBright, this.mBlur, this.mFinal, this.sky.material].forEach(function (m) { m.dispose(); });
+    this.sky.geometry.dispose(); this.quad.geometry.dispose();
+    if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+  };
   S.draw = function (q) {
     this.quad.material = q; this.renderer.render(this.quadScene, this.quadCam);
   };
@@ -354,9 +416,9 @@
     this.camera.updateMatrixWorld(); var me = this.camera.matrixWorld.elements, sd = KIT.G.uSunDir.value;
     this.skyU.uSunScr.value.set(sd.x * me[0] + sd.y * me[1] + sd.z * me[2], sd.x * me[4] + sd.y * me[5] + sd.z * me[6]);
     r.setRenderTarget(this.rtScene); r.render(this.scene, this.camera);
-    // the pencil pass: only what is still to come, as depth
+    // the pencil pass: only what is still to come, as depth (of what is shown; none while stage.pencil is off)
     var ghosts = [], seen = [];
-    this.scene.traverse(function (o) { if (o.isMesh) { seen.push([o, o.visible, o.material]); if (o.userData.ghost) ghosts.push(o); } });
+    if (this.pencil) this.scene.traverseVisible(function (o) { if (o.isMesh) { seen.push([o, o.visible, o.material]); if (o.userData.ghost) ghosts.push(o); } });
     this.mFinal.uniforms.uGhostOn.value = ghosts.length ? 1 : 0;
     if (ghosts.length) {
       var au = r.shadowMap.autoUpdate; r.shadowMap.autoUpdate = false;
@@ -378,21 +440,32 @@
   };
 
   // ------------------------------------------------------------------ making a build
+  // The ground under a build made without its island: level everywhere.
+  var LEVEL = KIT.LEVEL = { height: function () { return 0; } };
   // Build a catalogue entry. Returns { group, units, parts, torches, bounds, uniforms, def, show(fraction, todayFrom) }.
+  // opts: { seed, island (false: no island), ground ({ height(x, z) } to stand on without an island; LEVEL if none),
+  //   ghost (false: no pencil meshes), shadows, detail (box detail, see kit-build.js; default 2), cull (frustum culling) }
   KIT.make = function (kind, opts) {
     opts = opts || {};
     var def = KIT.builds[kind]; if (!def) throw new Error('No build ' + kind);
-    var b = new KIT.Builder(opts.seed || U.hashStr(kind), {});
-    var Uu = KIT.buildUniforms(), mats = KIT.makeMaterials(Uu);
-    var ground = null;
-    if (opts.island !== false && def.island !== false) {
-      var io = Object.assign({ r: def.r || 12, flat: def.flat || def.footprint || [8, 8], ground: def.ground || 'grass', path: def.path, trees: def.trees, bushes: def.bushes, seed: (opts.seed || 1) }, def.islandOpts || {});
-      ground = KIT.island(b, io);
-    }
-    b.ground = ground;
-    def.build.call(b, b, opts);
-    var out = b.finish(mats, opts);
+    var detail = KIT.boxDetail;
+    if (opts.detail !== undefined) KIT.boxDetail = opts.detail;
     KIT.dropGeoCache();
+    try {
+      var b = new KIT.Builder(opts.seed || U.hashStr(kind), {});
+      var Uu = KIT.buildUniforms(), mats = KIT.makeMaterials(Uu);
+      var ground = null;
+      if (opts.island !== false && def.island !== false) {
+        var io = Object.assign({ r: def.r || 12, flat: def.flat || def.footprint || [8, 8], ground: def.ground || 'grass', path: def.path, trees: def.trees, bushes: def.bushes, seed: (opts.seed || 1) }, def.islandOpts || {});
+        ground = KIT.island(b, io);
+      }
+      b.ground = ground || opts.ground || LEVEL;
+      def.build.call(b, b, opts);
+      var out = b.finish(mats, opts);
+    } finally {
+      KIT.dropGeoCache();
+      KIT.boxDetail = detail;
+    }
     out.uniforms = Uu; out.def = def; out.mats = mats;
     Uu.uTotal.value = out.units;
     out.show = function (frac, todayN) {
@@ -400,7 +473,13 @@
       Uu.uShown.value = n; Uu.uNewFrom.value = todayN ? Math.max(0, n - todayN) : 1e6; Uu.uTotal.value = out.units;
       return n;
     };
-    out.litTorches = function () { var n = Uu.uShown.value; return out.torches.filter(function (t) { return t.unit < n; }); };
+    // the torches lit so far, in the build's own frame, or through a matrix (its matrixWorld) into the world's
+    out.litTorches = function (m) {
+      var n = Uu.uShown.value, lit = out.torches.filter(function (t) { return t.unit < n; });
+      if (!m) return lit;
+      var v = new T.Vector3();
+      return lit.map(function (t) { v.set(t.pos[0], t.pos[1], t.pos[2]).applyMatrix4(m); return Object.assign({}, t, { pos: [v.x, v.y, v.z] }); });
+    };
     return out;
   };
 })();
