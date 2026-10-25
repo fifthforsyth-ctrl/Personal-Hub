@@ -2146,5 +2146,104 @@ function sectionOf({ x, y }) {
   return Math.floor(((((a + 90) % 360) + 360) % 360) / 90);
 }
 
+// ---------------------------------------------------------------------------
+// The 3D village's plan and arithmetic (src/village/plots.js)
+// ---------------------------------------------------------------------------
+{
+  const P = await import("../src/village/plots.js");
+  const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
+  console.log("\nthe 3D village");
+
+  ok("each build faces the plaza, square to the grid", P.facing([0, -1]) === 0 && P.facing([0, 1]) === Math.PI && P.facing([1, 0]) === -Math.PI / 2 && P.facing([-1, 0]) === Math.PI / 2 && P.facing([2, 2]) === Math.PI);
+  const toward = layout(29).plots.every(({ tile }) => {
+    const [fx, fz] = P.frontOf(P.facing(tile));
+    return Math.abs(fx) + Math.abs(fz) === 1 && fx * -tile[0] + fz * -tile[1] > 0;
+  });
+  ok("every one of the 29 plots looks toward the plaza", toward);
+  ok("a build is scaled down only when it reaches past its plot", P.scaleFor(16.4) === 1 && near(P.scaleFor(18.6), (P.TILE / 2 - P.MARGIN) / 18.6));
+
+  const aaron = { projects: [{ id: "w", kind: "windmill", plot: 0 }], nextPlot: 1 };
+  const plan = P.planOf(aaron);
+  ok("the windmill on plot 0 is north of the plaza, the next plot west", plan.plots[0].x === 0 && plan.plots[0].z === -P.TILE && plan.stake.x === -P.TILE && plan.stake.z === 0 && plan.stake.plot === 1);
+  ok("the green starts with the four corners of the first ring", plan.nature.length === 4 && plan.nature.every((n) => Math.abs(n.tile[0]) === 1 && Math.abs(n.tile[1]) === 1));
+  ok("the ground holds the plots in use and the next one", near(plan.radius, P.TILE * 1.62) && P.planOf({ projects: [], nextPlot: 0 }).radius === plan.radius);
+  const big = P.planOf({ projects: layout(16).plots.map(({ plot }) => ({ id: `p${plot}`, kind: "forge", plot })), nextPlot: 16 });
+  ok("a bigger village has a bigger ground and its ring's green", big.radius > plan.radius * 2 && big.nature.length > 4);
+
+  // Paths run between the plots, never over another plot's ground.
+  const paths = P.pathsOf(big, () => 6);
+  const inPlaza = ([x, z]) => Math.abs(x) <= P.PLAZA / 2 + 1e-9 && Math.abs(z) <= P.PLAZA / 2 + 1e-9;
+  ok("a path from every plot and the next", paths.length === 17 && paths.every((p) => p.points.length >= 2));
+  ok("every path ends in the plaza", paths.every((p) => inPlaza(p.points[p.points.length - 1])));
+  const all = [...big.plots, big.stake];
+  let crosses = 0;
+  for (const path of paths) {
+    for (let i = 0; i < path.points.length - 1; i++) {
+      const [ax, az] = path.points[i];
+      const [bx, bz] = path.points[i + 1];
+      for (let k = 0; k <= 20; k++) {
+        const x = ax + ((bx - ax) * k) / 20;
+        const z = az + ((bz - az) * k) / 20;
+        for (const q of all) if (q.plot !== path.plot && Math.abs(x - q.x) < P.TILE / 2 - 2 && Math.abs(z - q.z) < P.TILE / 2 - 2) crosses++;
+      }
+    }
+  }
+  ok("no path crosses another plot", crosses === 0, `${crosses} points inside other plots`);
+  const first = paths.find((p) => p.plot === 0).points;
+  ok("a path starts at its plot's front", near(first[0][0], 0) && near(first[0][1], -P.TILE + 6));
+
+  // Progress, as the painted stills show it.
+  const s1 = P.stageOf(106, 36, 45, 0);
+  ok("36 of 45 shows 84 of the windmill's 106 steps, none today", s1.shown === 84 && s1.today === 0 && near(s1.frac, 84.5 / 106));
+  ok("5 laid today are the last 11 steps", P.stageOf(106, 36, 45, 5).today === 11);
+  ok("a build that stands shows everything, its people too", P.stageOf(106, 45, 45, 0).shown === 107 && P.stageOf(106, 45, 45, 0).frac === 1);
+
+  // The replay: Aaron's village, day by day.
+  const arrows = [];
+  for (let d = 20; d <= 23; d++) for (let i = 0; i < 8; i++) arrows.push({ id: `a${d}${i}`, date: `2026-10-${d}`, level: arrows.length < 10 ? 0 : 2 });
+  const steps = Array.from({ length: 36 }, (_, i) => ({ id: `s${String(i).padStart(2, "0")}`, camp_id: "c1", text: `Step ${i}`, done_on: "2026-10-23", updated_at: `2026-10-23T10:${String(i).padStart(2, "0")}:00Z` }));
+  const temple = Array.from({ length: 125 }, (_, i) => ({ pid: `x${i}`, name: `Name ${i}`, gender: i % 9 ? "M" : "F", ordinances: [{ date: "2019-05-04", temple: "Provo" }] }));
+  const raw = { projects: [{ id: "w", kind: "windmill", seed: 10120, plot: 0, need: 45, started_on: "2026-10-22" }], tasks: [], steps, camps: [{ id: "c1", quest_id: "q1" }], quests: [{ id: "q1", title: "Q" }], lessons: [], shots: arrows, temple };
+  const v = villageOf(raw, "2026-10-25");
+  ok("five days from the first arrow to today", P.spanOf(v) === 5 && P.dayOf(null, v) === 5 && P.dayOf("2026-10-22", v) === 2 && P.dayOf("2020-01-01", v) === 0);
+  const d2 = P.stateOn(v, 2);
+  const d3 = P.stateOn(v, 3);
+  const now = P.stateOn(v, 5);
+  ok("day 2: the windmill's plot is laid out, nothing on it yet", d2.builds[0].exists && d2.builds[0].done === 0 && d2.going === "w");
+  ok("day 3: 36 tasks laid at once, all that day", d3.builds[0].done === 36 && d3.builds[0].laid === 36);
+  ok("today: 36 of 45, none today", now.builds[0].done === 36 && now.builds[0].laid === 0 && !now.builds[0].complete && now.going === "w");
+  ok("day 1: not chosen yet", !P.stateOn(v, 1).builds[0].exists && P.stateOn(v, 1).going === null);
+  ok("the soldiers train as the arrows fly", P.stateOn(v, 0).soldiers === 1 && P.stateOn(v, 1).soldiers === 3 && now.soldiers === 6 && now.tier === 0);
+  ok("everyone from before the village is there from the first day", P.stateOn(v, 0).villagers === 125);
+  ok("a replay takes 4 to 30 seconds", P.playSecs(5) === 4 && P.playSecs(30) === 10 && P.playSecs(400) === 30);
+
+  // People.
+  const f = P.formationOf(100, 2);
+  ok("at most 40 soldiers drill, all in the plaza", P.formationOf(6).length === 6 && f.length === 40 && f.every((s) => inPlaza([s.x, s.z]) && s.z > 1 && s.tier === 2));
+  ok("archers draw in the front rank", f.slice(0, 10).every((s) => s.pose === "draw" && s.role === "archer") && f.some((s) => s.role === "soldier"));
+  const spots = P.spotsOf(P.pathsOf(plan), v.villagers);
+  ok("40 villagers stand at most, the same each time", spots.length === 40 && JSON.stringify(spots) === JSON.stringify(P.spotsOf(P.pathsOf(plan), v.villagers)));
+  ok("none stands on the flag", spots.every((s) => Math.hypot(s.x, s.z) > 2.5));
+  ok("no villagers, nobody drawn", P.spotsOf(P.pathsOf(plan), []).length === 0);
+
+  // Labels.
+  const rect = { left: 0, top: 0, right: 390, bottom: 844 };
+  const shown = P.placeLabels(
+    [
+      { id: "a", x: 100, y: 200, w: 80, h: 24, prio: 1 },
+      { id: "b", x: 120, y: 210, w: 80, h: 24, prio: 0 },
+      { id: "c", x: 300, y: 400, w: 60, h: 24, prio: 2 },
+      { id: "d", x: 380, y: 400, w: 60, h: 24, prio: 3 },
+      { id: "e", x: 200, y: 600, w: 60, h: 24, prio: 4, on: false },
+    ],
+    rect
+  );
+  ok("labels: the first placed wins an overlap, off-screen and behind hide", shown.has("b") && !shown.has("a") && shown.has("c") && !shown.has("d") && !shown.has("e"));
+
+  // Links.
+  ok("?build=<id> opens that build", JSON.stringify(P.linkOf("?build=abc")) === '{"build":"abc","choose":null}');
+  ok("?choose opens Choose, ?choose=<kind> points at one", P.linkOf("?choose").choose === true && P.linkOf("?choose=forge").choose === "forge" && P.linkOf("").choose === null && P.linkOf("").build === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
