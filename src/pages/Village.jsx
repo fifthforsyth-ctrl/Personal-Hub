@@ -335,12 +335,17 @@ function Empty({ village, onChoose }) {
 
 // --- The soldiers, villagers and the map ---------------------------------------
 
+// The stylesheet lays out four tiles (two by two on a phone) but the strip now has three, so they sit in one
+// row of three where the strip is 520px wide or more and one under another where it is narrower, never with an
+// empty slot or one tile left alone.
+const STRIP_COLS = { gridTemplateColumns: "repeat(auto-fit, minmax(clamp(25%, (520px - 100%) * 999, 100%), 1fr))" };
+
 function Strip({ village }) {
   const soldiers = soldiersFor(village.arrows.length);
   const bow = TIERS[bowFor(village.bullseyes.length)];
   const folk = village.villagers.length;
   return (
-    <nav className="vl-strip" aria-label="Who lives in the village">
+    <nav className="vl-strip" style={STRIP_COLS} aria-label="Who lives in the village">
       <Link to="/ascent" className="card vl-tile">
         <span className="vl-tile__label">
           <Target size={14} strokeWidth={2} aria-hidden="true" />
