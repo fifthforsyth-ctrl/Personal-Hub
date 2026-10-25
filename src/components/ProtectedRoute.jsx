@@ -22,7 +22,6 @@ const TITLES = [
   ["/quests", "Quests"],
   ["/village/map", "Village map"],
   ["/village", "Village"],
-  ["/dragons", "Dragons"],
   ["/tree", "Goal wheel"],
   ["/reflect", "Charts"],
   ["/spirit", "Promptings & prayer"],

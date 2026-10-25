@@ -13,7 +13,6 @@ import { dropIndex, moved } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
-import { KINDS, TRAINING, STAGES, START_WINS, HATCH_DAYS, kindOf, hatcheryDay, dragonsOf, paintDragons, winsLine, hatchLine, stageLine } from "../src/lib/dragons.js";
 import {
   buildCamp,
   stepsUnder,
@@ -2025,120 +2024,6 @@ console.log("\nthe mark");
   ok("a tick adds a brick, untick takes it off", withFinished(fin, { id: "a", quest_id: "q1", kind: "task", text: "t", done_on: T }).length === 2 && withFinished(fin, { id: "x", kind: "task", done_on: null }).length === 0);
   ok("a note line never lays a brick", withFinished([], { id: "n", kind: "note", done_on: T }).length === 0);
   ok("counts read", countLine(1, "task", "tasks") === "1 task" && countLine(3, "task", "tasks") === "3 tasks");
-}
-
-// --- Dragons ------------------------------------------------------------------
-{
-  console.log("\ndragons");
-  const T = "2026-10-26";
-  const purse = { start_wins: 100, started_at: "2026-10-23T19:40:51Z" };
-  const egg = (id, kind, bought_on, extra = {}) => ({ id, kind, name: null, bought_on, free: false, created_at: `${bought_on}T12:00:00Z`, ...extra });
-  const spend = (dragon_id, what, cost) => ({ dragon_id, what, cost, day: T });
-
-  ok("five kinds, cheapest egg first, at the sketch's prices", KINDS.map((k) => `${k.kind}${k.egg}`).join() === "boulder40,crest50,dawn70,ember90,night150" && KINDS.every((k) => k.name && k.line && k.eggLine));
-  ok("training in order: fledgling 30, flier 60, rider 120", TRAINING.map((t) => `${t.stage}${t.cost}`).join() === "fledgling30,flier60,rider120" && TRAINING.every((t) => t.line));
-  ok("stages run egg, hatchling, fledgling, flier, rider", STAGES.map((s) => s.stage).join() === "egg,hatchling,fledgling,flier,rider");
-  ok("the purse starts with 100 and an egg hatches on the third banked day", START_WINS === 100 && HATCH_DAYS === 3);
-  ok("a kind it doesn't know still has a name", kindOf("night").name === "Night dragon" && kindOf("wyvern").name === "Dragon");
-
-  // The purse: the start, plus wins since it started, minus everything spent.
-  const fresh = dragonsOf({ purse: null, today: T });
-  ok("before anything: 100 in the purse, nothing earned or spent", fresh.balance === 100 && fresh.start === 100 && fresh.earned === 0 && fresh.spent === 0 && fresh.todayWins === 0 && !fresh.dragons.length);
-  const p = dragonsOf({
-    purse,
-    winsSince: 25,
-    winsToday: 13,
-    dragons: [egg("d1", "dawn", "2026-10-24")],
-    spends: [spend("d1", "egg", 70)],
-    today: T,
-  });
-  ok("100 + 25 wins - a dawn egg (70) leaves 55", p.balance === 55 && p.start === 100 && p.earned === 25 && p.spent === 70);
-  ok("today's wins are counted apart, for the orange", p.todayWins === 13);
-  ok("a purse started with more keeps it", dragonsOf({ purse: { ...purse, start_wins: 250 }, winsSince: 1, today: T }).balance === 251);
-  ok("eggs say how many more wins, or nothing when he can buy", p.nextEgg.map((e) => `${e.kind}:${e.short}`).join() === "boulder:0,crest:0,dawn:15,ember:35,night:95" && p.nextEgg[4].cost === 150);
-  const over = dragonsOf({ purse, winsSince: 0, dragons: [egg("d1", "night", "2026-10-24")], spends: [spend("d1", "egg", 150)], today: T });
-  ok("a purse below nothing (a spent win deleted) shows empty, and what's short still counts the real amount", over.balance === 0 && over.nextEgg[0].short === 90);
-
-  // The free egg: one ever, any kind, once the hatchery stands.
-  ok("the free egg waits for the hatchery", dragonsOf({ purse, today: T }).freeEgg === "locked" && dragonsOf({ purse, hatcheryOn: "2026-10-27", today: T }).freeEgg === "locked");
-  ok("it's ready once the hatchery stands, even on the day it stood", dragonsOf({ purse, hatcheryOn: T, today: T }).freeEgg === "ready");
-  ok("and once taken it's gone, whatever else he buys", dragonsOf({ purse, hatcheryOn: "2026-10-20", dragons: [egg("f", "night", "2026-10-21", { free: true }), egg("d", "dawn", "2026-10-22")], spends: [spend("f", "egg", 0), spend("d", "egg", 70)], today: T }).freeEgg === "used");
-  ok("the free egg costs the purse nothing", dragonsOf({ purse, dragons: [egg("f", "night", "2026-10-24", { free: true })], spends: [spend("f", "egg", 0)], today: T }).balance === 100);
-
-  // Hatching: banked days on or after the later of the day it was bought and
-  // the day the hatchery stood.
-  const hatch = (banked, extra = {}) =>
-    dragonsOf({ purse, winsSince: 40, dragons: [egg("e", "dawn", "2026-10-18")], spends: [spend("e", "egg", 70)], banked, hatcheryOn: "2026-10-20", today: T, ...extra }).dragons[0];
-  const two = hatch(["2026-10-18", "2026-10-19", "2026-10-20", "2026-10-22"]);
-  ok("an egg bought before the hatchery only warms from the day it stood", two.warmth === 2 && two.daysLeft === 1 && !two.hatched && two.stage === "egg" && !two.waiting && two.hatchOn === null);
-  ok("an egg has nothing to train yet", two.next === null && two.short === 0);
-  const three = hatch(["2026-10-19", "2026-10-20", "2026-10-22", "2026-10-24"]);
-  ok("it hatches on the third banked day", three.hatched && three.stage === "hatchling" && three.hatchOn === "2026-10-24" && three.warmth === 3 && three.daysLeft === 0);
-  ok("a hatchling's next stage is fledgling for 30", three.next.stage === "fledgling" && three.next.cost === 30 && three.short === 0);
-  ok("days not banked don't warm it: it waits", hatch(["2026-10-20", "2026-10-25"]).warmth === 2 && hatch([]).warmth === 0 && hatch([]).daysLeft === 3);
-  ok("a day banked twice counts once, and a day after today not yet", hatch(["2026-10-20", "2026-10-20", "2026-10-22", "2026-10-27"]).warmth === 2);
-  ok("unbanking a day takes its warmth back", hatch(["2026-10-20", "2026-10-22"]).hatched === false);
-  const late = dragonsOf({ purse, dragons: [egg("e", "crest", "2026-10-23")], spends: [spend("e", "egg", 50)], banked: ["2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24"], hatcheryOn: "2026-10-20", today: T }).dragons[0];
-  ok("an egg bought after the hatchery stood warms from the day it was bought", late.warmth === 2 && !late.hatched);
-  const before = dragonsOf({ purse, dragons: [egg("e", "crest", "2026-10-20")], spends: [spend("e", "egg", 50)], banked: ["2026-10-21", "2026-10-22", "2026-10-23"], today: T });
-  ok("before the hatchery stands, a bought egg waits for it", before.dragons[0].waiting && before.dragons[0].warmth === 0 && before.eggs.length === 1 && before.hatched.length === 0);
-
-  // Training: stages in order, once trained it stays hatched.
-  const trained = (whats, winsSince = 200, banked = []) =>
-    dragonsOf({ purse, winsSince, dragons: [egg("t", "night", "2026-10-20", { name: "Shade" })], spends: [spend("t", "egg", 150), ...whats.map((w) => spend("t", w, TRAINING.find((x) => x.stage === w).cost))], banked, hatcheryOn: "2026-10-19", today: T }).dragons[0];
-  const fl = trained(["fledgling"]);
-  ok("a fledgling's next is flier for 60", fl.stage === "fledgling" && fl.next.stage === "flier" && fl.next.cost === 60);
-  ok("short is what the purse lacks (100 + 200 - 150 - 30 = 120 > 60)", fl.short === 0 && trained(["fledgling"], 135).short === 5);
-  ok("a trained dragon stays hatched with no banked days", fl.hatched && fl.warmth === 3 && fl.daysLeft === 0 && !fl.waiting);
-  const fi = trained(["fledgling", "flier"], 400);
-  ok("a flier's next is the rider's dragon for 120", fi.stage === "flier" && fi.next.stage === "rider" && fi.next.cost === 120);
-  const ri = trained(["fledgling", "flier", "rider"], 400);
-  ok("a rider's dragon has nothing left to train", ri.stage === "rider" && ri.next === null && ri.short === 0 && ri.name === "Shade");
-  const gap = trained(["flier"], 400, ["2026-10-20", "2026-10-21", "2026-10-22"]);
-  ok("stages only count in order, so a gap can't skip one", gap.stage === "hatchling" && gap.next.stage === "fledgling");
-
-  // A kept hatch (hatched_on, stored the first time the page saw it): a
-  // hatched dragon stays hatched whatever happens to the village later.
-  ok("a hatch the page hasn't kept yet says so, with the day to keep", !three.kept && three.hatchOn === "2026-10-24" && !two.kept);
-  const shade = ({ at, ...row }) =>
-    dragonsOf({ purse, dragons: [egg("n", "night", "2026-11-05", { free: true, name: "Shade", ...row })], spends: [spend("n", "egg", 0)], banked: ["2026-11-05", "2026-11-06", "2026-11-07"], today: "2026-11-08", ...at }).dragons[0];
-  ok("Shade hatched on the third banked day once the hatchery stood", shade({ at: { hatcheryOn: "2026-11-05" } }).stage === "hatchling" && shade({ at: { hatcheryOn: "2026-11-05" } }).hatchOn === "2026-11-07");
-  ok("unticking a task can unstand the hatchery: an unkept hatch goes back to an egg", shade({ at: { hatcheryOn: null } }).stage === "egg");
-  const keptShade = shade({ hatched_on: "2026-11-07", at: { hatcheryOn: null } });
-  ok("a kept hatch stays a hatchling with no hatchery", keptShade.stage === "hatchling" && keptShade.hatched && keptShade.kept && !keptShade.waiting && keptShade.hatchOn === "2026-11-07" && keptShade.next.stage === "fledgling");
-  ok("or with the hatchery moved later, or every day unbanked", shade({ hatched_on: "2026-11-07", at: { hatcheryOn: "2026-11-08" } }).hatched && dragonsOf({ purse, dragons: [egg("n", "night", "2026-11-05", { hatched_on: "2026-11-07" })], today: "2026-11-08" }).hatched.length === 1);
-
-  // Several at once, in the order they were bought.
-  const many = dragonsOf({
-    purse,
-    winsSince: 300,
-    dragons: [egg("b", "boulder", "2026-10-22"), egg("a", "night", "2026-10-20", { free: true, name: "Shade" }), egg("c", "ember", "2026-10-25")],
-    spends: [spend("a", "egg", 0), spend("a", "fledgling", 30), spend("b", "egg", 40), spend("c", "egg", 90)],
-    banked: ["2026-10-20", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"],
-    hatcheryOn: "2026-10-20",
-    today: T,
-  });
-  ok("dragons in the order they were bought", many.dragons.map((d) => d.id).join() === "a,b,c" && many.dragons[0].free && many.dragons[0].boughtOn === "2026-10-20");
-  ok("hatched and eggs split them", many.hatched.map((d) => d.id).join() === "a,b" && many.eggs.map((d) => d.id).join() === "c" && many.eggs[0].warmth === 1);
-  ok("100 + 300 - 0 - 30 - 40 - 90 = 240", many.balance === 240 && many.spent === 160);
-  const paint = paintDragons(many);
-  ok("the painter gets his hatched dragons at their stages", JSON.stringify(paint.dragons) === JSON.stringify([{ id: "a", kind: "night", stage: "fledgling", name: "Shade" }, { id: "b", kind: "boulder", stage: "hatchling", name: null }]));
-  ok("and the eggs warming in the hatchery", JSON.stringify(paint.eggs) === JSON.stringify([{ id: "c", kind: "ember" }]));
-  ok("an egg waiting for the hatchery isn't painted in it", paintDragons(before).eggs.length === 0 && paintDragons(before).dragons.length === 0);
-  ok("nothing loaded paints nothing", JSON.stringify(paintDragons(null)) === '{"dragons":[],"eggs":[]}');
-
-  // The day the hatchery stood, from the village.
-  const units = [1, 2, 3].map((n) => ({ id: `h${n}`, quest_id: "q1", kind: "task", text: "t", done_on: `2026-10-2${n}`, done_at: `2026-10-2${n}T10:00:00Z` }));
-  const raw = { projects: [{ id: "p0", kind: "hatchery", seed: 1, plot: 0, need: 2, started_on: "2026-10-20" }], tasks: units, steps: [] };
-  ok("the hatchery stood the day its last task was laid", hatcheryDay(villageOf(raw, T)) === "2026-10-22");
-  ok("from allocate() or a list of builds too", hatcheryDay(allocate(raw.projects, finishedUnits(raw))) === "2026-10-22" && hatcheryDay([{ kind: "hatchery", complete: true, finishedOn: "2026-10-01" }]) === "2026-10-01");
-  ok("a hatchery still going up hasn't stood", hatcheryDay(villageOf({ ...raw, tasks: units.slice(0, 1) }, T)) === null && hatcheryDay(villageOf({ ...raw, projects: [{ ...raw.projects[0], kind: "chapel" }] }, T)) === null);
-  ok("with two hatcheries, the first one counts", hatcheryDay([{ kind: "hatchery", complete: true, finishedOn: "2026-11-02" }, { kind: "hatchery", complete: true, finishedOn: "2026-10-30" }]) === "2026-10-30" && hatcheryDay(null) === null);
-
-  // The words.
-  ok("wins read", winsLine(64) === "64 wins" && winsLine(1) === "1 win" && winsLine(1300) === "1,300 wins");
-  ok("an egg says how many more banked days, never a countdown", hatchLine(two) === "Hatches the next day you bank" && hatchLine(hatch(["2026-10-20"])) === "Hatches after 2 more banked days" && hatchLine(hatch([])) === "Hatches after 3 banked days" && hatchLine(before.dragons[0]) === "Waits for the hatchery");
-  ok("a dragon says its stage and the next", stageLine(fl) === "Fledgling · next, flier" && stageLine(three) === "Hatchling · next, fledgling" && stageLine(fi) === "Flier · next, rider's dragon" && stageLine(ri) === "Rider's dragon");
 }
 
 function sectionOf({ x, y }) {
