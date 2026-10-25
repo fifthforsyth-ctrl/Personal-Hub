@@ -1,10 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Egg, Map as MapIcon, Target, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Map as MapIcon, Target, Users } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { addVillageProject, fetchVillage, keepHatches, updateVillageProject } from "../lib/api";
+import { addVillageProject, fetchVillage, updateVillageProject } from "../lib/api";
 import { ARROWS_PER_SOLDIER, CATALOG, SIZES, bowFor, buildOf, seedFor, shortName, soldiersFor, villageOf } from "../lib/village";
-import { dragonsOf, hatcheryDay, paintDragons } from "../lib/dragons";
 import { TIERS } from "../lib/mark";
 import { parseDateStr, todayStr } from "../lib/planDates";
 import { countLine } from "../lib/questTasks";
@@ -12,7 +11,7 @@ import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
 import { useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
-import Painting, { rememberDragons } from "../village/Painting";
+import Painting from "../village/Painting";
 import "../styles/village.css";
 
 // The village, painted: he chooses what to build from the catalog, and
@@ -20,8 +19,7 @@ import "../styles/village.css";
 // pieces on it until it stands; then he chooses the next. The build going
 // up is painted as it stands right now (src/village/paint.js), with
 // today's pieces in orange and what's still to come in pencil, and every
-// build that stands hangs below it, the dragon builds with his own dragons
-// painted in. Under it: the purse and the dragons, the soldiers his arrows
+// build that stands hangs below it. Under it: the soldiers his arrows
 // train, the people he has done temple work for, and the old survey map
 // (/village/map), where the soldiers drill and the replay runs.
 //
@@ -29,7 +27,7 @@ import "../styles/village.css";
 // ?choose=<kind> to point at one), which is Build something else while a
 // build is going up; and one build (/village?build=<id>), with what laid
 // it. The quests page links to all three. The data is shaped in
-// src/lib/village.js and src/lib/dragons.js.
+// src/lib/village.js.
 
 const day = (s) => (s ? parseDateStr(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
 const firstLine = (s) => {
@@ -51,23 +49,8 @@ export default function Village() {
   const location = useLocation();
   const toast = useToast();
   const today = useMemo(() => todayStr(), []);
-  const { data: raw, error, loading, reload, mutate } = useLoad(() => (userId ? fetchVillage(userId, today) : null), [userId, today]);
+  const { data: raw, error, loading, reload } = useLoad(() => (userId ? fetchVillage(userId, today) : null), [userId, today]);
   const village = useMemo(() => (raw ? villageOf(raw, today) : null), [raw, today]);
-  const purse = useMemo(() => (raw?.dragons && village ? dragonsOf({ ...raw.dragons, hatcheryOn: hatcheryDay(village), today }) : null), [raw, village, today]);
-  const his = useMemo(() => paintDragons(purse), [purse]);
-  useEffect(() => {
-    if (purse) rememberDragons(his);
-  }, [purse, his]);
-  // An egg seen hatched is kept hatched, as on the dragons page.
-  useEffect(() => {
-    const fresh = purse?.hatched.filter((d) => !d.kept && d.hatchOn) ?? [];
-    if (!fresh.length) return;
-    keepHatches(fresh, today).then((rows) => {
-      if (!rows.length) return;
-      const on = new Map(rows.map((r) => [r.id, r.hatched_on]));
-      mutate((r) => r?.dragons && { ...r, dragons: { ...r.dragons, dragons: r.dragons.dragons.map((x) => (on.has(x.id) ? { ...x, hatched_on: on.get(x.id) } : x)) } });
-    });
-  }, [purse, today, mutate]);
 
   const search = new URLSearchParams(location.search);
   const buildId = search.get("build");
@@ -91,8 +74,6 @@ export default function Village() {
   const back = () => (location.state?.inVillage ? navigate(-1) : navigate("/village", { replace: true }));
 
   const going = village && village.current >= 0 ? village.projects[village.current] : null;
-  // A dragon build is painted with his dragons in it; the rest as the sketch has them, without.
-  const dragonsFor = (kind) => (buildOf(kind).dragon ? his : null);
 
   // Choose a build: a new one on the next plot, or (while one is going up)
   // something else on its plot, keeping the tasks already laid. While it
@@ -159,9 +140,8 @@ export default function Village() {
         village={village}
         today={today}
         slot={slotOf(opened)}
-        live={opened.id === now?.id || Boolean(dragonsFor(opened.kind))}
+        live={opened.id === now?.id}
         keep={opened.id === now?.id}
-        dragons={dragonsFor(opened.kind)}
         onBack={back}
         onChoose={() => go("/village?choose")}
       />
@@ -175,12 +155,12 @@ export default function Village() {
       {error && <LoadError what="your village" error={error} onRetry={reload} stale />}
 
       {now ? (
-        <Now p={now} today={today} dragons={dragonsFor(now.kind)} onOpen={() => go(`/village?build=${now.id}`)} onChoose={() => go("/village?choose")} />
+        <Now p={now} today={today} onOpen={() => go(`/village?build=${now.id}`)} onChoose={() => go("/village?choose")} />
       ) : (
         <Empty village={village} onChoose={() => go("/village?choose")} />
       )}
 
-      <Strip village={village} purse={purse} />
+      <Strip village={village} />
 
       <section className="vl-section" aria-labelledby="vl-standing">
         <div className="vl-section__head">
@@ -192,7 +172,7 @@ export default function Village() {
         {standing.length ? (
           <ul className="vl-stood">
             {standing.map((p) => (
-              <Stood key={p.id} p={p} today={today} dragons={dragonsFor(p.kind)} onOpen={() => go(`/village?build=${p.id}`)} />
+              <Stood key={p.id} p={p} today={today} onOpen={() => go(`/village?build=${p.id}`)} />
             ))}
           </ul>
         ) : (
@@ -256,7 +236,7 @@ function Legend({ laid }) {
 }
 
 function Tags({ c, extra = [] }) {
-  const tags = [...(c.dragon ? [["Dragon", "dragon"]] : []), ...(c.tag ? [[c.tag, c.tag === "New" ? "new" : ""]] : []), ...extra.map((t) => [t, ""])];
+  const tags = [...(c.tag ? [[c.tag, c.tag === "New" ? "new" : ""]] : []), ...extra.map((t) => [t, ""])];
   if (!tags.length) return null;
   return (
     <span className="vl-tags">
@@ -271,7 +251,7 @@ function Tags({ c, extra = [] }) {
 
 // --- The build going up ------------------------------------------------------------
 
-function Now({ p, today, dragons, onOpen, onChoose }) {
+function Now({ p, today, onOpen, onChoose }) {
   const laid = laidOn(p, today);
   const stands = p.complete;
   const c = buildOf(p.kind);
@@ -284,8 +264,6 @@ function Now({ p, today, dragons, onOpen, onChoose }) {
           done={p.done}
           need={p.need}
           laid={laid}
-          dragons={dragons?.dragons}
-          eggs={dragons?.eggs}
           live
           stands={stands}
           alt={`${cap(the(p))} as it stands, ${p.done} of ${p.need} tasks in.`}
@@ -343,7 +321,7 @@ function Empty({ village, onChoose }) {
         <p className="vl-line">
           {waiting
             ? `${countLine(waiting, "finished task is", "finished tasks are")} waiting to lay the first pieces.`
-            : "A forge, a hatchery, a citadel for the dragons… every task you finish lays its pieces on it."}
+            : "A forge, a watchtower, a citadel… every task you finish lays its pieces on it."}
         </p>
         <div className="vl-actions">
           <button type="button" className="btn btn--sm btn--accent" onClick={onChoose}>
@@ -355,37 +333,14 @@ function Empty({ village, onChoose }) {
   );
 }
 
-// --- The dragons, soldiers, villagers and the map ---------------------------------------
+// --- The soldiers, villagers and the map ---------------------------------------
 
-function Strip({ village, purse }) {
+function Strip({ village }) {
   const soldiers = soldiersFor(village.arrows.length);
   const bow = TIERS[bowFor(village.bullseyes.length)];
   const folk = village.villagers.length;
-  const hatched = purse?.hatched.length ?? 0;
-  const eggs = purse?.eggs.length ?? 0;
-  const kept = [hatched ? countLine(hatched, "dragon", "dragons") : null, eggs ? countLine(eggs, "egg", "eggs") : null].filter(Boolean).join(", ");
   return (
     <nav className="vl-strip" aria-label="Who lives in the village">
-      <Link to="/dragons" className="card vl-tile">
-        <span className="vl-tile__label">
-          <Egg size={14} strokeWidth={2} aria-hidden="true" />
-          Dragons
-        </span>
-        {purse ? (
-          <>
-            <span className="vl-tile__n">
-              <b>{purse.balance.toLocaleString("en-US")}</b> {purse.balance === 1 ? "win" : "wins"}
-              {purse.todayWins > 0 && <em>+{purse.todayWins} today</em>}
-            </span>
-            <span className="vl-tile__sub">{kept || "No dragons yet"}</span>
-          </>
-        ) : (
-          <>
-            <span className="vl-tile__n vl-tile__n--words">Wins raise them</span>
-            <span className="vl-tile__sub">Eggs, hatching and training</span>
-          </>
-        )}
-      </Link>
       <Link to="/ascent" className="card vl-tile">
         <span className="vl-tile__label">
           <Target size={14} strokeWidth={2} aria-hidden="true" />
@@ -422,8 +377,7 @@ function Strip({ village, purse }) {
 
 // --- What stands ---------------------------------------------------------------------
 
-function Stood({ p, today, dragons, onOpen }) {
-  const c = buildOf(p.kind);
+function Stood({ p, today, onOpen }) {
   return (
     <li>
       <button type="button" className="card card--flush vl-card" onClick={onOpen}>
@@ -433,9 +387,6 @@ function Stood({ p, today, dragons, onOpen }) {
           done={p.done}
           need={p.need}
           laid={laidOn(p, today)}
-          dragons={dragons?.dragons}
-          eggs={dragons?.eggs}
-          live={Boolean(dragons)}
           keep={false}
           stands
           lazy
@@ -446,7 +397,6 @@ function Stood({ p, today, dragons, onOpen }) {
           <span className="vl-card__meta">
             {p.finishedOn === today ? "Stood today" : `Stood ${day(p.finishedOn)}`} · {countLine(p.need, "task", "tasks")}
           </span>
-          {c.dragon && <Tags c={{ dragon: true }} />}
         </span>
       </button>
     </li>
@@ -455,7 +405,7 @@ function Stood({ p, today, dragons, onOpen }) {
 
 // --- One build, and what laid it ---------------------------------------------------------
 
-function Build({ p, village, today, slot, live, keep, dragons, onBack, onChoose }) {
+function Build({ p, village, today, slot, live, keep, onBack, onChoose }) {
   const c = buildOf(p.kind);
   const laid = laidOn(p, today);
   const going = village.current >= 0 && village.projects[village.current].id === p.id;
@@ -479,8 +429,6 @@ function Build({ p, village, today, slot, live, keep, dragons, onBack, onChoose 
             done={p.done}
             need={p.need}
             laid={laid}
-            dragons={dragons?.dragons}
-            eggs={dragons?.eggs}
             live={live}
             keep={keep}
             stands={p.complete}
@@ -570,7 +518,7 @@ function Choose({ village, going, point, saving, onBuild, onBack }) {
   // Build something else asks first, in place: it replaces what's going up.
   const [asking, setAsking] = useState(null);
 
-  // ?choose=<kind> points at one (the dragons page asks for the hatchery).
+  // ?choose=<kind> points at one.
   useEffect(() => {
     if (!point || !CATALOG.some((c) => c.kind === point)) return;
     document.getElementById(`vl-opt-${point}`)?.scrollIntoView({ block: "center" });
@@ -592,8 +540,7 @@ function Choose({ village, going, point, saving, onBuild, onBack }) {
               : `Nothing is laid on ${the(going)} yet, so nothing is lost.`
             : laid
               ? `${countLine(laid, "finished task is", "finished tasks are")} waiting, and they lay the first pieces the moment you choose.`
-              : "Every task you finish, on any quest or lesson, lays its pieces on it until it stands. Then you choose the next."}{" "}
-          Your dragons live in the dragon builds.
+              : "Every task you finish, on any quest or lesson, lays its pieces on it until it stands. Then you choose the next."}
         </p>
       </header>
 
