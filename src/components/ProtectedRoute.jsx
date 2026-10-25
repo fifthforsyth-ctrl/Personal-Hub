@@ -12,7 +12,6 @@ import ErrorBoundary from "./ErrorBoundary";
 // switcher and browser history all say where you were.
 const TITLES = [
   ["/evening", "Evening"],
-  ["/overview", "Big picture"],
   ["/day", "Day"],
   ["/plan", "Week"],
   ["/study", "Board"],
@@ -23,9 +22,7 @@ const TITLES = [
   ["/village/map", "Village map"],
   ["/village", "Village"],
   ["/tree", "Goal wheel"],
-  ["/reflect", "Charts"],
   ["/spirit", "Promptings & prayer"],
-  ["/links", "Goal links"],
 ];
 
 function titleFor(pathname) {

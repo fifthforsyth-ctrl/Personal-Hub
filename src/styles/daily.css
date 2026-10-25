@@ -329,13 +329,6 @@
 .curated-card__say { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .curated-card__say .input { flex: 1; min-width: 0; font-size: 13px; }
 
-/* --- Big picture ----------------------------------------------------------- */
-
-.overview-today { grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); align-items: start; }
-@media (max-width: 700px) {
-  .overview-today { grid-template-columns: minmax(0, 1fr); }
-}
-
 /* --- Reflection, close-out and the banked card ----------------------------- */
 
 /* Four steps, each a 4px bar inside a 24px-tall target, so jumping back to a

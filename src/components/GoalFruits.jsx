@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Sprout, Link2 } from "lucide-react";
+import { Sprout } from "lucide-react";
 import { fetchGoalCredit } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import LoadError from "./ui/LoadError";
@@ -15,8 +14,7 @@ function fmtHours(minutes) {
 
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-// A goal's share of the busiest one, on the same light ramp as the Year view
-// and the Charts heatmap.
+// A goal's share of the busiest one, on the same light ramp as the Year view.
 const shade = (share) => intensityColor(share);
 const LEGEND_STEPS = [0.1, 0.4, 0.7, 1].map(shade);
 
@@ -74,16 +72,7 @@ export default function GoalFruits({ startDate, endDate, title = "The fruits" })
       {error && <LoadError what="what fed your goals" error={error} onRetry={reload} stale={Boolean(rows)} className="goal-fruits__error" />}
 
       {rows?.length === 0 && (
-        <>
-          <p className="card-note">
-            Nothing here traces to a goal yet. Entries link to your goals through what you track — set that up once and this fills
-            in for every day you've already logged.
-          </p>
-          <Link to="/links" className="btn-link btn-link--accent goal-fruits__setup">
-            <Link2 size={13} />
-            Set up goal links
-          </Link>
-        </>
+        <p className="card-note">Nothing here traces to a goal yet.</p>
       )}
 
       {roots.map((root) => {

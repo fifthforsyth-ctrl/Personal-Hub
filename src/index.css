@@ -336,18 +336,6 @@ button { cursor: pointer; touch-action: manipulation; }
 .grid--stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .grid--halves { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
-/* The desktop home: wheel and lifetime pie side by side above everything. */
-.dash {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 1000px) {
-  .dash { grid-template-columns: 1fr; }
-}
-
 /* ---------------------------------------------------------------------------
    Stat tiles — label, big number, footnote. Straight from the reference.
    --------------------------------------------------------------------------- */
@@ -835,26 +823,13 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .legend-item.dim { opacity: 0.4; }
 
-/* Big picture's categories, all time: each row lights its slice of the ring. */
-.stack.lifetime-rows { gap: 6px; }
-.lifetime-row {
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 3px 0;
-  color: inherit;
-  transition: opacity 0.12s;
-}
-
-/* A legend row, a ranked bar or a category row lights its slice: on a phone
+/* A legend row or a ranked bar lights its slice: on a phone
    that's a tap, so each row is a thumb's height. */
 @media (max-width: 900px) {
   .legend { row-gap: 0; }
   .legend-item { min-height: 36px; }
-  .stack.ranked-bars,
-  .stack.lifetime-rows { gap: 0; }
+  .stack.ranked-bars { gap: 0; }
   .btn-link.ranked-bar { padding: 5px 0; }
-  .lifetime-row { min-height: 36px; }
 }
 
 /* ---------------------------------------------------------------------------

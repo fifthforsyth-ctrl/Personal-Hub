@@ -501,43 +501,6 @@ export async function updateBodyMetric(id, value) {
   if (error) throw error;
 }
 
-// A range's practice for Charts: temple visits, workouts, naps and study
-// (the entries), with the weight readings taken in it. Examples are left out.
-export async function fetchPractice(userId, startDate, endDate) {
-  const from = new Date(`${startDate}T00:00:00`).toISOString();
-  const to = new Date(`${addDays(endDate, 1)}T00:00:00`).toISOString();
-  // The range's ended, real entries, narrowed one way or the other: naps,
-  // or anything tagged Temple, Exercise or Study.
-  const ended = (narrow) =>
-    narrow(
-      supabase
-        .from("time_log_entries")
-        .select("id, started_at, duration_minutes, tags, category, is_nap, exercise_kind, alertness, is_example")
-        .eq("user_id", userId)
-        .eq("is_example", false)
-        .not("ended_at", "is", null)
-        .gte("started_at", from)
-        .lt("started_at", to)
-    ).limit(3000);
-  const [naps, tagged, weights] = await Promise.all([
-    ended((q) => q.eq("is_nap", true)),
-    ended((q) => q.overlaps("tags", ["Temple", "Exercise", "Study"])),
-    supabase
-      .from("body_metrics")
-      .select("id, date, measured_at, value, unit")
-      .eq("user_id", userId)
-      .eq("kind", "weight")
-      .eq("is_example", false)
-      .gte("date", startDate)
-      .lte("date", endDate)
-      .order("measured_at", { ascending: true }),
-  ]);
-  for (const r of [naps, tagged, weights]) if (r.error) throw r.error;
-  // A nap tagged Study as well comes back from both; it counts once.
-  const entries = new Map([...(naps.data ?? []), ...(tagged.data ?? [])].map((e) => [e.id, e]));
-  return { entries: [...entries.values()], weights: weights.data ?? [] };
-}
-
 // Readings of one kind, newest first. Examples are left out.
 export async function fetchBodyMetrics(userId, { kind = "weight", sinceISO, limit = 400 } = {}) {
   let q = supabase
@@ -785,29 +748,10 @@ export async function fetchPlanSummary(startDate, endDate) {
   return data ?? [];
 }
 
-// ---------------------------------------------------------------------------
-// Phase 1 — Reflection. Every rollup is computed in the database, so asking
-// an 18-month question costs one round trip instead of downloading every
-// entry in the range.
-// ---------------------------------------------------------------------------
-
+// The time zone this device is in, which the database's day-by-day rollups
+// count days in.
 function localZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
-async function reflectionRpc(name, startDate, endDate) {
-  const { data, error } = await supabase.rpc(name, { p_start: startDate, p_end: endDate, p_tz: localZone() });
-  if (error) throw error;
-  return data ?? [];
-}
-
-export const fetchTimeByCategory = (s, e) => reflectionRpc("time_by_category", s, e);
-export const fetchHabitStrength = (s, e) => reflectionRpc("habit_strength", s, e);
-export const fetchProductivityHeatmap = (s, e) => reflectionRpc("productivity_heatmap", s, e);
-
-export async function fetchReflectionTotals(startDate, endDate) {
-  const rows = await reflectionRpc("reflection_totals", startDate, endDate);
-  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,64 +1002,8 @@ export async function saveJournalEntry(userId, dateStr, fields) {
 }
 
 // ---------------------------------------------------------------------------
-// Goal linking — mapping categories/habits onto the tree, and the credit
-// that flows up it.
+// Goal linking — the credit that flows up the tree.
 // ---------------------------------------------------------------------------
-
-export async function fetchGoalMappings(userId) {
-  const { data, error } = await supabase
-    .from("goal_mappings")
-    .select("*")
-    .eq("user_id", userId)
-    .order("source_kind", { ascending: true })
-    .order("source_value", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
-}
-
-// Distinct values actually present in the logs, so the setup screen lists
-// what you really track rather than what you once typed. Counted in the
-// database: downloading the entries to count them stopped at the API's
-// 1,000-row page, and categories went missing as the log grew.
-export async function fetchMappableSources() {
-  const { data, error } = await supabase.rpc("mappable_sources");
-  if (error) throw error;
-  return (data ?? []).map((r) => ({ ...r, count: Number(r.count) || 0 }));
-}
-
-export async function upsertGoalMapping(userId, { sourceKind, sourceValue, goalNodeId, confirmed }) {
-  const { error } = await supabase.from("goal_mappings").upsert(
-    {
-      user_id: userId,
-      source_kind: sourceKind,
-      source_value: sourceValue,
-      goal_node_id: goalNodeId || null,
-      origin: "manual",
-      confirmed: confirmed ?? true,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,source_kind,source_value" }
-  );
-  if (error) throw error;
-}
-
-export async function confirmGoalMappings(userId, ids) {
-  const { error } = await supabase
-    .from("goal_mappings")
-    .update({ confirmed: true, updated_at: new Date().toISOString() })
-    .eq("user_id", userId)
-    .in("id", ids);
-  if (error) throw error;
-}
-
-// Brings every entry the confirmed mappings own into line with them: a
-// changed link moves its past entries, an unlinked one lets them go. Links
-// you or the assistant chose are left alone. Returns how many changed.
-export async function applyGoalMappings() {
-  const { data, error } = await supabase.rpc("apply_goal_mappings", { p_only_confirmed: true });
-  if (error) throw error;
-  return data;
-}
 
 // What fed which goal over a range, with credit rolled up to ancestors.
 export async function fetchGoalCredit(startDate, endDate) {
@@ -1175,14 +1063,6 @@ function callAssistant(action, payload = {}) {
 // cannot read off your own logs.
 export function proposePlans({ notes, forDate } = {}) {
   return callAssistant("propose_plan", { notes: notes || null, for_date: forDate || null });
-}
-
-// "Map out my sleep over the past 6 months." The question goes to the
-// assistant, which writes a read-only query against your own tables and
-// picks a chart form for the answer; the query runs server-side under your
-// RLS, so nothing it can reach is anything you couldn't already read.
-export function askChart(question) {
-  return callAssistant("ask_chart", { question });
 }
 
 // Reads descriptions over a date range and proposes which goal each stretch
@@ -1686,15 +1566,6 @@ export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {
 // ---------------------------------------------------------------------------
 // Phase 5 — the Day Card and the desktop home.
 // ---------------------------------------------------------------------------
-
-// Everything ever logged, by tag. The pie on the home page is explicitly a
-// lifetime view, so the window starts before any row could exist rather than
-// at some arbitrary "far enough back".
-export function fetchLifetimeByCategory() {
-  const end = new Date();
-  end.setDate(end.getDate() + 1);
-  return reflectionRpc("time_by_category", "1970-01-01", end.toISOString().slice(0, 10));
-}
 
 // Notes you leave for a day before its plan is drafted. Upserts the day_plan
 // row, which may not exist yet on a day nothing has touched.
