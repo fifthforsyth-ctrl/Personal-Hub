@@ -10,9 +10,9 @@
 // village and the lists can never disagree, and unticking a task takes its
 // bricks back off.
 //
-// Everything here is pure. The paintings are src/village/paint.js, shown on
-// the village page (src/pages/Village.jsx); the old survey map, with the
-// soldiers, villagers and the replay, is src/village/engine.js.
+// Everything here is pure. The paintings are src/village/paint.js; the
+// village in 3D, with the soldiers, villagers and the replay, is
+// src/village/world.js under the village page (src/pages/Village.jsx).
 
 import { addDays, parseDateStr } from "./planDates.js";
 import { tierOf } from "./mark.js";
