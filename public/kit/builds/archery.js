@@ -1,7 +1,7 @@
 // Archery range: a covered shooting line of stave posts under a charcoal slate roof with dragon-head finials, its open
 // front to the sun and the lane; a roped lane out to three straw butts on trestles, painted on both faces so they can
-// be shot from either end, and a bale backstop; a tall riders' mast with an iron hoop and a swinging target for
-// shooting from dragonback; a bow rack, quivers, and a fletcher at his table. Laid out in the range's own frame (+x
+// be shot from either end, and a bale backstop; a tall target mast with an iron hoop and a swinging target to shoot
+// at aloft; a bow rack, quivers, and a fletcher at his table. Laid out in the range's own frame (+x
 // along the shooting line, +z down the lane): the lane and its rope, the shed from its pads to the ridge, the bows, the
 // butts, the mast, the fletcher's corner, and last the people.
 (function () {
@@ -14,8 +14,6 @@
   // the range frame in the build: origin and turn
   var TH = 0.17, OX = -1.9, OZ = -1.15;
   function W(lx, lz) { var c = Math.cos(TH), s = Math.sin(TH); return [OX + lx * c + lz * s, OZ - lx * s + lz * c]; }
-  function R2(v) { return Math.round(v * 100) / 100; }
-  function WP(lx, y, lz, ry) { var w = W(lx, lz); return { x: R2(w[0]), y: y, z: R2(w[1]), ry: R2(ry + TH) }; }
   // the island sinks its turf a little along the path; things standing near it are set down to match
   var PATH = [[-4.9, 6.9], [-3.9, 3.6], [-3.0, 0.4]];
   function sinkAt(lx, lz) {
@@ -191,12 +189,11 @@
 
   KIT.defineBuild('archery', {
     name: 'Archery range', size: 'small', need: 24,
-    line: 'A covered shooting line under a slate roof, a roped lane out to straw butts, and a tall riders’ mast with a hoop to shoot through from dragonback.',
+    line: 'Archers at full draw on a covered shooting line under a slate roof, a roped lane out to straw butts, and a tall mast hung with an iron hoop and a swinging target.',
     r: 8.2, flat: [13.5, 13], ground: 'grass', path: PATH,
     frameY: 1.5, frameR: 7.7, glowAt: [W(SL / 2, -SD / 2)[0], EAVE + RISE + 0.35, W(SL / 2, -SD / 2)[1]],
     trees: [{ x: -5.7, z: -3.3, kind: 'pine', h: 6.6 }, { x: -2.2, z: -6.4, kind: 'pine', h: 5.6 }, { x: 6.0, z: -2.8, kind: 'birch', h: 5.4 }],
     bushes: [{ x: 5.9, z: 0.9, r: 0.65, flowers: '#f3f1ec' }, { x: -6.0, z: 1.2, r: 0.7 }, { x: 1.6, z: -6.2, r: 0.7 }],
-    perches: [WP(MX, MH + 0.16, MZ, 0.6), WP(SL / 2, EAVE + RISE + 0.2, -SD / 2, -Math.PI / 2), WP(6.0, 0, -1.2, -0.6)],
     build: function (b) {
       b.push(OX, 0, OZ, TH);
 
@@ -356,7 +353,7 @@
         for (var g = 0; g < 12; g++) { var t = TG[g % 3]; b.grass(t.x + b.j(0.9), 0, t.z + b.j(0.5) + 0.2, 0.18 + b.r() * 0.1); }
       });
 
-      b.part('Riders’ mast');
+      b.part('Target mast');
       b.unit(function () {
         b.lathe(MX, -0.06, MZ, [[0.95, 0], [0.9, 0.18], [0.62, 0.36], [0.32, 0.42]], { c: 'stoneDark', m: M.stone, seg: 9, flat: true });
         for (var k = 0; k < 7; k++) { var a = k / 7 * 6.28 + 0.3; b.rock(MX + Math.cos(a) * 0.9, 0.02, MZ + Math.sin(a) * 0.9, 0.24 + b.r() * 0.1); }
@@ -374,7 +371,7 @@
         vShield(b, sp[0], 1.55, sp[2], MRY + 1.0, 0.36, 'cross', 'ink', 'bone');
       });
       b.unit(function () {
-        // the arm the riders' targets hang from, a brace under it, a head on its end looking out
+        // the arm the targets hang from, a brace under it, a head on its end looking out
         b.push(MX, 0, MZ, MRY);
         b.beam([-0.15, 4.5, 0], [2.15, 4.5, 0], 0.08, { c: 'beam' });
         b.beam([0.12, 3.55, 0], [1.0, 4.44, 0], 0.055, { c: 'beam' });
@@ -383,7 +380,7 @@
       });
       b.unit(function () {
         b.push(MX, 0, MZ, MRY);
-        // an iron hoop to fly through and a small boss that swings in the wind
+        // an iron hoop to shoot through and a small boss that swings in the wind
         [-0.16, 0.16].forEach(function (d) { b.beam([0.85 + d, 4.42, 0], [0.85 + d * 2.4, 3.88, 0], 0.012, { c: 'rope', m: M.rope, round: true, seg: 4 }); });
         b.addGeo(new T.TorusGeometry(0.42, 0.03, 5, 28), { x: 0.85, y: 3.46, z: 0, c: 'iron', m: M.metal });
         for (var k = 0; k < 6; k++) { var a = k / 6 * 6.28; b.box(0.85 + Math.cos(a) * 0.42, 3.46 + Math.sin(a) * 0.42, 0, 0.05, 0.07, 0.065, { rz: a, c: 'bone', m: M.cloth, bevel: 0 }); }
@@ -392,7 +389,7 @@
         b.pop();
       });
       b.unit(function () {
-        // the perch on top: a ring of planks on brackets, an ember pennant
+        // the crow's nest on top: a ring of planks on brackets, an ember pennant
         b.cyl(MX, MH, MZ, 0.78, 0.1, { c: 'wood', m: M.wood, seg: 12, flat: true });
         for (var k = 0; k < 6; k++) { var a = k / 6 * 6.28; b.beam([MX + Math.cos(a) * 0.15, MH - 0.75, MZ + Math.sin(a) * 0.15], [MX + Math.cos(a) * 0.65, MH - 0.02, MZ + Math.sin(a) * 0.65], 0.04, { c: 'beam' }); }
         b.addGeo(new T.TorusGeometry(0.76, 0.06, 5, 16), { x: MX, y: MH + 0.11, z: MZ, rx: Math.PI / 2, c: 'woodDark', m: M.wood });

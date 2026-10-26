@@ -229,66 +229,6 @@
 .board-tree__row.is-on .board-tree__open { color: var(--text); font-weight: 620; }
 .board-tree__open > svg { flex-shrink: 0; color: var(--text-3); }
 
-/* --- From the vault ---------------------------------------------------------- */
-
-.board-vault__toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 40px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-.board-vault__icon { color: var(--text-3); flex-shrink: 0; }
-.board-vault__text { flex: 1; min-width: 0; }
-.board-vault__title { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-.board-vault__sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
-.board-vault__body { margin-top: 16px; }
-.board-vault__section + .board-vault__section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
-.board-vault__label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; font-weight: 640; }
-.board-vault__label > svg { color: var(--text-3); }
-
-.board-source {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 52px;
-  margin-bottom: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--card);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-.board-source:disabled { opacity: 0.55; }
-@media (hover: hover) { .board-source:not(:disabled):hover { border-color: var(--line-strong); } }
-
-.board-snippet { margin-bottom: 8px; padding: 13px; border: 1px solid var(--line); border-radius: var(--r); }
-.board-snippet.is-kept { background: var(--surface); }
-.board-snippet__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.board-snippet__kept { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--good-text); }
-.board-snippet .board-quote { margin-bottom: 9px; font-size: 13.5px; }
-.board-snippet__essence { margin-bottom: 8px; font-family: var(--font-serif); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.board-snippet__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.board-snippet__why { display: flex; align-items: flex-start; gap: 5px; min-width: 0; flex: 1; font-size: 12px; color: var(--text-2); line-height: 1.45; }
-.board-snippet__why > svg { flex-shrink: 0; margin-top: 2px; }
-
-.board-overnight { margin-bottom: 7px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); }
-.board-overnight__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.board-overnight__text { font-family: var(--font-serif); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
-.board-overnight__ref { margin-top: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-2); }
-.board-overnight.is-dropped { background: var(--surface); }
-.board-overnight.is-dropped .board-overnight__text { text-decoration: line-through; color: var(--text-2); }
-.board-overnight .btn { min-height: 36px; }
-
 /* --- Bits ------------------------------------------------------------------- */
 
 /* There for a screen reader when the title isn't shown. */

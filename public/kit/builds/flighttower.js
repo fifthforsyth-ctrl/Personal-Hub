@@ -1,10 +1,9 @@
-// Flight tower: a tall round stone tower where the dragons take off. Three timber launch platforms jut out at
-// different heights on heavy struts, each with its own doorway into the tower; a lookout under a slate cone roof
-// with the orange pennant on top; a winch and a hoist boom on the low platform, ladders, round shields on the rails,
-// carved dragon-head posts at the platform tips, and the night-dragon banner over the door.
+// Round tower (kind 'flighttower'): a tall round stone tower. Three timber platforms jut out at different heights on
+// heavy struts, each with its own doorway into the tower; a lookout under a slate cone roof with the orange pennant on
+// top; a winch and a hoist boom on the low platform, ladders, round shields on the rails, carved dragon-head posts at
+// the platform tips, and the black banner over the door.
 // Built footings first, the tower course by course, each platform (corbels, struts, joists, deck plank by plank,
-// rails) as the wall reaches it, the lookout and the roof row by row, then the yard, and last the dragons and people.
-// It roosts two dragons: the dawn dragon perched on the middle platform and the night dragon launching off the top.
+// rails) as the wall reaches it, the lookout and the roof row by row, then the yard, and last the people.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL, U = KIT.util;
   function V(x, y, z) { return new T.Vector3(x, y, z); }
@@ -13,7 +12,7 @@
   var TX = -1.0, TZ = -0.6, Y0 = 0.45, YT = 12.4, R0 = 2.7, R1 = 2.3, TH = 0.62;
   function rAt(y) { return R0 - (R0 - R1) * U.clamp((y - Y0) / (YT - Y0), 0, 1); }
   function rOut(y) { return rAt(y) + TH / 2; }
-  // the three launch platforms: a = the angle they jut out at (0 = +x, PI/2 = +z, the front), yd = deck top,
+  // the three platforms: a = the angle they jut out at (0 = +x, PI/2 = +z, the front), yd = deck top,
   // L = how far they reach past the wall, W = width
   var PLAT = [
     { name: 'Low platform', a: 0.3, yd: 3.6, L: 3.6, W: 2.6 },
@@ -24,11 +23,6 @@
   // a point in a platform's own frame (x across it, z out from the tower's axis) in the build's frame
   function pw(P, x, y, z) { var s = Math.sin(P.a), c = Math.cos(P.a); return [TX + x * s + z * c, y, TZ - x * c + z * s]; }
   function polar(a, r, y) { return [TX + Math.cos(a) * r, y, TZ + Math.sin(a) * r]; }
-  // a world point turned into a dragon's own frame (o.look is read before ry and scale)
-  function flighttowerLook(dx, dy, dz, ry, s, wx, wy, wz) {
-    var x = wx - dx, y = wy - dy, z = wz - dz, c = Math.cos(-ry), sn = Math.sin(-ry);
-    return [(x * c + z * sn) / s, y / s, (-x * sn + z * c) / s];
-  }
 
   // ---- poses
   // climbing a ladder that leans away in front (+z): one foot a rung up, hands high on the rails
@@ -37,7 +31,7 @@
   KIT.people.poses.flighttowerCrank = function () { return { feet: [V(-0.2, 0.09, 0.12), V(0.17, 0.09, -0.22)], hands: [V(-0.12, 0.98, 0.5), V(0.08, 1.08, 0.48)], lean: 0.28, twist: 0.1, side: 0, hip: 0, drop: 0.1, head: [0.1, -0.05], pole: [V(-0.8, -0.6, -0.3), V(0.8, -0.6, -0.3)] }; };
   // reaching up and out for a load on a rope
   KIT.people.poses.flighttowerReach = function () { return { feet: [V(-0.16, 0.09, 0.18), V(0.14, 0.09, -0.16)], hands: [V(-0.1, 1.62, 0.52), V(0.14, 1.4, 0.5)], lean: 0.12, twist: 0, side: 0, hip: 0, drop: 0.02, head: [0, -0.25], pole: [V(-1, -0.4, -0.2), V(1, -0.4, -0.2)] }; };
-  // waving one arm high after a dragon that has just flown
+  // waving one arm high to someone below
   KIT.people.poses.flighttowerWave = function () { return { feet: [V(-0.16, 0.09, 0.06), V(0.15, 0.09, -0.08)], hands: [V(-0.3, 1.02, 0.08), V(0.34, 2.0, 0.22)], lean: -0.06, twist: -0.1, side: -0.05, hip: 0, drop: 0, head: [0.1, -0.35], pole: [V(-1, -0.4, -0.2), V(1, -0.1, -0.2)] }; };
 
   // ---- a curved stone for the round wall (the ring sector ri..ro, angles a0..a1, h tall)
@@ -136,7 +130,8 @@
     b.beam([0.02, 0.9, 0.27], [0.02, 0.42, 0.29], 0.012, { c: leather, m: M.wood });
     b.pop();
   }
-  // the night-dragon emblem: wings spread, drawn proud of both faces of a cloth facing +z at (x, y, z), size s
+  // the banner's emblem, a dragon with wings spread (one of the dragon ornaments), drawn proud of both faces of a cloth
+  // facing +z at (x, y, z), size s
   var DRAGON_E = (function () {
     var R = [[0, 0.52], [0.05, 0.47], [0.07, 0.4], [0.12, 0.45], [0.065, 0.34], [0.05, 0.26], [0.09, 0.2], [0.22, 0.27], [0.36, 0.33], [0.5, 0.37], [0.44, 0.24], [0.38, 0.22], [0.34, 0.11], [0.27, 0.12], [0.21, 0.02], [0.14, 0.04], [0.08, -0.06], [0.06, -0.16], [0.04, -0.3], [0.025, -0.42], [0.09, -0.47], [0.02, -0.5], [0.0, -0.55]];
     var L = R.slice(1, R.length - 1).reverse().map(function (p) { return [-p[0], p[1]]; });
@@ -146,7 +141,7 @@
     [0.022, -0.022].forEach(function (dz) { b.extrude(x, y, z + dz, DRAGON_E.map(function (p) { return [p[0] * s, p[1] * s]; }), 0.006, { c: ec, m: M.cloth, bucket: 'cloth', ao: 0, jit: 0.01, vary: 0.02 }); });
   }
 
-  // ---- a launch platform, in its own frame (built after the wall below its deck is up)
+  // ---- a platform, in its own frame (built after the wall below its deck is up)
   var TONES = ['#86745d', '#7b6a55', '#907d65', '#73624f', '#8c7a62'];
   function flighttowerPlatform(b, P, o) {
     o = o || {};
@@ -194,7 +189,7 @@
           if (i % 2 === 0) [-1, 1].forEach(function (s) { b.ball(s * (W / 2 - 0.16), yd + 0.0, zc, 0.03, { c: 'iron', m: M.metal, detail: 0, ao: 0 }); });
         }
         if (g + per >= planks.length) {
-          // the landing lip at the tip: a thick beam shod in iron, for claws to grip
+          // the lip at the tip: a thick beam shod in iron
           b.box(0, yd - 0.02, z1 - 0.15, W + 0.12, 0.18, 0.28, { c: 'beam', m: M.wood, bevel: 0.03 });
           b.box(0, yd + 0.155, z1 - 0.15, W + 0.12, 0.025, 0.2, { c: 'iron', m: M.metal, bevel: 0.006 });
         }
@@ -253,16 +248,12 @@
   }
 
   KIT.defineBuild('flighttower', {
-    name: 'Flight tower', size: 'middle', need: 44,
-    line: 'A tall round stone flight tower with three timber launch platforms on heavy brackets, a winch and ladders, and a lookout under a slate cone, where two dragons roost and take off.',
+    name: 'Round tower', size: 'middle', need: 44,
+    line: 'A tall round stone tower with three timber platforms jutting out at different heights on heavy brackets, a winch and ladders, a sentry on the long platform, and a lookout under a slate cone.',
     r: 11.5, flat: [12, 12], ground: 'cobble', path: [[2.6, 12.0], [-0.9, 3.6]],
     frameY: 8.0, frameR: 14.0, glowAt: [TX, 18.9, TZ],
     trees: [{ x: -8.6, z: -5.6, kind: 'pine', h: 7.4 }, { x: -9.6, z: -1.4, kind: 'pine', h: 6.0 }, { x: 7.6, z: 6.4, kind: 'birch', h: 6.0 }, { x: -9.4, z: 3.0, kind: 'birch', h: 5.0 }],
     bushes: [{ x: 8.6, z: 4.6, r: 0.8, flowers: '#f3f1ec' }, { x: -6.6, z: 7.2, r: 0.7 }, { x: 5.6, z: -7.6, r: 0.75 }, { x: -7.6, z: 5.0, r: 0.6, flowers: '#f3f1ec' }],
-    perches: (function () {
-      var out = PLAT.map(function (P) { var p = pw(P, 0, P.yd, rOut(P.yd) + P.L - 0.6); return { x: +p[0].toFixed(2), y: P.yd, z: +p[2].toFixed(2), ry: +(Math.PI / 2 - P.a).toFixed(2) }; });
-      return out;
-    })(),
     build: function (b) {
       var P1 = PLAT[0], P2 = PLAT[1], P3 = PLAT[2];
       // openings in the wall: the front door, the three platform doorways, arrow slits
@@ -492,6 +483,17 @@
         b.cart(-5.4, 6.0, { ry: 0.95, load: function (bb) { flighttowerBasket(bb, -0.3, 0.77, -0.5, { r: 0.32, n: 6 }); flighttowerBasket(bb, 0.32, 0.77, 0.1, { r: 0.3, n: 6 }); bb.barrel(-0.25, 0.77, 0.55, { h: 0.7, r: 0.27 }); } });
       });
 
+      b.part('Platform stores');
+      b.unit(function () {
+        // barrels and a coil of rope by the middle platform's doorway, a crate of spears near its tip
+        var q1 = pw(P2, -1.0, P2.yd, rOut(P2.yd) + 0.75), q2 = pw(P2, -0.95, P2.yd, rOut(P2.yd) + 1.45), q3 = pw(P2, 0.95, P2.yd, rOut(P2.yd) + 2.6);
+        b.barrel(q1[0], q1[1], q1[2], { h: 0.95 }); b.barrel(q2[0], q2[1], q2[2], { h: 0.8, r: 0.3 });
+        b.ropeCoil(q3[0], q3[1], q3[2], 0.32);
+        var q4 = pw(P2, 0.85, P2.yd, rOut(P2.yd) + P2.L - 1.6), ry4 = Math.PI / 2 - P2.a;
+        b.crate(q4[0], q4[1], q4[2], 0.62, { ry: ry4 + 0.2 });
+        [-0.12, 0.0, 0.13].forEach(function (dx, i) { b.spear(q4[0] + dx, q4[1] + 0.3, q4[2] + (i - 1) * 0.08, 1.9, { rx: -0.1 + i * 0.08 }); });
+      });
+
       b.part('Ivy and flowers');
       b.unit(function () {
         var a = 2.4, n = [Math.cos(a), 0, Math.sin(a)], p = polar(a, rOut(1) + 0.15, 0.4);
@@ -502,19 +504,14 @@
         var q2 = polar(1.15, R0 + 1.25, 0); b.bush(q2[0], q2[2], 0.45, { flowers: '#e6e0d2', n: 2 });
       });
 
-      // ---- the dragons, then the people
-      // the dawn dragon stands at the tip of the middle platform, alert, wings half open, head turned to the camera;
-      // the night dragon has just launched off the top platform and banks out over the island with its rider
-      var ps = 1.1, d2ry = Math.PI / 2 - P2.a - 0.2, d2 = pw(P2, 0.05, P2.yd, rOut(P2.yd) + P2.L - 0.3 - 0.75 * ps - 0.2);
-      b.dragon(d2[0], P2.yd, d2[2], { kind: 'dawn', pose: 'alert', ry: d2ry, s: ps, saddle: true, wing: 0.6, look: flighttowerLook(d2[0], P2.yd, d2[2], d2ry, ps, d2[0] - 0.51 * 12, P2.yd + 1.5 + 0.48 * 12, d2[2] + 0.715 * 12) });
-      b.dragon(6.0, 13.5, 5.5, { kind: 'night', pose: 'fly', ry: 0.85, roll: 0.6, pitch: -0.2, s: 1.05, saddle: true, rider: {} });
-
+      // ---- the people
       b.life(function () {
         // the lookout at the top, pointing out over the island
         var lk = polar(1.85, R1 - 0.27, YT + 0.37); b.figure(lk[0], lk[2], { role: 'soldier', pose: 'point', y: lk[1], ry: Math.PI / 2 - 1.85 - 0.3 });
-        // a handler on the middle platform by the dawn dragon
+        // on the middle platform a sentry at the tip looks out over the island, and a villager calls to him
+        var s2 = pw(P2, -0.35, 0, rOut(P2.yd) + P2.L - 0.95); b.figure(s2[0], s2[2], { role: 'soldier', pose: 'spear', y: P2.yd, ry: Math.PI / 2 - P2.a - 0.25 });
         var h2 = pw(P2, 0.9, 0, rOut(P2.yd) + 1.55); b.figure(h2[0], h2[2], { role: 'villager', pose: 'talk', y: P2.yd, ry: Math.PI / 2 - P2.a - 0.6, c: '#5c5e62' });
-        // on the top platform, waving after the night dragon
+        // on the top platform, waving to the yard below
         var h3 = pw(P3, -0.4, 0, rOut(P3.yd) + 2.6); b.figure(h3[0], h3[2], { role: 'villager', pose: 'flighttowerWave', y: P3.yd, ry: Math.PI / 2 - P3.a - 0.2 });
         // on the low platform, reaching for the basket coming up
         var h1 = pw(P1, -0.5, 0, rOut(P1.yd) + P1.L - 0.45); b.figure(h1[0], h1[2], { role: 'villager', pose: 'flighttowerReach', y: P1.yd, ry: Math.PI / 2 - P1.a, c: '#6e5a44' });
@@ -524,7 +521,7 @@
         // at the winch
         var wk = [WX + 0.9 * Math.cos(wry) - 0.82 * Math.sin(wry), WZ - 0.9 * Math.sin(wry) - 0.82 * Math.cos(wry)];
         b.figure(wk[0], wk[1], { role: 'villager', pose: 'flighttowerCrank', ry: wry, c: '#3b3a38' });
-        // a guard by the door, and a child cheering the dragon on
+        // a guard by the door, a child waving back up at the tower, and a carrier
         var gd = polar(DOOR_A - 0.55, R0 + 1.25, 0); b.figure(gd[0], gd[2], { role: 'soldier', pose: 'spear', ry: Math.PI / 2 - DOOR_A + 0.3 });
         b.figure(3.4, 8.6, { role: 'child', pose: 'cheer', ry: 3.0 });
         b.figure(0.2, 8.4, { role: 'villager', pose: 'carry', ry: -2.7, c: '#6e5a44' });

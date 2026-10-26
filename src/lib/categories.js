@@ -26,23 +26,6 @@ export const FAMILIES = [
   { key: "Other", label: "Other", hue: "#71717a" },
 ];
 
-export const CATEGORIES = [
-  "Sleep",
-  "Prep",
-  "Exercise",
-  "Serve",
-  "Minister",
-  "Plan",
-  "Study",
-  "Draw",
-  "Meals",
-  "Meet",
-  "Drive",
-  "Waste",
-  "Meeting",
-  "Other",
-];
-
 // Defaults only — the live values come from the database per user.
 export const CATEGORY_FAMILY = {
   Sleep: "Rest",

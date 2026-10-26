@@ -1,6 +1,6 @@
 // Training yard: a sanded sparring ring fenced with carved posts and rope, an open arms shed with a slate roof and
-// dragon-head finials, a tall perch gantry where the riders' dragons land between drills, straw dummies, and a saddle
-// strapped to a sawhorse with a carved head where a young rider learns to sit. Laid sand first, then the fence post by
+// dragon-head finials, a tall timber gantry hung with straw bales to strike, straw dummies, and a saddle strapped to a
+// sawhorse with a carved head where a boy learns to sit a saddle. Laid sand first, then the fence post by
 // post, the shed, the gantry, the riding rig, the arms and stores, and the people.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL;
@@ -57,12 +57,11 @@
 
   KIT.defineBuild('trainyard', {
     name: 'Training yard', size: 'small', need: 16,
-    line: 'A sanded sparring ring with a perch gantry for the dragons, an arms shed, straw dummies and a saddle rig for young riders.',
+    line: 'A raked sand ring with soldiers sparring, a tall timber gantry hung with straw bales to strike, straw dummies, an arms shed, and a boy learning to sit a saddle on a carved sawhorse.',
     r: 7.9, flat: [12.5, 10.5], ground: 'grass', path: [[-3.4, 7.3], [-1.35, 3.9]],
     frameY: 1.5, frameR: 7.5, glowAt: [3.5, 5.7, -4.05],
     trees: [{ x: -6.0, z: -4.2, kind: 'pine', h: 6.8 }, { x: 6.9, z: -0.8, kind: 'birch', h: 5.2 }, { x: -1.8, z: -6.3, kind: 'pine', h: 5.4 }],
     bushes: [{ x: 5.9, z: 4.6, r: 0.7, flowers: '#f3f1ec' }, { x: -5.8, z: 3.6, r: 0.7 }, { x: 5.6, z: -4.6, r: 0.6 }],
-    perches: [{ x: 2.5, y: 4.93, z: -4.05, ry: 0 }, { x: 4.6, y: 4.93, z: -4.05, ry: 0 }, { x: -4.7, y: 4.0, z: -1.8, ry: 1.57 }],
     build: function (b) {
       var rx = 0.8, rz = 0.75, RS = 3.3, RF = 3.55, top = 0.04;
       var gateA = 2.19, gate = function (a) { return Math.abs(((a - gateA) + Math.PI * 3) % (Math.PI * 2) - Math.PI); };
@@ -158,7 +157,7 @@
         vShield(b, sx + 0.7, 0.78, sz + 0.72, 0.1, 0.3, 'ring', 'ink', 'bone', -0.35);
       });
 
-      b.part('Perch gantry');
+      b.part('Gantry');
       var gx0 = 1.7, gx1 = 5.3, gz = -4.05, gh = 4.6;
       b.unit(function () {
         [gx0, gx1].forEach(function (x) {
@@ -173,7 +172,7 @@
         [-1, 1].forEach(function (s) { b.beam([gx0, gh - 0.7, gz], [gx0 + s * 0 + 0.9, gh - 0.05, gz], 0.06, { c: 'beam' }); b.beam([gx1, gh - 0.7, gz], [gx1 - 0.9, gh - 0.05, gz], 0.06, { c: 'beam' }); });
       });
       b.unit(function () {
-        // the perch: a great log across the posts, worn smooth by claws, its ends carved as heads
+        // a great log across the posts, worn smooth, its ends carved as heads
         b.beam([gx0 - 0.55, gh + 0.12, gz], [gx1 + 0.55, gh + 0.12, gz], 0.21, { c: 'wood', round: true, seg: 10, r2: 0.2 });
         for (var i = 0; i < 9; i++) { var x = gx0 - 0.2 + i * 0.47; b.box(x, gh + 0.3, gz + b.j(0.08), 0.05, 0.02, 0.22, { c: '#5a4a3c', m: M.wood, bevel: 0, ry: b.j(0.4) + 0.2 }); }
         dragonHead(b, gx0 - 0.52, gh + 0.12, gz, Math.PI, 1.05);
@@ -181,7 +180,7 @@
         b.flag(gx1, gh + 0.32, gz - 0.05, 1.1, 0.8, 0.3, { c: 'ember', pennant: true, pr: 0.03, ry: -0.3 });
       });
       b.unit(function () {
-        // a rope ladder down one side and two straw bales slung beneath for the riders to strike at speed
+        // a rope ladder down one side and two straw bales slung beneath for the soldiers to strike
         var lx = gx0 + 0.55;
         [-0.2, 0.2].forEach(function (d) { b.beam([lx + d, gh - 0.05, gz + 0.18], [lx + d * 0.8, 0.25, gz + 0.32], 0.016, { c: 'rope', m: M.rope, round: true, seg: 4 }); });
         for (var k = 0; k < 11; k++) { var t = k / 11, y = gh - 0.35 - t * (gh - 0.7); b.beam([lx - 0.2 + t * 0.04, y, gz + 0.18 + t * 0.14], [lx + 0.2 - t * 0.04, y, gz + 0.18 + t * 0.14], 0.025, { c: 'woodLight', round: true, seg: 5 }); }

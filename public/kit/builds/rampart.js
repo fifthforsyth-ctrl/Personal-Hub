@@ -265,11 +265,6 @@
     b.pop();
   }
 
-  var PERCHES = [
-    { p: W(TG, -0.7, YPG + 2.0 + 2.1 + 0.2), ry: TG + ROT },
-    { p: W(TL, -0.65, YPW + 2.0 + 1.55 + 0.2), ry: TL + ROT + Math.PI / 2 },
-    { p: W(TR, -0.65, YPE + 2.0 + 1.55 + 0.2), ry: TR + ROT + Math.PI / 2 }
-  ].map(function (q) { var w = toW(q.p); return { x: +w[0].toFixed(2), y: +w[1].toFixed(2), z: +w[2].toFixed(2), ry: +q.ry.toFixed(2) }; });
   var GLOW = toW(W(TG, -0.7, YPG + 4.3)).map(function (v) { return +v.toFixed(2); });
   var PATH = [W(TG, 16.5, 0), W(TG, 1.9, 0), W(TG + 0.01, -9, 0)].map(function (p) { var w = toW(p); return [+w[0].toFixed(2), +w[2].toFixed(2)]; });
 
@@ -280,7 +275,6 @@
     frameY: 3.8, frameR: 15.5, glowAt: GLOW,
     trees: [{ x: -12.6, z: -4.2, kind: 'pine', h: 7.6 }, { x: -9.8, z: -10.6, kind: 'pine', h: 6.4 }, { x: 12.4, z: -4.6, kind: 'pine', h: 7.0 }, { x: 13.4, z: 4.8, kind: 'birch', h: 5.6 }, { x: -11.2, z: -8.4, kind: 'pine', h: 5.6 }, { x: 4.5, z: -13.2, kind: 'pine', h: 6.0 }, { x: -3.2, z: -13.6, kind: 'round', h: 5.2 }],
     bushes: [{ x: -11.6, z: 9.2, r: 0.8, flowers: '#f3f1ec' }, { x: 9.8, z: 10.2, r: 0.7 }, { x: 13.6, z: 0.8, r: 0.7 }, { x: -6.0, z: -12.6, r: 0.8 }, { x: -4.6, z: 13.2, r: 0.6, flowers: '#f3f1ec' }, { x: -11.8, z: -3.0, r: 0.7 }, { x: -12.6, z: 5.4, r: 0.9 }, { x: -11.4, z: 6.2, r: 0.6, flowers: '#f3f1ec' }, { x: -13.2, z: 2.6, r: 0.8, flowers: '#f3f1ec' }, { x: -12.4, z: 8.6, r: 0.55 }],
-    perches: PERCHES,
     build: function (b) {
       var self = b;
       // the ground's height under a point of the island (the field rises a little past the levelled works)

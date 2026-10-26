@@ -1,19 +1,10 @@
 /* ===========================================================================
-   Ask Claude — the question box and the chart it answers with.
+   Ask Claude — the chart an answer comes with (ChartResult).
    Used only by src/components/AskClaude.jsx.
    =========================================================================== */
 
-.ask__foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.ask__hint { font-size: 12px; color: var(--text-2); }
 .ask__status { margin-top: 14px; }
-.ask__result { margin-top: 18px; min-width: 0; }
 .ask__title { margin-bottom: 6px; font-size: 16px; }
-.btn-link.ask__again { min-height: 36px; margin-top: 6px; }
-
-/* Examples are whole questions, so they wrap rather than run off a phone. */
-.ask-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-.ask-examples .chip.chip--tap { min-height: 36px; white-space: normal; text-align: left; line-height: 1.35; }
-@media (hover: hover) { .ask-examples .chip.chip--tap:hover { color: var(--text); border-color: var(--line-strong); } }
 
 .ask-chart { min-width: 0; }
 

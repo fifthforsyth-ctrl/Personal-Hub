@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { countLine } from "../../lib/questTasks";
-import { buildOf } from "../../lib/village";
-import Painting, { rememberedDragons } from "../../village/Painting";
+import Painting from "../../village/Painting";
 
 // The build going up in the village, floating at the top of every quest's
 // list: the same painting as the village page, with how many tasks it has
@@ -46,9 +45,6 @@ export default function FloatingBuild({ village, today, onAway }) {
   const p = buildNow(village, today);
   const { done, laid, need, left } = counts(p, today);
   const card = useRef(null);
-  // A dragon build has his dragons in it, as the village page last painted them.
-  const kind = p?.kind;
-  const dragons = useMemo(() => (kind && buildOf(kind).dragon ? rememberedDragons() : null), [kind]);
 
   // Out of sight, the page shows the slim bar instead.
   useEffect(() => {
@@ -72,7 +68,7 @@ export default function FloatingBuild({ village, today, onAway }) {
           <p className="qs-build__line">
             {waiting
               ? `${countLine(waiting, "finished task is", "finished tasks are")} waiting to lay the first pieces.`
-              : "A forge, a hatchery, a dragon citadel… every task you finish lays its pieces on it."}
+              : "A forge, a watchtower, a citadel… every task you finish lays its pieces on it."}
           </p>
           <Link to="/village?choose" className="btn btn--sm btn--accent qs-build__go">
             Choose a build
@@ -92,8 +88,6 @@ export default function FloatingBuild({ village, today, onAway }) {
           done={done}
           need={need}
           laid={laid}
-          dragons={dragons?.dragons}
-          eggs={dragons?.eggs}
           live
           idle
           stands={stands}

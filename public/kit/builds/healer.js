@@ -136,7 +136,6 @@
     line: "The healer's stone and timber cottage, with an herb garden in raised beds, racks of drying herbs, clean linen on the lines, and the healer binding a wounded soldier on the bench.",
     r: 13.5, flat: [20, 15], ground: 'grass', path: [[2.2, 14.2], [1.5, 8.4], [1.0, 4.6]],
     frameY: 3.4, frameR: 11.6, glowAt: [-2.4, 9.0, 3.2],
-    perches: [{ x: 2.3, y: 8.75, z: -1.5, ry: 0 }, { x: -2.4, y: 8.05, z: 1.3, ry: Math.PI / 2 }],
     trees: [{ x: -9.6, z: -4.2, kind: 'round', h: 6.4 }, { x: 10.4, z: 4.6, kind: 'birch', h: 6.6 }, { x: -2.6, z: -8.4, kind: 'olive', h: 5.0 }, { x: 9.7, z: -3.0, kind: 'pine', h: 5.2 }],
     bushes: [{ x: 8.4, z: 7.6, r: 0.85, flowers: '#f3f1ec' }, { x: -8.4, z: 7.4, r: 0.75 }, { x: 3.6, z: -7.2, r: 0.7 }, { x: -10.4, z: 1.6, r: 0.6, flowers: '#efebe4' }, { x: 4.6, z: 9.2, r: 0.6 }],
     build: function (b) {

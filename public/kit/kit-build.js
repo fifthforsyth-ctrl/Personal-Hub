@@ -19,10 +19,14 @@
   KIT.dropGeoCache = function () { GEO_CACHE = {}; };
   function flat(g) { g = g.index ? g.toNonIndexed() : g; g.computeVertexNormals(); return g; }
 
-  // a box with its edges chamfered at 45 degrees, so every edge catches the light
+  // A box with its edges chamfered at 45 degrees, so every edge catches the light. How finely is KIT.boxDetail
+  // (KIT.make's opts.detail sets it for one build): 2, the default, rounds each edge in three steps (108 triangles);
+  // 1 cuts one flat chamfer (44 triangles, the same at the distance a village is seen from); 0 is a plain box (12).
   function chamferBox(w, h, d, c) {
     c = Math.min(c || 0, w * 0.45, h * 0.45, d * 0.45);
-    if (c <= 0.004) { var b = new T.BoxGeometry(w, h, d); b.translate(0, h / 2, 0); return b; }
+    var det = KIT.boxDetail === undefined ? 2 : KIT.boxDetail;
+    if (c <= 0.004 || det === 0) { var b = new T.BoxGeometry(w, h, d); b.translate(0, h / 2, 0); return b; }
+    if (det === 1) return chamfer44(w, h, d, c);
     var g = new T.BoxGeometry(w, h, d, 3, 3, 3), p = g.attributes.position, hx = w / 2, hy = h / 2, hz = d / 2, i;
     for (i = 0; i < p.count; i++) {
       var x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -35,6 +39,34 @@
       p.setXYZ(i, x, y + hy, z);
     }
     return flat(g);
+  }
+  // the one-step chamfer: six faces, twelve edge bevels and eight corner triangles, flat shaded, base at y = 0
+  function chamfer44(w, h, d, c) {
+    var hx = w / 2, hy = h / 2, hz = d / 2, S = [-1, 1], tris = [];
+    function P(sx, sy, sz, ax) { return [sx * (hx - (ax === 0 ? 0 : c)), sy * (hy - (ax === 1 ? 0 : c)), sz * (hz - (ax === 2 ? 0 : c))]; }
+    function quad(a, b, e, f) { tris.push(a, b, e, a, e, f); }
+    S.forEach(function (s) {
+      quad(P(s, -1, -1, 0), P(s, 1, -1, 0), P(s, 1, 1, 0), P(s, -1, 1, 0));
+      quad(P(-1, s, -1, 1), P(1, s, -1, 1), P(1, s, 1, 1), P(-1, s, 1, 1));
+      quad(P(-1, -1, s, 2), P(1, -1, s, 2), P(1, 1, s, 2), P(-1, 1, s, 2));
+    });
+    S.forEach(function (a) { S.forEach(function (b) {
+      quad(P(a, b, -1, 0), P(a, b, 1, 0), P(a, b, 1, 1), P(a, b, -1, 1));
+      quad(P(a, -1, b, 0), P(a, 1, b, 0), P(a, 1, b, 2), P(a, -1, b, 2));
+      quad(P(-1, a, b, 1), P(1, a, b, 1), P(1, a, b, 2), P(-1, a, b, 2));
+    }); });
+    S.forEach(function (a) { S.forEach(function (b) { S.forEach(function (e) { tris.push(P(a, b, e, 0), P(a, b, e, 1), P(a, b, e, 2)); }); }); });
+    var pos = new Float32Array(tris.length * 3);
+    for (var i = 0; i < tris.length; i += 3) {
+      // wind every triangle outward (its normal along the box centre to its centroid)
+      var A = tris[i], B2 = tris[i + 1], C = tris[i + 2];
+      var ux = B2[0] - A[0], uy = B2[1] - A[1], uz = B2[2] - A[2], vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
+      var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * (A[0] + B2[0] + C[0]) + ny * (A[1] + B2[1] + C[1]) + nz * (A[2] + B2[2] + C[2]) < 0) { var t = B2; B2 = C; C = t; }
+      pos.set([A[0], A[1] + hy, A[2], B2[0], B2[1] + hy, B2[2], C[0], C[1] + hy, C[2]], i * 3);
+    }
+    var g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3)); g.computeVertexNormals();
+    return g;
   }
   function cylGeo(rb, rt, h, seg, o) {
     o = o || {};
@@ -174,6 +206,12 @@
   };
   B.base = function (fn) { var m = this.mode; this.mode = 'base'; fn.call(this, this); this.mode = m; return this; };
   B.life = function (fn) { var m = this.mode; this.mode = 'life'; fn.call(this, this); this.mode = m; return this; };
+  // pieces laid as one given step (a village lays each of its people as a step of their own, so a count shows them)
+  B.stepAs = function (unit, fn) {
+    var m = this.mode, cu = this.curUnit, root = this.root();
+    this.mode = null; this.curUnit = unit; if (unit >= root.nUnits) root.nUnits = unit + 1;
+    fn.call(this, this); this.mode = m; this.curUnit = cu; return this;
+  };
   B.root = function () { var b = this; while (b.parent) b = b.parent; return b; };
   B.unitNow = function () {
     if (this.mode === 'base') return -1;
@@ -889,10 +927,11 @@
         g.setIndex(bk.n > 65535 ? new T.BufferAttribute(bk.idx.done(), 1) : new T.Uint16BufferAttribute(bk.idx.done(), 1));
         g.computeBoundingSphere(); g.computeBoundingBox();
         var mesh = new T.Mesh(g, mats[name] || mats.solid);
-        mesh.frustumCulled = false;
+        // drawn whether in view or not, unless opts.cull (a village, zoomed in on one build, skips the rest)
+        mesh.frustumCulled = !!opts.cull;
         if (name !== 'glow') { mesh.castShadow = opts.shadows !== false; mesh.receiveShadow = true; mesh.customDepthMaterial = depthFor[name] || mats.depth; }
         parent.add(mesh);
-        if ((name === 'solid' || name === 'cloth') && opts.ghost !== false) { var gm = new T.Mesh(g, mats.ghost); gm.renderOrder = 5; gm.frustumCulled = false; gm.userData.ghost = mats.ghostSolid; parent.add(gm); }
+        if ((name === 'solid' || name === 'cloth') && opts.ghost !== false) { var gm = new T.Mesh(g, mats.ghost); gm.renderOrder = 5; gm.frustumCulled = !!opts.cull; gm.userData.ghost = mats.ghostSolid; parent.add(gm); }
       });
     }
     meshes(this.buckets, group);

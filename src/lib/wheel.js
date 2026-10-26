@@ -123,41 +123,6 @@ export function computeWheel(nodes, edges, centerNodeId, hover, weights) {
   return { layout, maxRing, hasVirtualHub };
 }
 
-// Restricts a tree to its top `maxDepth` hops from each root (0 = roots
-// only, 1 = roots + their direct children, ...) — used by the Reporting
-// section-wheel, which only ever shows sections and their immediate
-// sub-goals, never the full depth. Same first-parent convention as
-// computeWheel, kept separate so callers that just want a smaller {nodes,
-// edges} pair (to feed into computeWheel themselves) don't need to know
-// anything about angles/rings.
-export function pruneToDepth(nodes, edges, maxDepth) {
-  const nodeById = new Map(nodes.map((n) => [n.id, n]));
-  const firstParentOf = new Map();
-  const childrenOf = new Map();
-  for (const e of edges) {
-    if (!nodeById.has(e.child_id) || !nodeById.has(e.parent_id)) continue;
-    if (!firstParentOf.has(e.child_id)) {
-      firstParentOf.set(e.child_id, e.parent_id);
-      if (!childrenOf.has(e.parent_id)) childrenOf.set(e.parent_id, []);
-      childrenOf.get(e.parent_id).push(e.child_id);
-    }
-  }
-
-  const roots = nodes.filter((n) => !firstParentOf.has(n.id));
-  const keep = new Set();
-  function walk(id, depth) {
-    keep.add(id);
-    if (depth >= maxDepth) return;
-    for (const kid of childrenOf.get(id) ?? []) walk(kid, depth + 1);
-  }
-  for (const r of roots) walk(r.id, 0);
-
-  return {
-    nodes: nodes.filter((n) => keep.has(n.id)),
-    edges: edges.filter((e) => keep.has(e.child_id) && keep.has(e.parent_id) && firstParentOf.get(e.child_id) === e.parent_id),
-  };
-}
-
 export function ringRadii(ringIndex) {
   if (ringIndex <= 0) return { inner: 0, outer: CENTER_RADIUS };
   return {

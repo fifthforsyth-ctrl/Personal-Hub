@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Plus, ChevronLeft, Search, Link2, Maximize2, Layers } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Plus, ChevronLeft, Search, Maximize2, Layers } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchTree,
@@ -268,10 +267,6 @@ export default function Tree() {
               <span className="goals-wide-only">Find a goal</span>
             </button>
           )}
-          <Link to="/links" className="btn btn--sm btn--on-page" aria-label="Goal links" title="Goal links: which goal each category feeds">
-            <Link2 size={15} />
-            <span className="goals-wide-only">Goal links</span>
-          </Link>
           <button type="button" className="btn btn--sm btn--accent" onClick={() => setForm({ parentId: null })}>
             <Plus size={15} />
             New goal

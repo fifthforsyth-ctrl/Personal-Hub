@@ -100,7 +100,6 @@
     islandOpts: { cobbleSkip: function (x, z) { x -= OX; z -= OZ; return x > FX0 - 0.12 && x < FX1 + 0.12 && z > FZ0 - 0.12 && z < FZ1 + 0.12; } },
     trees: [{ x: -9.0, z: -8.0, kind: 'pine', h: 6.8 }, { x: -12.0, z: -3.0, kind: 'pine', h: 7.6 }, { x: 10.6, z: -2.2, kind: 'pine', h: 8.0 }],
     bushes: [{ x: 9.4, z: 6.3, r: 0.9, flowers: '#f3f1ec' }, { x: -9.7, z: 6.5, r: 0.8 }, { x: 10.5, z: 4.1, r: 0.7 }, { x: 6.8, z: -7.7, r: 0.8 }, { x: -1.6, z: 10.6, r: 0.75, flowers: '#f3f1ec' }, { x: 5.6, z: 9.8, r: 0.8 }, { x: -6.8, z: 9.2, r: 0.7, flowers: '#e6e3dc' }],
-    perches: [{ x: SHX + OX, y: 2.35 + 1.25 + 0.18, z: SHZ + OZ, ry: 0 }, { x: XW + OX, y: 2.22, z: Z0 + OZ, ry: Math.PI / 2 }, { x: -7.9, y: 0.06, z: 4.5, ry: 0.6 }],
     build: function (b) {
       var oak = 'trebuchet_oak', pale = 'trebuchet_oakPale', sides = [1, -1];
       function W(o) { return Object.assign({ c: oak, m: M.wood }, o || {}); }

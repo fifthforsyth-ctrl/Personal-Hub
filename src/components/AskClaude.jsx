@@ -1,29 +1,11 @@
-import { useMemo, useRef, useState } from "react";
-import { Sparkles, CornerDownLeft, X, RotateCcw } from "lucide-react";
-import { askChart } from "../lib/api";
+import { useMemo, useState } from "react";
 import { LineChart, ColumnChart, RankedBars, Donut, Legend } from "./charts";
 import { colorFor, fmtMinutes } from "../lib/categories";
 import { fmtMoney, BUDGET_COLORS } from "../lib/money";
-import { friendlyError } from "../lib/errors";
-import useIsMobile from "../lib/useIsMobile";
 import "../styles/ask.css";
 
-// "Ask Claude to map my data on a chart" — the open-ended question the fixed
-// rollups on /reflect can't answer. You type it in your own words; the
-// assistant writes a read-only query against your own tables, picks a form,
-// and this renders whatever comes back.
-//
-// The examples are real questions rather than a features list: the fastest
-// way to learn what a box like this can do is to press one and watch.
-const EXAMPLES = [
-  "Map out my sleep over the past 6 months, night by night",
-  "How much did I spend on eating out each month this year?",
-  "How much time went to Serve each week this year?",
-  "Which habits do I lose most often?",
-  "What hours of the day do I actually study?",
-];
-
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
+// A chart the assistant drew from a question in your own words, and its
+// numbers: the Ask page shows one under each answer that needed a chart.
 
 // Whole dollars on an axis, and "$1.3K" once they pass a thousand so a
 // label still fits beside the plot on a phone.
@@ -95,119 +77,6 @@ function heading(key, fallback) {
 function colorOf(label, i) {
   const c = colorFor(label);
   return c === colorFor("\u0000") ? BUDGET_COLORS[i % BUDGET_COLORS.length] : c;
-}
-
-export default function AskClaude({ open, onOpenChange }) {
-  const [internalOpen, setInternalOpen] = useState(false);
-  const isOpen = open ?? internalOpen;
-  const setOpen = onOpenChange ?? setInternalOpen;
-  const touch = useIsMobile();
-
-  const [question, setQuestion] = useState("");
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const asked = useRef(0);
-
-  async function ask(q) {
-    const text = (q ?? question).trim();
-    if (!text || loading) return;
-    const mine = ++asked.current;
-    setQuestion(text);
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const answer = await askChart(text);
-      if (mine === asked.current) setResult(answer);
-    } catch (err) {
-      if (mine === asked.current) setError(friendlyError(err, "Couldn't chart that. Try asking it another way."));
-    } finally {
-      if (mine === asked.current) setLoading(false);
-    }
-  }
-
-  if (!isOpen) {
-    return (
-      <button className="btn btn--accent" onClick={() => setOpen(true)}>
-        <Sparkles size={15} />
-        Ask Claude
-      </button>
-    );
-  }
-
-  return (
-    <div className="card card--accent ask" style={{ gridColumn: "1 / -1" }}>
-      <div className="card-head">
-        <span className="card-title">
-          <Sparkles size={14} style={{ color: "var(--accent)" }} />
-          Ask Claude
-        </span>
-        <button type="button" className="btn-icon" onClick={() => setOpen(false)} aria-label="Close Ask Claude" title="Close">
-          <X size={16} />
-        </button>
-      </div>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          ask();
-        }}
-      >
-        <textarea
-          className="textarea"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          aria-label="Your question"
-          placeholder="Ask anything about your own record: sleep, time, habits, spending…"
-          style={{ minHeight: 72 }}
-          autoFocus={!touch}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              ask();
-            }
-          }}
-        />
-        <div className="ask__foot">
-          <span className="ask__hint">
-            Reads only your own data.{!touch && (IS_MAC ? " ⌘↵ to send." : " Ctrl+Enter to send.")}
-          </span>
-          <button type="submit" className="btn btn--accent" disabled={loading || !question.trim()}>
-            <CornerDownLeft size={14} />
-            {loading ? "Working…" : "Chart it"}
-          </button>
-        </div>
-      </form>
-
-      {!result && !loading && !error && (
-        <div className="ask-examples">
-          {EXAMPLES.map((ex) => (
-            <button key={ex} type="button" className="chip chip--tap" onClick={() => ask(ex)}>
-              {ex}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {loading && <p className="empty ask__status">Writing the query and reading your record…</p>}
-      {error && (
-        <div className="form-error ask__status" role="alert">
-          {error}
-        </div>
-      )}
-
-      {result && (
-        <div className="ask__result">
-          <ChartResult result={result} />
-          <button type="button" className="btn-link ask__again" onClick={() => setResult(null)}>
-            <RotateCcw size={12} />
-            Ask something else
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // One chart and its numbers. Also drawn by the Ask page, where a line chart

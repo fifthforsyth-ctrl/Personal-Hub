@@ -13,7 +13,6 @@ import { dropIndex, moved } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
-import { KINDS, TRAINING, STAGES, START_WINS, HATCH_DAYS, kindOf, hatcheryDay, dragonsOf, paintDragons, winsLine, hatchLine, stageLine } from "../src/lib/dragons.js";
 import {
   buildCamp,
   stepsUnder,
@@ -1885,9 +1884,9 @@ console.log("\nthe mark");
 {
   ok("the sketch's 29 builds, smallest first within each size", CATALOG.length === 29 && new Set(CATALOG.map((c) => c.kind)).size === 29 && SIZES.every((z) => { const n = CATALOG.filter((c) => c.size === z.key).map((c) => c.need); return n.length && n.every((x, i) => !i || x >= n[i - 1]); }));
   ok("small, middle and big run 12 to 24, 28 to 55 and 70 to 150 tasks", ["small:12:24", "middle:28:55", "big:70:150"].every((r) => { const [z, lo, hi] = r.split(":"); const n = CATALOG.filter((c) => c.size === z).map((c) => c.need); return Math.min(...n) === +lo && Math.max(...n) === +hi && SIZES.find((x) => x.key === z).line === `${lo} to ${hi} tasks`; }));
-  ok("the sword armory takes 40 tasks and the dragon citadel 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("citadel").need === 150 && buildOf("citadel").name === "Dragon citadel");
+  ok("the sword armory takes 40 tasks and the citadel 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("citadel").need === 150 && buildOf("citadel").name === "Citadel");
   ok("the windmill going up keeps its kind and its 45", buildOf("windmill").need === 45 && buildOf("windmill").size === "middle" && !buildOf("windmill").line.startsWith("Your build"));
-  ok("seven dragon builds, each saying what's new or what it was", CATALOG.filter((c) => c.dragon).map((c) => c.kind).join() === "fishracks,hatchery,stables,flighttower,saddlery,ring,citadel" && CATALOG.filter((c) => c.dragon).every((c) => c.tag) && buildOf("stables").tag === "Was the stable" && buildOf("hatchery").tag === "New");
+  ok("no build is a dragon build, and the old dragon builds go by plain names", CATALOG.every((c) => !("dragon" in c) && !("tag" in c) && !/dragon/i.test(c.name + c.line)) && ["stables:Stables", "citadel:Citadel", "saddlery:Saddlery", "hatchery:Fire ring", "flighttower:Round tower", "ring:Training ring", "fishracks:Fish racks"].every((r) => { const [k, n] = r.split(":"); return buildOf(k).name === n; }));
   ok("every build has a name and a line", CATALOG.every((c) => c.name && c.line.length > 40 && /[.)]$/.test(c.line)));
   const has = (path) => { try { return readFileSync(new URL(`../${path}`, import.meta.url)).length > 0; } catch { return false; } };
   ok("every build has its painting and its finished picture", CATALOG.every((c) => has(`public/kit/builds/${c.kind}.js`) && has(`public/village/builds/${c.kind}.jpg`)));
@@ -1967,7 +1966,7 @@ console.log("\nthe mark");
     temple: [{ pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] }, { pid: "B", name: "Ben", ordinances: [{ date: "2026-10-21", temple: "Provo" }] }],
   };
   const v = villageOf(raw, "2026-10-22");
-  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill" && v.projects[1].name === "Hatchery");
+  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill" && v.projects[1].name === "Fire ring");
   ok("the windmill stood on its third task, the hatchery is going up", v.projects[0].complete && v.projects[0].finishedOn === "2026-10-21" && v.current === 1 && v.projects[1].done === 1 && v.waiting === 0);
   ok("each brick knows its quest, a lesson's by the lesson's name", v.projects[0].items[1].quest === "More integrity" && v.projects[0].items[0].quest === "Build the best Premiere Pro plugin");
   ok("tasks and arrows after today don't count yet", v.arrows.length === 2 && v.bullseyes.length === 1 && v.projects[1].items.every((i) => i.day <= "2026-10-22"));
@@ -2027,123 +2026,118 @@ console.log("\nthe mark");
   ok("counts read", countLine(1, "task", "tasks") === "1 task" && countLine(3, "task", "tasks") === "3 tasks");
 }
 
-// --- Dragons ------------------------------------------------------------------
-{
-  console.log("\ndragons");
-  const T = "2026-10-26";
-  const purse = { start_wins: 100, started_at: "2026-10-23T19:40:51Z" };
-  const egg = (id, kind, bought_on, extra = {}) => ({ id, kind, name: null, bought_on, free: false, created_at: `${bought_on}T12:00:00Z`, ...extra });
-  const spend = (dragon_id, what, cost) => ({ dragon_id, what, cost, day: T });
-
-  ok("five kinds, cheapest egg first, at the sketch's prices", KINDS.map((k) => `${k.kind}${k.egg}`).join() === "boulder40,crest50,dawn70,ember90,night150" && KINDS.every((k) => k.name && k.line && k.eggLine));
-  ok("training in order: fledgling 30, flier 60, rider 120", TRAINING.map((t) => `${t.stage}${t.cost}`).join() === "fledgling30,flier60,rider120" && TRAINING.every((t) => t.line));
-  ok("stages run egg, hatchling, fledgling, flier, rider", STAGES.map((s) => s.stage).join() === "egg,hatchling,fledgling,flier,rider");
-  ok("the purse starts with 100 and an egg hatches on the third banked day", START_WINS === 100 && HATCH_DAYS === 3);
-  ok("a kind it doesn't know still has a name", kindOf("night").name === "Night dragon" && kindOf("wyvern").name === "Dragon");
-
-  // The purse: the start, plus wins since it started, minus everything spent.
-  const fresh = dragonsOf({ purse: null, today: T });
-  ok("before anything: 100 in the purse, nothing earned or spent", fresh.balance === 100 && fresh.start === 100 && fresh.earned === 0 && fresh.spent === 0 && fresh.todayWins === 0 && !fresh.dragons.length);
-  const p = dragonsOf({
-    purse,
-    winsSince: 25,
-    winsToday: 13,
-    dragons: [egg("d1", "dawn", "2026-10-24")],
-    spends: [spend("d1", "egg", 70)],
-    today: T,
-  });
-  ok("100 + 25 wins - a dawn egg (70) leaves 55", p.balance === 55 && p.start === 100 && p.earned === 25 && p.spent === 70);
-  ok("today's wins are counted apart, for the orange", p.todayWins === 13);
-  ok("a purse started with more keeps it", dragonsOf({ purse: { ...purse, start_wins: 250 }, winsSince: 1, today: T }).balance === 251);
-  ok("eggs say how many more wins, or nothing when he can buy", p.nextEgg.map((e) => `${e.kind}:${e.short}`).join() === "boulder:0,crest:0,dawn:15,ember:35,night:95" && p.nextEgg[4].cost === 150);
-  const over = dragonsOf({ purse, winsSince: 0, dragons: [egg("d1", "night", "2026-10-24")], spends: [spend("d1", "egg", 150)], today: T });
-  ok("a purse below nothing (a spent win deleted) shows empty, and what's short still counts the real amount", over.balance === 0 && over.nextEgg[0].short === 90);
-
-  // The free egg: one ever, any kind, once the hatchery stands.
-  ok("the free egg waits for the hatchery", dragonsOf({ purse, today: T }).freeEgg === "locked" && dragonsOf({ purse, hatcheryOn: "2026-10-27", today: T }).freeEgg === "locked");
-  ok("it's ready once the hatchery stands, even on the day it stood", dragonsOf({ purse, hatcheryOn: T, today: T }).freeEgg === "ready");
-  ok("and once taken it's gone, whatever else he buys", dragonsOf({ purse, hatcheryOn: "2026-10-20", dragons: [egg("f", "night", "2026-10-21", { free: true }), egg("d", "dawn", "2026-10-22")], spends: [spend("f", "egg", 0), spend("d", "egg", 70)], today: T }).freeEgg === "used");
-  ok("the free egg costs the purse nothing", dragonsOf({ purse, dragons: [egg("f", "night", "2026-10-24", { free: true })], spends: [spend("f", "egg", 0)], today: T }).balance === 100);
-
-  // Hatching: banked days on or after the later of the day it was bought and
-  // the day the hatchery stood.
-  const hatch = (banked, extra = {}) =>
-    dragonsOf({ purse, winsSince: 40, dragons: [egg("e", "dawn", "2026-10-18")], spends: [spend("e", "egg", 70)], banked, hatcheryOn: "2026-10-20", today: T, ...extra }).dragons[0];
-  const two = hatch(["2026-10-18", "2026-10-19", "2026-10-20", "2026-10-22"]);
-  ok("an egg bought before the hatchery only warms from the day it stood", two.warmth === 2 && two.daysLeft === 1 && !two.hatched && two.stage === "egg" && !two.waiting && two.hatchOn === null);
-  ok("an egg has nothing to train yet", two.next === null && two.short === 0);
-  const three = hatch(["2026-10-19", "2026-10-20", "2026-10-22", "2026-10-24"]);
-  ok("it hatches on the third banked day", three.hatched && three.stage === "hatchling" && three.hatchOn === "2026-10-24" && three.warmth === 3 && three.daysLeft === 0);
-  ok("a hatchling's next stage is fledgling for 30", three.next.stage === "fledgling" && three.next.cost === 30 && three.short === 0);
-  ok("days not banked don't warm it: it waits", hatch(["2026-10-20", "2026-10-25"]).warmth === 2 && hatch([]).warmth === 0 && hatch([]).daysLeft === 3);
-  ok("a day banked twice counts once, and a day after today not yet", hatch(["2026-10-20", "2026-10-20", "2026-10-22", "2026-10-27"]).warmth === 2);
-  ok("unbanking a day takes its warmth back", hatch(["2026-10-20", "2026-10-22"]).hatched === false);
-  const late = dragonsOf({ purse, dragons: [egg("e", "crest", "2026-10-23")], spends: [spend("e", "egg", 50)], banked: ["2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24"], hatcheryOn: "2026-10-20", today: T }).dragons[0];
-  ok("an egg bought after the hatchery stood warms from the day it was bought", late.warmth === 2 && !late.hatched);
-  const before = dragonsOf({ purse, dragons: [egg("e", "crest", "2026-10-20")], spends: [spend("e", "egg", 50)], banked: ["2026-10-21", "2026-10-22", "2026-10-23"], today: T });
-  ok("before the hatchery stands, a bought egg waits for it", before.dragons[0].waiting && before.dragons[0].warmth === 0 && before.eggs.length === 1 && before.hatched.length === 0);
-
-  // Training: stages in order, once trained it stays hatched.
-  const trained = (whats, winsSince = 200, banked = []) =>
-    dragonsOf({ purse, winsSince, dragons: [egg("t", "night", "2026-10-20", { name: "Shade" })], spends: [spend("t", "egg", 150), ...whats.map((w) => spend("t", w, TRAINING.find((x) => x.stage === w).cost))], banked, hatcheryOn: "2026-10-19", today: T }).dragons[0];
-  const fl = trained(["fledgling"]);
-  ok("a fledgling's next is flier for 60", fl.stage === "fledgling" && fl.next.stage === "flier" && fl.next.cost === 60);
-  ok("short is what the purse lacks (100 + 200 - 150 - 30 = 120 > 60)", fl.short === 0 && trained(["fledgling"], 135).short === 5);
-  ok("a trained dragon stays hatched with no banked days", fl.hatched && fl.warmth === 3 && fl.daysLeft === 0 && !fl.waiting);
-  const fi = trained(["fledgling", "flier"], 400);
-  ok("a flier's next is the rider's dragon for 120", fi.stage === "flier" && fi.next.stage === "rider" && fi.next.cost === 120);
-  const ri = trained(["fledgling", "flier", "rider"], 400);
-  ok("a rider's dragon has nothing left to train", ri.stage === "rider" && ri.next === null && ri.short === 0 && ri.name === "Shade");
-  const gap = trained(["flier"], 400, ["2026-10-20", "2026-10-21", "2026-10-22"]);
-  ok("stages only count in order, so a gap can't skip one", gap.stage === "hatchling" && gap.next.stage === "fledgling");
-
-  // A kept hatch (hatched_on, stored the first time the page saw it): a
-  // hatched dragon stays hatched whatever happens to the village later.
-  ok("a hatch the page hasn't kept yet says so, with the day to keep", !three.kept && three.hatchOn === "2026-10-24" && !two.kept);
-  const shade = ({ at, ...row }) =>
-    dragonsOf({ purse, dragons: [egg("n", "night", "2026-11-05", { free: true, name: "Shade", ...row })], spends: [spend("n", "egg", 0)], banked: ["2026-11-05", "2026-11-06", "2026-11-07"], today: "2026-11-08", ...at }).dragons[0];
-  ok("Shade hatched on the third banked day once the hatchery stood", shade({ at: { hatcheryOn: "2026-11-05" } }).stage === "hatchling" && shade({ at: { hatcheryOn: "2026-11-05" } }).hatchOn === "2026-11-07");
-  ok("unticking a task can unstand the hatchery: an unkept hatch goes back to an egg", shade({ at: { hatcheryOn: null } }).stage === "egg");
-  const keptShade = shade({ hatched_on: "2026-11-07", at: { hatcheryOn: null } });
-  ok("a kept hatch stays a hatchling with no hatchery", keptShade.stage === "hatchling" && keptShade.hatched && keptShade.kept && !keptShade.waiting && keptShade.hatchOn === "2026-11-07" && keptShade.next.stage === "fledgling");
-  ok("or with the hatchery moved later, or every day unbanked", shade({ hatched_on: "2026-11-07", at: { hatcheryOn: "2026-11-08" } }).hatched && dragonsOf({ purse, dragons: [egg("n", "night", "2026-11-05", { hatched_on: "2026-11-07" })], today: "2026-11-08" }).hatched.length === 1);
-
-  // Several at once, in the order they were bought.
-  const many = dragonsOf({
-    purse,
-    winsSince: 300,
-    dragons: [egg("b", "boulder", "2026-10-22"), egg("a", "night", "2026-10-20", { free: true, name: "Shade" }), egg("c", "ember", "2026-10-25")],
-    spends: [spend("a", "egg", 0), spend("a", "fledgling", 30), spend("b", "egg", 40), spend("c", "egg", 90)],
-    banked: ["2026-10-20", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"],
-    hatcheryOn: "2026-10-20",
-    today: T,
-  });
-  ok("dragons in the order they were bought", many.dragons.map((d) => d.id).join() === "a,b,c" && many.dragons[0].free && many.dragons[0].boughtOn === "2026-10-20");
-  ok("hatched and eggs split them", many.hatched.map((d) => d.id).join() === "a,b" && many.eggs.map((d) => d.id).join() === "c" && many.eggs[0].warmth === 1);
-  ok("100 + 300 - 0 - 30 - 40 - 90 = 240", many.balance === 240 && many.spent === 160);
-  const paint = paintDragons(many);
-  ok("the painter gets his hatched dragons at their stages", JSON.stringify(paint.dragons) === JSON.stringify([{ id: "a", kind: "night", stage: "fledgling", name: "Shade" }, { id: "b", kind: "boulder", stage: "hatchling", name: null }]));
-  ok("and the eggs warming in the hatchery", JSON.stringify(paint.eggs) === JSON.stringify([{ id: "c", kind: "ember" }]));
-  ok("an egg waiting for the hatchery isn't painted in it", paintDragons(before).eggs.length === 0 && paintDragons(before).dragons.length === 0);
-  ok("nothing loaded paints nothing", JSON.stringify(paintDragons(null)) === '{"dragons":[],"eggs":[]}');
-
-  // The day the hatchery stood, from the village.
-  const units = [1, 2, 3].map((n) => ({ id: `h${n}`, quest_id: "q1", kind: "task", text: "t", done_on: `2026-10-2${n}`, done_at: `2026-10-2${n}T10:00:00Z` }));
-  const raw = { projects: [{ id: "p0", kind: "hatchery", seed: 1, plot: 0, need: 2, started_on: "2026-10-20" }], tasks: units, steps: [] };
-  ok("the hatchery stood the day its last task was laid", hatcheryDay(villageOf(raw, T)) === "2026-10-22");
-  ok("from allocate() or a list of builds too", hatcheryDay(allocate(raw.projects, finishedUnits(raw))) === "2026-10-22" && hatcheryDay([{ kind: "hatchery", complete: true, finishedOn: "2026-10-01" }]) === "2026-10-01");
-  ok("a hatchery still going up hasn't stood", hatcheryDay(villageOf({ ...raw, tasks: units.slice(0, 1) }, T)) === null && hatcheryDay(villageOf({ ...raw, projects: [{ ...raw.projects[0], kind: "chapel" }] }, T)) === null);
-  ok("with two hatcheries, the first one counts", hatcheryDay([{ kind: "hatchery", complete: true, finishedOn: "2026-11-02" }, { kind: "hatchery", complete: true, finishedOn: "2026-10-30" }]) === "2026-10-30" && hatcheryDay(null) === null);
-
-  // The words.
-  ok("wins read", winsLine(64) === "64 wins" && winsLine(1) === "1 win" && winsLine(1300) === "1,300 wins");
-  ok("an egg says how many more banked days, never a countdown", hatchLine(two) === "Hatches the next day you bank" && hatchLine(hatch(["2026-10-20"])) === "Hatches after 2 more banked days" && hatchLine(hatch([])) === "Hatches after 3 banked days" && hatchLine(before.dragons[0]) === "Waits for the hatchery");
-  ok("a dragon says its stage and the next", stageLine(fl) === "Fledgling · next, flier" && stageLine(three) === "Hatchling · next, fledgling" && stageLine(fi) === "Flier · next, rider's dragon" && stageLine(ri) === "Rider's dragon");
-}
-
 function sectionOf({ x, y }) {
   const a = (Math.atan2(y, x) * 180) / Math.PI;
   return Math.floor(((((a + 90) % 360) + 360) % 360) / 90);
+}
+
+// ---------------------------------------------------------------------------
+// The 3D village's plan and arithmetic (src/village/plots.js)
+// ---------------------------------------------------------------------------
+{
+  const P = await import("../src/village/plots.js");
+  const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
+  console.log("\nthe 3D village");
+
+  ok("each build faces the plaza, square to the grid", P.facing([0, -1]) === 0 && P.facing([0, 1]) === Math.PI && P.facing([1, 0]) === -Math.PI / 2 && P.facing([-1, 0]) === Math.PI / 2 && P.facing([2, 2]) === Math.PI);
+  const toward = layout(29).plots.every(({ tile }) => {
+    const [fx, fz] = P.frontOf(P.facing(tile));
+    return Math.abs(fx) + Math.abs(fz) === 1 && fx * -tile[0] + fz * -tile[1] > 0;
+  });
+  ok("every one of the 29 plots looks toward the plaza", toward);
+  ok("a build is scaled down only when it reaches past its plot", P.scaleFor(16.4) === 1 && near(P.scaleFor(18.6), (P.TILE / 2 - P.MARGIN) / 18.6));
+
+  const aaron = { projects: [{ id: "w", kind: "windmill", plot: 0 }], nextPlot: 1 };
+  const plan = P.planOf(aaron);
+  ok("the windmill on plot 0 is north of the plaza, the next plot west", plan.plots[0].x === 0 && plan.plots[0].z === -P.TILE && plan.stake.x === -P.TILE && plan.stake.z === 0 && plan.stake.plot === 1);
+  ok("the green starts with the four corners of the first ring", plan.nature.length === 4 && plan.nature.every((n) => Math.abs(n.tile[0]) === 1 && Math.abs(n.tile[1]) === 1));
+  ok("the ground holds the plots in use and the next one", near(plan.radius, P.TILE * 1.62) && P.planOf({ projects: [], nextPlot: 0 }).radius === plan.radius);
+  const big = P.planOf({ projects: layout(16).plots.map(({ plot }) => ({ id: `p${plot}`, kind: "forge", plot })), nextPlot: 16 });
+  ok("a bigger village has a bigger ground and its ring's green", big.radius > plan.radius * 2 && big.nature.length > 4);
+
+  // Paths run between the plots, never over another plot's ground.
+  const paths = P.pathsOf(big, () => 6);
+  const inPlaza = ([x, z]) => Math.abs(x) <= P.PLAZA / 2 + 1e-9 && Math.abs(z) <= P.PLAZA / 2 + 1e-9;
+  ok("a path from every plot and the next", paths.length === 17 && paths.every((p) => p.points.length >= 2));
+  ok("every path ends in the plaza", paths.every((p) => inPlaza(p.points[p.points.length - 1])));
+  const all = [...big.plots, big.stake];
+  let crosses = 0;
+  for (const path of paths) {
+    for (let i = 0; i < path.points.length - 1; i++) {
+      const [ax, az] = path.points[i];
+      const [bx, bz] = path.points[i + 1];
+      for (let k = 0; k <= 20; k++) {
+        const x = ax + ((bx - ax) * k) / 20;
+        const z = az + ((bz - az) * k) / 20;
+        for (const q of all) if (q.plot !== path.plot && Math.abs(x - q.x) < P.TILE / 2 - 2 && Math.abs(z - q.z) < P.TILE / 2 - 2) crosses++;
+      }
+    }
+  }
+  ok("no path crosses another plot", crosses === 0, `${crosses} points inside other plots`);
+  const first = paths.find((p) => p.plot === 0).points;
+  ok("a path starts at its plot's front", near(first[0][0], 0) && near(first[0][1], -P.TILE + 6));
+
+  // Progress, as the painted stills show it.
+  const s1 = P.stageOf(106, 36, 45, 0);
+  ok("36 of 45 shows 84 of the windmill's 106 steps, none today", s1.shown === 84 && s1.today === 0 && near(s1.frac, 84.5 / 106));
+  ok("5 laid today are the last 11 steps", P.stageOf(106, 36, 45, 5).today === 11);
+  ok("a build that stands shows everything, its people too", P.stageOf(106, 45, 45, 0).shown === 107 && P.stageOf(106, 45, 45, 0).frac === 1);
+
+  // The replay: Aaron's village, day by day.
+  const arrows = [];
+  for (let d = 20; d <= 23; d++) for (let i = 0; i < 8; i++) arrows.push({ id: `a${d}${i}`, date: `2026-10-${d}`, level: arrows.length < 10 ? 0 : 2 });
+  const steps = Array.from({ length: 36 }, (_, i) => ({ id: `s${String(i).padStart(2, "0")}`, camp_id: "c1", text: `Step ${i}`, done_on: "2026-10-23", updated_at: `2026-10-23T10:${String(i).padStart(2, "0")}:00Z` }));
+  const temple = Array.from({ length: 125 }, (_, i) => ({ pid: `x${i}`, name: `Name ${i}`, gender: i % 9 ? "M" : "F", ordinances: [{ date: "2019-05-04", temple: "Provo" }] }));
+  const raw = { projects: [{ id: "w", kind: "windmill", seed: 10120, plot: 0, need: 45, started_on: "2026-10-22" }], tasks: [], steps, camps: [{ id: "c1", quest_id: "q1" }], quests: [{ id: "q1", title: "Q" }], lessons: [], shots: arrows, temple };
+  const v = villageOf(raw, "2026-10-25");
+  ok("five days from the first arrow to today", P.spanOf(v) === 5 && P.dayOf(null, v) === 5 && P.dayOf("2026-10-22", v) === 2 && P.dayOf("2020-01-01", v) === 0);
+  const d2 = P.stateOn(v, 2);
+  const d3 = P.stateOn(v, 3);
+  const now = P.stateOn(v, 5);
+  ok("day 2: the windmill's plot is laid out, nothing on it yet", d2.builds[0].exists && d2.builds[0].done === 0 && d2.going === "w");
+  ok("day 3: 36 tasks laid at once, all that day", d3.builds[0].done === 36 && d3.builds[0].laid === 36);
+  ok("today: 36 of 45, none today", now.builds[0].done === 36 && now.builds[0].laid === 0 && !now.builds[0].complete && now.going === "w");
+  ok("day 1: not chosen yet", !P.stateOn(v, 1).builds[0].exists && P.stateOn(v, 1).going === null);
+  ok("the soldiers train as the arrows fly", P.stateOn(v, 0).soldiers === 1 && P.stateOn(v, 1).soldiers === 3 && now.soldiers === 6 && now.tier === 0);
+  ok("everyone from before the village is there from the first day", P.stateOn(v, 0).villagers === 125);
+  ok("a replay takes 4 to 30 seconds", P.playSecs(5) === 4 && P.playSecs(30) === 10 && P.playSecs(400) === 30);
+
+  // People.
+  const f = P.formationOf(100, 2);
+  ok("at most 40 soldiers drill, all in the plaza", P.formationOf(6).length === 6 && f.length === 40 && f.every((s) => inPlaza([s.x, s.z]) && s.z > 1 && s.tier === 2));
+  ok("archers draw in the front rank", f.slice(0, 10).every((s) => s.pose === "draw" && s.role === "archer") && f.some((s) => s.role === "soldier"));
+  const spots = P.spotsOf(P.pathsOf(plan), v.villagers);
+  ok("40 villagers stand at most, the same each time", spots.length === 40 && JSON.stringify(spots) === JSON.stringify(P.spotsOf(P.pathsOf(plan), v.villagers)));
+  ok("none stands on the flag", spots.every((s) => Math.hypot(s.x, s.z) > 2.5));
+  ok("no villagers, nobody drawn", P.spotsOf(P.pathsOf(plan), []).length === 0);
+
+  // Labels.
+  const rect = { left: 0, top: 0, right: 390, bottom: 844 };
+  const shown = P.placeLabels(
+    [
+      { id: "a", x: 100, y: 200, w: 80, h: 24, prio: 1 },
+      { id: "b", x: 120, y: 210, w: 80, h: 24, prio: 0 },
+      { id: "c", x: 300, y: 400, w: 60, h: 24, prio: 2 },
+      { id: "d", x: 380, y: 400, w: 60, h: 24, prio: 3 },
+      { id: "e", x: 200, y: 600, w: 60, h: 24, prio: 4, on: false },
+    ],
+    rect
+  );
+  ok("labels: the first placed wins an overlap, off-screen and behind hide", shown.has("b") && !shown.has("a") && shown.has("c") && !shown.has("d") && !shown.has("e"));
+  const kept = P.placeLabels(
+    [
+      { id: "over", x: 200, y: 300, w: 80, h: 24, prio: 0 },
+      { id: "clear", x: 200, y: 500, w: 80, h: 24, prio: 1 },
+    ],
+    rect,
+    4,
+    [{ l: 150, r: 260, t: 280, b: 340 }]
+  );
+  ok("labels keep off what must stay in sight (the soldiers)", !kept.has("over") && kept.has("clear"));
+
+  // Links.
+  ok("?build=<id> opens that build", JSON.stringify(P.linkOf("?build=abc")) === '{"build":"abc","choose":null}');
+  ok("?choose opens Choose, ?choose=<kind> points at one", P.linkOf("?choose").choose === true && P.linkOf("?choose=forge").choose === "forge" && P.linkOf("").choose === null && P.linkOf("").build === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -156,5 +156,3 @@ export function formatRef(book, chapter, verseStart, verseEnd) {
   }
   return ref;
 }
-
-export const CANONICAL_BOOKS = Object.keys(BOOKS);

@@ -1,8 +1,9 @@
 // Forge: an open smithy under a shingled timber roof on carved stave posts. At its right end a stone hearth glows under
 // its hood, the chimney climbing beside the gable; the bellows blow from the right on a rocking beam, the smith hammers
-// at the anvil out front by the quench trough, new blades cool on a rack, and in the corner a rider's saddle, the plans
-// for a tail fin and the fin itself wait to be fitted. Built footings and flags first, the hearth course by course, the posts and frame, the walls, the hood and
-// chimney, the gables and the roof row by row, then the bellows, the fire, the tools and the people.
+// at the anvil out front by the quench trough, new blades cool on a rack, and in the corner a saddle waits on its
+// trestle for a new buckle beside a drawing board of plans and a shield hung for its boss. Built footings and flags
+// first, the hearth course by course, the posts and frame, the walls, the hood and chimney, the gables and the roof row
+// by row, then the bellows, the fire, the tools and the people.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL;
   function V(x, y, z) { return new T.Vector3(x, y, z); }
@@ -50,12 +51,11 @@
 
   KIT.defineBuild('forge', {
     name: 'Forge', size: 'small', need: 22,
-    line: 'An open smithy under a shingled roof: a glowing stone hearth and its chimney, the bellows, the smith at his anvil by the quench trough, new blades cooling on the rack and a rider proving one on the pell.',
+    line: 'An open smithy under a shingled roof: a glowing stone hearth and its chimney, the bellows, the smith at his anvil by the quench trough, new blades cooling on the rack and a soldier proving one on the pell.',
     r: 7.4, flat: [11.0, 8.6], ground: 'grass', path: [[0.9, 7.5], [0.9, 3.6]],
     frameY: 2.4, frameR: 7.2, glowAt: [1.6, 6.5, 0.5],
     trees: [{ x: -5.6, z: -3.0, kind: 'pine', h: 5.6 }, { x: -1.6, z: -5.6, kind: 'pine', h: 4.6 }],
     bushes: [{ x: 6.0, z: 1.6, r: 0.65, flowers: '#f3f1ec' }, { x: 4.8, z: -3.4, r: 0.75 }, { x: 5.9, z: -1.6, r: 0.55 }, { x: -5.0, z: 4.1, r: 0.6, flowers: '#f3f1ec' }, { x: 2.6, z: -4.4, r: 0.65 }],
-    perches: [{ x: -2.0, y: 4.8, z: 0.2, ry: Math.PI / 2 }, { x: 2.9, y: 0, z: 5.6, ry: -0.6 }],
     build: function (b) {
       var X = [-3.9, -1.95, 0.0], Z = [-2.3, 0.9], yE = 3.15, yP = yE - 0.22, rise = 1.45, over = 0.45, overX = 0.38;
       var rcx = -1.95, rcz = -0.7, W = 3.9, D = 3.2;
@@ -267,9 +267,9 @@
         [-3.2, -2.58, -1.95, -1.27, -0.6].forEach(function (x, i) { b.shield(x, yP - 0.62, Z[1] + 0.2, { kind: 'round', c: ['ink', 'bone', 'inkGrey', 'bone', 'ink'][i], s: 0.66, emblem: 'none' }); });
       });
 
-      b.part("Rider's corner");
+      b.part('Saddle corner');
       b.unit(function () {
-        // a dragon saddle on a trestle, brought in for a new buckle
+        // a saddle on a trestle, brought in for a new buckle
         b.push(-3.0, 0, 0.35, 0.45);
         [-1, 1].forEach(function (s) { b.beam([s * 0.5, 0, -0.3], [s * 0.5, 0.75, 0], 0.04, { c: 'wood' }); b.beam([s * 0.5, 0, 0.3], [s * 0.5, 0.75, 0], 0.04, { c: 'wood' }); });
         b.beam([-0.6, 0.78, 0], [0.6, 0.78, 0], 0.06, { c: 'woodLight', round: true });
@@ -282,7 +282,7 @@
         b.pop();
       });
       b.unit(function () {
-        // a drawing board out in the light with the plans for a rider's tail fin pinned to it
+        // a drawing board out in the light with the plans for a new sword pinned to it
         b.push(-2.3, 0, 1.5, -0.55);
         [-1, 1].forEach(function (sd) { b.beam([sd * 0.5, 0, -0.18], [sd * 0.45, 1.55, 0.02], 0.035, { c: 'woodDark' }); });
         b.beam([0, 0, -0.55], [0, 1.45, 0.0], 0.03, { c: 'woodDark' });
@@ -290,22 +290,15 @@
         b.box(0, -0.34, 0, 1.0, 0.7, 0.04, { c: 'wood', m: M.wood, bevel: 0.01 });
         [[-0.24, 0.05], [0.24, -0.06]].forEach(function (p) {
           b.box(p[0], -0.3, 0.025, 0.42, 0.56, 0.008, { rz: p[1], c: '#ece5d3', m: M.paint, bevel: 0, ao: 0 });
-          // an inked fin, ribbed, and a line of notes under it
-          for (var q = 0; q < 5; q++) { var a = -0.7 + q * 0.35; b.box(p[0] - 0.1 + Math.cos(a) * 0.08, -0.05 + Math.sin(a) * 0.08, 0.031, 0.01, 0.17, 0.003, { rz: -a - Math.PI / 2 + 0.2, c: '#2a2826', m: M.paint, bevel: 0, ao: 0, jit: 0 }); }
+          // an inked sword, blade and cross guard, and a line of notes under it
+          b.box(p[0] - 0.08, -0.2, 0.031, 0.012, 0.3, 0.003, { rz: 0.5, c: '#2a2826', m: M.paint, bevel: 0, ao: 0, jit: 0 });
+          b.box(p[0] - 0.01, -0.12, 0.031, 0.12, 0.012, 0.003, { rz: 0.5, c: '#2a2826', m: M.paint, bevel: 0, ao: 0, jit: 0 });
           for (var r = 0; r < 3; r++) b.box(p[0], -0.36 - r * 0.07, 0.031, 0.28 - r * 0.05, 0.012, 0.003, { c: '#2a2826', m: M.paint, bevel: 0, ao: 0, jit: 0 });
         });
         b.pop();
         b.pop();
-        // the fin itself hung on the corner post by the hearth: a fan of ink sailcloth on iron ribs, a bone skull at its hinge
-        b.push(X[2] + 0.05, 1.62, Z[1] + 0.2, 0); b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeRotationZ(-Math.PI / 2 + 0.2)).multiply(new T.Matrix4().makeScale(1.15, 1.15, 1));
-        var fin = [[0, 0]]; for (var i = 0; i <= 10; i++) { var a2 = -0.9 + i / 10 * 1.8, rr = 0.78 * (i % 2 ? 0.84 : 1); fin.push([Math.cos(a2) * rr * 0.78, Math.sin(a2) * rr]); }
-        b.extrude(-0.3, 0, 0.004, fin, 0.02, { c: 'bone', m: M.cloth, bevel: 0.004 });
-        b.extrude(-0.3, 0, -0.012, fin.map(function (p) { return [p[0] * 1.07 - 0.02, p[1] * 1.07]; }), 0.012, { c: 'ember', m: M.cloth, bevel: 0 });
-        for (var k = 0; k <= 5; k++) { var a3 = -0.9 + k / 5 * 1.8; b.beam([-0.3, 0, 0.022], [-0.3 + Math.cos(a3) * 0.56, Math.sin(a3) * 0.72, 0.022], 0.01, { c: 'iron', m: M.metal, round: true, seg: 4 }); }
-        b.cyl(-0.3, 0, 0.0, 0.05, 0.08, { c: 'iron', m: M.metal, rx: Math.PI / 2, seg: 8 });
-        b.cyl(-0.05, 0, 0.022, 0.085, 0.01, { c: 'ink', m: M.paint, rx: Math.PI / 2, seg: 10 });
-        [-1, 1].forEach(function (sd) { b.ball(-0.05 + sd * 0.03, 0.02, 0.03, 0.017, { c: '#f3f1ec', m: M.paint, detail: 0, ao: 0, jit: 0 }); });
-        b.pop();
+        // a new round shield hung on the corner post by the hearth, waiting for its iron boss
+        b.shield(X[2] + 0.05, 1.5, Z[1] + 0.22, { kind: 'round', c: 'bone', s: 0.72, emblem: 'none' });
       });
 
       b.part('Stores');
@@ -361,7 +354,7 @@
 
       b.part('Proving the blades');
       b.unit(function () {
-        // a straw-wrapped pell in the yard, where a rider tries the new blade before he takes it
+        // a straw-wrapped pell in the yard, where a soldier tries the new blade before he takes it
         b.dummy(-2.35, 0, 4.61, { ry: -2.19, helm: true, shield: 'ink' });
         b.flowers(-2.0, 0, 4.95, 0.25, { n: 5, c: '#f3f1ec' });
       });

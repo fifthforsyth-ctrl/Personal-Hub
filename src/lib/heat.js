@@ -97,15 +97,6 @@ export function brightnessTier(b) {
   return "dull";
 }
 
-export function buildChildrenByParent(edges) {
-  const map = new Map();
-  for (const e of edges) {
-    if (!map.has(e.parent_id)) map.set(e.parent_id, []);
-    map.get(e.parent_id).push(e.child_id);
-  }
-  return map;
-}
-
 // ---------------------------------------------------------------------------
 // Minute brightness
 //

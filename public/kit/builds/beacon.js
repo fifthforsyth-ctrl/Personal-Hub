@@ -1,5 +1,5 @@
 // Signal beacon: a tall round pillar of stone with steps cut into it spiralling up, a corbelled platform and an iron
-// fire basket on top, lit to call the riders home. A timber hoist lifts the firewood; a woodstore with a carved
+// fire basket on top, lit to call the muster. A timber hoist lifts the firewood; a woodstore with a carved
 // dragon-head roof keeps it dry; a great horn rests on a forked post. Built footings first, the pillar course by
 // course with its steps, the platform, the basket, then the woodstore, the horn and the people. The fire is lit last.
 (function () {
@@ -80,12 +80,11 @@
 
   KIT.defineBuild('beacon', {
     name: 'Signal beacon', size: 'small', need: 12,
-    line: 'A stone pillar with steps cut into it and an iron fire basket on top, lit at dusk to call the riders home.',
+    line: 'A stone pillar with steps winding up to a lit iron fire basket, a carved hoist for the firewood, a woodstore, and a horn-blower sounding the call.',
     r: 8, flat: [11.5, 9], ground: 'grass', path: [[1.0, 8.6], [0.9, 3.0]],
     frameY: 3.3, frameR: 8.5, glowAt: [0.6, 9.6, -1.2],
     trees: [{ x: -5.8, z: -4.6, kind: 'pine', h: 7.2 }, { x: 6.6, z: 0.6, kind: 'birch', h: 5.4 }, { x: -2.4, z: -6.2, kind: 'pine', h: 5.2 }],
     bushes: [{ x: 5.6, z: 3.6, r: 0.75, flowers: '#f3f1ec' }, { x: -5.3, z: 5.3, r: 0.65 }, { x: 5.4, z: -3.4, r: 0.6 }],
-    perches: [{ x: 0.11, y: 7.5, z: -2.7, ry: -2.83 }, { x: 2.83, y: 9.32, z: -0.63, ry: 1.32 }, { x: -3.8, y: 3.5, z: -1.9, ry: 1.57 }],
     build: function (b) {
       var cx = 0.6, cz = -1.2, y0 = 0.6, H = 6.3, R0 = 1.2, TH = 0.6, TAPER = 0.2, NC = 14;
       // courses of uneven height, as the quarry gave them
@@ -349,7 +348,7 @@
         b.pop();
         b.figure(-1.75, 1.05, { role: 'villager', pose: 'carry', ry: 0.75, c: '#5c5e62' });
         b.figure(1.9, 4.6, { role: 'child', pose: 'run', ry: -2.5 });
-        // a carrier bringing brushwood from the cart, and a rider-watch pointing out the flight coming home
+        // a carrier bringing brushwood from the cart, and a watchman pointing out the muster coming in
         b.figure(-3.55, 2.65, { role: 'villager', pose: 'carry', ry: 1.15, c: '#3b3a38' });
         faggot(-3.45, 1.62, 2.7, 1.15 + Math.PI / 2, 1.0);
         b.figure(0.55, 5.1, { role: 'soldier', pose: 'point', ry: 2.7, team: 'bone' });

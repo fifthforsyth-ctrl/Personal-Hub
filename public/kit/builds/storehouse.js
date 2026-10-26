@@ -286,7 +286,6 @@
     frameY: 2.5, frameR: 9.2, glowAt: [1.0, 6.4, 1.2],
     trees: [{ x: -8.0, z: -4.3, kind: 'pine', h: 8.0 }, { x: -5.9, z: -6.6, kind: 'pine', h: 6.2 }, { x: 8.0, z: -4.5, kind: 'pine', h: 7.2 }, { x: 8.6, z: 2.3, kind: 'birch', h: 5.4 }],
     bushes: [{ x: 7.5, z: 5.0, r: 0.8, flowers: '#f3f1ec' }, { x: -6.2, z: 6.1, r: 0.8 }, { x: -8.6, z: -0.8, r: 0.7, flowers: '#f3f1ec' }, { x: 3.4, z: -5.9, r: 0.7 }],
-    perches: [{ x: -0.8, y: 6.9, z: -1.6, ry: Math.PI / 2 }, { x: 2.6, y: 6.9, z: -1.6, ry: Math.PI / 2 }],
     build: function (b) {
       // the granary: posts on x -4.6..3.0, z -4.1..0.9, ridge along x; the floor at FL on staddles
       var cx = -0.8, cz = -1.6, W = 7.6, D = 5.0, x0 = cx - W / 2, x1 = cx + W / 2, z0 = cz - D / 2, z1 = cz + D / 2;

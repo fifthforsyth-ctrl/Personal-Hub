@@ -40,7 +40,8 @@
   };
 
   // o: { role 'villager'|'soldier'|'knight'|'archer'|'smith'|'child', pose, ry, c (tunic or team colour), team, s,
-  //      hair, skin, hat, beard, cape }
+  //      hair, skin, hat, beard, cape, tier (an archer's bow: 0 wood, 1 longbow (default), 2 recurve, 3 steel),
+  //      unit (lay the figure as that step instead of with the life that comes once a build stands) }
   function figure(b, x, z, o) {
     o = o || {};
     var role = o.role || 'villager', child = role === 'child';
@@ -54,7 +55,8 @@
     var sleeve = metalArms ? 'steel' : soldier ? '#7b7f80' : tunic, sleeveM = metalArms || soldier ? M.metal : M.cloth;
     var headK = child ? 1.22 : 1;
 
-    b.life(function () {
+    var lay = o.unit === undefined ? function (fn) { b.life(fn); } : function (fn) { b.stepAs(o.unit, fn); };
+    lay(function () {
       b.push(x, y, z, o.ry || 0); b.stack[b.stack.length - 1].multiply(new T.Matrix4().makeScale(s, s, s));
       var P = V(P0.hip, 0.92 - P0.drop, 0);
       var Q = new T.Quaternion().setFromEuler(new T.Euler(P0.lean, P0.twist, P0.side, 'YXZ'));
@@ -168,9 +170,9 @@
       if (archer) {
         if (pose === 'draw') {
           var fwd = L.H.clone().sub(R.H).setY(0).normalize(), ry = Math.atan2(fwd.x, fwd.z) - Math.PI / 2, g0 = L.H.clone().addScaledVector(fwd, -0.2);
-          b.bow(g0.x, g0.y, g0.z, { tier: o.tier || 1, ry: ry, h: 1.5 });
+          b.bow(g0.x, g0.y, g0.z, { tier: o.tier === undefined ? 1 : o.tier, ry: ry, h: 1.5 });
           b.beam(R.H.toArray(), L.H.clone().addScaledVector(fwd, 0.18).toArray(), 0.008, { round: true, seg: 4, c: 'woodLight', m: M.wood });
-        } else b.bow(R.H.x, R.H.y + 0.1, R.H.z, { tier: o.tier || 1, h: 1.5 });
+        } else b.bow(R.H.x, R.H.y + 0.1, R.H.z, { tier: o.tier === undefined ? 1 : o.tier, h: 1.5 });
       }
       if (smith) {
         var dh = holdDir(R, pose === 'hammer' ? V(0.1, 0.15, -1) : null), eh = aim(dh);

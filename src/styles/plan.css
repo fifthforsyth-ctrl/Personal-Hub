@@ -1,6 +1,6 @@
 /* ===========================================================================
    Planning: the day's plan (on the day page), the Week page and its
-   planner, Work and Charts. Shared tokens and buttons live in index.css;
+   planner and Work. Shared tokens and buttons live in index.css;
    this file only holds what these screens add.
    =========================================================================== */
 
@@ -517,7 +517,7 @@
 .year-month__day { aspect-ratio: 1; border-radius: 2px; }
 .year-month__day--today { box-shadow: 0 0 0 1.5px var(--accent); }
 
-/* Less → more, under the year and the charts heatmap. */
+/* Less → more, under the year. */
 .intensity-legend {
   display: flex;
   flex-wrap: wrap;
@@ -537,41 +537,6 @@
 }
 .intensity-legend__note { color: var(--text-3); margin-left: 6px; }
 @media (max-width: 560px) { .intensity-legend__note { flex-basis: 100%; margin-left: 0; } }
-
-/* --- Charts --------------------------------------------------------------- */
-
-.charts-head { min-width: 0; }
-/* The arrows sit beside the month or year they step through. */
-.charts-head__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
-.charts-head__title .page-title { margin-bottom: 0; }
-
-.charts-stats { margin-bottom: 0; }
-@media (max-width: 560px) {
-  .charts-stats { gap: 8px; }
-  .charts-stats .stat { padding: 12px 14px; border-radius: var(--r); }
-  .charts-stats .stat-top { margin-bottom: 4px; }
-  .charts-stats .stat-value { font-size: 22px; }
-  .charts-stats .stat-foot { margin-top: 4px; font-size: 10px; }
-}
-
-/* 24 hours across, on a phone too: a label column, then squares that
-   shrink to fit rather than a strip that scrolls sideways. */
-.heatmap { display: flex; flex-direction: column; gap: 2px; }
-.heatmap__row {
-  display: grid;
-  grid-template-columns: 30px repeat(24, minmax(0, 1fr));
-  gap: 2px;
-  align-items: center;
-}
-.heatmap__row--hours { margin-bottom: 2px; }
-.heatmap__hour {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-.heatmap__day { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-2); }
-.heatmap__cell { display: block; aspect-ratio: 1; border-radius: 2px; min-width: 0; }
 
 /* --- Work ----------------------------------------------------------------- */
 
@@ -594,13 +559,3 @@
 /* "What I shipped": one line above the running list. */
 .work-shipped { display: flex; flex-direction: column; gap: 7px; }
 .work-shipped__label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
-
-/* Charts: the body and the practice. */
-.practice-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.practice-tile { min-width: 0; padding: 12px 14px; border-radius: var(--r); background: var(--inset); }
-.practice-tile__value { margin-top: 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.practice-tile .stat-foot { margin-top: 5px; line-height: 1.4; }
-.practice-weight { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
-@media (max-width: 640px) {
-  .practice-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-}
