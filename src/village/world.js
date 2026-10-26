@@ -44,8 +44,8 @@ const ATTRS = { alpha: false, depth: true, stencil: true, antialias: false, prem
 // the sway caught at the moment the painted stills catch it
 const LOOK_TIME = 1.3;
 const FOV = 28;
-// the first view: a little above (higher on a tall screen), from the side of
-// the build going up, turned this far from it
+// the first view: a little above, from the side of the build going up,
+// turned this far from it (the whole island, pinched out, from higher on a tall screen)
 const EL0 = 0.56;
 const EL_TALL = 0.74;
 const TURN = 0.45;
@@ -633,22 +633,16 @@ class World {
     return Math.atan2(p.x, p.z);
   }
 
-  // The whole village in the free part of the screen: the island to its rim
-  // and the skirt below it, every build on it (a plot not made yet by its
-  // levelled ground and a likely height, so the view hardly moves as the
-  // builds come in), seen a little turned from the side of the build going
-  // up, so that build stands near and the lanes run across the picture.
+  // The whole village in the free part of the screen: the plaza, every
+  // build (a plot not made yet by its levelled ground and a likely height, so
+  // the view hardly moves as the builds come in) and the plot staked for the
+  // next one, filling the width, seen a little turned from the side of the
+  // build going up, so that build stands near and the lanes run across the
+  // picture. The island round them runs on past the edges; a pinch out shows
+  // it to its rim.
   wholeView() {
     if (!this.stage) return { ...this.view };
-    const R = this.R;
-    const depth = Math.max(14, R * 0.3);
     const pts = [];
-    for (let i = 0; i < 32; i++) {
-      const c = Math.cos((i / 32) * Math.PI * 2);
-      const s = Math.sin((i / 32) * Math.PI * 2);
-      // the rim wavers a few percent either side of R; the skirt narrows as it hangs
-      pts.push(new THREE.Vector3(c * R * 1.05, 0.4, s * R * 1.05), new THREE.Vector3(c * R * 0.64, -depth * 0.55, s * R * 0.64));
-    }
     const corners = (b) => {
       for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(x, y, z));
     };
@@ -660,6 +654,9 @@ class World {
       corners(new THREE.Box3(new THREE.Vector3(x - hw, 0, z - hd), new THREE.Vector3(x + hw, h, z + hd)));
     };
     if (this.plan) {
+      const { plaza, stake } = this.plan;
+      flat(plaza.x, plaza.z, plaza.w, plaza.d, 0, 3);
+      flat(stake.x, stake.z, STAKED.w, STAKED.d, stake.ry, 3);
       for (const p of this.plan.plots) {
         const B = this.made.get(p.id);
         if (B) {
@@ -670,26 +667,51 @@ class World {
         } else flat(p.x, p.z, 20, 20, p.ry, 14);
       }
     }
+    const view = this.centred(pts, EL0, 0.94);
+    // he can pinch out until the whole island shows, rim and skirt
+    this.maxDist = Math.max(view.dist * 1.5, this.islandView().dist * 1.15);
+    return view;
+  }
+
+  // The island to its rim and the skirt below it, from higher on a tall screen.
+  islandView() {
+    const R = this.R;
+    const depth = Math.max(14, R * 0.3);
+    const pts = [];
+    for (let i = 0; i < 32; i++) {
+      const c = Math.cos((i / 32) * Math.PI * 2);
+      const s = Math.sin((i / 32) * Math.PI * 2);
+      // the rim wavers a few percent either side of R; the skirt narrows as it hangs
+      pts.push(new THREE.Vector3(c * R * 1.05, 0.4, s * R * 1.05), new THREE.Vector3(c * R * 0.64, -depth * 0.55, s * R * 0.64));
+    }
     const { cw, ch } = this.css();
     const ins = this.insets;
     const tall = ch - ins.top - ins.bottom > (cw - ins.left - ins.right) * 1.1;
-    const view = { tx: 0, ty: 2, tz: 0, az: this.sideOf() + TURN, el: tall ? EL_TALL : EL0, dist: 100 };
-    // the near rim looks bigger than the far one: the point looked at slides along the ground, toward or away from
-    // the eye, to where the island sits in the middle of the free part, top to bottom
+    return this.centred(pts, tall ? EL_TALL : EL0, 0.97);
+  }
+
+  // The nearest view, from the side of the build going up, at which the points fit the free part of the screen,
+  // sitting in the middle of it top to bottom: the near ground looks bigger than the far, so the point looked at
+  // slides along the ground, toward or away from the eye, until the points' span is centred.
+  centred(pts, el, fill) {
+    const R = this.R;
+    // from the middle of the points on the ground
+    const box = new THREE.Box3().setFromPoints(pts);
+    const cx = (box.min.x + box.max.x) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    const view = { tx: cx, ty: 2, tz: cz, az: this.sideOf() + TURN, el, dist: 100 };
     const fx = -Math.sin(view.az);
     const fz = -Math.cos(view.az);
     let best = null;
     for (let i = -6; i <= 6; i++) {
       const k = (i / 6) * R * 0.35;
-      const v = { ...view, tx: fx * k, tz: fz * k };
-      v.dist = this.fitDist(pts, v, 0.97);
+      const v = { ...view, tx: cx + fx * k, tz: cz + fz * k };
+      v.dist = this.fitDist(pts, v, fill);
       const { y0, y1 } = this.spanOn(pts, v);
       const off = Math.abs((y0 + y1) / 2);
       if (!best || off < best.off) best = { off, v };
     }
-    Object.assign(view, best.v);
-    this.maxDist = view.dist * 1.5;
-    return view;
+    return best.v;
   }
 
   // A build three-quarters from its front, as the painted stills show it, filling the free part of the screen.

@@ -87,6 +87,7 @@
     }
     var GC = { dirt: new T.Color('#b0916a'), sand: new T.Color('#d8bf8c'), paving: new T.Color('#c2b59c'), cobble: new T.Color('#6f6658') };
     var MUD = new T.Color('#6f6a55');
+    var DEEP = new T.Color('#33434a'), SHALLOW = new T.Color('#566866'), SHEEN = new T.Color('#7a8f93');
     function groundCol(x, y, z) {
       var n = fbm3(x * 0.18 + sd, 3, z * 0.18, 3), n2 = noise3(x * 0.9, 1, z * 0.9);
       var c = new T.Color('#5d6b4c').lerp(new T.Color('#76805e'), clamp(n * 1.2 + 0.35, 0, 1) * 0.4).lerp(new T.Color('#4a5842'), clamp(-n * 1.5, 0, 1) * 0.6);
@@ -141,7 +142,11 @@
         var ps = g.attributes.position;
         for (var q = 1; q < ps.count; q++) { var px = ps.getX(q), pz = ps.getZ(q), ang = Math.atan2(pz, px), kk = 1 + noise3(Math.cos(ang) * 2 + p.x, Math.sin(ang) * 2, 3.3) * 0.12; ps.setX(q, px * kk); ps.setZ(q, pz * kk); }
         g.computeVertexNormals();
-        b.addGeo(g, { x: p.x, y: -0.2, z: p.z, c: '#8aa3a6', m: M.water, ao: 0, jit: 0, vary: 0.03 });
+        // dark still water, as the rampart's moat: deep in the middle, shallower to the edge, a slow sheen of sky across it
+        b.addGeo(g, { x: p.x, y: -0.2, z: p.z, c: '#ffffff', m: M.water, ao: 0, jit: 0, vary: 0.02, colors: function (wx, wy, wz) {
+          var t = Math.min(1, Math.hypot(wx - p.x, wz - p.z) / (p.r * 1.02)), q = noise3(wx * 0.16, 1.7, wz * 0.16);
+          return DEEP.clone().lerp(SHALLOW, smooth(0.4, 1.0, t)).lerp(SHEEN, smooth(0.0, 0.45, q) * 0.3);
+        } });
         for (var e = 0; e < 26; e++) {
           var a4 = r() * Math.PI * 2, d4 = p.r * (0.95 + r() * 0.3), x4 = p.x + Math.cos(a4) * d4, z4 = p.z + Math.sin(a4) * d4;
           // never out over the lip, as the trees keep off it
