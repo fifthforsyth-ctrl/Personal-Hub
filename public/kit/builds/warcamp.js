@@ -329,7 +329,6 @@
   var aW = -165 * DEG, WX = Math.cos(aW) * 13.15, WZ = Math.sin(aW) * 13.15, RYW = Math.atan2(-Math.cos(aW), -Math.sin(aW)), WDECK = 5.0, WEAVE = 6.95, WRISE = 1.25;
   var PX = 3.2, PZ = -4.2, DECKY = 0.32, PR = 3.0, PWH = 2.45, PRH = 3.1;
   var F1 = [-6.2, 7.7], F2 = [0.6, -9.9];
-  var p1 = gw(TX, 0, 0), p2 = gw(-TX, 0, 0);
 
   KIT.defineBuild('warcamp', {
     name: 'War camp', size: 'big', need: 120,
@@ -337,11 +336,6 @@
     r: 16, flat: [27, 27], ground: 'grass',
     path: [[GX + Math.cos(nG) * 4.6, GZ + Math.sin(nG) * 4.6], [GX, GZ], [3.75, 4.95], [3.3, 1.75], [3.75, 4.95], [-1.0, 4.95], [-12.2, 4.95]],
     frameY: 2.0, glowAt: [PX, DECKY + PWH + PRH + 1.5, PZ],
-    perches: [
-      { x: +p1.x.toFixed(2), y: TEAVE + TRISE + 0.15, z: +p1.z.toFixed(2), ry: +RYG.toFixed(2) },
-      { x: +p2.x.toFixed(2), y: TEAVE + TRISE + 0.15, z: +p2.z.toFixed(2), ry: +RYG.toFixed(2) },
-      { x: +WX.toFixed(2), y: WEAVE + WRISE + 0.15, z: +WZ.toFixed(2), ry: +RYW.toFixed(2) }
-    ],
     trees: [{ x: -10.3, z: -10.6, kind: 'round', h: 6.4 }, { x: -3.0, z: -14.4, kind: 'cypress', h: 7.6 }, { x: 6.2, z: -13.4, kind: 'round', h: 6.0 }, { x: 14.4, z: -2.6, kind: 'cypress', h: 7.2 }, { x: 13.4, z: 6.2, kind: 'round', h: 5.2 }],
     bushes: [{ x: -10.6, z: 9.6, r: 0.85, flowers: '#f3f1ec' }, { x: -0.9, z: 15.05, r: 0.7 }, { x: 10.6, z: 9.9, r: 0.7, flowers: '#f3f1ec' }, { x: -14.4, z: 1.6, r: 0.75 }, { x: 8.3, z: 12.6, r: 0.6 }],
     build: function (b) {

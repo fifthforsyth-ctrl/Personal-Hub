@@ -17,7 +17,7 @@
 // own and let go once painted, so it never costs the build going up its
 // next tick.
 //
-//   paintBuild({ kind, done, need, laid, dragons, eggs, width, height, slot, signal, keep })
+//   paintBuild({ kind, done, need, laid, width, height, slot, signal, keep })
 //     -> Promise of an object URL (image/jpeg) for an <img>. The URL is the
 //        painter's: it is revoked when the same slot is painted again or on
 //        release(slot). (Without a slot the URL is the caller's to revoke.)
@@ -31,11 +31,13 @@
 // zero GL errors, as the notes at the top of ./engine.js ask.
 
 import * as THREE from "three";
+import { villagePic } from "./pictures.js";
 
-// The static, finished painting of a build (public/village/builds/).
-export const thumbOf = (kind) => `/village/builds/${kind}.jpg`;
+// The static, finished painting of a build (public/village/builds/), at an
+// address that changes whenever the pictures do.
+export const thumbOf = (kind) => villagePic(`builds/${kind}.jpg`);
 
-const KIT_FILES = ["kit-core.js", "kit-build.js", "kit-world.js", "kit-people.js", "kit-stage.js", "kit-dragons.js"];
+const KIT_FILES = ["kit-core.js", "kit-build.js", "kit-world.js", "kit-people.js", "kit-stage.js"];
 // vite.config.js stamps a hash of public/kit, so a new kit is never served from an old cache.
 const KIT_V = typeof __KIT_VERSION__ !== "undefined" ? __KIT_VERSION__ : "dev";
 const kitUrl = (file) => `${import.meta.env.BASE_URL}kit/${file}?v=${KIT_V}`;
@@ -97,7 +99,7 @@ let canvas = null;
 let gl = null;
 let noGL = false;
 let stage = null;
-// the last build made: { key, kind, mk }
+// the last build made: { kind, mk }
 let made = null;
 
 // The one context, made the first time anyone asks. The renderer is made on it
@@ -179,12 +181,6 @@ function stageFor(w, h) {
 
 // ------------------------------------------------------------------ builds
 
-function sceneKey(kind, dragons, eggs) {
-  const ds = dragons.map((d) => `${d.id}:${d.kind}:${d.stage}`).join(",");
-  const es = eggs.map((e) => `${e.id}:${e.kind}`).join(",");
-  return `${kind}|${ds}|${es}`;
-}
-
 // Once a build's geometry is on the GPU its arrays only take memory (a big
 // build's run to tens of MB), so they are let go. Nothing reads them again:
 // a new stage only changes uniforms, and a lost context starts afresh.
@@ -214,7 +210,7 @@ function dispose(mk) {
 }
 
 // The kit's step count for `done` of `need` tasks: everything once it stands
-// (its people and dragons too), and the steps laid today counted back from there.
+// (its people too), and the steps laid today counted back from there.
 function stageOf(units, done, need, laid) {
   const shown = done >= need ? units + 1 : Math.floor((units * done) / need);
   const today = laid > 0 ? shown - Math.floor((units * Math.max(0, done - laid)) / need) : 0;
@@ -241,7 +237,7 @@ function measure(name, start) {
   }
 }
 
-export function paintBuild({ kind, done, need, laid = 0, dragons = [], eggs = [], width = 960, height = 720, slot, signal, keep = true } = {}) {
+export function paintBuild({ kind, done, need, laid = 0, width = 960, height = 720, slot, signal, keep = true } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError());
     if (!/^[a-z]+$/.test(kind || "")) return reject(new Error(`No painting for ${kind}`));
@@ -250,8 +246,6 @@ export function paintBuild({ kind, done, need, laid = 0, dragons = [], eggs = []
       done: Math.max(0, Number(done) || 0),
       need: Math.max(1, Number(need) || 1),
       laid: Math.max(0, Number(laid) || 0),
-      dragons: dragons || [],
-      eggs: eggs || [],
       w: Math.max(16, Math.round(width)),
       h: Math.max(16, Math.round(height)),
       slot,
@@ -329,22 +323,14 @@ async function paint(job) {
   const KIT = window.KIT;
   if (!context()) throw new Error("WebGL is not available");
 
-  const key = sceneKey(job.kind, job.dragons, job.eggs);
-  // a build with no dragon or egg in it looks the same whatever he has
-  let use = made && made.kind === job.kind && (made.mk.hubSlots === 0 || made.key === key) ? made : null;
+  let use = made && made.kind === job.kind ? made : null;
   let fresh = null;
   if (!use) {
     // let the page draw before the build takes the main thread
     await nextTask();
     stop();
     const t0 = performance.now();
-    let mk;
-    KIT.hub = { dragons: job.dragons, eggs: job.eggs };
-    try {
-      mk = KIT.make(job.kind, { seed: 1 });
-    } finally {
-      KIT.hub = null;
-    }
+    const mk = KIT.make(job.kind, { seed: 1 });
     letGoOnUpload(mk.group);
     measure(`paint build ${job.kind}`, t0);
     // Making it and painting it are two tasks, so a tap in between is
@@ -359,7 +345,7 @@ async function paint(job) {
       dispose(mk);
       throw e;
     }
-    fresh = use = { key, kind: job.kind, mk };
+    fresh = use = { kind: job.kind, mk };
   }
 
   const st = stageFor(job.w, job.h);

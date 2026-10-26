@@ -336,18 +336,6 @@ button { cursor: pointer; touch-action: manipulation; }
 .grid--stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .grid--halves { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
-/* The desktop home: wheel and lifetime pie side by side above everything. */
-.dash {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 1000px) {
-  .dash { grid-template-columns: 1fr; }
-}
-
 /* ---------------------------------------------------------------------------
    Stat tiles — label, big number, footnote. Straight from the reference.
    --------------------------------------------------------------------------- */
@@ -835,26 +823,13 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .legend-item.dim { opacity: 0.4; }
 
-/* Big picture's categories, all time: each row lights its slice of the ring. */
-.stack.lifetime-rows { gap: 6px; }
-.lifetime-row {
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 3px 0;
-  color: inherit;
-  transition: opacity 0.12s;
-}
-
-/* A legend row, a ranked bar or a category row lights its slice: on a phone
+/* A legend row or a ranked bar lights its slice: on a phone
    that's a tap, so each row is a thumb's height. */
 @media (max-width: 900px) {
   .legend { row-gap: 0; }
   .legend-item { min-height: 36px; }
-  .stack.ranked-bars,
-  .stack.lifetime-rows { gap: 0; }
+  .stack.ranked-bars { gap: 0; }
   .btn-link.ranked-bar { padding: 5px 0; }
-  .lifetime-row { min-height: 36px; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -921,25 +896,6 @@ form.card + .card { margin-top: 14px; }
 
 .placeholder-note { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
 
-.entry-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 13.5px;
-}
-
-.entry-row:last-child { border-bottom: none; }
-
-.entry-meta {
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
 .pill {
   display: inline-flex;
   align-items: center;
@@ -989,21 +945,6 @@ form.card + .card { margin-top: 14px; }
 
 @media (hover: hover) { .btn-secondary:hover { background: var(--inset); } }
 
-.btn-danger {
-  background: transparent;
-  border: 1px solid rgba(214, 59, 48, 0.4);
-  color: var(--danger-text);
-  padding: 10px 15px;
-  border-radius: var(--r);
-  font-size: 13px;
-  font-weight: 550;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-@media (hover: hover) { .btn-danger:hover { background: var(--danger-soft); } }
-
-
 .field label {
   display: block;
   font-size: 12px;
@@ -1050,21 +991,7 @@ form.card + .card { margin-top: 14px; }
 
 .check-row:last-child { border-bottom: none; }
 
-.modal-card {
-  width: 100%;
-  max-width: 480px;
-  max-height: 88vh;
-  overflow-y: auto;
-  background: var(--card);
-  border: none;
-  border-radius: var(--r-xl);
-  padding: 22px;
-  box-shadow: var(--shadow-lift);
-}
-
 .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
-
-.page-subtitle { color: var(--text-2); font-size: 13.5px; margin: 0 0 20px; line-height: 1.55; }
 
 .auth-page {
   min-height: 100%;

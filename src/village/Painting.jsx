@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { villagePic } from "./pictures.js";
 import "../styles/village.css";
 
 // A build as a painting, for the village page and the build floating over
 // the quests. Its finished picture (public/village/builds/) shows at once;
 // with `live`, the painter (./paint.js) paints it as it stands now, with
-// today's pieces in orange, what's still to come in pencil and his dragons
-// in it, and that picture fades in over the first once it's ready.
+// today's pieces in orange and what's still to come in pencil, and that
+// picture fades in over the first once it's ready.
 //
 //   <Painting slot="village:now" kind="windmill" done={20} need={45} laid={3} live />
 //
@@ -28,7 +29,9 @@ import "../styles/village.css";
 // pictures) or "fit" for the box's own shape.
 
 // paint.js's thumbOf, kept here so the picture shows before the painter (and three.js) has loaded
-const thumbOf = (kind) => `/village/builds/${kind}.jpg`;
+const thumbOf = (kind) => villagePic(`builds/${kind}.jpg`);
+// the kit's fingerprint (vite.config.js), so a picture kept on the phone is painted again once the kit changes
+const KIT_V = typeof __KIT_VERSION__ !== "undefined" ? __KIT_VERSION__ : "dev";
 
 let painter = null;
 const loadPainter = () => {
@@ -88,7 +91,7 @@ async function keepOnPhone(slot, key, url) {
   }
 }
 
-export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, dragons, eggs, live = false, keep = true, stands = false, lazy = false, idle = false, aspect = 4 / 3, alt = "", className = "" }) {
+export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, live = false, keep = true, stands = false, lazy = false, idle = false, aspect = 4 / 3, alt = "", className = "" }) {
   const box = useRef(null);
   const [size, setSize] = useState(null);
   const [near, setNear] = useState(!lazy);
@@ -112,7 +115,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, dra
   const w = size ? widthFor(size.w) : 0;
   const ratio = aspect === "fit" ? (size ? size.ratio : 0) : aspect;
   const h = ratio ? Math.round(w / ratio) : 0;
-  const key = JSON.stringify([kind, done, need, laid, dragons ?? [], eggs ?? [], w, h]);
+  const key = JSON.stringify([KIT_V, kind, done, need, laid, w, h]);
 
   // How big it shows, to the nearest 40px, and its shape from the box as it
   // is (rounding both sides would make a tall box square).
@@ -168,7 +171,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, dra
           setGl(false);
           return;
         }
-        const url = await paintBuild({ kind, done, need, laid, dragons: dragons ?? [], eggs: eggs ?? [], width: w, height: h, slot, signal: ac.signal, keep });
+        const url = await paintBuild({ kind, done, need, laid, width: w, height: h, slot, signal: ac.signal, keep });
         painted.set(slot, { key, kind, url });
         const was = restored.get(slot);
         if (was) {
@@ -213,7 +216,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, dra
       if (idleId !== null) window.cancelIdleCallback?.(idleId);
       ac.abort();
     };
-    // `key` stands for kind, done, need, laid, dragons, eggs and the size
+    // `key` stands for the kit, kind, done, need, laid and the size
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paints, near, key, slot, idle, lazy, keep]);
 
@@ -258,27 +261,4 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, dra
       {note && <span className="painting__note">{note}</span>}
     </div>
   );
-}
-
-// His dragons and eggs as the village page last painted them, so the build
-// going up over the quests (which doesn't load the dragons) paints the same
-// ones, and the painter keeps its scene when he goes from one to the other.
-const DRAGONS_KEY = "hub.village.dragons";
-const NO_DRAGONS = { dragons: [], eggs: [] };
-
-export function rememberDragons(d) {
-  try {
-    localStorage.setItem(DRAGONS_KEY, JSON.stringify({ dragons: d.dragons ?? [], eggs: d.eggs ?? [] }));
-  } catch {
-    // private mode: the quests page paints without them
-  }
-}
-
-export function rememberedDragons() {
-  try {
-    const d = JSON.parse(localStorage.getItem(DRAGONS_KEY) || "null");
-    return d && Array.isArray(d.dragons) && Array.isArray(d.eggs) ? d : NO_DRAGONS;
-  } catch {
-    return NO_DRAGONS;
-  }
 }

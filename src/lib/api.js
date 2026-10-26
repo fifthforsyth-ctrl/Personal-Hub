@@ -494,50 +494,6 @@ export async function saveBodyMetric(userId, { kind = "weight", value, unit = "l
   return data;
 }
 
-export async function updateBodyMetric(id, value) {
-  const n = Number(value);
-  if (!(n > 0)) throw new Error("Enter a number.");
-  const { error } = await supabase.from("body_metrics").update({ value: n }).eq("id", id);
-  if (error) throw error;
-}
-
-// A range's practice for Charts: temple visits, workouts, naps and study
-// (the entries), with the weight readings taken in it. Examples are left out.
-export async function fetchPractice(userId, startDate, endDate) {
-  const from = new Date(`${startDate}T00:00:00`).toISOString();
-  const to = new Date(`${addDays(endDate, 1)}T00:00:00`).toISOString();
-  // The range's ended, real entries, narrowed one way or the other: naps,
-  // or anything tagged Temple, Exercise or Study.
-  const ended = (narrow) =>
-    narrow(
-      supabase
-        .from("time_log_entries")
-        .select("id, started_at, duration_minutes, tags, category, is_nap, exercise_kind, alertness, is_example")
-        .eq("user_id", userId)
-        .eq("is_example", false)
-        .not("ended_at", "is", null)
-        .gte("started_at", from)
-        .lt("started_at", to)
-    ).limit(3000);
-  const [naps, tagged, weights] = await Promise.all([
-    ended((q) => q.eq("is_nap", true)),
-    ended((q) => q.overlaps("tags", ["Temple", "Exercise", "Study"])),
-    supabase
-      .from("body_metrics")
-      .select("id, date, measured_at, value, unit")
-      .eq("user_id", userId)
-      .eq("kind", "weight")
-      .eq("is_example", false)
-      .gte("date", startDate)
-      .lte("date", endDate)
-      .order("measured_at", { ascending: true }),
-  ]);
-  for (const r of [naps, tagged, weights]) if (r.error) throw r.error;
-  // A nap tagged Study as well comes back from both; it counts once.
-  const entries = new Map([...(naps.data ?? []), ...(tagged.data ?? [])].map((e) => [e.id, e]));
-  return { entries: [...entries.values()], weights: weights.data ?? [] };
-}
-
 // Readings of one kind, newest first. Examples are left out.
 export async function fetchBodyMetrics(userId, { kind = "weight", sinceISO, limit = 400 } = {}) {
   let q = supabase
@@ -785,29 +741,10 @@ export async function fetchPlanSummary(startDate, endDate) {
   return data ?? [];
 }
 
-// ---------------------------------------------------------------------------
-// Phase 1 — Reflection. Every rollup is computed in the database, so asking
-// an 18-month question costs one round trip instead of downloading every
-// entry in the range.
-// ---------------------------------------------------------------------------
-
+// The time zone this device is in, which the database's day-by-day rollups
+// count days in.
 function localZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
-async function reflectionRpc(name, startDate, endDate) {
-  const { data, error } = await supabase.rpc(name, { p_start: startDate, p_end: endDate, p_tz: localZone() });
-  if (error) throw error;
-  return data ?? [];
-}
-
-export const fetchTimeByCategory = (s, e) => reflectionRpc("time_by_category", s, e);
-export const fetchHabitStrength = (s, e) => reflectionRpc("habit_strength", s, e);
-export const fetchProductivityHeatmap = (s, e) => reflectionRpc("productivity_heatmap", s, e);
-
-export async function fetchReflectionTotals(startDate, endDate) {
-  const rows = await reflectionRpc("reflection_totals", startDate, endDate);
-  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -944,17 +881,6 @@ export async function createStudyNote(userId, { title, body, sourceKind, sourceR
   return data;
 }
 
-export async function fetchStudyNotes(userId, { limit = 50 } = {}) {
-  const { data, error } = await supabase
-    .from("study_notes")
-    .select("*")
-    .eq("user_id", userId)
-    .order("studied_on", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return data ?? [];
-}
-
 export async function fetchOnThisDay() {
   const { data, error } = await supabase.rpc("on_this_day", { p_tz: localZone() });
   if (error) throw error;
@@ -1058,64 +984,8 @@ export async function saveJournalEntry(userId, dateStr, fields) {
 }
 
 // ---------------------------------------------------------------------------
-// Goal linking — mapping categories/habits onto the tree, and the credit
-// that flows up it.
+// Goal linking — the credit that flows up the tree.
 // ---------------------------------------------------------------------------
-
-export async function fetchGoalMappings(userId) {
-  const { data, error } = await supabase
-    .from("goal_mappings")
-    .select("*")
-    .eq("user_id", userId)
-    .order("source_kind", { ascending: true })
-    .order("source_value", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
-}
-
-// Distinct values actually present in the logs, so the setup screen lists
-// what you really track rather than what you once typed. Counted in the
-// database: downloading the entries to count them stopped at the API's
-// 1,000-row page, and categories went missing as the log grew.
-export async function fetchMappableSources() {
-  const { data, error } = await supabase.rpc("mappable_sources");
-  if (error) throw error;
-  return (data ?? []).map((r) => ({ ...r, count: Number(r.count) || 0 }));
-}
-
-export async function upsertGoalMapping(userId, { sourceKind, sourceValue, goalNodeId, confirmed }) {
-  const { error } = await supabase.from("goal_mappings").upsert(
-    {
-      user_id: userId,
-      source_kind: sourceKind,
-      source_value: sourceValue,
-      goal_node_id: goalNodeId || null,
-      origin: "manual",
-      confirmed: confirmed ?? true,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,source_kind,source_value" }
-  );
-  if (error) throw error;
-}
-
-export async function confirmGoalMappings(userId, ids) {
-  const { error } = await supabase
-    .from("goal_mappings")
-    .update({ confirmed: true, updated_at: new Date().toISOString() })
-    .eq("user_id", userId)
-    .in("id", ids);
-  if (error) throw error;
-}
-
-// Brings every entry the confirmed mappings own into line with them: a
-// changed link moves its past entries, an unlinked one lets them go. Links
-// you or the assistant chose are left alone. Returns how many changed.
-export async function applyGoalMappings() {
-  const { data, error } = await supabase.rpc("apply_goal_mappings", { p_only_confirmed: true });
-  if (error) throw error;
-  return data;
-}
 
 // What fed which goal over a range, with credit rolled up to ancestors.
 export async function fetchGoalCredit(startDate, endDate) {
@@ -1175,74 +1045,6 @@ function callAssistant(action, payload = {}) {
 // cannot read off your own logs.
 export function proposePlans({ notes, forDate } = {}) {
   return callAssistant("propose_plan", { notes: notes || null, for_date: forDate || null });
-}
-
-// "Map out my sleep over the past 6 months." The question goes to the
-// assistant, which writes a read-only query against your own tables and
-// picks a chart form for the answer; the query runs server-side under your
-// RLS, so nothing it can reach is anything you couldn't already read.
-export function askChart(question) {
-  return callAssistant("ask_chart", { question });
-}
-
-// Reads descriptions over a date range and proposes which goal each stretch
-// fed. Returns suggestions only — nothing is written until they're accepted.
-//
-// One page per call. The work is bounded by the Edge Function's 150-second
-// wall clock rather than by any token limit, so a backlog is walked in short
-// requests; the reply carries `remaining_after` so the caller knows whether
-// to ask again.
-export function suggestGoalLinks({ start, end, onlyUnlinked = false, limit, offset }) {
-  return callAssistant("suggest_goal_links", {
-    start,
-    end: end ?? start,
-    onlyUnlinked,
-    limit,
-    offset,
-  });
-}
-
-// How much there is to review, and how much has no link at all — so the
-// button can say what it will actually do.
-export async function fetchLinkStats(startDate, endDate) {
-  const { data, error } = await supabase.rpc("link_stats", {
-    p_start: startDate,
-    p_end: endDate ?? startDate,
-    p_tz: localZone(),
-  });
-  if (error) throw error;
-  return data?.[0] ?? { total: 0, linked: 0, unlinked: 0, unread: 0, serves_none: 0 };
-}
-
-// Accepting a suggestion stamps it as the model's read, not the category
-// rule's guess — which is what stops apply_goal_mappings from later
-// flattening it back onto whatever pillar the tag defaults to.
-//
-// Grouped by goal so accepting a whole evening is a handful of round trips
-// rather than one per entry.
-export async function applyGoalLinks(links) {
-  const byGoal = new Map();
-  for (const link of links) {
-    const key = link.goal_id ?? "__none__";
-    if (!byGoal.has(key)) byGoal.set(key, []);
-    byGoal.get(key).push(link.entry_id);
-  }
-  for (const [goalId, entryIds] of byGoal) {
-    const goal_node_id = goalId === "__none__" ? null : goalId;
-    // Chunked because `in` travels in the query string: accepting a whole
-    // backlog can put two hundred uuids behind one goal, which is a URL long
-    // enough to be refused.
-    for (let i = 0; i < entryIds.length; i += 50) {
-      const { error } = await supabase
-        .from("time_log_entries")
-        // Stamped 'ai' even when the goal is null: "this served nothing" is a
-        // decision, and leaving the source null would let the category rule
-        // quietly refill the slot on its next run.
-        .update({ goal_node_id, goal_link_source: "ai" })
-        .in("id", entryIds.slice(i, i + 50));
-      if (error) throw error;
-    }
-  }
 }
 
 // The record one goal keeps: every entry, finished task and win that landed
@@ -1585,11 +1387,6 @@ export async function restoreCategory(categoryId) {
   if (error) throw error;
 }
 
-export async function updateCategory(categoryId, fields) {
-  const { error } = await supabase.from("user_categories").update(fields).eq("id", categoryId);
-  if (error) throw error;
-}
-
 // Turns one accepted proposal into real blocks and tasks on a date.
 // Committing a day's plan REPLACES the rough shape the week planner put on
 // that day, rather than stacking on top of it. This only inserted before,
@@ -1686,15 +1483,6 @@ export async function fetchPrayers(userId, { sinceISO, limit = 100 } = {}) {
 // ---------------------------------------------------------------------------
 // Phase 5 — the Day Card and the desktop home.
 // ---------------------------------------------------------------------------
-
-// Everything ever logged, by tag. The pie on the home page is explicitly a
-// lifetime view, so the window starts before any row could exist rather than
-// at some arbitrary "far enough back".
-export function fetchLifetimeByCategory() {
-  const end = new Date();
-  end.setDate(end.getDate() + 1);
-  return reflectionRpc("time_by_category", "1970-01-01", end.toISOString().slice(0, 10));
-}
 
 // Notes you leave for a day before its plan is drafted. Upserts the day_plan
 // row, which may not exist yet on a day nothing has touched.
@@ -2342,16 +2130,6 @@ export async function reopenTransaction(id, { budgetId = null, kind = null } = {
       suggested_kind: kind || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
-  if (error) throw error;
-}
-
-// A note on any transaction, without answering anything else about it — the
-// one thing that can be said about a deposit.
-export async function updateTransactionNote(id, note) {
-  const { error } = await supabase
-    .from("bank_transactions")
-    .update({ note: note?.trim() || null, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
 }
@@ -3106,19 +2884,6 @@ export async function deleteLesson(id) {
   if (error) throw error;
 }
 
-// Kept (true), slipped (false), or null to take the answer back.
-export async function setLessonCheckin(userId, lessonId, date, kept) {
-  if (kept === null) {
-    const { error } = await supabase.from("lesson_checkins").delete().eq("lesson_id", lessonId).eq("date", date);
-    if (error) throw error;
-    return;
-  }
-  const { error } = await supabase
-    .from("lesson_checkins")
-    .upsert({ user_id: userId, lesson_id: lessonId, date, kept }, { onConflict: "lesson_id,date" });
-  if (error) throw error;
-}
-
 // ---------------------------------------------------------------------------
 // Camps (0079): the steps under each camp, grouped into sections, with a note
 // on each, and the plans that fill them. A plan is read once by the `plan`
@@ -3276,11 +3041,6 @@ export async function savePlan(userId, { title, summary, notes, sections, source
     .single();
   if (error) throw error;
   return data.id;
-}
-
-export async function updatePlan(id, fields) {
-  const { error } = await supabase.from("quest_plans").update(fields).eq("id", id);
-  if (error) throw error;
 }
 
 // The camps it filled keep their sections and steps.
@@ -3698,7 +3458,7 @@ export async function fetchQuestWorkDone(userId, date) {
   return questWorkDone({ date, chunks: tagged, quests: quests.data ?? [], camps: camps.data ?? [], tasks: tasks.data ?? [], steps: steps.data ?? [] });
 }
 
-// The builds and everything finished, for when the dragons (which bring them) couldn't load.
+// The builds and everything finished.
 async function villageBuilds(userId) {
   const [[tasks, steps], projects] = await Promise.all([fetchFinished(userId), supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId)]);
   if (projects.error) throw projects.error;
@@ -3707,17 +3467,10 @@ async function villageBuilds(userId) {
 
 // The village page: the builds and everything finished, the quests and
 // lessons that name each brick's quest, the arrows that train the soldiers,
-// the people who live there, and the dragons (fetchDragons, below), for the
-// purse and the dragons painted into the dragon builds. fetchDragons loads
-// the builds and finished tasks too, so they come from it. The dragons are
-// extra: when they can't load (their tables not there yet, say) the village
-// still does, with `dragons` null.
-export async function fetchVillage(userId, today = todayStr()) {
-  const [dragons, camps, quests, lessons, shots, temple] = await Promise.all([
-    fetchDragons(userId, today).catch((err) => {
-      console.warn("The dragons couldn't load", err);
-      return null;
-    }),
+// and the people who live there.
+export async function fetchVillage(userId) {
+  const [builds, camps, quests, lessons, shots, temple] = await Promise.all([
+    villageBuilds(userId),
     supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
     supabase.from("quests").select("id, title, lesson_id").eq("user_id", userId),
     supabase.from("lessons").select("id, title").eq("user_id", userId),
@@ -3726,7 +3479,7 @@ export async function fetchVillage(userId, today = todayStr()) {
     selectAllPages(() => supabase.from("temple_done").select(TEMPLE_DONE).eq("user_id", userId).order("pid")),
   ]);
   for (const r of [camps, quests, lessons]) if (r.error) throw r.error;
-  const { tasks, steps, projects } = dragons ?? (await villageBuilds(userId));
+  const { tasks, steps, projects } = builds;
   return {
     tasks,
     steps,
@@ -3736,7 +3489,6 @@ export async function fetchVillage(userId, today = todayStr()) {
     lessons: lessons.data ?? [],
     shots,
     temple,
-    dragons,
   };
 }
 
@@ -3754,128 +3506,6 @@ export async function addVillageProject(userId, { kind, seed, plot, need, today 
 // Build something else on the same plot, keeping the bricks already laid.
 export async function updateVillageProject(id, fields) {
   const { error } = await supabase.from("village_projects").update(fields).eq("id", id);
-  if (error) throw error;
-}
-
-// The dragons (0087): the purse, his dragons and what was spent on them, the
-// banked days that warm the eggs, and the builds and finished tasks that say
-// when the hatchery stood. Only wins logged after the purse started count,
-// and "today" is the phone's day, from its own midnight to the next.
-// dragonsOf() in dragons.js takes all of this, with hatcheryDay(villageOf(...)).
-const DRAGON = "id, kind, name, bought_on, free, hatched_on, created_at";
-const DRAGON_SPEND = "id, dragon_id, what, cost, day, created_at";
-
-// A name as the table keeps it: trimmed, at most 40 letters, or none.
-const dragonName = (name) => Array.from(String(name ?? "").trim()).slice(0, 40).join("").trim() || null;
-
-export async function fetchDragons(userId, today) {
-  const [purseRes, dragons, spends, [tasks, steps], projects] = await Promise.all([
-    supabase.from("dragon_purse").select("start_wins, started_at").eq("user_id", userId).maybeSingle(),
-    selectAllPages(() => supabase.from("dragons").select(DRAGON).eq("user_id", userId).order("id")),
-    selectAllPages(() => supabase.from("dragon_spends").select(DRAGON_SPEND).eq("user_id", userId).order("id")),
-    fetchFinished(userId),
-    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
-  ]);
-  for (const r of [purseRes, projects]) if (r.error) throw r.error;
-  const purse = purseRes.data ?? null;
-
-  const wins = () => supabase.from("win_losses").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "win").eq("is_example", false);
-  const firstBought = dragons.map((d) => d.bought_on).sort()[0];
-  const [since, todays, banked] = await Promise.all([
-    purse ? wins().gt("occurred_at", purse.started_at) : null,
-    purse
-      ? wins()
-          .gt("occurred_at", purse.started_at)
-          .gte("occurred_at", new Date(`${today}T00:00:00`).toISOString())
-          .lt("occurred_at", new Date(`${addDays(today, 1)}T00:00:00`).toISOString())
-      : null,
-    firstBought
-      ? selectAllPages(() =>
-          supabase
-            .from("day_plans")
-            .select("date")
-            .eq("user_id", userId)
-            .eq("is_example", false)
-            .not("banked_at", "is", null)
-            .gte("date", firstBought)
-            .lte("date", today)
-            .order("date")
-        )
-      : [],
-  ]);
-  for (const r of [since, todays]) if (r?.error) throw r.error;
-  return {
-    purse,
-    winsSince: since?.count ?? 0,
-    winsToday: todays?.count ?? 0,
-    dragons,
-    spends,
-    banked: banked.map((d) => d.date),
-    projects: projects.data ?? [],
-    tasks,
-    steps,
-  };
-}
-
-// A second tap while the first is still on its way gets the first one's
-// answer, so a double tap can't buy two eggs or train two stages.
-const dragonTaps = new Map();
-function oneTap(key, run) {
-  if (!dragonTaps.has(key)) dragonTaps.set(key, run().finally(() => dragonTaps.delete(key)));
-  return dragonTaps.get(key);
-}
-
-// Buys an egg (or takes the one free egg) on the phone's day. The server
-// keeps the prices and checks the purse; it resolves to the new dragon row.
-export function buyEgg({ kind, free = false, today, name = null }) {
-  return oneTap(`buy:${kind}:${!!free}`, async () => {
-    const { data, error } = await supabase.rpc("dragon_buy", {
-      p_kind: kind,
-      p_free: !!free,
-      p_today: today,
-      p_name: dragonName(name),
-    });
-    if (error) throw error;
-    return data;
-  });
-}
-
-// Trains a dragon its next stage. Pass the stage he tapped (`next.stage`):
-// then a retry, or a tap on a page that's out of date, never spends on a
-// different stage than the one he saw. Resolves to the spend.
-export function trainDragon(id, today, stage) {
-  return oneTap(`train:${id}`, async () => {
-    const args = { p_dragon: id, p_today: today };
-    if (stage) args.p_stage = stage;
-    const { data, error } = await supabase.rpc("dragon_train", args);
-    if (error) throw error;
-    return data;
-  });
-}
-
-// Keeps the day each of these eggs hatched (`hatchOn` from dragonsOf), the
-// first time a page sees them hatched, so they stay dragons for good even if
-// a task unticked later moves the day the hatchery stood. Resolves to the
-// dragon rows as they are now; one the server can't confirm is left out.
-export async function keepHatches(dragons, today) {
-  const rows = await Promise.all(
-    dragons.map((d) =>
-      oneTap(`hatch:${d.id}`, async () => {
-        const { data, error } = await supabase.rpc("dragon_hatch", { p_dragon: d.id, p_today: today, p_on: d.hatchOn });
-        if (error) throw error;
-        return data;
-      }).catch((err) => {
-        console.warn("Couldn't keep the day a dragon hatched", err);
-        return null;
-      })
-    )
-  );
-  return rows.filter((r) => r?.id && r.hatched_on);
-}
-
-// He names each dragon himself; a blank name takes it off.
-export async function nameDragon(id, name) {
-  const { error } = await supabase.from("dragons").update({ name: dragonName(name) }).eq("id", id);
   if (error) throw error;
 }
 

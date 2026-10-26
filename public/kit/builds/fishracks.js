@@ -1,9 +1,9 @@
-// Fish racks: the feeding station where the dragons eat. A long stone trough of fish in water, tall A-frame racks of
-// split silver-grey fish drying in the wind, a gutting shed with a slate roof, a net hung between two poles, and
-// baskets and barrels of the catch. Built footings first, the trough course by course, the rack frame, its rails and
-// each rail of fish in turn, the shed wall by course and its roof row by row, the net, the stores, and last the
-// people and the dragons: a boulder dragon with its head down in the trough while a villager tips a basket in, and
-// a young night dragon sitting up to beg.
+// Fish racks: where the catch comes in. A long stone trough of fish in water, tall A-frame racks of split silver-grey
+// fish drying in the wind, a gutting shed with a slate roof, a net hung between two poles, a boat drawn up on rollers,
+// and baskets, barrels and a handcart of the catch. Built footings first, the trough course by course, the rack frame,
+// its rails and each rail of fish in turn, the shed wall by course and its roof row by row, the net, the stores, and
+// last the people: a villager tipping a basket into the trough, a fisherman bringing up another from the cart, and a
+// child holding a fish up to a swooping gull.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL, U = KIT.util, G = KIT.geo;
   PAL.fishracks_stone = ['#77736c', '#6d6963', '#827d75', '#67635d', '#8a857c', '#726e67'];
@@ -22,32 +22,10 @@
   // reaching up to hang a pair of fish over a rail
   P.fishracks_hang = function (r) { return { feet: [V(-0.13, 0.09, 0.08), V(0.15, 0.09, -0.12)], hands: [V(-0.16, 1.82, 0.3), V(0.16, 1.86, 0.3)], lean: -0.06, twist: 0, side: 0, hip: 0, drop: 0, head: [0, -0.35], pole: [V(-0.9, -0.2, -0.2), V(0.9, -0.2, -0.2)] }; };
 
-  // a boulder dragon at a trough beside it, head up to chew a fish it has just taken, turned a little to its left,
-  // the club tail swung round to the same side
-  KIT.dragonPoses.fishracks_eat = {
-    spine: [[0.9, 0.1, -4.35], [0.85, 0.11, -3.85], [0.65, 0.16, -3.3], [0.35, 0.3, -2.78], [0.1, 0.58, -2.24], [0, 0.95, -1.5], [0, 0.98, -0.8], [0, 0.97, -0.1], [0, 0.98, 0.5], [0.139, 1.424, 1.125], [0.347, 1.869, 1.5], [0.528, 2.188, 1.75]],
-    head: [0.45, -0.3, 0.84], feet: { fl: [0.46, 0, 0.9], fr: [-0.44, 0, 0.68], hl: [0.5, 0, -1.2], hr: [-0.5, 0, -1.6] }, wing: 0.12, tilt: 0
-  };
-
-  // a boulder dragon standing square at the trough's end, neck stretched out and down, the snout over the fish
-  KIT.dragonPoses.fishracks_feed = {
-    spine: [[-1.2, 0.1, -4.9], [-1.1, 0.11, -4.25], [-0.8, 0.16, -3.6], [-0.4, 0.3, -2.95], [-0.12, 0.58, -2.3], [0, 0.92, -1.55], [0, 0.98, -0.8], [0, 1.0, -0.1], [0, 1.04, 0.55], [0, 1.16, 1.15], [0, 1.22, 1.62], [0, 1.2, 1.95]],
-    head: [0, -0.3, 1], feet: { fl: [0.44, 0, 0.9], fr: [-0.42, 0, 0.7], hl: [0.48, 0, -1.25], hr: [-0.46, 0, -1.6] }, wing: 0.1, tilt: 0
-  };
-  // a young dragon sat up on its haunches to beg, front paws lifted, head up and a little to one side
-  KIT.dragonPoses.fishracks_beg = {
-    spine: [[1.55, 0.08, 1.45], [1.35, 0.09, 0.75], [1.2, 0.1, 0.05], [0.95, 0.14, -0.6], [0.5, 0.3, -1.05], [0, 0.62, -0.95], [0, 1.02, -0.78], [0, 1.42, -0.5], [0, 1.78, -0.22], [0, 2.12, 0.08], [0, 2.4, 0.3], [0, 2.56, 0.5]],
-    head: [0.15, -0.12, 1], feet: { fl: [0.3, 1.02, 0.28], fr: [-0.3, 1.1, 0.24], hl: [0.62, 0, -0.3], hr: [-0.62, 0, -0.3] }, wing: 0.3, tilt: 0, sitting: true
-  };
-
-  // the boulder dragon here: the kit's boulder, its hide a warmer, lighter grey and its belly pale, so it catches the sun
-  KIT.dragonKinds.fishracks_boulder = Object.assign({}, KIT.dragonKinds.boulder, { col: '#6f6b64', col2: '#7a756d', belly: '#9d9587', mem: '#625e58', bone: '#45423d', eye: '#f4de8c', claw: '#2e2c29', horns: 'ember' });
   // kneeling at a heap of net, both hands low on the mesh, head bent to the work
   P.fishracks_mend = function (r) { return { feet: [V(-0.16, 0.09, 0.3), V(0.15, 0.12, -0.42)], hands: [V(-0.16, 0.62, 0.5), V(0.2, 0.66, 0.44)], lean: 0.32, twist: r(0.08), side: 0, hip: 0, drop: 0.4, head: [r(0.1), 0.45], pole: [V(-0.6, -0.4, -0.3), V(0.6, -0.4, -0.3)] }; };
 
   function fig(fx, fz, ry, x, y, z, s) { s = s || 1; return [fx + (x * Math.cos(ry) + z * Math.sin(ry)) * s, y * s, fz + (-x * Math.sin(ry) + z * Math.cos(ry)) * s]; }
-  // the dragon's look target is read in its own frame: turn a build point into it. d = [x, y, z, ry, s]
-  function lookAt(d, wx, wy, wz) { var dx = wx - d[0], dz = wz - d[2], c = Math.cos(d[3]), s = Math.sin(d[3]), k = d[4] || 1; return [(dx * c - dz * s) / k, (wy - d[1]) / k, (dx * s + dz * c) / k]; }
 
   // ---------------------------------------------------------------- fish
   // a whole fish: flat silver body with a darker back and a forked tail, head to local +x, in the XY plane
@@ -249,12 +227,11 @@
 
   KIT.defineBuild('fishracks', {
     name: 'Fish racks', size: 'small', need: 16,
-    line: 'The feeding station: a stone trough heaped with fish beside tall racks of split silver fish, where a boulder dragon eats and a young night dragon begs.',
+    line: 'A stone trough heaped with fish beside tall racks of split silver fish, a gutting shed, a net strung between poles and a boat drawn up on rollers.',
     r: 9.5, flat: [12, 12.5], ground: 'dirt', path: [[3.4, 9.2], [2.0, 4.2]],
     frameY: 1.5, frameR: 7.4, glowAt: [3.0, 2.7, 0.45],
     trees: [{ x: -6.3, z: -4.6, kind: 'pine', h: 6.2 }, { x: 2.0, z: -6.9, kind: 'pine', h: 5.6 }, { x: 6.9, z: 3.2, kind: 'birch', h: 5.0 }],
     bushes: [{ x: 4.3, z: -4.7, r: 0.7, flowers: '#f3f1ec' }, { x: -6.4, z: 3.0, r: 0.7 }, { x: -5.2, z: 5.6, r: 0.6, flowers: '#efebe4' }, { x: 6.6, z: -3.4, r: 0.6, flowers: '#efebe4' }],
-    perches: [{ x: -1.4, y: 3.12, z: -3.2, ry: 0 }, { x: -4.9, y: 2.9, z: -1.86, ry: -0.2 }, { x: 0.4, y: 0, z: -0.9, ry: -1.4 }],
     build: function (b) {
       // ---- where things stand
       // the trough: centre TC turned TR; its local x runs along it, local +z is the side the people feed from
@@ -267,8 +244,8 @@
       var SC = [-5.1, -0.9], SR = -0.2;
       // the net between two poles
       var N1 = [3.0, -3.6], N2 = [5.9, -1.9], NH = 2.55;
-      // the boulder dragon, [x, y, z, ry, s]: along the trough's far side facing -x, head bent round over the fish
-      var D = [4.45, 0, 2.3, -1.4, 1.0];
+      // the handcart of the catch, parked past the trough's feeding end: [x, z, ry]
+      var HC = [4.75, 2.55, Math.PI];
       var FT = [];
       // the boat drawn up on rollers
       var BC = [-4.6, 3.6], BR = -0.42;
@@ -320,7 +297,7 @@
         [-1, 1].forEach(function (sd) { b.box(sd * (TL / 2 - tw / 2 + 0.02), TH - 0.02, 0, tw + 0.16, 0.12, TW - tw * 2 - 0.12 + 0.01, { c: b.stoneC('fishracks_cap', 1.2), m: M.stone, bevel: 0.03 }); });
       });
       b.unit(function () {
-        // water most of the way up, and the fish heaped in it, thickest where the dragon eats and where the basket pours
+        // water most of the way up, and the fish heaped in it, thickest where the cart's baskets and the tipped basket pour
         b.box(0, 0.12, 0, TL - tw * 2 - 0.02, TH - 0.22, TW - tw * 2 - 0.02, { c: '#55606a', m: M.water, bevel: 0, ao: 0 });
         var heaps = [[-0.9, 0.0, 26, 0.8], [-1.6, 0.0, 16, 0.5], [0.6, 0.0, 12, 0.8], [1.6, 0.0, 8, 0.5]];
         heaps.forEach(function (hp) {
@@ -474,6 +451,10 @@
         fishBarrel(b, p1[0], p1[1], { h: 0.92 }); fishBarrel(b, p2[0], p2[1], { h: 0.86, r: 0.32, ry: 0.6 });
         b.barrel(p3[0], 0, p3[1], { h: 0.8, lie: true, ry: TR + 0.4 });
         var p4 = tl(0.85, 1.12); b.bucket(p4[0], 0, p4[1]);
+        // the handcart that brings the catch up from the boats, baskets of fish in its bed
+        b.cart(HC[0], HC[1], { ry: HC[2], load: function () {
+          [[-0.33, -0.62], [0.32, -0.55], [-0.3, 0.12], [0.34, 0.2], [0.0, 0.78]].forEach(function (q, i) { basket(b, q[0], 0.71, q[1], 0.25, 0.32, { full: i !== 4, n: 6 }); });
+        } });
       });
       b.unit(function () {
         // baskets, full and empty, by the trough
@@ -538,11 +519,11 @@
 
       // ================================================================ life
       b.life(function () {
-        // the boulder dragon, head down in the fish
-        b.dragon(D[0], D[1], D[2], { kind: 'fishracks_boulder', pose: 'fishracks_feed', ry: D[3], s: D[4], saddle: true, wing: 0.15, wingScale: 1.2 });
-        // a fish clamped across its jaws (the kit makes a boulder dragon 1.05 times its s)
-        var mf = fig(D[0], D[2], D[3], 0, 0.86, 2.4, D[4] * 1.05);
-        fish(b, mf[0], mf[1], mf[2], D[3], 0.6, 0.25, 0.2);
+        // a fisherman bringing a basket of the catch from the cart to the trough on his shoulder
+        var FP = [3.75, 4.35], fry = Math.atan2(2.75 - 3.75, 2.75 - 4.35);
+        b.figure(FP[0], FP[1], { role: 'villager', pose: 'carry', ry: fry, c: '#4f5a63', beard: true });
+        var fb = fig(FP[0], FP[1], fry, 0.17, 1.6, 0.03);
+        basket(b, fb[0], fb[1], fb[2], 0.24, 0.32, { full: true, n: 6 });
         // the villager at the trough's end tipping in a basket, fish falling from it
         var vp = tl(-TL / 2 - 0.55, 0.05), vry = Math.PI / 2;
         b.figure(vp[0], vp[1], { role: 'villager', pose: 'fishracks_tip', ry: vry, c: '#5c5e62', hat: null });
@@ -551,13 +532,12 @@
         basket(b, 0, 0, 0, 0.26, 0.38, {});
         b.pop();
         for (var i = 0; i < 6; i++) { var t = i / 5, f = fig(vp[0], vp[1], vry, b.j(0.08), 1.08 - t * t * 0.48 - t * 0.05, 0.92 + t * 0.32); fish(b, f[0], f[1], f[2], vry + Math.PI / 2 + b.j(0.6), 0.4, -0.8 - t * 0.6 + b.j(0.4), b.j(0.5)); }
-        // a child on the path holding up a fish, and a young night dragon sat up on its haunches begging for it
-        var CP = [2.15, 6.65], Y = [3.6, 0, 6.4, 0, 0.62 * 1.15];
-        Y[3] = Math.atan2(CP[0] - Y[0], CP[1] - Y[2]);
-        var cry = Math.atan2(Y[0] - CP[0], Y[2] - CP[1]) - 0.35, ch = fig(CP[0], CP[1], cry, -0.3, 1.9, 0.32, 0.62);
+        // a child on the path holding up a fish, and a gull swooping down for it
+        var CP = [2.15, 6.65], GS = [2.95, 1.75, 6.35];
+        var cry = Math.atan2(GS[0] - CP[0], GS[2] - CP[1]) - 0.35, ch = fig(CP[0], CP[1], cry, -0.3, 1.9, 0.32, 0.62);
         b.figure(CP[0], CP[1], { role: 'child', pose: 'fishracks_tease', ry: cry, toy: false });
         fish(b, ch[0], ch[1] - 0.12, ch[2], cry + Math.PI / 2, 0.42, -1.45, 0.2);
-        b.dragon(Y[0], Y[1], Y[2], { kind: 'night', age: 'young', pose: 'fishracks_beg', ry: Y[3], s: 1.15, look: lookAt(Y, ch[0], ch[1], ch[2]) });
+        gullFly(b, GS[0], GS[1], GS[2], Math.atan2(CP[0] - GS[0], CP[1] - GS[2]), 0.85);
         var gc = fig(FC[0], FC[1], FR, FL[2][0], 0, FL[2][1]), GL = fig(gc[0], gc[2], FR + FL[2][4], 0.3, 0, 0.1); GL = [GL[0], GL[2]];
         // the gutter at the shed's bench, facing out
         var gp = fig(SC[0], SC[1], SR, 0.55, 0, 1.42);

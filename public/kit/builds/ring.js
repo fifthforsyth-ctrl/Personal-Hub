@@ -2,7 +2,8 @@
 // stone benches above a walkway, a parapet hung with round shields, an earth bank heaped against the outside so the
 // ring sits sunk in its mound, a cut through the bank to the great gate, and a dome of curved iron ribs with chains
 // slung across the top. Built footings first, the floor ring by ring, the walls course by course, the benches tier by
-// tier, the bank, the dome rib by rib, then the training gear, and last the dragons, riders and the crowd.
+// tier, the bank, the dome rib by rib, then the training gear, and last the soldiers at their drill, the trainer and the
+// crowd.
 (function () {
   var T = THREE, TAU = Math.PI * 2;
   var E = 1.3, SEAM = 2.9;                     // the great gate faces E; stone rings start at SEAM, where nothing is cut
@@ -19,11 +20,6 @@
   function ringOut(a) { return Math.atan2(Math.cos(a), Math.sin(a)); }
   // a point along the gate's axis: axial metres out from the centre, lateral to its left (+) or right (-)
   function ringAx(ax, lat) { return [EX * ax + TX * lat, EZ * ax + TZ * lat]; }
-  // a point in the build's frame turned into a dragon's own frame (for o.look)
-  function ringLook(dx, dy, dz, ry, s, wx, wy, wz) {
-    var x = wx - dx, y = wy - dy, z = wz - dz, c = Math.cos(-ry), sn = Math.sin(-ry);
-    return [(x * c + z * sn) / s, y / s, (-x * sn + z * c) / s];
-  }
 
   // a curved stone: the ring sector between radii ri and ro, angles a0..a1, h tall, base at y = 0
   function ringArcGeo(ri, ro, a0, a1, h, bev) {
@@ -196,11 +192,30 @@
   }
 
 
-  // a woven basket heaped with silver fish, the basket's foot at (x, y, z)
-  function ringFishBasket(b, x, y, z, s) {
+  // a barrel of wooden practice swords standing hilt up, the barrel's foot at (x, y, z)
+  function ringSwordBarrel(b, x, y, z, s) {
     var M = KIT.M; s = s || 1;
-    b.lathe(x, y, z, [[0.01, 0], [0.3 * s, 0], [0.38 * s, 0.4 * s], [0.36 * s, 0.42 * s], [0.01, 0.34 * s]], { c: '#8c7658', m: M.straw, seg: 14, flat: true });
-    for (var i = 0; i < 6; i++) { var a = i / 6 * TAU + b.j(0.3); b.extrude(x + Math.cos(a) * 0.15 * s, y + 0.5 * s - 0.08, z + Math.sin(a) * 0.15 * s, [[0, 0], [0.08, 0.05], [0.24, 0.045], [0.32, 0.01], [0.4, 0.065], [0.39, -0.06], [0.32, -0.01], [0.24, -0.045], [0.08, -0.05]].map(function (p) { return [p[0] * s, p[1] * s]; }), 0.05 * s, { rx: Math.PI / 2 + b.j(0.4), ry: a, c: b.pick(['#6f7b80', '#647076', '#7c868a']), m: M.metal, ao: 0.1, bevel: 0.01 }); }
+    b.barrel(x, y, z, { h: 0.8 * s, r: 0.3 * s });
+    for (var i = 0; i < 5; i++) {
+      var a = i / 5 * TAU + 0.4 + b.j(0.2), r0 = 0.08 * s, r1 = 0.2 * s, lean = 0.55 * s;
+      var p0 = [x + Math.cos(a) * r0, y + 0.45 * s, z + Math.sin(a) * r0], p1 = [x + Math.cos(a) * r1, y + 0.45 * s + lean + 0.35 * s, z + Math.sin(a) * r1];
+      b.beam(p0, p1, 0.03 * s, { c: b.pick(['woodLight', '#9a8466', '#8a7458']), m: M.wood });
+      var t = 0.82, g = [p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t, p0[2] + (p1[2] - p0[2]) * t];
+      b.beam([g[0] - Math.sin(a) * 0.1 * s, g[1], g[2] + Math.cos(a) * 0.1 * s], [g[0] + Math.sin(a) * 0.1 * s, g[1], g[2] - Math.cos(a) * 0.1 * s], 0.022 * s, { c: 'woodDark', m: M.wood });
+    }
+  }
+
+  // a burlap sack of sand lying flat like a pillow, its neck gathered and tied off in a short tuft toward local +x;
+  // the sack's foot at (x, y, z), turned ry, s its size
+  var SACK = ['#857559', '#7a6b52', '#8e7e60'];
+  function ringSack(b, x, y, z, ry, s) {
+    s = s || 1; var M = KIT.M, c = b.pick(SACK), cy = 0.13 * s;
+    b.push(x, y, z, ry);
+    b.box(0, 0, 0, 0.66 * s, 0.26 * s, 0.44 * s, { c: c, m: M.cloth, bevel: 0.09 * s, ao: 0.4 });
+    b.cyl(0.31 * s, cy, 0, 0.09 * s, 0.09 * s, { c: c, m: M.cloth, r2: 0.035 * s, seg: 6, rz: -Math.PI / 2, ao: 0.1 });
+    b.cyl(0.39 * s, cy, 0, 0.042 * s, 0.03 * s, { c: 'rope', m: M.rope, seg: 6, rz: -Math.PI / 2, ao: 0 });
+    b.cyl(0.41 * s, cy, 0, 0.03 * s, 0.05 * s, { c: c, m: M.cloth, r2: 0.055 * s, seg: 6, rz: -Math.PI / 2, ao: 0 });
+    b.pop();
   }
 
   // a banner pole at the turn of the path: a square post with bone-painted bands, an arm with a bone banner bearing
@@ -232,13 +247,12 @@
 
   KIT.defineBuild('ring', {
     name: 'Training ring', size: 'big', need: 75,
-    line: 'A sunken stone ring with barred dragon stalls, tiers of benches and a dome of iron ribs and chains, where dragons and riders train.',
+    line: 'A sunken stone ring under a dome of iron ribs and chains, with barred stalls and tiered benches, where soldiers spar and a trainer drills the recruits as the crowd looks on.',
     r: 17.6, flat: [29, 29], ground: 'grass', path: [[-5.6, 17.4], [-1.7, 16.3], [2.0, 15.2], ringAx(14.3, 0)],
     // framed from a little higher than the others (el 0.55), as its approved picture was
     frameY: 3.4, frameR: 13.8, frameEl: 0.55, glowAt: [0, 13.0, 0],
     trees: [{ x: -11.4, z: -11.0, kind: 'pine', h: 9.0 }, { x: -13.8, z: -7.6, kind: 'pine', h: 7.2 }, { x: 14.6, z: -4.6, kind: 'pine', h: 6.5 }, { x: 15.0, z: 4.0, kind: 'round', h: 6.0 }, { x: 12.6, z: 9.4, kind: 'pine', h: 7.0 }, { x: -15.2, z: 4.6, kind: 'round', h: 5.2 }],
     bushes: [{ x: 7.6, z: 13.4, r: 0.9, flowers: '#f3f1ec' }, { x: -9.4, z: 12.9, r: 0.8 }, { x: 8.9, z: 12.6, r: 0.8 }, { x: 15.6, z: -1.4, r: 0.85, flowers: '#f3f1ec' }],
-    perches: [{ x: 0, y: 11.13, z: 0, ry: -1.35 }, { x: ringAx(14.8, 2.25)[0], y: 4.9, z: ringAx(14.8, 2.25)[1], ry: Math.atan2(EX, EZ) }, { x: ringPol(11.4, E + 6.5 * TAU / 12)[0], y: 5.05, z: ringPol(11.4, E + 6.5 * TAU / 12)[1], ry: ringIn(E + 6.5 * TAU / 12) + Math.PI / 2 }],
     build: function (b) {
       var M = KIT.M, U = KIT.util;
       var base = 0.14, PW = base + 2.4, WT = PW + 0.2;              // plinth top, pit wall top, walkway top
@@ -634,8 +648,8 @@
         b.pop();
       });
       b.unit(function () {
-        // fish for a good dragon, a coil of rope and a straw dummy
-        ringFishBasket(b, -4.3, 0.14, -2.6, 1); ringFishBasket(b, -4.85, 0.14, -2.2, 0.9);
+        // a barrel of practice swords and a bucket, a coil of rope and a straw dummy
+        ringSwordBarrel(b, -4.3, 0.14, -2.6, 1); b.bucket(-4.85, 0.14, -2.15);
         var q = [-1.2, 3.2]; b.ropeCoil(q[0], 0.14, q[1], 0.32); b.ropeCoil(q[0], 0.22, q[1], 0.26);
         var dm = ringPol(6.5, -2.78); b.dummy(dm[0], 0.14, dm[1], { ry: 0.9, helm: true, shield: 'bone' });
       });
@@ -661,20 +675,21 @@
       b.part('Ring yard');
       var gh = function (x, z) { return b.ground && b.ground.height ? b.ground.height(x, z) : 0; };
       b.unit(function () {
-        // a fish cart by the path, baskets of the day's catch for the dragons
+        // a carter's cart by the path, sacks of sand for the pit floor and a barrel of water
         var cp = ringPol(15.3, 1.78), cry = 1.36, cy0 = Math.min(gh(cp[0], cp[1]), gh(cp[0] - 0.4, cp[1] + 0.8)) - 0.02;
         b.push(0, cy0, 0, 0);
         b.cart(cp[0], cp[1], { ry: cry, load: function (bb) {
-          ringFishBasket(bb, -0.3, 0.77, -0.55, 0.9); ringFishBasket(bb, 0.3, 0.77, -0.5, 0.85); ringFishBasket(bb, -0.22, 0.77, 0.3, 0.95);
+          ringSack(bb, -0.3, 0.76, -0.45, Math.PI / 2 + 0.1, 0.95); ringSack(bb, 0.3, 0.76, -0.5, Math.PI / 2 - 0.12, 0.9);
+          ringSack(bb, -0.3, 0.76, 0.42, -Math.PI / 2 + 0.08, 0.95); ringSack(bb, 0.0, 1.0, -0.42, Math.PI / 2 + 0.05, 0.85);
           bb.barrel(0.34, 0.77, 0.5, { h: 0.7, r: 0.26 });
         } });
         b.pop();
-        // barrels, a crate and baskets set down beside it
+        // barrels, a crate and sacks set down beside it
         [[ringPol(15.3, 1.98), 0.9, 0], [ringPol(14.75, 2.07), 0.8, 0]].forEach(function (q) { b.barrel(q[0][0], gh(q[0][0], q[0][1]) - 0.03, q[0][1], { h: q[1] }); });
         var lb = ringPol(15.6, 2.03); b.barrel(lb[0], gh(lb[0], lb[1]) - 0.04, lb[1], { lie: true, ry: 0.4, h: 0.85 });
         var cr = ringPol(14.75, 1.92); b.crate(cr[0], gh(cr[0], cr[1]) - 0.02, cr[1], 0.62, { ry: 0.3 }); b.crate(cr[0] + 0.05, gh(cr[0], cr[1]) + 0.6, cr[1] - 0.02, 0.5, { ry: 0.6 });
-        var fb = ringPol(15.75, 1.9); ringFishBasket(b, fb[0], gh(fb[0], fb[1]) - 0.02, fb[1], 1.0);
-        var fb2 = ringPol(16.1, 1.98); ringFishBasket(b, fb2[0], gh(fb2[0], fb2[1]) - 0.03, fb2[1], 0.85);
+        var fb = ringPol(15.75, 1.9); ringSack(b, fb[0], gh(fb[0], fb[1]) - 0.03, fb[1], 0.7, 1.05);
+        var fb2 = ringPol(16.1, 1.98); ringSack(b, fb2[0], gh(fb2[0], fb2[1]) - 0.03, fb2[1], 2.3, 0.95);
       });
       b.unit(function () {
         // a banner pole at the turn of the path, its banner toward the road
@@ -697,19 +712,16 @@
       });
 
       b.life(function () {
-        // the night dragon perched on the crown of the dome with its rider up, wings half open, the hero in the sun
-        var nry = -1.35, ns = 1.35, off = 0.25 * ns, nd = [Math.sin(nry) * off, Math.cos(nry) * off];
-        b.dragon(nd[0], crownY + 0.13, nd[1], { kind: 'night', pose: 'sit', ry: nry, s: ns, wing: 0.3, saddle: true });
-        // in the pit the dawn dragon rears and roars at two recruits braced behind a barrier
-        var dd = [-1.7, 1.0], dry = -1.35;
-        b.dragon(dd[0], 0.14, dd[1], { kind: 'dawn', pose: 'roar', ry: dry, s: 1.3, wing: 0.62, saddle: true, rider: { c: '#5c5e62', cape: '#1f1e1c' } });
-        // behind it the boulder dragon, ridden, crouches low and watches the trainer
-        var bd = [0.6, -1.9], bry = -1.35;
-        b.dragon(bd[0], 0.14, bd[1], { kind: 'boulder', pose: 'crouch', ry: bry, s: 1.3, saddle: true, rider: { c: '#4a4c50', cape: '#efebe4' }, look: ringLook(bd[0], 0.14, bd[1], bry, 1.3, -3.2, 1.6, -2.0) });
-        // the trainer, and the recruits with shields braced behind the barrier
-        b.figure(-3.2, -2.0, { role: 'villager', pose: 'point', ry: 1.27, beard: true, cape: '#1f1e1c', c: '#4a4c50', y: 0.14 });
-        b.figure(-4.78, 1.11, { role: 'soldier', pose: 'guard', ry: 1.79, team: 'bone', y: 0.14 });
-        b.figure(-4.98, 0.23, { role: 'soldier', pose: 'guard', ry: 1.79, team: 'ink', y: 0.14 });
+        // in the pit two soldiers spar with sword and shield, and a third drills against the straw dummy
+        var SA = [-1.25, 0.35], SB = [0.4, 0.0];
+        b.figure(SA[0], SA[1], { role: 'soldier', pose: 'swing', ry: Math.atan2(SB[0] - SA[0], SB[1] - SA[1]), team: 'ink', y: 0.14 });
+        b.figure(SB[0], SB[1], { role: 'soldier', pose: 'guard', ry: Math.atan2(SA[0] - SB[0], SA[1] - SB[1]), team: 'bone', y: 0.14 });
+        var dm = ringPol(6.5, -2.78), dp = ringPol(5.5, -2.78);
+        b.figure(dp[0], dp[1], { role: 'soldier', pose: 'swing', ry: Math.atan2(dm[0] - dp[0], dm[1] - dp[1]), team: 'inkGrey', y: 0.14 });
+        // the trainer calling the bout, and two recruits behind the barrier waiting their turn
+        b.figure(-3.2, -2.0, { role: 'villager', pose: 'point', ry: Math.atan2(-0.42 + 3.2, 0.18 + 2.0), beard: true, cape: '#1f1e1c', c: '#4a4c50', y: 0.14 });
+        b.figure(-4.78, 1.11, { role: 'soldier', pose: 'spear', ry: 1.79, team: 'bone', y: 0.14 });
+        b.figure(-4.98, 0.23, { role: 'soldier', pose: 'spear', ry: 1.79, team: 'ink', y: 0.14 });
         // the crowd on the benches: the far stands, and a few with their backs to us on the near side
         [[-1.95, 1, 'ringSitCheer'], [-1.78, 1, 'ringSit'], [-1.12, 2, 'ringSitPoint'], [-0.95, 1, 'ringSitCheer'], [-0.42, 2, 'ringSit'], [-2.45, 2, 'ringSit'], [-0.25, 1, 'ringSitCheer'], [-2.7, 1, 'ringSit'],
           [-3.0, 1, 'ringSitPoint'], [2.95, 2, 'ringSitCheer'], [2.62, 1, 'ringSit'], [2.4, 2, 'ringSitCheer'], [2.78, 1, 'ringSitPoint']].forEach(function (s, i) {
@@ -725,7 +737,7 @@
           var r = 11.85 + c[0] * 0.255, lat = i ? -0.3 : 0.3, p = ringPol(r, STAIR + lat / r);
           b.figure(p[0], p[1], { role: 'villager', pose: c[1], ry: ringIn(STAIR), y: bankGeo.h(p[0], p[1]) + 0.1, c: i ? '#6f6a62' : '#4a4c50', cape: i ? undefined : '#1f1e1c' });
         });
-        // outside: a carrier with a sack of fish for the stalls, a child running to the gate, the carter
+        // outside: a carrier with a sack for the stores, a child running to the gate, the carter
         var gh2 = function (x, z) { return b.ground && b.ground.height ? b.ground.height(x, z) : 0; };
         b.figure(0.9, 15.4, { role: 'villager', pose: 'carry', ry: 2.2, c: '#5c5e62', y: gh2(0.9, 15.4) });
         b.figure(-1.5, 16.05, { role: 'child', pose: 'run', ry: 1.85, y: gh2(-1.5, 16.05) });

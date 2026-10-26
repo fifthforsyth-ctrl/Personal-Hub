@@ -1,6 +1,6 @@
 // Prayer shrine: a small stone hall on a paved terrace, its gable to the front, the opening spanned by a carved timber
-// lintel on twisted stave posts, candles at the threshold and on the altar before a painted rune stone. Riders kneel
-// here before they fly to war. Built terrace first, the walls course by course, the lintel and posts, the gable and the
+// lintel on twisted stave posts, candles at the threshold and on the altar before a painted rune stone. Soldiers
+// kneel here before they go to war. Built terrace first, the walls course by course, the lintel and posts, the gable and the
 // slate roof row by row, the altar and the candles, then the forecourt, the rune stones, the ward pole and the people.
 (function () {
   var T = THREE, M = KIT.M, PAL = KIT.PAL;
@@ -64,12 +64,11 @@
 
   KIT.defineBuild('shrine', {
     name: 'Prayer shrine', size: 'small', need: 20,
-    line: 'A small stone shrine under a carved dragon lintel on twisted stave posts, candles on the altar in its doorway, the stones of the fallen beside it, and riders kneeling before they fly to war.',
+    line: 'A small stone shrine under a carved lintel on twisted stave posts, candles on the altar in its doorway, the stones of the fallen beside it, and soldiers kneeling for a blessing before they go to war.',
     r: 7.8, flat: [8.6, 12.4], ground: 'grass', path: [[0.4, 8.2], [0.0, 6.0]],
     frameY: 2.2, frameR: 7.7, glowAt: [0.0, 6.9, 1.4],
     trees: [{ x: -4.7, z: -4.3, kind: 'round', h: 5.6 }, { x: 5.0, z: -3.4, kind: 'pine', h: 6.2 }],
     bushes: [{ x: 5.5, z: 2.7, r: 0.75, flowers: '#f3f1ec' }, { x: -6.2, z: 1.7, r: 0.7, flowers: '#f3f1ec' }, { x: -3.3, z: -3.9, r: 0.6 }, { x: 3.0, z: -5.4, r: 0.7 }, { x: -2.3, z: -4.9, r: 0.55 }, { x: -5.85, z: 3.95, r: 0.55, flowers: '#f3f1ec' }],
-    perches: [{ x: 0, y: 6.05, z: -0.9, ry: 0 }, { x: 3.9, y: 5.6, z: 0.9, ry: 0 }],
     build: function (b) {
       var sz = -0.9, W = 3.8, D = 4.0, Tk = 0.55, y0 = 0.6, H = 3.25, yW = y0 + H;
       var z1 = sz + D / 2, z0 = sz - D / 2, px0 = -2.6, px1 = 2.6, pz0 = -3.5, pz1 = 2.9, yO = y0 + 2.6, rise = 2.0;
@@ -222,7 +221,7 @@
       });
       b.unit(function () { b.bench(-3.95, 2.75, 1.9, { ry: 0.15 }); b.bench(3.45, 3.6, 1.6, { ry: -Math.PI / 2 + 0.2 }); });
       b.unit(function () {
-        // a rider's cairn: field stones heaped round a planted spear, a shield and candles at its foot
+        // a fallen soldier's cairn: field stones heaped round a planted spear, a shield and candles at its foot
         var cx = -3.5, cz = 4.65;
         for (var i = 0; i < 9; i++) { var a = i / 9 * Math.PI * 2; b.rock(cx + Math.cos(a) * 0.58, 0.04, cz + Math.sin(a) * 0.58, 0.3, { c: b.pick(PAL.stoneDark) }); }
         for (var k = 0; k < 6; k++) { var a2 = k / 6 * Math.PI * 2 + 0.4; b.rock(cx + Math.cos(a2) * 0.32, 0.3, cz + Math.sin(a2) * 0.32, 0.27, { c: b.pick(PAL.stone) }); }
@@ -246,7 +245,7 @@
         b.cyl(-4.2, 0.03, -0.62, 0.155, 0.04, { c: 'iron', m: M.metal, seg: 12, open: true });
       });
       b.unit(function () {
-        // a rack where riders leave their spears before they kneel, shields leant at its foot
+        // a rack where soldiers leave their spears before they kneel, shields leant at its foot
         b.rack(4.55, 0, 4.7, 1.6, { kind: 'spears', ry: -0.85 });
         b.push(4.55, 0, 4.7, -0.85);
         b.shield(-0.4, 0.3, 0.35, { kind: 'round', c: 'bone', s: 0.6, rx: -0.3, emblem: 'none' });
@@ -275,13 +274,13 @@
       });
 
       b.life(function () {
-        // two riders kneel on the threshold before the altar; the elder blesses the nearer one
+        // two soldiers kneel on the threshold before the altar; the elder blesses the nearer one
         b.figure(0.38, z1 + 0.98, { role: 'soldier', pose: 'shrineKneel', ry: Math.PI + 0.08, y: y0 });
         b.figure(-0.55, z1 + 1.22, { role: 'soldier', pose: 'shrineKneel', ry: Math.PI - 0.1, y: y0, team: 'bone' });
         b.figure(1.12, 2.0, { role: 'villager', pose: 'shrineBless', ry: -1.28, y: y0, cape: 'bone', beard: true, c: '#3b3a38', hair: '#d9d6cf' });
         // a knight keeping vigil at the stones of the fallen
         b.figure(-3.2, -0.55, { role: 'knight', pose: 'vigil', ry: -Math.PI / 2 - 0.25 });
-        // one rider walks out, blessed; another waits his turn on the bench
+        // one soldier walks out, blessed; another waits his turn on the bench
         b.figure(1.0, 4.7, { role: 'soldier', pose: 'walk', ry: -0.35, team: 'bone' });
         b.figure(-4.15, 2.72, { role: 'soldier', pose: 'shrineSit', ry: 0.15 });
         b.figure(-0.55, 6.6, { role: 'villager', pose: 'walk', ry: 0.15, c: '#7a5a46' });

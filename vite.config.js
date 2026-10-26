@@ -5,10 +5,13 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// A fingerprint of the village painter's kit (public/kit, see
-// src/village/paint.js). The app asks for /kit/<file>?v=<this>, so a phone
-// holding the old kit in its cache fetches the new one after a deploy.
-function kitVersion() {
+// A fingerprint of a folder under public/: the village painter's kit
+// (public/kit, see src/village/paint.js) and the village's pictures
+// (public/village, see src/village/pictures.js). The app asks for
+// /kit/<file>?v=<this> and /village/<picture>?v=<this>, so a phone holding
+// the old kit or an old picture in its cache fetches the new one after a
+// deploy.
+function fingerprint(folder) {
   const hash = createHash("sha256");
   const walk = (dir) => {
     for (const name of readdirSync(dir).sort()) {
@@ -18,7 +21,7 @@ function kitVersion() {
     }
   };
   try {
-    walk(fileURLToPath(new URL("./public/kit", import.meta.url)));
+    walk(fileURLToPath(new URL(folder, import.meta.url)));
   } catch {
     return "dev";
   }
@@ -44,9 +47,9 @@ export default defineConfig({
         // The village painter's kit (about 1.5 MB of scripts) and the village
         // pictures are fetched only when the village is shown, and kept once
         // fetched, instead of all of it downloading with every deploy. The
-        // kit's addresses carry its fingerprint, so it is kept for good; the
-        // pictures' don't, so the kept one shows at once and a new one, if
-        // there is one, is fetched behind it for next time.
+        // kit's addresses carry its fingerprint, so it is kept for good; so
+        // do the pictures' (a repainted one comes under a new address), and
+        // the kept one shows at once while it is checked behind it.
         globIgnores: ["**/kit/**", "**/village/**"],
         runtimeCaching: [
           {
@@ -79,7 +82,8 @@ export default defineConfig({
     }),
   ],
   define: {
-    __KIT_VERSION__: JSON.stringify(kitVersion()),
+    __KIT_VERSION__: JSON.stringify(fingerprint("./public/kit")),
+    __PIC_VERSION__: JSON.stringify(fingerprint("./public/village")),
   },
   // Libraries change far less often than the app, so keeping them in their
   // own files means a redeploy only re-downloads the app's code.

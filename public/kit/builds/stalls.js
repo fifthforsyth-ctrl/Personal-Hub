@@ -168,7 +168,6 @@
     frameY: 1.9, frameR: 11.2, glowAt: [5.45, 9.4, -0.3],
     trees: [{ x: -9.6, z: -4.6, kind: 'pine', h: 7.0 }, { x: 10.5, z: 1.0, kind: 'pine', h: 6.4 }, { x: -4.6, z: -7.2, kind: 'round', h: 5.0 }],
     bushes: [{ x: 9.4, z: 4.6, r: 0.85, flowers: '#f3f1ec' }, { x: -7.6, z: 7.4, r: 0.8 }, { x: -10.4, z: 1.6, r: 0.75, flowers: '#f3f1ec' }, { x: 9.6, z: -2.2, r: 0.8, flowers: '#f3f1ec' }, { x: 8.6, z: -5.6, r: 0.9 }, { x: -3.6, z: 7.6, r: 0.6 }],
-    perches: [{ x: 5.45, y: 9.0, z: -0.3, ry: Math.PI / 2 }, { x: -2.05, y: 5.2, z: -2.4, ry: 0 }],
     build: function (b) {
       var OX = 0.2, OZ = 0.7;
       b.push(OX, 0, OZ, 0);

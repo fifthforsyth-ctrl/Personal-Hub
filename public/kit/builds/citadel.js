@@ -1,9 +1,9 @@
-// Dragon citadel: the last and greatest build. A square of stone curtain walls with a battlemented wall walk, four round
-// corner towers whose tops are open roosts (a wide stone ledge on corbels, under a ring of arches and a slate cone)
-// where the dragons perch, a great gate under a timber gallery with carved dragon heads, and the keep with its stone
-// gable and banners. Built footings first, the curtain walls course by course, each tower course by course, the
-// gatehouse round its arch, the keep and its gable, the wall walks and merlons, the roost ledges, arches and roofs, the
-// keep roof row by row, the gate gallery, banners and stores, and last the dragons and people.
+// Citadel: the last and greatest build. A square of stone curtain walls with a battlemented wall walk, four round
+// corner towers crowned with open arcades (a wide stone ledge on corbels, under a ring of arches and a slate cone)
+// with a fire basket under each and a sentry on each ledge, a great gate under a timber gallery with carved dragon
+// heads, and the keep with its stone gable and banners. Built footings first, the curtain walls course by course, each
+// tower course by course, the gatehouse round its arch, the keep and its gable, the wall walks and merlons, the tower
+// tops' ledges, arches and roofs, the keep roof row by row, the gate gallery, banners and stores, and last the people.
 (function () {
   var T = THREE;
   var BASE = 0.55, CH = 0.42;
@@ -19,21 +19,14 @@
   var GLX = 3.75, GLZ0 = 6.15, GLZ1 = 10.35, GLY = GTOP + 0.36, GLH = 2.2, GLT = GLY + GLH, GLR = 2.4;
   // the corner towers: the front-right one, in the sun, is the tallest
   var TOWERS = [
-    // the white dawn dragon holds the high sunny roost, where it shows bright against the sky; the black ember lies on
-    // the low front-left roost, nearest the camera, against the stone of the keep
-    { key: 'fr', x: WX, z: WZ, n: 25, dr: 4.3, ar: 2.5, ph: 2.8, rise: 3.9, pen: 'ember', la: 1.4, dragon: { kind: 'dawn', s: 1.3 } },
-    // the front-left tower stands low, its roost just over the wall walk, so the keep's front shows above its cone
-    { key: 'fl', x: -WX, z: WZ, n: 14, dr: 4.0, ar: 2.4, ph: 2.4, rise: 3.0, pen: 'bone', la: 1.48, low: true, dragon: { kind: 'ember', s: 1.06 } },
-    { key: 'bl', x: -WX, z: -WZ, n: 21, dr: 4.0, ar: 2.4, ph: 2.6, rise: 3.5, pen: 'ink', la: 1.48, dragon: { kind: 'crest', s: 1.25 } },
-    { key: 'br', x: WX, z: -WZ, n: 21, dr: 4.0, ar: 2.4, ph: 2.6, rise: 3.5, pen: 'bone', la: 1.3, dragon: { kind: 'boulder', s: 1.3 } }
+    { key: 'fr', x: WX, z: WZ, n: 25, dr: 4.3, ar: 2.5, ph: 2.8, rise: 3.9, pen: 'ember', la: 1.4 },
+    // the front-left tower stands low, its top just over the wall walk, so the keep's front shows above its cone
+    { key: 'fl', x: -WX, z: WZ, n: 14, dr: 4.0, ar: 2.4, ph: 2.4, rise: 3.0, pen: 'bone', la: 1.48, low: true },
+    { key: 'bl', x: -WX, z: -WZ, n: 21, dr: 4.0, ar: 2.4, ph: 2.6, rise: 3.5, pen: 'ink', la: 1.48 },
+    { key: 'br', x: WX, z: -WZ, n: 21, dr: 4.0, ar: 2.4, ph: 2.6, rise: 3.5, pen: 'bone', la: 1.3 }
   ];
-  TOWERS.forEach(function (t) {
-    t.yS = BASE + t.n * CH; t.dy = t.yS + 0.52;
-    // each roost has a broad perching ledge on its sunny side, centred on angle la; its dragon lies along it, head
-    // to the camera's left and its flank to the sun
-    var d = t.dr + 0.75, fa = t.la + Math.PI / 2, sh = 0.95 * t.dragon.s;
-    t.perch = { x: t.x + Math.cos(t.la) * d + Math.cos(fa) * sh, y: t.dy, z: t.z + Math.sin(t.la) * d + Math.sin(fa) * sh, ry: -t.la + 0.1 };
-  });
+  // each tower top has a broad ledge on its sunny side, centred on angle la
+  TOWERS.forEach(function (t) { t.yS = BASE + t.n * CH; t.dy = t.yS + 0.52; });
 
   // a curved stone of a ring: radii ri..ro, angles a0..a1 (0 = +x, PI/2 = +z), h tall, base at y = 0
   function citadelArcGeo(ri, ro, a0, a1, h, bev) {
@@ -220,15 +213,9 @@
     b.pop();
   }
 
-  // a point in the build's frame turned into a dragon's own frame (for o.look)
-  function citadelLook(dx, dy, dz, ry, s, wx, wy, wz) {
-    var x = wx - dx, y = wy - dy, z = wz - dz, c = Math.cos(-ry), sn = Math.sin(-ry);
-    return [(x * c + z * sn) / s, y / s, (-x * sn + z * c) / s];
-  }
-
-  // a corner tower's roost: corbels, a wide ledge of curved kerb stones and flagstones, six piers, the arches, a band,
-  // the slate cone row by row and its pennant, and a straw nest under the arches
-  function citadelRoost(b, t) {
+  // a corner tower's top: corbels, a wide ledge of curved kerb stones and flagstones, six piers, the arches, a band,
+  // the slate cone row by row and its pennant, and an iron fire basket under the arches
+  function citadelTowerTop(b, t) {
     var M = KIT.M, cx = t.x, cz = t.z, yS = t.yS, DR = t.dr, AR = t.ar, PH = t.ph, DY = t.dy, NP = 6, rot = t.la - Math.PI / 6, i;
     b.unit(function () {
       var n = 22;
@@ -252,7 +239,7 @@
         for (var q = 0; q < n; q++) { var a = q * ar + off; b.addGeo(citadelArcGeo(rg[0] + 0.02, rg[1] - 0.02, a - ar / 2 + 0.02 / rm, a + ar / 2 - 0.02 / rm, 0.08 + b.j(0.008), 0.02), { x: cx, y: yS + 0.44, z: cz, c: b.stoneC('stoneCool'), m: M.stone, ao: 0.1, jit: 0.04 }); }
       });
     });
-    // the perching ledge: a broad sector of curved slabs out past the rim on the sunny side, on stepped brackets
+    // the ledge: a broad sector of curved slabs out past the rim on the sunny side, on stepped brackets
     b.unit(function () {
       var A0 = t.la - 0.85, A1 = t.la + 0.85, DO = DR + 2.1;
       [[DR - 0.6, DR + 0.75], [DR + 0.75, DO]].forEach(function (rg, q) {
@@ -268,8 +255,6 @@
           var r0 = TRO - 0.2, rm = (r0 + q[0]) / 2; b.box(cx + ca * rm, q[1], cz + sa * rm, q[2], q[3], q[0] - r0, { ry: ry, c: b.stoneC('sandstone'), m: M.stone, bevel: 0.05 });
         });
       }
-      // an iron tether ring let into the ledge
-      var ra = t.la - 0.55; b.addGeo(new T.TorusGeometry(0.13, 0.025, 4, 12), { x: cx + Math.cos(ra) * (DO - 0.45), y: DY + 0.02, z: cz + Math.sin(ra) * (DO - 0.45), rx: Math.PI / 2, c: 'iron', m: M.metal, ao: 0 });
     });
     var P = []; for (i = 0; i < NP; i++) { var ap = rot + i * Math.PI * 2 / NP; P.push([cx + Math.cos(ap) * AR, cz + Math.sin(ap) * AR, ap]); }
     b.unit(function () {
@@ -304,23 +289,20 @@
     b.unit(function () {
       var top = yB + 0.36 + t.rise;
       b.flag(cx, top - 0.15, cz, t.key === 'fr' ? 1.9 : 1.5, t.key === 'fr' ? 1.5 : 1.2, t.key === 'fr' ? 0.55 : 0.45, { c: t.pen, pennant: true, ry: -0.5 });
-      // the nest under the arches
-      b.lathe(cx, DY, cz, [[0.01, 0], [AR - 0.5, 0], [AR - 0.55, 0.2], [AR - 0.85, 0.27], [AR - 1.2, 0.14], [0.01, 0.1]], { c: 'straw', m: M.straw, seg: 16, flat: true });
-      for (var q = 0; q < 14; q++) { var a = q / 14 * Math.PI * 2 + b.j(0.2), r0 = AR - 0.7 + b.j(0.15), a2 = a + 0.5; b.beam([cx + Math.cos(a) * r0, DY + 0.22, cz + Math.sin(a) * r0], [cx + Math.cos(a2) * r0 * 0.95, DY + 0.24, cz + Math.sin(a2) * r0 * 0.95], 0.035, { round: true, seg: 5, c: b.pick(['#6b5a44', '#57493a']), m: M.wood }); }
+      // the fire basket under the arches, on a round stone step, to signal from
+      b.cyl(cx, DY, cz, 0.62, 0.22, { c: 'stoneDark', m: M.stone, seg: 14, flat: true, ao: 0.2 });
+      b.brazier(cx, DY + 0.22, cz, 1.0);
     });
   }
 
   KIT.defineBuild('citadel', {
-    name: 'Dragon citadel', size: 'big', need: 150,
-    line: 'The great stone citadel: curtain walls and a gate under a carved timber gallery, the keep, and four corner towers crowned with open roosts where the dragons perch.',
+    name: 'Citadel', size: 'big', need: 150,
+    line: 'The last and greatest build: a stone keep inside battlemented curtain walls, a gate under a carved timber gallery, and four round corner towers crowned with open arcades, a fire basket under each and a sentry on its ledge.',
     r: 22, flat: [27, 25], ground: 'cobble', path: [[1.6, 22.5], [0.8, 13.0], [0.2, 10.4]],
     frameY: 7.8, frameR: 21, glowAt: [WX, 20.2, WZ],
     trees: [{ x: -16.8, z: -9.4, kind: 'pine', h: 9.2 }, { x: -18.6, z: -4.4, kind: 'pine', h: 7.4 }, { x: 16.9, z: -9.8, kind: 'pine', h: 8.8 }, { x: 18.6, z: -3.6, kind: 'pine', h: 6.8 },
       { x: 18.2, z: 5.8, kind: 'round', h: 5.6 }, { x: -18.0, z: 6.6, kind: 'birch', h: 6.2 }, { x: 4.0, z: -17.6, kind: 'pine', h: 8.4 }, { x: -6.5, z: -17.2, kind: 'pine', h: 7.6 }],
     bushes: [{ x: 14.8, z: 11.2, r: 0.9, flowers: '#f3f1ec' }, { x: -14.6, z: 12.4, r: 0.85 }, { x: 16.8, z: 1.6, r: 0.75 }, { x: -16.2, z: 1.0, r: 0.8, flowers: '#efebe4' }, { x: 7.8, z: 16.4, r: 0.7 }],
-    perches: TOWERS.map(function (t) { return { x: t.perch.x, y: t.perch.y, z: t.perch.z, ry: t.perch.ry }; }).concat([
-      { x: KCX, y: KE + KR + 0.2, z: KCZ, ry: 0 }, { x: 0, y: GLT + GLR + 0.1, z: (GLZ0 + GLZ1) / 2, ry: 0 }]),
-    stalls: 6,
     islandOpts: { cobbleSkip: function (x, z) { return (Math.abs(x) < WX - 0.6 && Math.abs(z) < WZ - 0.6) || (Math.abs(x) < WX + 0.9 && Math.abs(Math.abs(z) - WZ) < 1.2) || (Math.abs(z) < WZ + 0.9 && Math.abs(Math.abs(x) - WX) < 1.2) || (Math.abs(x) < GX + 0.4 && z > GZ0 && z < GZ1 + 0.3) || Math.hypot(Math.abs(x) - WX, Math.abs(z) - WZ) < TRO + 0.3; } },
     build: function (b) {
       var M = KIT.M, i, k;
@@ -478,10 +460,10 @@
         });
       });
 
-      b.part('Roost ledges');
-      // each tower's roost is laid in turn: corbels, ledge and flagstones, piers, arches, band, cone and nest
-      var roostOrder = [0, 1, 3, 2];
-      roostOrder.forEach(function (ti) { citadelRoost(b, TOWERS[ti]); });
+      b.part('Tower tops');
+      // each tower's top is laid in turn: corbels, ledge and flagstones, piers, arches, band, cone and fire basket
+      var topOrder = [0, 1, 3, 2];
+      topOrder.forEach(function (ti) { citadelTowerTop(b, TOWERS[ti]); });
 
       b.part('Keep roof');
       b.gableRoof(KCX, KE, KCZ, KD + 0.1, KW, KR, { m: 'slate', ry: Math.PI / 2, rows: 11, over: 0.55, overX: 0.5 });
@@ -576,16 +558,16 @@
       });
 
       b.part('Stores and yard');
-      // out front, in the sun: racks, the dragons' fish trough, hay, barrels, braziers at the gate, a cart
+      // out front, in the sun: racks, a water trough, hay, barrels, braziers at the gate, a cart
       b.unit(function () { b.rack(-5.4, 0, WZ + WT / 2 + 0.55, 2.3, { kind: 'spears' }); });
       b.unit(function () { b.rack(-4.6, 0, WZ + WT / 2 + 1.9, 1.9, { kind: 'shields', ry: 0.25 }); });
       b.unit(function () {
-        // a long plank trough heaped with fish, for the dragons
+        // a long plank water trough on trestles, buckets beside it
         var tx = 5.5, tz = WZ + WT / 2 + 1.1;
         [-1, 1].forEach(function (sd) { b.box(tx, 0.12, tz + sd * 0.4, 3.2, 0.5, 0.08, { c: 'woodDark', m: M.wood, bevel: 0.015 }); b.box(tx + sd * 1.56, 0.12, tz, 0.08, 0.5, 0.88, { c: 'woodDark', m: M.wood, bevel: 0.015 }); });
         [-1.3, 0, 1.3].forEach(function (dx) { b.box(tx + dx, 0, tz, 0.14, 0.14, 1.0, { c: 'beam', m: M.wood, bevel: 0.02 }); b.box(tx + dx, 0.12, tz + 0.46, 0.06, 0.55, 0.06, { c: 'iron', m: M.metal, bevel: 0.01 }); });
         b.box(tx, 0.16, tz, 3.04, 0.3, 0.74, { c: '#2b2723', m: M.wood, bevel: 0 });
-        for (var q = 0; q < 22; q++) b.extrude(tx - 1.4 + b.r() * 2.8, 0.5 + b.r() * 0.08, tz + b.j(0.26), [[0, 0], [0.08, 0.05], [0.24, 0.045], [0.32, 0.01], [0.4, 0.065], [0.39, -0.06], [0.32, -0.01], [0.24, -0.045], [0.08, -0.05]], 0.05, { rx: Math.PI / 2 + b.j(0.3), ry: b.r() * 6.28, c: b.pick(['#8d989c', '#7f8b90', '#9aa3a6']), m: M.metal, ao: 0.1, bevel: 0.01 });
+        b.box(tx, 0.46, tz, 3.0, 0.02, 0.7, { c: '#55666b', m: M.water || M.window, bevel: 0, ao: 0 });
         b.bucket(tx + 2.1, 0, tz + 0.4); b.bucket(tx + 2.4, 0, tz - 0.1);
       });
       b.unit(function () {
@@ -625,25 +607,21 @@
       });
 
       b.life(function () {
-        // the roosts
+        // a sentry on each tower's ledge, looking out over the country
         TOWERS.forEach(function (t, ti) {
-          var d = t.dragon, p = t.perch;
-          // each roost dragon lifts its head and looks out at you
-          var look = citadelLook(p.x, p.y, p.z, p.ry, d.s, p.x - 5.1, p.y + 4.8, p.z + 7.2);
-          b.dragon(p.x, p.y, p.z, { kind: d.kind, pose: 'perch', s: d.s, ry: p.ry, wing: 0.4, seed: 11 + ti, look: look });
+          if (t.key === 'fr') return;
+          var a = t.la + 0.35, d = t.dr + 1.1;
+          b.figure(t.x + Math.cos(a) * d, t.z + Math.sin(a) * d, { role: ti === 2 ? 'archer' : 'soldier', pose: ti === 2 ? 'stand' : 'spear', ry: Math.atan2(Math.cos(a), Math.sin(a)), y: t.dy });
         });
-        // the night dragon and its rider, flying overhead in the sun
-        b.dragon(15.0, 22.4, 9.4, { kind: 'night', pose: 'glide', s: 1.3, ry: -1.25, roll: -0.55, saddle: true, rider: {}, seed: 21 });
-        // a young night dragon by the gate, curious
-        var yx = 2.0, yz = 16.6;
-        b.dragon(yx, gh(yx, yz), yz, { kind: 'night', pose: 'crouch', age: 'young', s: 1.3, ry: -1.3, seed: 23, look: citadelLook(yx, 0, yz, -1.3, 0.81, yx - 5.1, 4.8, yz + 7.2) });
-        // people: gate guards, a knight pointing up at the flyer, a carrier, a child, the young dragon's keeper,
-        // archers on the wall walk and a keeper on the high roost
+        // people: gate guards, a knight pointing up at the high tower, a carrier, a soldier telling a child of the
+        // wars, a villager on the path, an archer and a spearman on the wall walk and the captain on the high tower
+        var sx = 2.0, sz = 16.6;
+        b.figure(sx, sz, { role: 'soldier', pose: 'talk', ry: Math.atan2(4.7 - sx, 18.1 - sz), y: gh(sx, sz) });
         b.figure(-2.05, 10.75, { role: 'soldier', pose: 'spear', ry: 0.12 });
         b.figure(2.05, 10.75, { role: 'soldier', pose: 'guard', ry: -0.12 });
         b.figure(-1.9, 13.0, { role: 'knight', pose: 'point', ry: -2.7, y: gh(-1.9, 13.0) });
         b.figure(-0.4, 14.6, { role: 'villager', pose: 'carry', ry: Math.PI - 0.15, y: gh(-0.4, 14.6) });
-        b.figure(4.7, 18.1, { role: 'child', pose: 'cheer', ry: -2.4, y: gh(4.7, 18.1) });
+        b.figure(4.7, 18.1, { role: 'child', pose: 'cheer', ry: Math.atan2(sx - 4.7, sz - 18.1), y: gh(4.7, 18.1) });
         b.figure(-1.7, 18.3, { role: 'villager', pose: 'talk', ry: 2.2, y: gh(-1.7, 18.3), c: '#5c5e62' });
         b.figure(-4.7, WZ - 0.25, { role: 'archer', pose: 'draw', ry: 0.2, y: WALK + 0.1 });
         b.figure(6.3, WZ - 0.25, { role: 'soldier', pose: 'spear', ry: -0.2, y: WALK + 0.1 });

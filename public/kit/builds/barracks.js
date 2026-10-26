@@ -105,7 +105,6 @@
     islandOpts: { cobbleSkip: function (x, z) { return x > -3.75 && x < 4.6 && z > 2.75 && z < 6.5; } },
     trees: [{ x: -11.6, z: -5.6, kind: 'pine', h: 8.2 }, { x: -13.2, z: -2.2, kind: 'pine', h: 6.3 }, { x: 14.1, z: -0.1, kind: 'pine', h: 7.2 }, { x: 12.5, z: 5.4, kind: 'birch', h: 5.4 }],
     bushes: [{ x: 9.4, z: 7.6, r: 0.8, flowers: '#f3f1ec' }, { x: -9.4, z: 7.6, r: 0.8 }, { x: 12.6, z: 1.2, r: 0.7 }, { x: -11.0, z: 5.8, r: 0.6, flowers: '#f3f1ec' }, { x: -12.4, z: 2.6, r: 0.7 }],
-    perches: [{ x: 6.6, y: 9.3, z: -1.93, ry: 0 }, { x: -2.05, y: 7.0, z: -2.5, ry: 0 }, { x: -8.6, y: 3.5, z: 0.6, ry: 0 }],
     build: function (b) {
       var base = 0.55, TH = 0.6;
       // the hall: x -5.6..3.2 (it butts into the wing), z -4.8..-0.2

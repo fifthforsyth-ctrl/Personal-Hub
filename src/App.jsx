@@ -12,7 +12,6 @@ import { todayStr } from "./lib/planDates";
 // about 40% less to download and parse, and the service worker still caches
 // every page for offline use after the first visit.
 const Evening = lazy(() => import("./pages/Evening"));
-const Overview = lazy(() => import("./pages/Overview"));
 const Day = lazy(() => import("./pages/Day"));
 const Plan = lazy(() => import("./pages/Plan"));
 const Study = lazy(() => import("./pages/Study"));
@@ -23,8 +22,6 @@ const Tree = lazy(() => import("./pages/Tree"));
 const Ascent = lazy(() => import("./pages/Ascent"));
 const Camp = lazy(() => import("./pages/Camp"));
 const Plans = lazy(() => import("./pages/Plans"));
-const Reflect = lazy(() => import("./pages/Reflect"));
-const GoalLinks = lazy(() => import("./pages/GoalLinks"));
 const Ask = lazy(() => import("./pages/Ask"));
 const Mirror = lazy(() => import("./pages/Mirror"));
 const Phone = lazy(() => import("./pages/Phone"));
@@ -34,7 +31,6 @@ const Quests = lazy(() => import("./pages/Quests"));
 // The village and its old map bring three.js with them, so they stay in their own bundles.
 const Village = lazy(() => import("./pages/Village"));
 const VillageMap = lazy(() => import("./pages/VillageMap"));
-const Dragons = lazy(() => import("./pages/Dragons"));
 
 function RedirectToToday() {
   return <Navigate to={`/day/${todayStr()}`} replace />;
@@ -52,7 +48,6 @@ export default function App() {
             <Route index element={<Today />} />
             <Route path="/evening" element={<Evening />} />
             <Route path="/evening/:date" element={<Evening />} />
-            <Route path="/overview" element={<Overview />} />
             <Route path="/day" element={<RedirectToToday />} />
             <Route path="/day/:date" element={<Day />} />
             <Route path="/plan" element={<Plan />} />
@@ -65,9 +60,7 @@ export default function App() {
             <Route path="/ascent/plans" element={<Plans />} />
             <Route path="/ascent/plans/:id" element={<Plans />} />
             <Route path="/tree" element={<Tree />} />
-            <Route path="/reflect" element={<Reflect />} />
             <Route path="/spirit" element={<Spirit />} />
-            <Route path="/links" element={<GoalLinks />} />
             <Route path="/ask" element={<Ask />} />
             <Route path="/mirror" element={<Mirror />} />
             <Route path="/phone" element={<Phone />} />
@@ -78,7 +71,6 @@ export default function App() {
             <Route path="/quests/:key" element={<Quests />} />
             <Route path="/village" element={<Village />} />
             <Route path="/village/map" element={<VillageMap />} />
-            <Route path="/dragons" element={<Dragons />} />
 
             {/* Old addresses, kept so a bookmark lands somewhere sensible. */}
             <Route path="/today" element={<Navigate to="/" replace />} />
