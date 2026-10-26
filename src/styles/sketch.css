@@ -1,0 +1,90 @@
+/* ===========================================================================
+   Sketches (0088): the pad he draws on, a row's sketches small under its
+   words, and one sketch large with what it says. The page is white paper
+   with a faint grid of dots; the pad's frame is the app's own off-white.
+   =========================================================================== */
+
+/* --- On a row --------------------------------------------------------------- */
+
+.sk-strip { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 10px 38px; }
+.qs-subs .sk-strip, .camp-subs .sk-strip { padding-left: 32px; }
+.sk-chip {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 10px 4px 4px; border: 0; border-radius: 12px;
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+.sk-chip:active { transform: scale(0.97); }
+@media (hover: hover) { .sk-chip:hover { box-shadow: inset 0 0 0 1px var(--ink); } }
+.sk-chip__img { display: block; height: 52px; max-width: 120px; min-width: 40px; border-radius: 9px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.sk-chip__img canvas { display: block; width: 100%; height: 100%; }
+.sk-chip:not(:has(.sk-chip__title)) { padding-right: 4px; }
+.sk-chip__title { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.sk-chip__title svg { flex: 0 0 auto; color: var(--accent); }
+.sk-add { display: inline-flex; align-items: center; gap: 6px; }
+
+/* --- The pad ------------------------------------------------------------------ */
+
+html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; }
+.sk-pad {
+  position: fixed; inset: 0; z-index: 58; display: flex; flex-direction: column; background: var(--bg);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; animation: fade-in 0.16s ease-out;
+}
+.sk-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.sk-bar__about { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sk-bar__about b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-bar .btn { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+.sk-tools {
+  display: flex; align-items: center; gap: 6px; margin: 0 12px; padding: 6px; overflow-x: auto; scrollbar-width: none;
+  border-radius: var(--r-pill); background: var(--card); box-shadow: var(--shadow); align-self: center; max-width: calc(100% - 24px);
+}
+.sk-tools::-webkit-scrollbar { display: none; }
+.sk-group { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; padding: 0 4px; }
+.sk-group + .sk-group { border-left: 1px solid var(--line); padding-left: 8px; }
+.sk-sep { flex: 0 0 auto; width: 1px; height: 24px; background: var(--line); margin: 0 2px; }
+.sk-ink, .sk-width, .sk-icon {
+  flex: 0 0 auto; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; color: var(--text); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.sk-ink::before { content: ""; width: 20px; height: 20px; border-radius: 50%; background: var(--pen); box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.12); transition: transform 0.12s ease; }
+.sk-ink.on::before { transform: scale(1.12); box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--pen); }
+.sk-width i { display: block; border-radius: 50%; }
+.sk-width.on, .sk-icon.on { background: var(--inset); }
+.sk-icon:disabled { opacity: 0.3; cursor: default; }
+@media (hover: hover) { .sk-icon:not(:disabled):hover, .sk-width:hover { background: var(--inset); } }
+
+.sk-area { position: relative; flex: 1; min-height: 0; margin-top: 6px; }
+.sk-canvas { position: absolute; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+.sk-canvas.erasing { cursor: cell; }
+.sk-saving {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; border-radius: var(--r-pill);
+  background: var(--ink); color: var(--on-ink); font-size: 13px; font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .sk-bar { padding: 8px 10px 4px; gap: 6px; }
+  .sk-bar .btn { padding-left: 11px; padding-right: 11px; }
+  .sk-tools { margin: 0 8px; max-width: calc(100% - 16px); }
+  .sk-ink, .sk-width, .sk-icon { width: 34px; height: 34px; }
+}
+
+/* --- One sketch, large --------------------------------------------------------- */
+
+.sk-view { display: flex; flex-direction: column; gap: 10px; }
+.sk-view__img { width: 100%; max-height: 56vh; border-radius: var(--r-lg); background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; }
+.sk-view__img canvas { display: block; width: 100%; height: 100%; }
+.sk-view__on { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-summary { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--r-lg); background: var(--card); }
+.sk-summary h3 { margin: 0; }
+.sk-summary .plan-notes p, .sk-summary .plan-notes li { font-size: 14px; line-height: 1.55; }
+.sk-stale { margin: 2px 0 0; }
+.sk-reading { display: flex; align-items: center; gap: 8px; margin: 2px 0; font-size: 14px; color: var(--text-2); }
+.sk-reading svg { color: var(--accent); }
+.sk-hint { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.sk-view__acts { flex-wrap: wrap; row-gap: 8px; }
+.sk-view__acts .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-pad { animation: none; }
+}

@@ -9,10 +9,11 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
-import { dropIndex, moved } from "../src/lib/dragOrder.js";
+import { dropIndex, edgePush, moved } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
-import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine } from "../src/lib/questTasks.js";
+import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine, campTally } from "../src/lib/questTasks.js";
+import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary } from "../src/lib/sketch.js";
 import {
   buildCamp,
   stepsUnder,
@@ -1759,6 +1760,47 @@ console.log("\nthe mark");
   ok("dragging down past two middles moves two places", dropIndex(mids, 0, 55) === 2 && dropIndex(mids, 0, 99) === 3);
   ok("dragging up to the top lands first", dropIndex(mids, 3, 5) === 0 && dropIndex(mids, 3, 45) === 2);
   ok("moved() puts the dragged id in its new place", moved(["a", "b", "c", "d"], 0, 2).join() === "b,c,a,d" && moved(["a", "b", "c"], 2, 0).join() === "c,a,b");
+  // Sketches: the page, its points, the eraser and drawing a stroke a piece at a time.
+  ok("a new sketch's page is the room it had, less its margin, within bounds", JSON.stringify(pageSize(1024, 700)) === '{"width":1000,"height":676}' && pageSize(10, 10).width === 50);
+  const fp = fitPage(1000, 500, 500, 500);
+  ok("a page fits its box, centred", fp.scale === 0.5 && fp.x === 0 && fp.y === 125);
+  const pts = [];
+  ok("points are kept to a tenth, pressure as 0-100", pushPoint(pts, 10.04, 20.06, 0.5) && pts.join() === "10,20.1,50");
+  ok("a point too close to the last is skipped, unless the pen lifts there", !pushPoint(pts, 10.2, 20.2, 0.5) && pushPoint(pts, 10.2, 20.2, 0.5, 0.75, true) && !pushPoint(pts, 10.2, 20.2, 0.5, 0.75, true));
+  ok("a pencil pressed harder draws wider", widthAt(4, 90) > widthAt(4, 50) && widthAt(4, 50) > widthAt(4, 10));
+  const line = { c: "#141414", w: 4, p: [0, 0, 50, 100, 0, 50] };
+  const dotS = { c: "#141414", w: 4, p: [300, 300, 50] };
+  ok("the eraser finds a stroke it touches, not one it doesn't", nearStroke(line, 50, 8, 6) && !nearStroke(line, 50, 30, 6) && nearStroke(dotS, 305, 300, 2));
+  const hit = erasedBy([line, dotS], 50, 40, 50, -40, 6);
+  ok("an eraser swept across a line takes it and only it", hit.has(line) && !hit.has(dotS) && erasedBy([line, dotS], 290, 300, 290, 300, 8).has(dotS));
+  const calls = [];
+  const fake = { beginPath() {}, moveTo(x, y) { calls.push(`m${x},${y}`); }, quadraticCurveTo(cx, cy, x, y) { calls.push(`q${x},${y}`); }, lineTo(x, y) { calls.push(`l${x},${y}`); }, stroke() {}, arc() { calls.push("dot"); }, fill() {} };
+  const three = { c: "#000", w: 2, p: [0, 0, 50, 10, 0, 50, 20, 10, 50] };
+  drawPieces(fake, three, 1, 3, false);
+  ok("while drawing, the last piece waits for the pen to lift", calls.join(" ") === "m0,0 q15,5");
+  calls.length = 0;
+  drawPieces(fake, three, 2, 3, true);
+  ok("once it lifts, the last piece runs to the last point, joined to the one before", calls.join(" ") === "m15,5 l20,10");
+  calls.length = 0;
+  drawStrokes(fake, [dotS]);
+  ok("a single tap is a dot", calls.join() === "dot");
+  ok("a summary is stale once the sketch is drawn on after it", staleSummary({ summary: "x", analyzed_at: "2026-10-26T23:00:00Z", updated_at: "2026-10-26T23:05:00.000Z" }) && !staleSummary({ summary: "x", analyzed_at: "2026-10-26T23:05:00+00:00", updated_at: "2026-10-26T23:00:00.000Z" }) && !staleSummary({ summary: null, analyzed_at: null, updated_at: "2026-10-26T23:00:00Z" }));
+
+  // How far along each camp is, for the camps under each quest.
+  const ct = campTally([
+    { camp_id: "a", done_on: "2026-10-20" },
+    { camp_id: "a", done_on: null, working_since: "2026-10-26T10:00:00Z" },
+    { camp_id: "a", done_on: null },
+    { camp_id: "b", done_on: "2026-10-21", working_since: "2026-10-21T10:00:00Z" },
+  ]);
+  ok("camp tally: steps done of all, and whether an open one is being worked on", JSON.stringify(ct.get("a")) === '{"done":1,"total":3,"working":true}' && JSON.stringify(ct.get("b")) === '{"done":1,"total":1,"working":false}' && !ct.has("c"));
+
+  // Scrolling while dragging, in a box from 60 (under the top bar) to 760 (above the tab bar).
+  ok("no scroll in the middle of the box", edgePush(400, 60, 760) === 0 && edgePush(141, 60, 760) === 0 && edgePush(679, 60, 760) === 0);
+  ok("near the top edge it scrolls up, near the bottom down", edgePush(100, 60, 760) < 0 && edgePush(720, 60, 760) > 0);
+  ok("full speed at the box's edge", edgePush(60, 60, 760) === -1 && edgePush(760, 60, 760) === 1);
+  ok("past the edge (over the tab bar) it goes faster, but only so fast", edgePush(800, 60, 760) > 1 && edgePush(2000, 60, 760) === 1.75 && edgePush(-500, 60, 760) === -1.75);
+  ok("a short box keeps a middle where it doesn't scroll", edgePush(130, 100, 160) === 0 && edgePush(101, 100, 160) < 0);
   const deep = buildCamp([], [
     { id: "t", text: "Top", position: 0, done_on: null },
     { id: "t1", parent_id: "t", text: "Sub", position: 0, done_on: "2026-10-23" },

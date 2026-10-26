@@ -170,6 +170,34 @@
 .camp-urgency-opt .camp-urgency { margin: 0 6px 0 0; }
 .camp-urgency-opt.on { background: var(--ink); color: var(--on-ink); }
 
+/* A step or quest line in a colour he picked (0088): a soft wash on its row
+   and its box ringed in it. Only the row itself; its sub-steps keep their own. */
+.camp-step.tinted > .camp-step__row {
+  background: color-mix(in srgb, var(--tint) 12%, var(--card));
+  border-radius: 12px; margin: 3px -8px; padding: 0 8px;
+}
+.camp-step.tinted.done > .camp-step__row { background: color-mix(in srgb, var(--tint) 6%, var(--card)); }
+.camp-step.tinted > .camp-step__row > .camp-check { box-shadow: inset 0 0 0 1.5px var(--tint); }
+.camp-step.tinted > .camp-step__row > .camp-check[aria-checked="true"] { background: var(--tint); box-shadow: none; }
+.camp-step.tinted > .camp-step__row > .qs-pen { color: var(--tint); }
+.camp-step.tinted + .camp-step, .camp-step.tinted + .camp-step.tinted { border-top-color: transparent; }
+.camp-color-pick > span { display: block; margin-bottom: 6px; }
+.camp-color-pick__opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.camp-swatch {
+  position: relative; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; touch-action: manipulation;
+  background: var(--swatch); color: #fff; box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+.camp-swatch:active { transform: scale(0.9); }
+.camp-swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--swatch); }
+.camp-swatch--none { background: var(--card); box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.camp-swatch--none::after {
+  content: ""; position: absolute; left: 7px; right: 7px; top: calc(50% - 0.75px); height: 1.5px;
+  background: var(--text-3); transform: rotate(-45deg);
+}
+.camp-swatch--none.on { box-shadow: inset 0 0 0 1.5px var(--ink), 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+
 /* Sub-steps: a smaller checklist tucked under its step, on a thin rule. */
 .camp-subs { margin: -4px 0 8px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }
 .camp-subs .camp-step { border-top: 0; }

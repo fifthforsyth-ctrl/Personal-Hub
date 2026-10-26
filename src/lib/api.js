@@ -2891,12 +2891,12 @@ export async function deleteLesson(id) {
 // ---------------------------------------------------------------------------
 
 const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, working_since, done_on, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp and whether it's done, for the camp lists on the Range.
 export function fetchStepTally(userId) {
-  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on").eq("user_id", userId).order("id"));
+  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on, working_since").eq("user_id", userId).order("id"));
 }
 
 // One camp: the camp, the mountain it's on (a quest, or a lesson's own),
@@ -3409,7 +3409,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, day, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3510,15 +3510,17 @@ export async function updateVillageProject(id, fields) {
 }
 
 // The quests page: the lists along the top, the goals they serve, the camps
-// on each, the builds and everything finished (for the build going up).
+// on each and every step in them (for how far along each camp is), the
+// builds and everything finished (for the build going up).
 export async function fetchQuestBoard(userId) {
-  const [[tasks, steps], projects, quests, lessons, camps, goals] = await Promise.all([
+  const [[tasks, steps], projects, quests, lessons, camps, goals, campSteps] = await Promise.all([
     fetchFinished(userId),
     supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
     supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
+    fetchStepTally(userId),
   ]);
   for (const r of [projects, quests, lessons, camps]) if (r.error) throw r.error;
   return {
@@ -3527,6 +3529,7 @@ export async function fetchQuestBoard(userId) {
     quests: quests.data ?? [],
     lessons: lessons.data ?? [],
     camps: camps.data ?? [],
+    campSteps,
     goals,
   };
 }
@@ -3559,4 +3562,64 @@ export async function updateQuestTask(id, fields) {
 export async function deleteQuestTask(id) {
   const { error } = await supabase.from("quest_tasks").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Sketches (0088): drawn on a quest line or a camp step, kept as strokes,
+// with what the sketch reader made of them.
+// ---------------------------------------------------------------------------
+
+const SKETCH = "id, quest_task_id, camp_step_id, width, height, strokes, title, summary, analyzed_at, created_at, updated_at";
+const sketchRows = (rows) => rows.map(({ quest_tasks: _t, camp_steps: _s, ...row }) => row);
+
+// Every sketch on one quest's lines.
+export async function fetchQuestSketches(userId, questId) {
+  return sketchRows(
+    await selectAllPages(() =>
+      supabase.from("sketches").select(`${SKETCH}, quest_tasks!inner(quest_id)`).eq("user_id", userId).eq("quest_tasks.quest_id", questId).order("id")
+    )
+  );
+}
+
+// Every sketch on one camp's steps.
+export async function fetchCampSketches(userId, campId) {
+  return sketchRows(
+    await selectAllPages(() =>
+      supabase.from("sketches").select(`${SKETCH}, camp_steps!inner(camp_id)`).eq("user_id", userId).eq("camp_steps.camp_id", campId).order("id")
+    )
+  );
+}
+
+// A new sketch on a line ({ quest_task_id }) or a step ({ camp_step_id }),
+// with { width, height, strokes }. Resolves to the row as saved.
+export async function addSketch(userId, fields) {
+  const { data, error } = await supabase
+    .from("sketches")
+    .insert({ user_id: userId, ...fields })
+    .select(SKETCH)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateSketch(id, fields) {
+  const { error } = await supabase
+    .from("sketches")
+    .update({ updated_at: new Date().toISOString(), ...fields })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteSketch(id) {
+  const { error } = await supabase.from("sketches").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Has the sketch reader look at a sketch (`image`: a PNG, base64) with what
+// it's on. It keeps what it made of it on the sketch and resolves to
+// { title, summary, analyzed_at }.
+export async function analyzeSketch(id, image) {
+  const out = await callFunction("sketch", { action: "analyze", sketchId: id, image }, "The sketch reader");
+  if (!out?.summary) throw new Error("The sketch came back unread.");
+  return { title: out.title ?? null, summary: out.summary, analyzed_at: out.analyzed_at ?? new Date().toISOString() };
 }
