@@ -641,7 +641,8 @@ class World {
   // picture. The island round them runs on past the edges; a pinch out shows
   // it to its rim.
   wholeView() {
-    if (!this.stage) return { ...this.view };
+    // (no plan yet: nothing to frame, so the view waits for the ground)
+    if (!this.stage || !this.plan) return { ...this.view };
     const pts = [];
     const corners = (b) => {
       for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(x, y, z));
@@ -653,19 +654,17 @@ class World {
       const hd = (w * s + d * c) / 2;
       corners(new THREE.Box3(new THREE.Vector3(x - hw, 0, z - hd), new THREE.Vector3(x + hw, h, z + hd)));
     };
-    if (this.plan) {
-      const { plaza, stake } = this.plan;
-      flat(plaza.x, plaza.z, plaza.w, plaza.d, 0, 3);
-      flat(stake.x, stake.z, STAKED.w, STAKED.d, stake.ry, 3);
-      for (const p of this.plan.plots) {
-        const B = this.made.get(p.id);
-        if (B) {
-          if (B.group.visible) corners(B.box);
-        } else if (window.KIT?.builds?.[p.kind]) {
-          const f = this.flatOf(p.kind);
-          flat(p.x, p.z, f.w, f.d, p.ry, Math.min(24, Math.max(f.w, f.d) * 0.8));
-        } else flat(p.x, p.z, 20, 20, p.ry, 14);
-      }
+    const { plaza, stake } = this.plan;
+    flat(plaza.x, plaza.z, plaza.w, plaza.d, 0, 3);
+    flat(stake.x, stake.z, STAKED.w, STAKED.d, stake.ry, 3);
+    for (const p of this.plan.plots) {
+      const B = this.made.get(p.id);
+      // a build the replay hides that day still counts, so the frame is the same on every day
+      if (B) corners(B.box);
+      else if (window.KIT?.builds?.[p.kind]) {
+        const f = this.flatOf(p.kind);
+        flat(p.x, p.z, f.w, f.d, p.ry, Math.min(24, Math.max(f.w, f.d) * 0.8));
+      } else flat(p.x, p.z, 20, 20, p.ry, 14);
     }
     const view = this.centred(pts, EL0, 0.94);
     // he can pinch out until the whole island shows, rim and skirt
