@@ -217,11 +217,16 @@
   };
   for (var ti = 0; ti < MAXT; ti++) { G.uTorchPos.value.push(new T.Vector3()); G.uTorchCol.value.push(new T.Vector3()); }
   KIT.MAXT = MAXT;
+  // KIT.air, when set, overrides the look's air for a scene the looks weren't tuned for (a whole village seen from
+  // hundreds of metres): { fog: [near, far], cloud: strength of the cloud's shadow }. It holds through every look.
+  KIT.air = null;
   KIT.applyLook = function (name) {
     var L = KIT.LOOKS[name] || KIT.LOOKS.day; KIT.look = L; KIT.lookName = name;
     G.uSunDir.value.set(L.sunDir[0], L.sunDir[1], L.sunDir[2]).normalize();
     G.uSunCol.value.copy(lv(L.sun, L.sunI)); G.uSkyCol.value.copy(lv(L.sky, L.skyI)); G.uGndCol.value.copy(lv(L.gnd, L.gndI));
     G.uRimCol.value.copy(lv(L.rim, L.rimI)); G.uFogCol.value.copy(lv(L.fog)); G.uFog.value.set(L.fogNear, L.fogFar, L.mist); G.uWindow.value = L.window; G.uShadeLift.value = L.shadeLift || 0; var cl = L.cloud || [0, 0, 1, 0]; G.uCloud.value.set(cl[0], cl[1], cl[2], cl[3]);
+    var A = KIT.air;
+    if (A) { if (A.fog) { G.uFog.value.x = A.fog[0]; G.uFog.value.y = A.fog[1]; } if (A.cloud !== undefined) G.uCloud.value.w = A.cloud; }
     return L;
   };
   KIT.setTorches = function (list) {
@@ -318,7 +323,7 @@
     'c += uRimCol * alb * fr * (0.25 + 0.75 * lit) * 1.2;',
     // steel and brass: a stylised, broken highlight, and the sky in the sheen
     'if (spec > 0.0) { vec3 H = normalize(uSunDir + V); float sp = pow(max(dot(N, H), 0.0), gloss); sp = smoothstep(0.25, 0.6, sp + sS * 0.25); c += uSunCol * sp * lit * spec * 0.9; c += uSkyCol * alb * fr * 1.4 * spec; }',
-    // dragon hide: a broad cool sheen on the grazing edges and a soft sun gloss, so a black hide still shows its form
+    // scales (the fish on the racks): a broad cool sheen on the grazing edges and a soft sun gloss, so dark scales still show their form
     'if (mt == 21.0) { vec3 H2 = normalize(uSunDir + V); c += uSkyCol * fr * 0.12 * (0.4 + 0.6 * up) + uSunCol * lit * pow(max(dot(N, H2), 0.0), 8.0) * 0.1; }',
     // torches
     'for (int i = 0; i < ' + MAXT + '; i++) { if (float(i) >= uTorchN) break; vec3 d = uTorchPos[i] - vPW; float L2 = dot(d, d); float att = 1.0 / (1.0 + L2 * 0.22); float nl = clamp(dot(N, d * inversesqrt(L2 + 1e-4)) * 0.75 + 0.25, 0.0, 1.0); c += alb * uTorchCol[i] * att * nl * (0.85 + sS * 0.3); }',

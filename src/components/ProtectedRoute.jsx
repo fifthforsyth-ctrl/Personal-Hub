@@ -19,7 +19,6 @@ const TITLES = [
   ["/money", "Money"],
   ["/ascent", "Ascent"],
   ["/quests", "Quests"],
-  ["/village/map", "Village map"],
   ["/village", "Village"],
   ["/tree", "Goal wheel"],
   ["/spirit", "Promptings & prayer"],

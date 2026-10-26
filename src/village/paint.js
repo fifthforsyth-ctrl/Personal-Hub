@@ -28,7 +28,7 @@
 //   canPaint()      false when WebGL can't start: show thumbOf(kind) instead
 //
 // Checked under Mesa (chromium --use-gl=angle --use-angle=gl in Xvfb) with
-// zero GL errors, as the notes at the top of ./engine.js ask.
+// zero GL errors, as the notes at the top of ./world.js ask.
 
 import * as THREE from "three";
 import { villagePic } from "./pictures.js";
@@ -79,7 +79,7 @@ export function preloadKit() {
 }
 
 const buildP = new Map();
-function loadBuild(kind) {
+export function loadBuild(kind) {
   if (window.KIT.builds[kind]) return Promise.resolve();
   if (!buildP.has(kind)) {
     const p = loadScript(kitUrl(`builds/${kind}.js`)).then(() => {

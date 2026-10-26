@@ -222,7 +222,6 @@
     line: 'A stone chapel with tall arched windows, a round apse, and a bell tower whose bell rings the muster.',
     r: 14, flat: [19.4, 16.6], ground: 'grass', path: [[3.4, 14.8], [5.1, 9.0], [5.7, 6.0]],
     frameY: 4.7, frameR: 13.8, glowAt: [5.7, 16.1, 0.7],
-    perches: [{ x: -2.6, y: 8.5, z: -1.1, ry: 0 }, { x: 1.4, y: 8.5, z: -1.1, ry: Math.PI }],
     trees: [{ x: -9.8, z: -5.8, kind: 'round', h: 6.4 }, { x: 10.6, z: -4.6, kind: 'pine', h: 8.6 }, { x: -11.0, z: 3.0, kind: 'olive', h: 4.6 }, { x: 11.0, z: 2.6, kind: 'cypress', h: 7.2 }],
     bushes: [{ x: 8.1, z: 10.1, r: 0.9, flowers: '#f3f1ec' }, { x: -5.4, z: 10.0, r: 0.8 }, { x: 10.8, z: -0.8, r: 0.7 }, { x: -10.4, z: -1.4, r: 0.75, flowers: '#f3f1ec' }],
     build: function (b) {
@@ -581,7 +580,7 @@
       b.unit(function () {
         // a handcart of grain sacks left by the churchyard wall for the muster
         var kx = 0.5, kz = 10.0;
-        b.push(0, b.ground.height(kx, kz) - 0.02, 0, 0);
+        b.push(0, (b.ground ? b.ground.height(kx, kz) : 0) - 0.02, 0, 0);
         b.cart(kx, kz, { ry: Math.PI / 2 + 0.05, load: function () {
           [[-0.3, -0.5], [0.3, -0.35], [-0.25, 0.25], [0.28, 0.45]].forEach(function (q, i) { b.sack(q[0], 0.7, q[1], 0.5, { c: i % 2 ? 'canvasDusty' : '#d9d4c8' }); });
           b.sack(0.0, 1.08, -0.1, 0.44, {});
@@ -617,8 +616,8 @@
         b.figure(p2[0], p2[1], { role: 'villager', pose: 'chapelSit', ry: Math.PI / 2, c: '#6f6a62', beard: true });
         // soldiers answering the bell
         b.figure(5.95, 5.6, { role: 'soldier', pose: 'walk', ry: Math.PI - 0.08 });
-        b.figure(6.55, 9.55, { role: 'soldier', pose: 'spear', ry: -0.5, team: 'bone', y: b.ground.height(6.55, 9.55) });
-        b.figure(4.85, 10.5, { role: 'child', pose: 'run', ry: Math.PI - 0.25, y: b.ground.height(4.85, 10.5) });
+        b.figure(6.55, 9.55, { role: 'soldier', pose: 'spear', ry: -0.5, team: 'bone', y: b.ground ? b.ground.height(6.55, 9.55) : 0 });
+        b.figure(4.85, 10.5, { role: 'child', pose: 'run', ry: Math.PI - 0.25, y: b.ground ? b.ground.height(4.85, 10.5) : 0 });
       });
     }
   });

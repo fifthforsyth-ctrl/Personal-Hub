@@ -1,10 +1,11 @@
 /* ===========================================================================
-   The village, painted: the build going up, the dragons, soldiers and
-   villagers, every build that stands, one build with what laid it, and
-   Choose a build. White cards and black pills like the rest of the Hub, the
-   builds' own paintings, and orange only for today's pieces and today's
-   wins. The paintings (.painting) also show over the quests
-   (FloatingBuild.jsx), so their rules are here for both.
+   The village in 3D (src/pages/Village.jsx over src/village/world.js): the
+   builds on their plots, and over them a title, labels, a dock with the
+   build going up, the soldiers, the villagers and the replay, and one sheet
+   at a time. White cards and black pills like the rest of the Hub, the
+   builds' own painterly look, and orange only for today's pieces. The
+   paintings (.painting) show over the quests (FloatingBuild.jsx), so their
+   rules are here too.
    =========================================================================== */
 
 /* --- A painting ---------------------------------------------------------------------- */
@@ -22,95 +23,136 @@
   font: 500 10.5px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2);
 }
 
-/* --- The page ---------------------------------------------------------------------------- */
+/* --- The village, full screen over the app ------------------------------------------------------- */
 
-.vl { max-width: 1120px; display: flex; flex-direction: column; gap: 14px; }
-.vl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
-.vl-head__name { min-width: 0; }
-.vl-head .page-title { margin-bottom: 0; }
-.vl-head .page-sub { max-width: 46ch; }
+.vg {
+  position: fixed; inset: 0; z-index: 70; overflow: hidden; background: var(--bg); color: var(--text);
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.vg-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline: none; cursor: grab; }
+.vg-canvas:active { cursor: grabbing; }
+.vg .vg-canvas:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-line); }
 
-.vl-name { margin: 0; font-family: var(--font-serif); font-size: 26px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.12; text-wrap: balance; }
-.vl-name--big { font-size: 30px; }
-.vl-line { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); max-width: 60ch; }
-.vl-left { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
-.vl-quiet { margin: 0 4px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
-.vl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.vg-top {
+  /* over an open sheet's backdrop too: close and recenter work with a sheet open */
+  position: absolute; z-index: 5; top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; pointer-events: none;
+}
+.vg-top > * { pointer-events: auto; }
+.vg .vg-title { padding: 9px 15px 11px; border-radius: var(--r); }
+.vg-title__h { margin: 3px 0 0; font-size: 18px; font-weight: 760; letter-spacing: -0.025em; line-height: 1.1; }
+.vg-top__btns { display: flex; gap: 8px; margin-left: auto; }
+.vg-round {
+  display: grid; place-items: center; width: 42px; height: 42px; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(20, 18, 14, 0.06); background: var(--card); color: var(--text); box-shadow: var(--shadow); cursor: pointer;
+}
+.vg-round:active { transform: scale(0.95); }
+.vg--sheet .vg-title { display: none; }
 
+.vg-msg { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 24px; pointer-events: none; }
+.vg-msg p { margin: 0; padding: 8px 15px; border-radius: var(--r-pill); background: rgba(242, 241, 238, 0.86); font: 500 12px var(--font-mono); letter-spacing: 0.05em; color: var(--text-2); }
+.vg-msg__card { max-width: 440px; pointer-events: auto; }
+.vg-stale { position: absolute; z-index: 3; top: calc(env(safe-area-inset-top, 0px) + 74px); left: 12px; right: 12px; }
+
+/* --- Labels over the builds ------------------------------------------------------------------------ */
+
+.vg-labels { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.vg-label {
+  position: absolute; left: 0; top: 0; margin-top: -8px; display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 5px 10px 6px; border-radius: var(--r-pill); border: 1px solid rgba(20, 18, 14, 0.07);
+  background: rgba(255, 255, 255, 0.95); box-shadow: 0 1px 2px rgba(20, 18, 14, 0.08), 0 6px 16px rgba(20, 18, 14, 0.08);
+  font: 650 12px/1.2 var(--font); color: var(--text); white-space: nowrap; pointer-events: auto; cursor: pointer; will-change: transform;
+}
+.vg-label::after {
+  content: ""; position: absolute; left: 50%; bottom: -4px; width: 7px; height: 7px; margin-left: -3.5px; transform: rotate(45deg);
+  background: inherit; border-right: 1px solid rgba(20, 18, 14, 0.07); border-bottom: 1px solid rgba(20, 18, 14, 0.07);
+}
+.vg-label b { font-weight: 650; }
+.vg-label span { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.vg-label em { font: normal 600 11px var(--font-mono); color: var(--accent-text); }
+.vg-label--going { border-color: var(--accent-line); }
+.vg-label--plot { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.vg-label--plot::after { border-color: var(--ink); }
+.vg-label--quiet, .vg-label--pencil {
+  background: rgba(255, 255, 255, 0.78); color: var(--text-2); cursor: default; pointer-events: none;
+  font: 500 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+}
+.vg-label--pencil { border: 1px dashed #8d8a83; }
+.vg-label--hidden { visibility: hidden; }
+
+/* --- The dock -------------------------------------------------------------------------------------- */
+
+.vg-dock {
+  position: absolute; z-index: 3; left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-width: 520px; margin: 0 auto; display: grid; gap: 8px;
+}
+.vg .vg-now { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 14px 16px 15px; border-radius: var(--r-lg); }
+.vg-now__row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.vg-now__row > div { min-width: 0; }
+.vg-now__name { margin: 3px 0 0; font-family: var(--font-serif); font-size: 22px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.12; overflow-wrap: anywhere; }
+.vg-now .vl-count { margin: 0; flex-wrap: nowrap; }
+.vg-now .vl-count b { font-size: 24px; }
+.vg-now .vl-actions { margin-top: 2px; }
+.vg-now--replay .vg-now__name { font-family: var(--font); font-weight: 720; font-size: 19px; letter-spacing: -0.02em; }
+
+.vg-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vg-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 40px; padding: 0 13px; flex: 0 0 auto;
+  border-radius: var(--r-pill); border: 1px solid rgba(20, 18, 14, 0.06); background: var(--card); box-shadow: var(--shadow);
+  font: 500 12.5px var(--font); color: var(--text); white-space: nowrap; cursor: pointer;
+}
+.vg-chip svg { color: var(--text-3); }
+.vg-chip b { font: 600 13px var(--font-mono); font-variant-numeric: tabular-nums; }
+.vg-chip span { color: var(--text-2); }
+.vg-chip small { margin-left: 3px; font: 500 10px var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); }
+/* the replay's date rides where the chips are while the slider is held or it plays (the card above gives their counts) */
+.vg-chips--dated .vg-chip { visibility: hidden; }
+
+.vg-replay {
+  flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px 0 4px;
+  border-radius: var(--r-pill); border: 1px solid rgba(20, 18, 14, 0.06); background: var(--card); box-shadow: var(--shadow);
+}
+.vg-replay__play { display: grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--on-ink); cursor: pointer; }
+.vg-replay__track { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.vg-replay input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; margin: 0; background: transparent; cursor: pointer; }
+.vg-replay input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line-strong); }
+.vg-replay input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line-strong); }
+.vg-replay input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: var(--ink); border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--ink); }
+.vg-replay input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--ink); border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--ink); }
+.vg-replay input[type="range"]:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 4px; }
+.vg-replay__date {
+  position: absolute; bottom: 30px; transform: translateX(-50%); padding: 4px 9px; border-radius: var(--r-pill);
+  background: var(--ink); color: var(--on-ink); font: 500 11px var(--font-mono); white-space: nowrap; pointer-events: none;
+}
+
+/* --- Progress (as the painted page had it) ---------------------------------------------------------------- */
+
+.vl-line { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-2); max-width: 60ch; }
+.vl-left { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.vl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 /* "20 of 45 tasks  +3 today" */
-.vl-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; }
-.vl-count b { font: 500 30px var(--font-mono); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-.vl-count span { font-size: 13.5px; color: var(--text-2); }
+.vl-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 7px; }
+.vl-count b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.vl-count span { font-size: 13px; color: var(--text-2); white-space: nowrap; }
 .vl-count em { font: normal 600 12.5px var(--font); color: var(--accent-text); white-space: nowrap; }
-
 /* How far along: done before today in ink, today's in orange. */
 .vl-bar { display: flex; width: 100%; height: 6px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
 .vl-bar i { display: block; height: 100%; background: var(--ink); transition: width 0.35s ease; }
 .vl-bar i.vl-bar__today { background: var(--accent); }
-
 .vl-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 12px; color: var(--text-2); }
 .vl-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .vl-legend i { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .vl-legend__today { background: var(--accent); }
 .vl-legend__pencil { box-shadow: inset 0 0 0 1.5px var(--text-3); }
-
-.vl-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.vl-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; }
 .vl-tag {
   padding: 2px 8px; border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--line-strong);
   font: 500 10px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); white-space: nowrap;
 }
-.vl-tag--dragon { background: var(--ink); box-shadow: none; color: var(--on-ink); }
-.vl-tag--new { box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent-text); }
+.vl-need { flex: 0 0 auto; font: 500 11.5px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.vl-section { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; min-width: 0; }
-.vl-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 4px; }
-.vl-section__head h2 { margin: 0; }
-.vl-section__count { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
-
-/* --- The build going up -------------------------------------------------------------------- */
-
-.vl .vl-now { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: stretch; margin: 0; }
-.vl-now__pic { display: block; align-self: center; padding: 0; border: 0; background: none; cursor: pointer; min-width: 0; }
-.vl-now__text { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 24px 26px; min-width: 0; }
-.vl-now__text .vl-bar { margin-top: 2px; }
-
-/* Nothing going up: a staked plot, waiting. */
-.vl .vl-empty { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 18px; margin: 0; }
-.vl-empty__text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-.vl-plot {
-  width: 76px; height: 76px; border-radius: 14px; border: 1.5px dashed var(--line-strong);
-  background: radial-gradient(circle at 50% 50%, var(--accent) 0 4px, transparent 5px), var(--surface);
-}
-
-/* --- The dragons, soldiers, villagers and the map ------------------------------------------------ */
-
-.vl-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.vl .vl-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; margin: 0; min-width: 0; color: var(--text); transition: box-shadow 0.15s; }
-@media (hover: hover) { .vl .vl-tile:hover { box-shadow: var(--shadow-lift); } }
-.vl-tile__label { display: inline-flex; align-items: center; gap: 6px; font: 500 10.5px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); }
-.vl-tile__label svg { color: var(--text-2); }
-.vl-tile__n { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; margin-top: 2px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
-.vl-tile__n b { font: 500 22px var(--font-mono); letter-spacing: -0.04em; color: var(--text); font-variant-numeric: tabular-nums; }
-.vl-tile__n--words { align-items: center; gap: 2px; font-size: 15px; font-weight: 650; color: var(--text); letter-spacing: -0.01em; min-height: 29px; }
-.vl-tile__sub { font-size: 12px; line-height: 1.4; color: var(--text-2); }
-.vl-tile__n em { margin-left: 2px; font-style: normal; font-size: 12px; font-weight: 600; color: var(--accent-text); }
-
-/* --- What stands: a gallery of paintings -------------------------------------------------------- */
-
-.vl-stood { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.vl .vl-card { display: flex; flex-direction: column; width: 100%; height: 100%; margin: 0; padding: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer; transition: box-shadow 0.15s; }
-@media (hover: hover) { .vl .vl-card:hover { box-shadow: var(--shadow-lift); } }
-.vl-card__text { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px 14px; min-width: 0; }
-.vl-card__name { font-family: var(--font-serif); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
-.vl-card__meta { font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
-
-/* --- One build ------------------------------------------------------------------------------------ */
-
-.vl-back { display: inline-flex; align-items: center; align-self: flex-start; min-height: 44px; margin: -7px 0 -9px -8px; padding: 0 12px 0 8px; font-size: 13.5px; color: var(--text-2); }
-.vl-one { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.vl .vl-build { margin: 0; }
-.vl-build__text { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 22px 22px; }
-.vl .vl-laid { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 18px 18px 12px; }
+/* What laid it: newest first. */
 .vl-items { list-style: none; margin: 0; padding: 0; }
 .vl-items li { border-top: 1px solid var(--line); }
 .vl-items li:first-child { border-top: 0; }
@@ -122,68 +164,124 @@
 .vl-item small { font: 500 11px var(--font-mono); color: var(--text-2); }
 .vl-item em { font-style: normal; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
 @media (hover: hover) { .vl-item:hover b { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
-.vl-more { align-self: flex-start; margin: 2px 0 6px 20px; }
+.vl-more { align-self: flex-start; min-height: 36px; }
 
-/* --- Choose a build ------------------------------------------------------------------------------- */
-
-.vl-choose__head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
-.vl-choose__head .page-title { margin: 4px 0 0; text-wrap: balance; }
-.vl-choose__head .page-sub { max-width: 62ch; line-height: 1.55; }
-
-.vl-opts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-.vl .vl-opt { display: flex; flex-direction: column; margin: 0; scroll-margin: 90px; }
-.vl-opt--pointed { box-shadow: 0 0 0 2px var(--ink), var(--shadow); }
-.vl-opt__body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px 10px; min-width: 0; }
-.vl-opt__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; }
-.vl-opt__name { margin: 0; font-family: var(--font-serif); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
-.vl-need { flex: 0 0 auto; font: 500 12px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.vl-opt__line { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
-.vl-opt__foot { margin-top: auto; padding: 2px 14px 14px; }
 /* Build something else asks first, in place. */
-.vl-ask { display: flex; flex-direction: column; gap: 10px; margin: auto 12px 12px; padding: 12px; border-radius: var(--r); background: var(--inset); }
+.vl-ask { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--r); background: var(--inset); }
 .vl-ask p { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.45; }
 .vl-ask__row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .vl-ask .btn:not(.btn--accent) { background: var(--card); border-color: var(--line); }
 
-/* --- Phone ------------------------------------------------------------------------------------------ */
+/* --- Sheets ---------------------------------------------------------------------------------------- */
 
-@media (max-width: 900px) {
-  .vl { gap: 12px; }
-  .vl .vl-now { grid-template-columns: minmax(0, 1fr); }
-  .vl-now__pic .painting { height: auto; }
-  .vl-now__text { padding: 16px 18px 20px; gap: 7px; }
-  .vl-name { font-size: 24px; }
-  .vl-name--big { font-size: 27px; }
-  .vl-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vl-one { grid-template-columns: minmax(0, 1fr); }
-  .vl-build__text { padding: 16px 18px 20px; }
+.vg-sheet-wrap { position: absolute; inset: 0; z-index: 4; }
+.vg-sheet-back { position: absolute; inset: 0; background: rgba(20, 18, 14, 0.05); }
+.vg-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: min(62vh, 720px); display: flex; flex-direction: column;
+  border-radius: var(--r-xl) var(--r-xl) 0 0; background: var(--card); box-shadow: var(--shadow-lift);
+  padding-bottom: env(safe-area-inset-bottom, 0px); transition: transform 0.18s ease;
+  animation: vg-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1) both; -webkit-user-select: text; user-select: text;
+}
+/* the dialog itself takes the focus when it opens; its buttons show the keyboard's ring */
+.vg .vg-sheet:focus, .vg .vg-sheet:focus-visible { outline: none; }
+/* low enough that the build it is about stays in sight above it */
+.vg-sheet--choose { max-height: min(58vh, 720px); }
+@keyframes vg-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* the sheet's own row above what scrolls: a handle to swipe it down by, and the close button */
+.vg-sheet__head { position: relative; flex: 0 0 auto; display: flex; justify-content: center; height: 44px; touch-action: none; cursor: grab; }
+.vg-sheet__grab { width: 40px; height: 4px; margin-top: 10px; border-radius: 2px; background: var(--line-strong); }
+.vg-sheet__close { position: absolute; top: 4px; right: 8px; cursor: pointer; }
+.vg-sheet__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 9px; padding: 0 20px 22px; }
+/* a column that scrolls keeps every row its height (a bar is all overflow, and would shrink to nothing) */
+.vg-sheet__body > * { flex-shrink: 0; }
+.vg-sheet__title { margin: 2px 0 0; font-family: var(--font-serif); font-size: 27px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.1; text-wrap: balance; }
+.vg-sheet__sub, .vg-sheet__text { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+.vg-sheet__note { margin: 0; font: 500 10.5px var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); }
+.vg-sub { margin: 12px 0 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.vg-laid { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+.vg-verse { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--surface); font-family: var(--font-serif); font-size: 14.5px; line-height: 1.5; }
+.vg-verse cite { display: block; margin-top: 5px; font: normal 500 11px var(--font-mono); color: var(--text-3); }
+
+/* Choose a build: the catalog by size, each with its finished picture. */
+.vg-choose__head { display: flex; flex-direction: column; gap: 3px; }
+.vg-size { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.vg-size__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.vg-size__head h3 { margin: 0; }
+.vg-size__head span { font: 500 11px var(--font-mono); color: var(--text-3); }
+.vg-opts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.vg-opt { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); scroll-margin: 12px; }
+.vg-opt--picked { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.vg-opt__main {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 8px;
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.vg-opt__main:disabled { cursor: default; }
+.vg-opt__pic { display: block; width: 96px; height: 72px; object-fit: cover; border-radius: var(--r-sm); background: #f4f2ec; }
+.vg-opt__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.vg-opt__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.vg-opt__name { font-family: var(--font-serif); font-size: 17px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+.vg-opt__line { font-size: 12.5px; line-height: 1.4; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.vg-opt--picked .vg-opt__line { -webkit-line-clamp: unset; }
+.vg-opt__foot { padding: 0 10px 10px; display: flex; flex-direction: column; }
+.vg-opt__foot > .btn { align-self: flex-start; }
+.vg-opt__note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+
+/* The villagers, newest first. */
+.vg-folk { list-style: none; margin: 4px 0 0; padding: 0; }
+.vg-folk li { display: flex; flex-direction: column; gap: 1px; padding: 9px 0; border-top: 1px solid var(--line); }
+.vg-folk b { font-size: 13.5px; font-weight: 600; }
+.vg-folk small { font: 500 11px var(--font-mono); color: var(--text-2); }
+
+/* --- Without WebGL: a plain page ----------------------------------------------------------------------- */
+
+/* it scrolls below the title, never under it */
+.vg-flat {
+  position: absolute; inset: calc(env(safe-area-inset-top, 0px) + 78px) 0 0; overflow-y: auto; -webkit-overflow-scrolling: touch; -webkit-user-select: text; user-select: text;
+  padding: 6px max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 28px) max(14px, env(safe-area-inset-left, 0px));
+}
+.vg-flat__in { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.vg-flat__note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; font-size: 12.5px; color: var(--text-2); }
+.vg .vg-flat__now { margin: 0; }
+.vg-flat__pic { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #f4f2ec; }
+.vg-flat__text { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 18px; }
+.vg-flat__sec { display: flex; flex-direction: column; gap: 8px; }
+.vg-flat__sec h2 { margin: 0 4px; }
+.vg-stood { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.vg-stood li { display: flex; flex-direction: column; margin: 0; }
+.vg-stood__btn { display: flex; flex-direction: column; width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+@media (hover: hover) { .vg-stood__btn:hover b { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
+.vg-stood__pic { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #f4f2ec; }
+.vg-stood span { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px 11px; }
+.vg-stood b { font-family: var(--font-serif); font-size: 16px; font-weight: 500; }
+.vg-stood small { font: 500 10.5px var(--font-mono); color: var(--text-2); }
+.vg .vg-flat__choose { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 18px; scroll-margin-top: 8px; }
+
+/* Toasts keep clear of the dock and the sheets: on a phone at the top, under the title; on a desk beside the cards. */
+@media (max-width: 899.98px) {
+  html:has(.vg) .toast-region { top: calc(env(safe-area-inset-top, 0px) + 80px); bottom: auto; }
+}
+@media (min-width: 900px) {
+  html:has(.vg) .toast-region { left: 412px; }
 }
 
-@media (max-width: 700px) {
-  .vl-head .page-sub { display: none; }
-  .vl .vl-tile { padding: 12px 14px; }
-  .vl-tile__n b { font-size: 20px; }
+/* --- A desk: the cards in a column on the left, the village beside them -------------------------------- */
 
-  /* What stands: two to a row, picture and name. */
-  .vl-stood { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .vl-card__text { padding: 9px 11px 11px; gap: 3px; }
-  .vl-card__name { font-size: 15.5px; }
-  .vl-card__meta { font-size: 10.5px; }
-
-  /* The catalog: the picture beside its name, and the words under both, so
-     it reads like a list. */
-  .vl-opts { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .vl .vl-opt { display: grid; grid-template-columns: 112px minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; gap: 6px 12px; padding: 12px; }
-  .vl-opt__pic { grid-column: 1; grid-row: 1 / span 2; border-radius: 12px; }
-  .vl-opt__body { display: contents; }
-  .vl-opt__head { grid-column: 2; grid-row: 1; flex-direction: column; gap: 1px; }
-  .vl-opt__body > .vl-tags { grid-column: 2; grid-row: 2; }
-  .vl-opt__name { font-size: 16.5px; }
-  .vl-opt__line { grid-column: 1 / -1; margin-top: 4px; }
-  .vl-opt__foot { grid-column: 1 / -1; padding: 0; }
-  .vl-ask { grid-column: 1 / -1; margin: 2px 0 0; }
+@media (min-width: 900px) {
+  .vg-top { top: 16px; left: 16px; right: 16px; }
+  .vg-dock { left: 16px; right: auto; bottom: 16px; width: 384px; margin: 0; }
+  .vg-sheet {
+    left: 16px; right: auto; top: 16px; bottom: 16px; width: 432px; max-height: none;
+    border-radius: var(--r-xl); animation-name: vg-in;
+  }
+  .vg-sheet--choose { max-height: none; }
+  .vg-sheet-back { background: transparent; }
+  .vg-sheet__grab { display: none; }
+  .vg-sheet__head { height: 50px; cursor: default; }
+  .vg-sheet__close { top: 12px; right: 12px; }
+  .vg-opts { grid-template-columns: minmax(0, 1fr); }
+  @keyframes vg-in { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .painting__live, .vl-bar i, .vl .vl-tile, .vl .vl-card { transition: none; }
+  .painting__live, .vl-bar i, .vg-sheet { transition: none; animation: none; }
 }
