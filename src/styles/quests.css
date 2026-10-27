@@ -250,6 +250,41 @@
   .qs-camp__name small { font-size: 10.5px; }
 }
 
+/* --- Done today ------------------------------------------------------------
+   The count on Today and the build's "N today" open everything finished
+   today (DoneToday.jsx). The count stays the words it was, underlined. */
+.qs-done-btn {
+  display: inline-flex; align-items: center; gap: 1px; padding: 6px 2px; margin: -6px -2px; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; touch-action: manipulation;
+  text-decoration: underline dotted; text-decoration-thickness: 1.5px; text-underline-offset: 3px;
+}
+@media (hover: hover) { .qs-done-btn:hover { text-decoration-style: solid; } }
+
+.done-sum { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 14px; }
+.done-sum b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.done-sum span { min-width: 0; font-size: 13.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.done-seg { margin: 0 0 14px; }
+.done-none { margin: 4px 0 0; }
+.done-quest + .done-quest { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.done-quest__name {
+  display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none;
+  font-family: var(--font-serif); font-size: 19px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25;
+}
+.done-quest__name span { min-width: 0; overflow-wrap: anywhere; }
+.done-quest__name small { font: 500 11px var(--font-mono); color: var(--text-2); letter-spacing: 0; }
+.done-quest__name svg { flex: none; align-self: center; margin-left: auto; color: var(--text-3); }
+@media (hover: hover) { .done-quest__name:hover span { text-decoration: underline; text-underline-offset: 3px; } }
+.done-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.done-item { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; padding: 8px 0; }
+.done-list:not(.done-list--subs) > .done-item + .done-item { border-top: 1px solid var(--accent-line); }
+.done-item__check { width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; }
+.done-item__body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.done-item__text { font-size: 14px; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.done-list--subs { grid-column: 2; margin-top: 4px; padding-left: 10px; border-left: 1.5px solid var(--accent-line); }
+.done-list--subs .done-item { grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; padding: 4px 0; }
+.done-list--subs .done-item__check { width: 18px; height: 18px; }
+.done-list--subs .done-item__text { font-size: 13.5px; font-weight: 500; }
+
 @media (prefers-reduced-motion: reduce) {
   .qs-mini__bar, .qs-bar i { transition: none; }
   .qs-pill__body, .qs-camp__working i { animation: none; }

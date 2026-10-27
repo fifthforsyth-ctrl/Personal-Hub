@@ -21,6 +21,7 @@ import {
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { pickDiff, questToday } from "../lib/camp";
 import { villageOf } from "../lib/village";
+import { allDoneToday, questDoneToday } from "../lib/doneToday";
 import { appendToNote } from "../lib/sketch";
 import { savesInOrder, undoableSave } from "../lib/inOrder";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
@@ -34,6 +35,7 @@ import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
 import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
+import DoneToday from "../components/quests/DoneToday";
 import { PickBar, TodayBlocks, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
@@ -63,6 +65,9 @@ import "../styles/quests.css";
 // The build going up in the village floats at the top. Every task he ticks,
 // on any list, lays its bricks on it until it stands; then he chooses the
 // next build (/village?choose).
+//
+// The count on Today, and the build's "N today", open everything finished
+// today (Aaron, 2026-10-27): on this quest, or on every quest.
 
 const EARLIER_SHOWN = 10;
 
@@ -126,6 +131,18 @@ export default function Quests() {
     mutate: mutateCamps,
   } = useLoad(() => (userId && campKey ? fetchCampsSteps(userId, campKey.split(",")) : { sections: [], steps: [] }), [userId, campKey]);
   const campToday = useMemo(() => questToday(questCamps, campData?.sections, campData?.steps, today), [questCamps, campData, today]);
+
+  // Everything finished today, which the count on Today ("quest") and the
+  // build's "N today" ("all") open.
+  const [doneView, setDoneView] = useState(null);
+  const doneHere = useMemo(
+    () => questDoneToday({ camps: questCamps, sections: campData?.sections, steps: campData?.steps, lines: (lines ?? []).filter((l) => l.quest_id === questId) }, today),
+    [questCamps, campData, lines, questId, today]
+  );
+  const doneAll = useMemo(
+    () => (board ? allDoneToday({ items, quests: board.quests, lessons: board.lessons, camps: board.camps, tasks: board.finished.tasks, steps: board.finished.steps }, today) : []),
+    [board, items, today]
+  );
 
   // A line open where it sits is its id; open in today's list, "t:" and its id.
   const [openId, setOpenId] = useState(null);
@@ -814,7 +831,7 @@ export default function Quests() {
         <div className="qs-grid">
           <div className="qs-rail">
             <div className="qs-rail__build">
-              <FloatingBuild village={village} today={today} onAway={onAway} />
+              <FloatingBuild village={village} today={today} onAway={onAway} onToday={() => setDoneView("all")} />
             </div>
 
             {sel && (
@@ -855,7 +872,7 @@ export default function Quests() {
               <>
                 {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
                 {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
-                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} extra={todayExtra}>
+                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
                   {!todayList.items.length && !linesLoading && (
                     <p className="qs-hint">
                       {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
@@ -914,6 +931,15 @@ export default function Quests() {
       </SketchProvider>
 
       {newQuest && <NewQuest onSave={startQuest} onClose={() => setNewQuest(false)} />}
+      {doneView && (
+        <DoneToday
+          view={doneView}
+          quest={sel ? { questId, name: sel.name, kind, ...doneHere } : null}
+          all={doneAll}
+          onView={setDoneView}
+          onClose={() => setDoneView(null)}
+        />
+      )}
     </div>
   );
 }

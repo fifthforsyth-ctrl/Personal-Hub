@@ -127,7 +127,9 @@ function stillOn(st, today) {
   return !st.done_on || st.done_on >= today || st.subs.some((x) => stillOn(x, today));
 }
 
-function fromLabel(section, parent) {
+// Where a step sits, for a step shown away from its place: "2. Search",
+// "under “Tag clips”", or both.
+export function fromLabel(section, parent) {
   const where = section ? `${section.number}. ${section.title}` : null;
   const under = parent ? `under “${String(parent.text ?? "").slice(0, 60)}${String(parent.text ?? "").length > 60 ? "…" : ""}”` : null;
   return [where, under].filter(Boolean).join(" · ") || null;

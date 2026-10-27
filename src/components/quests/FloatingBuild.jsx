@@ -8,7 +8,7 @@ import Painting from "../../village/Painting";
 // and how many it still needs. Every task he ticks, on any quest or lesson,
 // lays its pieces on it here (today's in orange, what's to come in pencil),
 // painted again as he ticks, until it stands; then it asks what to build
-// next.
+// next. Its "N today" opens everything finished today (`onToday`).
 //
 // `village` is villageOf() over what the page has, kept in step as he ticks.
 // The painter (src/village/paint.js) starts once the list has settled, so
@@ -41,7 +41,7 @@ function Bar({ done, laid, need }) {
   );
 }
 
-export default function FloatingBuild({ village, today, onAway }) {
+export default function FloatingBuild({ village, today, onAway, onToday }) {
   const p = buildNow(village, today);
   const { done, laid, need, left } = counts(p, today);
   const card = useRef(null);
@@ -111,7 +111,18 @@ export default function FloatingBuild({ village, today, onAway }) {
           ) : (
             <>
               {left} more and it stands
-              {laid > 0 && <span className="qs-build__today"> · {laid} today</span>}
+              {laid > 0 && (
+                <span className="qs-build__today">
+                  {" · "}
+                  {onToday ? (
+                    <button type="button" className="qs-done-btn" aria-haspopup="dialog" aria-label={`${laid} today. See everything finished today`} onClick={onToday}>
+                      {laid} today
+                    </button>
+                  ) : (
+                    `${laid} today`
+                  )}
+                </span>
+              )}
             </>
           )}
         </p>

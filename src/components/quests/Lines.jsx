@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, Repeat, StickyNote, Sun } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, NotebookPen, Plus, Repeat, StickyNote, Sun } from "lucide-react";
 import { parseLines } from "../../lib/questTasks";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
@@ -318,16 +318,19 @@ function SubLines({ parent, open, openId, row, onAddSubs, onReorder, onDragOut, 
 // box to add lines; an earlier day folds away to its name and how it went.
 // Today's also takes what's picked for today from elsewhere (`lead`, 0090),
 // counted in with `extra` ({ done, total, count }), and an `action` beside
-// its name. Its lines drag (`onReorder`, `onDragOut`, `onInto`, see
-// useLineSort); with `drop` a line carried out of another list can be let
-// go here.
-export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, lead, extra, action, children }) {
+// its name. Its count opens everything finished today (`onDoneToday`, with
+// `doneToday` how many that is, for a day with nothing on it to count).
+// Its lines drag (`onReorder`, `onDragOut`, `onInto`, see useLineSort); with
+// `drop` a line carried out of another list can be let go here.
+export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, lead, extra, action, doneToday = 0, onDoneToday, children }) {
   const isToday = day.day === today;
   const open = !folded;
   const done = day.done + (extra?.done ?? 0);
   const total = day.total + (extra?.total ?? 0);
   const count = day.items.length + (extra?.count ?? 0);
-  const tally = [sub, total ? `${done} of ${total} done` : count ? "Notes" : isToday ? null : "Nothing yet"].filter(Boolean).join(" · ");
+  const counted = total ? `${done} of ${total} done` : isToday && doneToday > 0 ? `${doneToday} done today` : null;
+  const rest = counted ? null : count ? "Notes" : isToday ? null : "Nothing yet";
+  const tally = [sub, counted ?? rest].filter(Boolean).join(" · ");
   return (
     <section className={"card qs-day" + (isToday ? " qs-day--today today-card" : "") + (open ? " open" : "")} aria-label={label} data-drop={drop}>
       <div className="qs-day__head">
@@ -337,7 +340,17 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
               <Sun size={17} strokeWidth={2.4} aria-hidden="true" />
               {label}
             </h2>
-            <small>{tally}</small>
+            {counted && onDoneToday ? (
+              <small>
+                {sub && `${sub} · `}
+                <button type="button" className="qs-done-btn" aria-haspopup="dialog" aria-label={`${counted}. See everything finished today`} onClick={onDoneToday}>
+                  {counted}
+                  <ChevronRight size={12} strokeWidth={2.6} aria-hidden="true" />
+                </button>
+              </small>
+            ) : (
+              <small>{tally}</small>
+            )}
           </div>
         ) : (
           <button type="button" className="qs-day__title qs-day__toggle" aria-expanded={open} onClick={onFold}>
