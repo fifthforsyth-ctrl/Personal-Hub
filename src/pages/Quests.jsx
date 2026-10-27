@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { addQuest, addQuestTasks, deleteQuestTask, fetchQuestBoard, fetchQuestTasks, reorder, updateQuest, updateQuestTask } from "../lib/api";
 import { boardOf, campTally, dayLabel, listDays, nextPosition, withFinished } from "../lib/questTasks";
 import { villageOf } from "../lib/village";
+import { appendToNote } from "../lib/sketch";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
@@ -231,11 +232,14 @@ export default function Quests() {
     }
   }
 
-  // A sketch's summary, added to the end of its line's notes.
+  // A sketch's summary, added to the end of its line's notes ("cut" or
+  // "full" when they're too long to take all of it).
   function addToNote(id, text) {
     const line = (lines ?? []).find((x) => x.id === id);
-    if (!line) return;
-    saveLine(line, { note: [line.note?.trim(), text.trim()].filter(Boolean).join("\n\n").slice(0, 20000) });
+    if (!line) return "gone";
+    const { note, status } = appendToNote(line.note, text, 20000);
+    if (status !== "full") saveLine(line, { note });
+    return status;
   }
 
   const row = (line, siblings) => ({
@@ -321,7 +325,7 @@ export default function Quests() {
         </Link>
       </header>
 
-      <QuestMap items={items} camps={board.camps} tally={tally} selKey={sel?.key} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} />
+      <QuestMap items={items} sel={sel} camps={board.camps} tally={tally} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} />
 
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 

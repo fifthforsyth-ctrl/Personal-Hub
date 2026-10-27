@@ -26,3 +26,12 @@ export function edgePush(y, top, bottom, edge = 80, max = 1.75) {
   const push = y < top + zone ? -(top + zone - y) / zone : y > bottom - zone ? (y - (bottom - zone)) / zone : 0;
   return Math.max(-max, Math.min(max, push));
 }
+
+// An edge only scrolls once the pointer has moved more than `slop` px toward
+// it from where the drag began, so pressing a handle that already sits near
+// an edge (or a tap on it) never sets the list moving.
+export function towardEdge(push, startY, y, slop = 8) {
+  if (push < 0) return startY - y > slop ? push : 0;
+  if (push > 0) return y - startY > slop ? push : 0;
+  return 0;
+}

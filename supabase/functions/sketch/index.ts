@@ -15,8 +15,8 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@^2.
 
 const MODEL = "claude-opus-5-5";
 
-// A PNG of up to about 8 MB.
-const MAX_IMAGE_BASE64 = 11_000_000;
+// A PNG of up to about 4.8 MB (the reader takes images up to 5 MB).
+const MAX_IMAGE_BASE64 = 6_500_000;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

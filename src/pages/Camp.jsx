@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
 import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
+import { appendToNote } from "../lib/sketch";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
 import { playClink } from "../lib/clink";
@@ -110,8 +111,10 @@ export default function Camp() {
   // A sketch's summary, added to the end of its step's notes.
   function addToNote(stepId, text) {
     const st = data?.steps.find((x) => x.id === stepId);
-    if (!st) return;
-    saveStep(st, { note: [st.note?.trim(), text.trim()].filter(Boolean).join("\n\n").slice(0, 4000) });
+    if (!st) return "gone";
+    const { note, status } = appendToNote(st.note, text, 4000);
+    if (status !== "full") saveStep(st, { note });
+    return status;
   }
 
   // Everything under it goes with it.

@@ -17,6 +17,10 @@ import { useConfirm } from "../ui/Feedback";
 const MAX_UNDO = 100;
 const ERASER = 12; // px on screen
 
+// Once a pencil has drawn, a finger is a palm for as long as the app is open,
+// on every sketch.
+let penSeen = false;
+
 export default function SketchPad({ sketch, about, onSave, onClose }) {
   const confirm = useConfirm();
   const area = useRef(null);
@@ -30,9 +34,12 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
   const strokes = hist.list[hist.at];
   const view = useRef({ fit: null, dpr: 1, w: 0, h: 0 });
   const live = useRef(null);
-  const penSeen = useRef(false);
   const shown = useRef(strokes); // what's on the canvas while erasing
+  const confirming = useRef(false);
   const changed = hist.at > 0;
+  // A new page that's still blank follows the screen as it turns.
+  const blank = useRef(true);
+  blank.current = !sketch && hist.list.length === 1;
 
   // Nothing behind it scrolls while it's open.
   useEffect(() => {
@@ -76,8 +83,12 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
     const size = () => {
       const r = el.getBoundingClientRect();
       if (r.width < 10 || r.height < 10) return;
-      const pg = page ?? pageSize(r.width, r.height);
-      if (!page) setPage(pg);
+      const fresh = pageSize(r.width, r.height);
+      if (!page || (blank.current && !live.current && (fresh.width !== page.width || fresh.height !== page.height))) {
+        setPage(fresh);
+        if (page) return; // sized again with the new page
+      }
+      const pg = page ?? fresh;
       const dpr = Math.min(3, window.devicePixelRatio || 1);
       const c = canvas.current;
       c.width = Math.round(r.width * dpr);
@@ -122,22 +133,28 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
   }
 
   function down(e) {
-    if (live.current || !page || !view.current.fit) return;
-    if (e.pointerType === "pen") penSeen.current = true;
-    else if (e.pointerType === "touch" && penSeen.current) return; // a palm on the glass
-    if (e.button > 0) return;
+    if (!page || !view.current.fit) return;
+    if (e.pointerType === "pen") {
+      penSeen = true;
+      // A palm that touched down first was drawing; the pencil takes over.
+      if (live.current && live.current.type !== "pen") {
+        live.current = null;
+        paint(strokes);
+      }
+    } else if (e.pointerType === "touch" && penSeen) return; // a palm on the glass
+    if (live.current || e.button > 0) return;
     e.preventDefault();
     canvas.current.setPointerCapture?.(e.pointerId);
     const at = toPage(e);
     if (erasing) {
       const gone = erasedBy(strokes, at.x, at.y, at.x, at.y, ERASER / view.current.fit.scale);
-      live.current = { id: e.pointerId, erase: true, x: at.x, y: at.y, gone };
+      live.current = { id: e.pointerId, type: e.pointerType, erase: true, x: at.x, y: at.y, gone };
       if (gone.size) paint(strokes.filter((s) => !gone.has(s)));
       return;
     }
     const stroke = { c: ink, w: width, p: [] };
     pushPoint(stroke.p, at.x, at.y, pressureOf(e));
-    live.current = { id: e.pointerId, stroke, drawn: 0 };
+    live.current = { id: e.pointerId, type: e.pointerType, stroke, drawn: 0 };
   }
 
   function move(e) {
@@ -188,22 +205,31 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
       paint(strokes);
       return;
     }
+    // A lifting pencil reads no pressure; its line ends as it was going.
     const at = toPage(e);
-    pushPoint(d.stroke.p, at.x, at.y, pressureOf(e), 0, true);
+    const p = d.stroke.p;
+    pushPoint(p, at.x, at.y, d.type === "pen" ? p[p.length - 1] / 100 : pressureOf(e), 0, true);
     drawPieces(ctxOnPage(), d.stroke, d.drawn + 1, d.stroke.p.length / 3, true);
     commit([...strokes, d.stroke]);
   }
 
   async function close() {
     if (busy) return;
-    if (changed && !(await confirm({ title: sketch ? "Leave without keeping these changes?" : "Throw this sketch away?", confirmLabel: sketch ? "Leave" : "Throw away" }))) return;
+    if (confirming.current) return;
+    if (changed) {
+      confirming.current = true;
+      const ok = await confirm({ title: sketch ? "Leave without keeping these changes?" : "Throw this sketch away?", confirmLabel: sketch ? "Leave" : "Throw away" });
+      confirming.current = false;
+      if (!ok) return;
+    }
     onClose();
   }
 
   async function save(analyze) {
     if (busy || !strokes.length || !page) return;
     setBusy(true);
-    const ok = await onSave({ width: page.width, height: page.height, strokes }, analyze);
+    // Opened to draw on and left as it was: nothing new to keep.
+    const ok = await onSave(sketch && !changed ? null : { width: page.width, height: page.height, strokes }, analyze);
     if (!ok) setBusy(false);
   }
 
@@ -211,7 +237,7 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") {
-        if (!document.querySelector(".modal-backdrop")) close();
+        if (!confirming.current) close();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();

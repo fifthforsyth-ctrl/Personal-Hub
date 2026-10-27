@@ -1,7 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2, PenTool, Sparkles } from "lucide-react";
 import { addSketch, analyzeSketch, deleteSketch, fetchCampSketches, fetchQuestSketches, updateSketch } from "../../lib/api";
-import { drawStrokes, fitPage, sketchPng, staleSummary } from "../../lib/sketch";
+import { drawStrokes, fitPage, inkFrame, plainSummary, sketchPng, staleSummary } from "../../lib/sketch";
 import { fmtShortDate, toDateStr } from "../../lib/planDates";
 import { useLoad } from "../../lib/useLoad";
 import { useConfirm, useToast } from "../ui/Feedback";
@@ -59,7 +59,16 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
     }
   }
 
+  // `drawing` is null when a sketch was opened to draw on and left as it was:
+  // nothing to keep, so it goes back to the sketch (read, if Analyze).
   async function save(drawing, andAnalyze) {
+    if (!drawing && pad.sketch) {
+      const row = pad.sketch;
+      setPad(null);
+      setViewing(row.id);
+      if (andAnalyze) analyze(list.find((x) => x.id === row.id) ?? row);
+      return true;
+    }
     try {
       let row;
       if (pad.sketch) {
@@ -130,8 +139,10 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
           onAddToNote={
             onAddToNote && open.summary
               ? () => {
-                  onAddToNote(open[key], open.summary);
-                  toast.show("Added to its notes");
+                  const status = onAddToNote(open[key], plainSummary(open.summary));
+                  if (status === "full") toast.show("Its notes are full, so nothing was added.", { tone: "error" });
+                  else if (status === "cut") toast.show("Added to its notes, but they ran out of room, so the end was cut off.");
+                  else if (status !== "gone") toast.show("Added to its notes");
                 }
               : null
           }
@@ -143,8 +154,9 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
   );
 }
 
-// A sketch drawn to fit its box, sharp on any screen.
-export function SketchImage({ sketch, className, pad = 0 }) {
+// A sketch drawn to fit its box, sharp on any screen, no line thinner than
+// `minPx` on screen. With `frame` (from inkFrame), only that part of the page.
+export function SketchImage({ sketch, className, pad = 0, minPx = 1.2, frame = null }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     const c = ref.current;
@@ -156,15 +168,16 @@ export function SketchImage({ sketch, className, pad = 0 }) {
       c.width = Math.round(r.width * dpr);
       c.height = Math.round(r.height * dpr);
       const ctx = c.getContext("2d");
-      const fit = fitPage(sketch.width, sketch.height, r.width, r.height, pad);
-      ctx.setTransform(dpr * fit.scale, 0, 0, dpr * fit.scale, dpr * fit.x, dpr * fit.y);
-      drawStrokes(ctx, sketch.strokes ?? []);
+      const f = frame ?? { x: 0, y: 0, width: sketch.width, height: sketch.height };
+      const fit = fitPage(f.width, f.height, r.width, r.height, pad);
+      ctx.setTransform(dpr * fit.scale, 0, 0, dpr * fit.scale, dpr * (fit.x - f.x * fit.scale), dpr * (fit.y - f.y * fit.scale));
+      drawStrokes(ctx, sketch.strokes ?? [], minPx / fit.scale);
     };
     draw();
     const ro = new ResizeObserver(draw);
     ro.observe(c);
     return () => ro.disconnect();
-  }, [sketch.strokes, sketch.width, sketch.height, pad]);
+  }, [sketch.strokes, sketch.width, sketch.height, pad, minPx, frame]);
   return <canvas ref={ref} className={className} role="img" aria-label={sketch.title ? `Sketch: ${sketch.title}` : "Sketch"} />;
 }
 
@@ -176,19 +189,29 @@ export function SketchStrip({ itemId }) {
   return (
     <div className="sk-strip">
       {list.map((k) => (
-        <button key={k.id} type="button" className="sk-chip" onClick={() => s.view(k.id)} aria-label={k.title ? `Open sketch: ${k.title}` : "Open sketch"}>
-          <span className="sk-chip__img" style={{ aspectRatio: `${k.width} / ${k.height}` }}>
-            <SketchImage sketch={k} pad={3} />
-          </span>
-          {k.title && (
-            <span className="sk-chip__title">
-              <Sparkles size={11} aria-hidden="true" />
-              {k.title}
-            </span>
-          )}
-        </button>
+        <SketchChip key={k.id} sketch={k} onOpen={() => s.view(k.id)} />
       ))}
     </div>
+  );
+}
+
+// One sketch, small: just the part with ink on it, so a few words in a
+// corner of a big iPad page still show.
+function SketchChip({ sketch, onOpen }) {
+  const frame = useMemo(() => inkFrame(sketch), [sketch]);
+  const f = frame ?? sketch;
+  return (
+    <button type="button" className="sk-chip" onClick={onOpen} aria-label={sketch.title ? `Open sketch: ${sketch.title}` : "Open sketch"}>
+      <span className="sk-chip__img" style={{ aspectRatio: `${Math.round(f.width)} / ${Math.round(f.height)}` }}>
+        <SketchImage sketch={sketch} frame={frame} pad={3} minPx={1.3} />
+      </span>
+      {sketch.title && (
+        <span className="sk-chip__title">
+          <Sparkles size={11} aria-hidden="true" />
+          {sketch.title}
+        </span>
+      )}
+    </button>
   );
 }
 

@@ -5,13 +5,17 @@ import { shortName } from "../../lib/village";
 // The top of Quests: every quest and lesson as a pill. Tapping one opens its
 // list below and unfolds the pill to show the camps on its mountain, each
 // with how far along it is; a camp goes to its checklist. Tapping the open
-// pill again folds it. `tally` is camp id → { done, total, working }.
+// pill again folds it. `tally` is camp id → { done, total, working }. A quest
+// that's finished or set aside, opened from a link (`sel`), gets a pill of
+// its own, marked as not on.
 
 const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
-export default function QuestMap({ items, camps, tally, selKey, openKey, onPick, onNew }) {
-  const quests = items.filter((i) => i.type === "Quest");
-  const lessons = items.filter((i) => i.type === "Lesson");
+export default function QuestMap({ items, sel, camps, tally, openKey, onPick, onNew }) {
+  const selKey = sel?.key;
+  const all = sel && !items.some((i) => i.key === sel.key) ? [...items, sel] : items;
+  const quests = all.filter((i) => i.type === "Quest");
+  const lessons = all.filter((i) => i.type === "Lesson");
 
   const pill = (i) => {
     const list = i.questId ? camps.filter((c) => c.quest_id === i.questId).sort(byPos) : [];
@@ -19,9 +23,10 @@ export default function QuestMap({ items, camps, tally, selKey, openKey, onPick,
     const on = selKey === i.key;
     const kind = i.type === "Lesson" ? "lesson" : "quest";
     return (
-      <div key={i.key} className={"qs-pill" + (open ? " open" : "") + (on ? " on" : "")}>
-        <button type="button" className="qs-pill__head" aria-expanded={open} aria-current={on ? "page" : undefined} title={i.name} onClick={() => onPick(i)}>
+      <div key={i.key} className={"qs-pill" + (open ? " open" : "") + (on ? " on" : "") + (i.off ? " off" : "")}>
+        <button type="button" className="qs-pill__head" aria-expanded={open} aria-current={on ? "page" : undefined} title={i.off ? `${i.name} (not on right now)` : i.name} onClick={() => onPick(i)}>
           <span className="qs-pill__name">{open ? i.name : shortName(i.name)}</span>
+          {i.off && <span className="qs-pill__off">not on</span>}
           {list.length > 0 && (
             <span className="qs-pill__count" aria-label={list.length === 1 ? "1 camp" : `${list.length} camps`}>
               {list.length}

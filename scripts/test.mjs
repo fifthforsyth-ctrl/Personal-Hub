@@ -9,11 +9,11 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
-import { dropIndex, edgePush, moved } from "../src/lib/dragOrder.js";
+import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine, campTally } from "../src/lib/questTasks.js";
-import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary } from "../src/lib/sketch.js";
+import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
   stepsUnder,
@@ -1784,6 +1784,16 @@ console.log("\nthe mark");
   calls.length = 0;
   drawStrokes(fake, [dotS]);
   ok("a single tap is a dot", calls.join() === "dot");
+  const widths = [];
+  const thin = { set lineWidth(v) { widths.push(v); }, beginPath() {}, moveTo() {}, quadraticCurveTo() {}, lineTo() {}, stroke() {} };
+  drawStrokes(thin, [{ c: "#000", w: 2, p: [0, 0, 10, 50, 0, 90] }], 6);
+  ok("shrunk to a thumbnail, no line is drawn thinner than the floor; a heavy one keeps its width", widths[0] === 6 && drawPieces(thin, { c: "#000", w: 9, p: [0, 0, 100, 5, 0, 100] }, 1, 2, true, 6) === undefined && widths[1] > 6);
+  const fr = inkFrame({ width: 1000, height: 700, strokes: [{ c: "#000", w: 4, p: [880, 600, 50, 900, 620, 50] }] });
+  ok("a few words in a corner: the thumbnail frames them, kept on the page", fr.width === 300 && fr.height === 300 && fr.x === 700 && fr.y === 400);
+  ok("a blank page has no frame; a page drawn edge to edge is framed whole", inkFrame({ width: 500, height: 400, strokes: [] }) === null && JSON.stringify(inkFrame({ width: 500, height: 400, strokes: [{ c: "#000", w: 4, p: [0, 0, 50, 500, 400, 50] }] })) === '{"x":0,"y":0,"width":500,"height":400}');
+  ok("a summary goes into notes as plain words, bullets kept", plainSummary("## Plan\nThe **gist** here.\n- **Lead:** a point\n* another __one__") === "Plan\nThe gist here.\n- Lead: a point\n- another one");
+  ok("added to the end of a line's notes after a blank line", JSON.stringify(appendToNote("Old note ", " New", 100)) === '{"note":"Old note\\n\\nNew","status":"ok"}' && appendToNote(null, "New", 100).note === "New");
+  ok("notes that can't take all of it say so: cut, or full", appendToNote("a".repeat(90), "b".repeat(20), 100).status === "cut" && appendToNote("a".repeat(90), "b".repeat(20), 100).note.length === 100 && appendToNote("a".repeat(99), "b", 100).status === "full");
   ok("a summary is stale once the sketch is drawn on after it", staleSummary({ summary: "x", analyzed_at: "2026-10-26T23:00:00Z", updated_at: "2026-10-26T23:05:00.000Z" }) && !staleSummary({ summary: "x", analyzed_at: "2026-10-26T23:05:00+00:00", updated_at: "2026-10-26T23:00:00.000Z" }) && !staleSummary({ summary: null, analyzed_at: null, updated_at: "2026-10-26T23:00:00Z" }));
 
   // How far along each camp is, for the camps under each quest.
@@ -1801,6 +1811,8 @@ console.log("\nthe mark");
   ok("full speed at the box's edge", edgePush(60, 60, 760) === -1 && edgePush(760, 60, 760) === 1);
   ok("past the edge (over the tab bar) it goes faster, but only so fast", edgePush(800, 60, 760) > 1 && edgePush(2000, 60, 760) === 1.75 && edgePush(-500, 60, 760) === -1.75);
   ok("a short box keeps a middle where it doesn't scroll", edgePush(130, 100, 160) === 0 && edgePush(101, 100, 160) < 0);
+  ok("pressing a handle already near an edge doesn't scroll until it moves toward it", towardEdge(edgePush(740, 60, 760), 740, 740) === 0 && towardEdge(edgePush(745, 60, 760), 740, 745) === 0 && towardEdge(edgePush(750, 60, 760), 740, 750) > 0);
+  ok("moving away from an edge never scrolls toward it; the other way works", towardEdge(edgePush(720, 60, 760), 740, 720) === 0 && towardEdge(edgePush(80, 60, 760), 100, 80) < 0 && towardEdge(0, 0, 500) === 0);
   const deep = buildCamp([], [
     { id: "t", text: "Top", position: 0, done_on: null },
     { id: "t1", parent_id: "t", text: "Sub", position: 0, done_on: "2026-10-23" },

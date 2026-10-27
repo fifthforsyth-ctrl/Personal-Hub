@@ -98,8 +98,10 @@ export function pieceCount(n) {
 // through the midpoints of its points, each piece as wide as the pressure at
 // its point. Piece i ends where piece i + 1 starts, so a stroke can be drawn
 // a piece at a time as its points come in; the last piece runs to the last
-// point, so it's drawn only once the stroke is finished (`done`).
-export function drawPieces(ctx, stroke, from, to, done = true) {
+// point, so it's drawn only once the stroke is finished (`done`). No line is
+// drawn thinner than `min` (in the page's units), so a page shrunk to a
+// thumbnail still shows its ink.
+export function drawPieces(ctx, stroke, from, to, done = true, min = 0) {
   const p = stroke.p;
   const n = p.length / 3;
   ctx.strokeStyle = stroke.c;
@@ -107,7 +109,7 @@ export function drawPieces(ctx, stroke, from, to, done = true) {
   if (n === 1) {
     if (done && from <= 1) {
       ctx.beginPath();
-      ctx.arc(p[0], p[1], widthAt(stroke.w, p[2]) / 2, 0, Math.PI * 2);
+      ctx.arc(p[0], p[1], Math.max(min, widthAt(stroke.w, p[2])) / 2, 0, Math.PI * 2);
       ctx.fill();
     }
     return;
@@ -116,7 +118,7 @@ export function drawPieces(ctx, stroke, from, to, done = true) {
   for (let i = Math.max(1, from); i <= Math.min(to, last); i++) {
     const sx = i === 1 ? p[0] : (p[(i - 1) * 3] + p[i * 3]) / 2;
     const sy = i === 1 ? p[1] : (p[(i - 1) * 3 + 1] + p[i * 3 + 1]) / 2;
-    ctx.lineWidth = widthAt(stroke.w, p[i * 3 + 2]);
+    ctx.lineWidth = Math.max(min, widthAt(stroke.w, p[i * 3 + 2]));
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     if (i < n - 1) ctx.quadraticCurveTo(p[i * 3], p[i * 3 + 1], (p[i * 3] + p[(i + 1) * 3]) / 2, (p[i * 3 + 1] + p[(i + 1) * 3 + 1]) / 2);
@@ -126,10 +128,36 @@ export function drawPieces(ctx, stroke, from, to, done = true) {
 }
 
 // Every stroke, whole, on a context already set to the page's units.
-export function drawStrokes(ctx, strokes) {
+export function drawStrokes(ctx, strokes, min = 0) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  for (const s of strokes) drawPieces(ctx, s, 1, s.p.length / 3);
+  for (const s of strokes) drawPieces(ctx, s, 1, s.p.length / 3, true, min);
+}
+
+// The part of the page with ink on it, with a margin, at least `least` of the
+// page's longer side across and kept on the page, so a small sketch in a
+// corner of a big page fills its thumbnail. Null when the page is blank.
+export function inkFrame(sketch, margin = 0.05, least = 0.3) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const s of sketch.strokes ?? []) {
+    const r = widthAt(s.w, 100) / 2;
+    for (let i = 0; i + 1 < s.p.length; i += 3) {
+      x0 = Math.min(x0, s.p[i] - r);
+      x1 = Math.max(x1, s.p[i] + r);
+      y0 = Math.min(y0, s.p[i + 1] - r);
+      y1 = Math.max(y1, s.p[i + 1] + r);
+    }
+  }
+  if (!Number.isFinite(x0)) return null;
+  const long = Math.max(sketch.width, sketch.height);
+  const w = Math.min(sketch.width, Math.max(x1 - x0 + long * margin * 2, long * least));
+  const h = Math.min(sketch.height, Math.max(y1 - y0 + long * margin * 2, long * least));
+  const x = Math.max(0, Math.min(sketch.width - w, (x0 + x1) / 2 - w / 2));
+  const y = Math.max(0, Math.min(sketch.height - h, (y0 + y1) / 2 - h / 2));
+  return { x, y, width: w, height: h };
 }
 
 // A sketch as a PNG on white (base64, no data: prefix), its longer side
@@ -152,4 +180,26 @@ export function sketchPng(sketch, maxSide = 1568) {
 export function staleSummary(sketch) {
   if (!sketch.summary || !sketch.analyzed_at || !sketch.updated_at) return false;
   return Date.parse(sketch.updated_at) > Date.parse(sketch.analyzed_at);
+}
+
+// What the sketch reader wrote, as plain words for a line's notes: its bold
+// and any heading marks taken off, its bullets kept.
+export function plainSummary(md) {
+  return String(md ?? "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .replace(/^([ \t]*)\* /gm, "$1- ")
+    .trim();
+}
+
+// A note with `text` added to its end, kept within `max` characters: "ok",
+// "cut" when only part of it fit, or "full" when none of it did.
+export function appendToNote(note, text, max) {
+  const was = String(note ?? "").trim();
+  const add = String(text ?? "").trim();
+  if (!add) return { note: was, status: "ok" };
+  if (was && was.length + 2 >= max) return { note: was, status: "full" };
+  const next = was ? `${was}\n\n${add}` : add;
+  return next.length > max ? { note: next.slice(0, max), status: "cut" } : { note: next, status: "ok" };
 }

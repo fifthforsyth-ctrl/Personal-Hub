@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { haptic } from "./haptics";
-import { dropIndex, edgePush, moved } from "./dragOrder";
+import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 
 // Drag to reorder, by a handle only, so a stray touch never moves anything.
 // Works the same with a finger or a mouse (pointer events): press the handle,
@@ -113,7 +113,7 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
       const r = box?.getBoundingClientRect();
       const top = Math.max(0, r ? r.top : 0);
       const bottom = Math.min(window.innerHeight, r ? r.bottom : window.innerHeight);
-      const push = edgePush(d.y, top, bottom);
+      const push = towardEdge(edgePush(d.y, top, bottom), d.startY, d.y);
       if (push) {
         const before = scrolled();
         const by = Math.round(push * SPEED);

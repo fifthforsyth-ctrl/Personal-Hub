@@ -65,7 +65,9 @@ html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; }
 @media (max-width: 520px) {
   .sk-bar { padding: 8px 10px 4px; gap: 6px; }
   .sk-bar .btn { padding-left: 11px; padding-right: 11px; }
-  .sk-tools { margin: 0 8px; max-width: calc(100% - 16px); }
+  /* two rows on a phone, pens over the rest, so undo is never off the edge */
+  .sk-tools { flex-wrap: wrap; justify-content: center; row-gap: 2px; margin: 0 8px; max-width: calc(100% - 16px); border-radius: 22px; overflow: visible; }
+  .sk-sep { display: none; }
   .sk-ink, .sk-width, .sk-icon { width: 34px; height: 34px; }
 }
 
@@ -82,8 +84,19 @@ html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; }
 .sk-reading { display: flex; align-items: center; gap: 8px; margin: 2px 0; font-size: 14px; color: var(--text-2); }
 .sk-reading svg { color: var(--accent); }
 .sk-hint { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
-.sk-view__acts { flex-wrap: wrap; row-gap: 8px; }
 .sk-view__acts .btn { display: inline-flex; align-items: center; gap: 6px; }
+/* The buttons stay in reach under a long summary: they ride the sheet's
+   bottom edge, over its own bottom padding (and the phone's home bar). */
+.sk-view__acts {
+  position: sticky; bottom: 0; z-index: 1; flex-wrap: wrap; row-gap: 8px;
+  margin: 8px -18px -22px; padding: 12px 18px 22px; background: var(--bg); box-shadow: 0 -1px 0 var(--line);
+}
+@media (max-width: 900px) {
+  .sk-view__acts { margin-bottom: calc(-22px - env(safe-area-inset-bottom, 0px)); padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 520px) {
+  .sk-view__img { max-height: 42vh; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .sk-pad { animation: none; }
