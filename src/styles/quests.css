@@ -259,6 +259,8 @@
   text-decoration: underline dotted; text-decoration-thickness: 1.5px; text-underline-offset: 3px;
 }
 @media (hover: hover) { .qs-done-btn:hover { text-decoration-style: solid; } }
+/* A bigger target for a thumb, in the same room. */
+@media (max-width: 900px) { .qs-done-btn { padding: 10px 4px; margin: -10px -4px; } }
 
 .done-sum { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 14px; }
 .done-sum b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; color: var(--accent-text); font-variant-numeric: tabular-nums; }
@@ -284,6 +286,13 @@
 .done-list--subs .done-item { grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; padding: 4px 0; }
 .done-list--subs .done-item__check { width: 18px; height: 18px; }
 .done-list--subs .done-item__text { font-size: 13.5px; font-weight: 500; }
+/* What Today counts as done but was finished before today: last, quieter. */
+.today-group__label.done-earlier { color: var(--text-2); }
+.today-group__label.done-earlier svg { color: var(--text-3); }
+.done-list--earlier .done-item__check { background: var(--inset); color: var(--text-2); }
+.done-list--earlier .done-item__text { font-weight: 500; color: var(--text-2); }
+.done-list--earlier .camp-step__from { color: var(--text-2); }
+.done-list.done-list--earlier:not(.done-list--subs) > .done-item + .done-item { border-top-color: var(--line); }
 
 @media (prefers-reduced-motion: reduce) {
   .qs-mini__bar, .qs-bar i { transition: none; }

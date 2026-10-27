@@ -1377,6 +1377,9 @@ form.card + .card { margin-top: 14px; }
 }
 
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+/* The sheet takes focus when it opens (Sheet.jsx); no ring round all of it. */
+.sheet[tabindex="-1"]:focus,
+.sheet[tabindex="-1"]:focus-visible { outline: none; }
 .sheet-scroll { margin: 0 -2px; }
 
 @media (max-width: 900px) {

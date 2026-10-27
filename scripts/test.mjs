@@ -13,7 +13,7 @@ import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js"
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
-import { questDoneToday, allDoneToday, countDone } from "../src/lib/doneToday.js";
+import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2442,6 +2442,23 @@ function sectionOf({ x, y }) {
   ok("notes, steps done other days, other quests' steps and orphans stay out", !at("n1") && !at("m") && !at("z") && !at("e3") && !at("lost") && !at("t2") && !at("b"));
   ok("an item keeps its note", at("c").note === "Took an hour" && at("t1").note === null);
   ok("done today counts everything, what's under each too", mine.count === 12 && countDone(mine.groups[0].items) === 5 && countDone(null) === 0);
+  ok("each group counts what's under its items too, and they add up", mine.groups.map((g) => g.count).join() === "5,1,6" && mine.groups.reduce((n, g) => n + g.count, 0) === mine.count);
+
+  const onToday = [
+    [{ id: "x", kind: "task", done_on: T, subs: [{ id: "x1", kind: "task", done_on: "2026-10-26", subs: [] }] }],
+    [
+      { id: "y", done_on: "2026-10-25", subs: [{ id: "y1", done_on: null, subs: [{ id: "y11", done_on: "2026-10-24", subs: [] }] }] },
+      { id: "x", kind: "task", done_on: T, subs: [{ id: "x1", kind: "task", done_on: "2026-10-26", subs: [] }] },
+    ],
+    [{ id: "n", kind: "note", done_on: "2026-10-20", subs: [] }],
+  ];
+  const early = earlierOnToday(onToday, T);
+  ok(
+    "what Today counts as done but was finished before today: each once, in order, saying when",
+    early.map((x) => `${x.id}:${x.from}`).join() === "x1:Finished yesterday,y:Finished Sun, Oct 25,y11:Finished Sat, Oct 24",
+    early.map((x) => `${x.id}:${x.from}`).join()
+  );
+  ok("nothing on Today, nothing earlier", earlierOnToday([], T).length === 0 && earlierOnToday(null, T).length === 0 && earlierOnToday([[{ id: "a", done_on: T, subs: [] }]], T).length === 0);
   ok("nothing loaded, nothing done", questDoneToday({}, T).count === 0 && questDoneToday(undefined, T).groups.length === 0 && questDoneToday({ camps: null, sections: null, steps: null, lines: null }, T).count === 0);
 
   const items = [
@@ -2486,6 +2503,7 @@ function sectionOf({ x, y }) {
     "each quest's camps in order, then its list, each in the order they were done",
     all[0].groups.map((g) => `${g.camp ? g.number + g.camp.title : g.key}:${shape(g.items)}`).join() === "1Sift:s1+s2,2Multicam:s3,list:t0+t1"
   );
+  ok("each quest's groups count themselves", all[0].groups.map((g) => g.count).join() === "2,1,2" && all.every((q) => q.count === q.groups.reduce((n, g) => n + g.count, 0)));
   ok("nothing done anywhere, no quests", allDoneToday({}, T).length === 0 && allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T).length === 0);
 }
 

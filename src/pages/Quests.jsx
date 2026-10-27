@@ -21,7 +21,7 @@ import {
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { pickDiff, questToday } from "../lib/camp";
 import { villageOf } from "../lib/village";
-import { allDoneToday, questDoneToday } from "../lib/doneToday";
+import { allDoneToday, earlierOnToday, questDoneToday } from "../lib/doneToday";
 import { appendToNote } from "../lib/sketch";
 import { savesInOrder, undoableSave } from "../lib/inOrder";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
@@ -143,6 +143,7 @@ export default function Quests() {
     () => (board ? allDoneToday({ items, quests: board.quests, lessons: board.lessons, camps: board.camps, tasks: board.finished.tasks, steps: board.finished.steps }, today) : []),
     [board, items, today]
   );
+  const doneAllCount = doneAll.reduce((n, q) => n + q.count, 0);
 
   // A line open where it sits is its id; open in today's list, "t:" and its id.
   const [openId, setOpenId] = useState(null);
@@ -271,12 +272,13 @@ export default function Quests() {
   const setCampSteps = (fn) => mutateCamps((d) => d && { ...d, steps: fn(d.steps) });
   const rawStep = (id) => campData?.steps.find((x) => x.id === id);
   // The village counts finished steps, and the camps along the top count every step.
+  // Stamped now, as updateStep stamps it, so "Done today" lists it in turn.
   const tellBoard = (st) =>
     mutateBoard(
       (b) =>
         b && {
           ...b,
-          finished: { ...b.finished, steps: withFinishedStep(b.finished.steps, st) },
+          finished: { ...b.finished, steps: withFinishedStep(b.finished.steps, { ...st, updated_at: new Date().toISOString() }) },
           campSteps: (b.campSteps ?? []).map((x) => (x.id === st.id ? { ...x, done_on: st.done_on ?? null, working_since: st.working_since ?? null, today_on: st.today_on ?? null } : x)),
         }
     );
@@ -831,7 +833,7 @@ export default function Quests() {
         <div className="qs-grid">
           <div className="qs-rail">
             <div className="qs-rail__build">
-              <FloatingBuild village={village} today={today} onAway={onAway} onToday={() => setDoneView("all")} />
+              <FloatingBuild village={village} today={today} onAway={onAway} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
             </div>
 
             {sel && (
@@ -934,7 +936,7 @@ export default function Quests() {
       {doneView && (
         <DoneToday
           view={doneView}
-          quest={sel ? { questId, name: sel.name, kind, ...doneHere } : null}
+          quest={sel ? { questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) } : null}
           all={doneAll}
           onView={setDoneView}
           onClose={() => setDoneView(null)}

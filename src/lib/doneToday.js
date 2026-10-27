@@ -18,8 +18,9 @@ export function countDone(items) {
 // One quest's day, in the shape of its Today: each camp's steps finished
 // today (camps in order, steps as they sit in the camp), then the lines
 // finished today on its own list:
-//   { groups: [{ key, camp, number, items } | { key: "list", items }], count }
-// Each item is { id, text, note, from, subs }. What's under it that was
+//   { groups: [{ key, camp, number, items, count } | { key: "list", items, count }], count }
+// `count` counts everything, what's under each item too. Each item is
+// { id, text, note, from, subs }. What's under it that was
 // also finished today sits in `subs`. A step or line that isn't finished
 // today isn't shown, but what's under it that is shows in its place, with
 // "under “…”" in `from`. `from` also names the section a step is in, and the
@@ -32,11 +33,39 @@ export function questDoneToday({ camps = [], sections = [], steps = [], lines = 
       (steps ?? []).filter((st) => st.camp_id === camp.id)
     );
     const items = [...stepsDone(view.loose, today, null), ...view.sections.flatMap((s) => stepsDone(s.steps, today, s))];
-    if (items.length) groups.push({ key: `camp-${camp.id}`, camp, number: i + 1, items });
+    if (items.length) groups.push({ key: `camp-${camp.id}`, camp, number: i + 1, items, count: countDone(items) });
   });
   const list = linesDone(lines ?? [], today);
-  if (list.length) groups.push({ key: "list", items: list });
-  return { groups, count: groups.reduce((n, g) => n + countDone(g.items), 0) };
+  if (list.length) groups.push({ key: "list", items: list, count: countDone(list) });
+  return { groups, count: groups.reduce((n, g) => n + g.count, 0) };
+}
+
+// What Today counts as done that was finished before today: a sub-task
+// ticked yesterday under a line picked for today, a step done earlier in a
+// section on today with a sub-step still open, a line moved onto today
+// after it was done. Today's "x of y done" counts these, so the sheet it
+// opens lists them too, apart, each saying when: [{ id, text, note, from }].
+// `trees` are Today's lists as shown (items with `subs`), in order; one
+// shown in two of them is listed once.
+export function earlierOnToday(trees, today) {
+  const seen = new Set();
+  const out = [];
+  const walk = (list) => {
+    for (const x of list ?? []) {
+      if (seen.has(x.id)) continue;
+      seen.add(x.id);
+      if (x.done_on && x.done_on !== today && isTask(x)) out.push(node(x, `Finished ${finishedOn(x.done_on, today)}`));
+      walk(x.subs);
+    }
+  };
+  for (const t of trees ?? []) walk(t);
+  return out;
+}
+
+// "yesterday", "Sun, Oct 25".
+function finishedOn(day, today) {
+  const d = dayLabel(day, today);
+  return d === "Yesterday" ? "yesterday" : d;
 }
 
 // A camp's steps (buildCamp's trees) finished today. `section` names where
@@ -83,8 +112,10 @@ function linesDone(lines, today) {
 // in the order of the lists along the top (`items`, from boardOf), then any
 // other quest by name. Only what the village loads is known here (finished
 // tasks and steps, with no sub-tasks or sections), so under each quest come
-// its camps in order, each with its steps in the order they were finished,
-// then its list's lines, the same way. Groups are shaped as questDoneToday's.
+// its camps in order, then its list. Lines come in the order they were
+// finished (done_at); a step keeps no time it was finished, so steps come
+// in the order they were last changed (updated_at, which every save of a
+// step stamps). Groups are shaped as questDoneToday's.
 export function allDoneToday({ items = [], quests = [], lessons = [], camps = [], tasks = [], steps = [] } = {}, today) {
   const campOf = new Map((camps ?? []).map((c) => [c.id, c]));
   const byQuest = new Map();
@@ -127,8 +158,8 @@ export function allDoneToday({ items = [], quests = [], lessons = [], camps = []
       .sort(byPos)
       .map((camp, i) => ({ camp, number: i + 1, rows: mine.camps.get(camp.id) ?? [] }))
       .filter((g) => g.rows.length)
-      .map(({ camp, number, rows }) => ({ key: `camp-${camp.id}`, camp, number, items: rows.sort(when((s) => s.updated_at)).map((s) => node(s)) }));
-    if (mine.list.length) groups.push({ key: "list", items: mine.list.sort(when((t) => t.done_at ?? t.updated_at)).map((t) => node(t)) });
-    return { ...q, count: groups.reduce((n, g) => n + g.items.length, 0), groups };
+      .map(({ camp, number, rows }) => ({ key: `camp-${camp.id}`, camp, number, items: rows.sort(when((s) => s.updated_at)).map((s) => node(s)), count: rows.length }));
+    if (mine.list.length) groups.push({ key: "list", items: mine.list.sort(when((t) => t.done_at ?? t.updated_at)).map((t) => node(t)), count: mine.list.length });
+    return { ...q, count: groups.reduce((n, g) => n + g.count, 0), groups };
   });
 }
