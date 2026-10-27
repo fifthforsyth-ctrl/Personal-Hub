@@ -30,10 +30,6 @@ export const URGENCY = [
 ];
 const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
 
-// One step: its box, its urgency, its words and the first of its note. Tap
-// the words to open it: change the words, set how urgent it is, write notes,
-// move it or take it off. Its sub-steps come in as `children`. With `sort`
-// (from useDragSort) it has a handle to drag it into a new place.
 // "Working on it…": a badge with a live pulse and dots that keep going.
 function WorkingBadge() {
   return (
@@ -49,7 +45,17 @@ function WorkingBadge() {
   );
 }
 
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, sections, sort, children }) {
+// One step: its box, its urgency, its words and the first of its note. Tap
+// the words to open it: change the words, set how urgent it is, write notes,
+// pick it for today or take it off today (`onToday`), move it or take it
+// off. Its sub-steps come in as `children`. With `sort` (from useDragSort)
+// it has a handle to drag it into a new place.
+//
+// Picked for today (`isToday`, 0090), it wears a small Today tag where it
+// sits. In a Today section (`mirror`) it's the same step shown again: it
+// says where it sits (`from`) and can't be moved or removed from there.
+// While picking (`pick`), its box picks it instead of ticking it.
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, idPrefix = "step", sections, sort, children }) {
   const done = Boolean(step.done_on);
   const working = !done && Boolean(step.working_since);
   const [text, setText] = useState(step.text);
@@ -74,26 +80,44 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
 
   return (
     <li
-      id={`step-${step.id}`}
+      id={`${idPrefix}-${step.id}`}
       ref={sort?.ref}
       style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
-      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (working ? " working" : "") + (sort?.lifted ? " lifted" : "") + tint.className}
+      className={
+        "camp-step" +
+        (done ? " done" : "") +
+        (open ? " open" : "") +
+        (step.parent_id ? " camp-step--sub" : "") +
+        (working ? " working" : "") +
+        (sort?.lifted ? " lifted" : "") +
+        (mirror ? " mirror" : "") +
+        (pick?.on ? " picked" : "") +
+        tint.className
+      }
     >
       <div className="camp-step__row">
-        <button
-          type="button"
-          className="camp-check"
-          role="checkbox"
-          aria-checked={done}
-          aria-label={done ? "Done. Tap to open it again" : "Mark done"}
-          onClick={onDone}
-        >
-          <Check size={13} strokeWidth={3} aria-hidden="true" />
-        </button>
-        <button type="button" className="camp-step__text" aria-expanded={open} onClick={onOpen}>
+        {pick ? (
+          <button type="button" className="camp-pick" role="checkbox" aria-checked={pick.on} aria-label={pick.on ? "Picked for today. Tap to take it off" : "Pick for today"} onClick={pick.toggle}>
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="camp-check"
+            role="checkbox"
+            aria-checked={done}
+            aria-label={done ? "Done. Tap to open it again" : "Mark done"}
+            onClick={onDone}
+          >
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </button>
+        )}
+        <button type="button" className="camp-step__text" aria-expanded={pick ? undefined : open} aria-pressed={pick ? pick.on : undefined} onClick={pick ? pick.toggle : onOpen}>
+          {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
             {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
             <Rich text={step.text} />
+            {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
           {working && <WorkingBadge />}
           {step.note && !open && (
@@ -103,7 +127,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             </small>
           )}
         </button>
-        {sort && <DragHandle {...sort.handle} label="Drag to move this step" />}
+        {sort && !pick && <DragHandle {...sort.handle} label="Drag to move this step" />}
       </div>
       <SketchStrip itemId={step.id} />
       {open && (
@@ -177,15 +201,26 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <SketchButton itemId={step.id} />
             {done && <span className="ascent-mini">Done {fmtShortDate(step.done_on)}</span>}
             <span className="spacer" />
-            <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">
-              <ArrowUp size={15} />
-            </button>
-            <button type="button" className="btn-icon" onClick={() => onMove(1)} disabled={last} aria-label="Move down" title="Move down">
-              <ArrowDown size={15} />
-            </button>
-            <button type="button" className="btn-link" onClick={onRemove}>
-              Remove
-            </button>
+            {onMove && (
+              <>
+                <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">
+                  <ArrowUp size={15} />
+                </button>
+                <button type="button" className="btn-icon" onClick={() => onMove(1)} disabled={last} aria-label="Move down" title="Move down">
+                  <ArrowDown size={15} />
+                </button>
+              </>
+            )}
+            {onToday && (
+              <button type="button" className={"btn-link" + (isToday ? "" : " btn-link--accent")} onClick={onToday}>
+                {isToday ? "Off today" : "Do today"}
+              </button>
+            )}
+            {onRemove && (
+              <button type="button" className="btn-link" onClick={onRemove}>
+                Remove
+              </button>
+            )}
             <button type="button" className="btn btn--sm" onClick={onOpen}>
               Close
             </button>
@@ -212,17 +247,21 @@ export function DragHandle({ label, ...props }) {
 // by its handle into a new place among its neighbours; `onReorder` gets the
 // list and its ids in the new order. Carried out of its list, a step goes
 // to `onDragOut(phase, x, y, step)`, which can drop it in another section.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, sub = false, children }) {
+// A Today section's list (`mirror`) doesn't drag, and its rows' ids start
+// with `idPrefix` so they don't clash with the same steps where they sit.
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, mirror = false, idPrefix, sub = false, children }) {
   const sort = useDragSort(
     list.map((x) => x.id),
-    (ids) => onReorder(list, ids),
+    (ids) => onReorder?.(list, ids),
     { onOut: onDragOut && ((phase, x, y, id) => onDragOut(phase, x, y, list.find((st) => st.id === id))) }
   );
+  const sortable = !mirror && onReorder && (list.length > 1 || onDragOut);
   return (
     <ul className={"camp-steps" + (sub ? " camp-subs" : "")}>
       {list.map((st, i) => {
         const subs = hideDone ? st.subs.filter((x) => !x.done_on) : st.subs;
-        const open = openStep === st.id;
+        const props = step(st, list);
+        const open = !props.pick && openStep === st.id;
         return (
           <StepRow
             key={st.id}
@@ -230,11 +269,14 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
             open={open}
             first={i === 0}
             last={i === list.length - 1}
-            sort={list.length > 1 || onDragOut ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
-            {...step(st, list)}
+            sort={sortable ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
+            mirror={mirror}
+            from={mirror && !sub ? st.from : null}
+            idPrefix={idPrefix}
+            {...props}
           >
             {(subs.length > 0 || open) && (
-              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} sub>
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} mirror={mirror} idPrefix={idPrefix} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
@@ -251,7 +293,7 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
 }
 
 // "Add a step": Enter adds it. A pasted list adds one step per line.
-export function AddStep({ onAdd, label = "Add a step" }) {
+export function AddStep({ onAdd, label = "Add a step", hidden = false }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useGrow(value);
@@ -270,6 +312,7 @@ export function AddStep({ onAdd, label = "Add a step" }) {
   return (
     <form
       className="camp-add"
+      hidden={hidden}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -303,8 +346,8 @@ export function AddStep({ onAdd, label = "Add a step" }) {
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
 // a handle to drag the whole section into a new place. In a colour (0089)
-// the whole card wears it.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, step, sort }) {
+// the whole card wears it. While picking for today it has no box to add.
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, step, sort, picking = false }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -352,7 +395,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
           )}
           {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
-          <AddStep onAdd={(texts) => onAdd(s.id, texts)} />
+          <AddStep hidden={picking} onAdd={(texts) => onAdd(s.id, texts)} />
         </div>
       )}
     </section>

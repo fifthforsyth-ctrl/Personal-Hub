@@ -162,7 +162,11 @@
 .qs-day__toggle small { flex: 1; }
 .qs-day__chev { flex: 0 0 auto; color: var(--text-3); transition: transform 0.2s ease; }
 .qs-day.open .qs-day__chev { transform: rotate(180deg); }
-.qs-day--today .qs-day__title h2 { font-family: var(--font-serif); font-size: 21px; font-weight: 500; letter-spacing: -0.015em; }
+/* Today (0090): in the accent and extra bold, with what's picked from the
+   camps and the ongoing list (camp.css .today-card). */
+.qs-day--today .qs-day__title h2 { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font); font-size: 21px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent-text); }
+.qs-day--today .qs-day__title h2 svg { color: var(--accent); }
+.qs-day--today .qs-day__title small { color: var(--accent-text); font-weight: 600; }
 .qs-day:not(.open) { padding-top: 14px; padding-bottom: 14px; }
 .qs-hint { margin: 2px 0 4px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); max-width: 60ch; }
 .qs-earlier { margin: 10px 4px 0; }

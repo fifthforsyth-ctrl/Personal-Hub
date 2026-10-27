@@ -20,10 +20,12 @@ import {
   AlarmClock,
   Castle,
   ListChecks,
+  RotateCw,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
 import { todayStr, addDays } from "../lib/planDates";
+import { refreshApp } from "../lib/refresh";
 
 // Four places you go, one thing you do from anywhere.
 //
@@ -126,6 +128,27 @@ function SignOut({ className, iconSize }) {
   );
 }
 
+// Loads the page again with everything fresh, for a change just made on
+// another device. It turns while it works.
+function RefreshButton({ size = 18 }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className={"btn-icon refresh-btn" + (busy ? " busy" : "")}
+      aria-label="Refresh"
+      title="Refresh"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        refreshApp();
+      }}
+    >
+      <RotateCw size={size} />
+    </button>
+  );
+}
+
 export function Sidebar() {
   const capture = useCapture();
 
@@ -136,6 +159,7 @@ export function Sidebar() {
           <Flame size={16} strokeWidth={2.4} />
         </span>
         Personal Hub
+        <RefreshButton size={16} />
       </div>
 
       <button className="btn btn--accent side-capture" onClick={() => capture.open()}>
@@ -183,6 +207,7 @@ export function TopBar() {
         </span>
         <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
         <span className="spacer" />
+        <RefreshButton />
         <NavLink to="/ask" className={({ isActive: on }) => "btn-icon topbar-ask" + (on ? " active" : "")} aria-label="Ask" title="Ask">
           <Sparkles size={18} />
         </NavLink>

@@ -7,7 +7,8 @@ import { splitSteps } from "../../lib/camp";
 // The top of Quests: every quest and lesson as a pill. Tapping one opens its
 // list below and unfolds the pill to show the camps on its mountain, each
 // with how far along it is; a camp goes to its checklist. Tapping the open
-// pill again folds it. `tally` is camp id → { done, total, working }. A quest
+// pill again folds it. `tally` is camp id → { done, total, working, today },
+// `today` being how many of its steps are picked for today (0090). A quest
 // that's finished or set aside, opened from a link (`sel`), gets a pill of
 // its own, marked as not on. The open pill also adds camps (`onAddCamps`,
 // Aaron 2026-10-27): one per line, at the end of the mountain.
@@ -42,7 +43,7 @@ export default function QuestMap({ items, sel, camps, tally, openKey, onPick, on
             {list.length ? (
               <ol className="qs-camps" aria-label={`Camps on this ${kind}`}>
                 {list.map((c, n) => {
-                  const t = tally.get(c.id) ?? { done: 0, total: 0, working: false };
+                  const t = tally.get(c.id) ?? { done: 0, total: 0, working: false, today: 0 };
                   const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
                   return (
                     <li key={c.id}>
@@ -54,6 +55,7 @@ export default function QuestMap({ items, sel, camps, tally, openKey, onPick, on
                           <b>{c.title}</b>
                           <small>
                             {c.reached_on ? "Reached" : t.total ? `${t.done} of ${t.total} steps` : "No steps yet"}
+                            {t.today > 0 && <span className="qs-camp__today">{t.today} today</span>}
                             {t.working && !c.reached_on && (
                               <span className="qs-camp__working">
                                 <i aria-hidden="true" />

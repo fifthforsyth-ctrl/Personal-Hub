@@ -226,6 +226,7 @@
 
 /* Add a step: a quiet line under the steps that grows as you type. */
 .camp-add { display: flex; align-items: flex-start; gap: 10px; border-top: 1px dashed var(--line-strong); padding-top: 9px; }
+.camp-add[hidden] { display: none; }
 .camp-add > svg { flex: 0 0 auto; margin: 8px 6px 0; color: var(--text-3); }
 .camp-add__input {
   flex: 1; min-width: 0; border: 0; background: none; resize: none; overflow: hidden;
@@ -435,3 +436,86 @@
 @media (prefers-reduced-motion: reduce) {
   .camp-working__pulse::after, .camp-working__dots i, .camp-step.working > .camp-step__row::before { animation: none; }
 }
+
+/* --- Today (0090): what's picked for today, in the accent and extra bold. The
+   same rows as where they sit, shown again; the whole section wears orange. */
+.card.today-card {
+  border: 1.5px solid var(--accent);
+  background: linear-gradient(180deg, var(--accent-soft), transparent 140px), var(--card);
+}
+.camp-today { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+.today-head { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; }
+.today-head h2 {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-family: var(--font); font-size: 21px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent-text);
+}
+.today-head h2 svg { color: var(--accent); }
+.today-head small { font: 600 11px var(--font-mono); color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.btn.today-pick-btn { border-color: var(--accent); color: var(--accent-text); background: var(--card); font-weight: 700; }
+@media (hover: hover) { .btn.today-pick-btn:hover { background: var(--accent-soft); } }
+.today-hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.today-card .camp-step__words { font-weight: 750; }
+.today-card .camp-subs .camp-step__words { font-weight: 650; }
+.today-card .camp-check { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.today-card .camp-check[aria-checked="true"] { background: var(--accent); color: #fff; box-shadow: none; }
+.today-card .camp-step + .camp-step { border-top-color: var(--accent-line); }
+.camp-step__from {
+  font: 700 10.5px var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--accent-text); overflow-wrap: anywhere;
+}
+/* Where a picked step sits, a small tag says it's on today. */
+.today-tag {
+  display: inline-block; margin-left: 8px; padding: 1px 7px 2px; border-radius: 999px; vertical-align: 2px;
+  background: var(--accent); color: #fff; font: 700 9.5px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+}
+
+/* Picking: a box that picks instead of ticks, and the bar along the bottom. */
+.camp-pick {
+  flex: 0 0 auto; width: 28px; height: 28px; margin: 7px 0 0; padding: 0; border: 0; border-radius: 8px;
+  display: grid; place-items: center; cursor: pointer; background: var(--card); color: transparent;
+  box-shadow: inset 0 0 0 2px var(--accent); touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.camp-pick:active { transform: scale(0.9); }
+.camp-pick[aria-checked="true"] { background: var(--accent); color: #fff; }
+.camp-subs .camp-pick { width: 22px; height: 22px; margin-top: 6px; border-radius: 6px; }
+.camp-step.picked > .camp-step__row { background: var(--accent-soft); border-radius: 10px; box-shadow: -6px 0 0 var(--accent-soft), 6px 0 0 var(--accent-soft); }
+.camp-step.locked > .camp-step__row { opacity: 0.45; }
+.camp-step.locked > .camp-step__row button:disabled { cursor: default; }
+.camp-step.picked > .camp-step__row .camp-step__words { font-weight: 700; }
+.camp-main.picking, .qs-main.picking { padding-bottom: 76px; }
+.pick-bar {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 24px);
+  padding: 7px 7px 7px 18px; border-radius: var(--r-pill); background: var(--ink); color: var(--on-ink);
+  box-shadow: var(--shadow-lift); animation: fade-in 0.18s ease;
+}
+@media (max-width: 900px) { .pick-bar { bottom: calc(var(--tabs-h) + 12px); } }
+/* A toast while picking sits above the bar, not on it. */
+html:has(.pick-bar) .toast-region { bottom: 88px; }
+@media (max-width: 900px) { html:has(.pick-bar) .toast-region { bottom: calc(var(--tabs-h) + 76px); } }
+.pick-bar__count { font-size: 14px; white-space: nowrap; margin-right: 4px; }
+.pick-bar__count b { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.btn.pick-bar__cancel { background: transparent; color: var(--on-ink); border-color: rgba(255, 255, 255, 0.28); }
+.btn.pick-bar__done { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+/* A quest's Today on Quests: each camp's picks under its name, then the
+   lines picked from the quest's own list. */
+.today-from { display: flex; flex-direction: column; gap: 6px; }
+.today-group { display: flex; flex-direction: column; min-width: 0; }
+.today-group + .today-group { border-top: 1px dashed var(--accent-line); padding-top: 6px; }
+.today-group__label {
+  display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; min-width: 0;
+  font: 700 12px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent-text); text-decoration: none;
+}
+.today-group__n {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: #fff; font-size: 11px; letter-spacing: 0;
+}
+.today-group__name { min-width: 0; overflow-wrap: anywhere; }
+.today-group__label small { font: 500 11px var(--font-mono); color: var(--text-2); text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.today-group__label svg { flex: none; color: var(--accent); }
+@media (hover: hover) { a.today-group__label:hover .today-group__name { text-decoration: underline; text-underline-offset: 3px; } }
+.today-group__label--own { color: var(--text-2); border-top: 1px dashed var(--accent-line); padding-top: 10px; margin-top: 2px; }
+.qs-camp__today { color: var(--accent-text); font-weight: 700; }

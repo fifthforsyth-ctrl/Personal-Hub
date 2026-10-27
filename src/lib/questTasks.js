@@ -63,6 +63,20 @@ export function ongoingList(tasks, today) {
   return { items: all.filter((t) => !gone(t)), earlier: all.filter(gone), ...tallyOf(all) };
 }
 
+// The lines picked for today (0090) from the ongoing list and earlier
+// days, which show again in today's list as the same lines: { items, done,
+// total }. Only top lines are picked (their sub-tasks come with them), and
+// a line already on today's own list isn't shown twice. The ongoing list's
+// come first, then the earlier days', newest first. Each item carries
+// `from`: "ongoing" or its day.
+export function pickedLines(tasks, today) {
+  const items = treeOf(tasks)
+    .filter((t) => today && t.today_on === today && (t.ongoing || t.day !== today))
+    .map((t) => ({ ...t, from: t.ongoing ? "ongoing" : t.day }))
+    .sort((a, b) => (Boolean(a.ongoing) !== Boolean(b.ongoing) ? (a.ongoing ? -1 : 1) : a.ongoing || a.day === b.day ? byPos(a, b) : a.day < b.day ? 1 : -1));
+  return { items, ...tallyOf(items) };
+}
+
 // "Today", "Yesterday", or "Tue, Oct 21" (with the year when it isn't this one).
 export function dayLabel(day, today) {
   if (day === today) return "Today";
@@ -133,16 +147,25 @@ export function withFinished(finished, line) {
   return [...rest, { id: line.id, quest_id: line.quest_id, kind: line.kind, text: line.text, note: line.note ?? null, done_on: line.done_on, done_at: line.done_at ?? null, updated_at: line.updated_at ?? null }];
 }
 
+// The finished camp steps the village counts, kept in step the same way
+// as he ticks a step in a quest's Today.
+export function withFinishedStep(finished, step) {
+  const rest = finished.filter((s) => s.id !== step.id);
+  if (!step.done_on) return rest;
+  return [...rest, { id: step.id, camp_id: step.camp_id, text: step.text, note: step.note ?? null, done_on: step.done_on, updated_at: step.updated_at ?? null }];
+}
+
 // Each camp's steps, for the camps under each quest on Quests: camp id →
-// { done, total, working }, where `working` means an open step there is
-// being worked on now.
-export function campTally(steps) {
+// { done, total, working, today }, where `working` means an open step there
+// is being worked on now and `today` counts the steps picked for `today`.
+export function campTally(steps, today = null) {
   const m = new Map();
   for (const s of steps ?? []) {
-    const t = m.get(s.camp_id) ?? { done: 0, total: 0, working: false };
+    const t = m.get(s.camp_id) ?? { done: 0, total: 0, working: false, today: 0 };
     t.total += 1;
     if (s.done_on) t.done += 1;
     else if (s.working_since) t.working = true;
+    if (today && s.today_on === today) t.today += 1;
     m.set(s.camp_id, t);
   }
   return m;

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
-import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
+import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
+import { buildCamp, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
 import { useLoad } from "../lib/useLoad";
@@ -17,6 +17,7 @@ import { useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
+import { PickBar, TodayHead, usePick } from "../components/camp/Today";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 
@@ -25,6 +26,11 @@ import "../styles/camp.css";
 // to do, notes on the camp itself, and what the plan says beside the steps
 // (who to check in with, what makes a good plugin). The other camps on the
 // same mountain are a tap away along the top.
+//
+// Above the steps sits Today (0090, Aaron 2026-10-27): any steps he picks
+// to do today, shown again there without leaving their sections. A tick, a
+// note or a sub-step in either place is the same one. Each day's Today
+// starts empty; nothing carries forward.
 
 const HIDE_KEY = "hub.camp.hideDone";
 
@@ -51,11 +57,15 @@ export default function Camp() {
   const navigate = useNavigate();
 
   const { data, error, loading, reload, mutate } = useLoad(() => (userId ? fetchCamp(userId, id) : null), [userId, id]);
-  const view = useMemo(() => (data ? buildCamp(data.sections, data.steps) : null), [data]);
+  const view = useMemo(() => (data ? buildCamp(data.sections, data.steps, today) : null), [data, today]);
+  const picks = useMemo(() => todayPicks(view, today), [view, today]);
 
   const [hideDone, setHideDone] = useState(readHide);
   const [opened, setOpened] = useState({}); // section id -> open, where tapped
   const [openStep, setOpenStep] = useState(null);
+  const [openToday, setOpenToday] = useState(null); // a step open in Today
+  const [saving, setSaving] = useState(false);
+  const pick = usePick(saving);
   const [sheet, setSheet] = useState(null); // a section to edit, or { new: true }
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
@@ -63,6 +73,9 @@ export default function Camp() {
   useEffect(() => {
     setOpened({});
     setOpenStep(null);
+    setOpenToday(null);
+    pick.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => setNote(data?.camp?.note ?? ""), [data?.camp?.id, data?.camp?.note]);
 
@@ -118,9 +131,54 @@ export default function Camp() {
     return status;
   }
 
+  // --- Today ---------------------------------------------------------------------
+
+  const onToday = (st) => st.today_on === today;
+
+  // One step onto today, or off it.
+  function setToday(st, on) {
+    const fields = { today_on: on ? today : null };
+    setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
+    if (!on && openToday === st.id) setOpenToday(null);
+    haptic("tap");
+    toast.show(on ? "On today" : "Off today");
+    updateStep(st.id, fields).catch((err) => failed(err, "Couldn't change that."));
+  }
+
+  function startPicking() {
+    setOpenStep(null);
+    setOpenToday(null);
+    pick.start(data.steps.filter(onToday).map((x) => x.id));
+    haptic("tap");
+  }
+
+  async function savePicks() {
+    const { add, remove } = pickDiff(data.steps.filter(onToday).map((x) => x.id), pick.sel);
+    if (!add.length && !remove.length) {
+      pick.stop();
+      return;
+    }
+    setSaving(true);
+    try {
+      await Promise.all([updateSteps(add, { today_on: today }), updateSteps(remove, { today_on: null })]);
+      const on = new Set(add);
+      const off = new Set(remove);
+      setSteps((list) => list.map((x) => (on.has(x.id) ? { ...x, today_on: today } : off.has(x.id) ? { ...x, today_on: null } : x)));
+      pick.stop();
+      haptic("success");
+      toast.show(pick.sel.size ? `${pick.sel.size} on today` : "Today is clear");
+    } catch (err) {
+      toast.error(err, "Couldn't save today's picks.");
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // Everything under it goes with it.
   function removeStep(st) {
     setOpenStep(null);
+    setOpenToday(null);
     const gone = [...data.steps.filter((x) => x.id === st.id), ...stepsUnder(data.steps, st.id)];
     const ids = new Set(gone.map((x) => x.id));
     setSteps((list) => list.filter((x) => !ids.has(x.id)));
@@ -257,13 +315,32 @@ export default function Camp() {
     : null;
 
   const stepProps = (st, shown) => ({
-    onOpen: () => setOpenStep((o) => (o === st.id ? null : st.id)),
+    onOpen: () => {
+      setOpenToday(null);
+      setOpenStep((o) => (o === st.id ? null : st.id));
+    },
     onDone: () => toggleDone(st),
     onSave: (fields) => saveStep(st, fields),
     onMove: (by) => moveStep(st, shown, by),
     onRemove: () => removeStep(st),
+    isToday: onToday(st),
+    onToday: () => setToday(st, !onToday(st)),
+    pick: pick.of(st.id),
     sections: sectionChoices,
     onMoveTo: (sectionId) => moveToSection(st, sectionId),
+  });
+
+  // The same steps again in Today: they tick, take notes and sub-steps and
+  // come off today there, but move and go only where they sit.
+  const todayProps = (st) => ({
+    onOpen: () => {
+      setOpenStep(null);
+      setOpenToday((o) => (o === st.id ? null : st.id));
+    },
+    onDone: () => toggleDone(st),
+    onSave: (fields) => saveStep(st, fields),
+    isToday: onToday(st),
+    onToday: () => setToday(st, !onToday(st)),
   });
 
   // --- Sections and the camp's notes ---------------------------------------------
@@ -360,6 +437,7 @@ export default function Camp() {
   function goToNext() {
     if (!next) return;
     if (nextSection) setOpened((o) => ({ ...o, [nextSection.id]: true }));
+    setOpenToday(null);
     setOpenStep(next.id);
     requestAnimationFrame(() => document.getElementById(`step-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
@@ -435,7 +513,20 @@ export default function Camp() {
         </section>
 
         <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
-          <div className="camp-main">
+          <div className={"camp-main" + (pick.on ? " picking" : "")}>
+            {!empty && (
+              <section className="card today-card camp-today" aria-labelledby="camp-today-h">
+                <TodayHead id="camp-today-h" done={picks.done} total={picks.total} picking={pick.on} onPick={startPicking} />
+                {pick.on ? (
+                  <p className="today-hint">Tap the steps below to pick them for today. Tap one again to take it off.</p>
+                ) : picks.items.length ? (
+                  <StepList list={picks.items} openStep={openToday} hideDone={false} step={todayProps} onAddSubs={addSubs} mirror idPrefix="today-step" />
+                ) : (
+                  <p className="today-hint">Pick the steps you'll do today. They stay where they are and show up here too, so a tick or a note in either place is the same.</p>
+                )}
+              </section>
+            )}
+
             <div className="ascent-row camp-main__head">
               <h2 className="eyebrow">Steps</h2>
               {view.done > 0 && (
@@ -459,7 +550,7 @@ export default function Camp() {
               <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
                 {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} />}
                 {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
-                <AddStep onAdd={(texts) => addTo(null, texts)} />
+                <AddStep hidden={pick.on} onAdd={(texts) => addTo(null, texts)} />
               </section>
             )}
 
@@ -467,10 +558,11 @@ export default function Camp() {
               <SectionCard
                 key={s.id}
                 section={s}
-                open={isOpen(s)}
+                open={pick.on || isOpen(s)}
+                picking={pick.on}
                 hideDone={hideDone}
                 openStep={openStep}
-                onToggle={() => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
+                onToggle={pick.on ? undefined : () => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
                 onEdit={() => setSheet(s)}
                 onAdd={addTo}
                 onAddSubs={addSubs}
@@ -478,12 +570,14 @@ export default function Camp() {
                 onDragOut={dragOut}
                 step={stepProps}
                 sort={
-                  view.sections.length > 1
+                  view.sections.length > 1 && !pick.on
                     ? { ref: sectionSort.ref(s.id), style: sectionSort.style(s.id), handle: sectionSort.handle(s.id), lifted: sectionSort.dragging === s.id }
                     : null
                 }
               />
             ))}
+
+            {pick.on && <PickBar count={pick.sel.size} busy={saving} onCancel={pick.stop} onDone={savePicks} />}
 
             <div className="camp-more">
               <button type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ new: true })}>

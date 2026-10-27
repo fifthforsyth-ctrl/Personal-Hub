@@ -17,8 +17,9 @@ const BYPOS = (a, b) =>
 // sit in no section, and where it all stands: how many are done, and the
 // first step still to do, reading top to bottom. Each step carries its
 // sub-steps (0083) as `subs`, nested as deep as they go; they count like any
-// step, and a sub-step whose step is gone stands on its own.
-export function buildCamp(sections, steps) {
+// step, and a sub-step whose step is gone stands on its own. With `today`,
+// a step picked for today (0090) comes next before the rest.
+export function buildCamp(sections, steps, today = null) {
   const all = [...(steps ?? [])].sort(BYPOS);
   const ids = new Set(all.map((st) => st.id));
   const kids = new Map();
@@ -58,9 +59,66 @@ export function buildCamp(sections, steps) {
     loose,
     done,
     total: ordered.length,
-    // What you're working on comes first; then the first step not done.
-    next: ordered.find((st) => !st.done_on && st.working_since) ?? ordered.find((st) => !st.done_on) ?? null,
+    // What you're working on comes first; then the first step picked for
+    // today that isn't done; then the first step not done.
+    next:
+      ordered.find((st) => !st.done_on && st.working_since) ??
+      (today ? ordered.find((st) => !st.done_on && st.today_on === today) : null) ??
+      ordered.find((st) => !st.done_on) ??
+      null,
   };
+}
+
+// --- Today (0090) ----------------------------------------------------------------
+
+// The steps of a camp (from buildCamp) picked for today, in the order they
+// sit in the camp: { items, done, total }. Each item is the step itself,
+// with everything under it, and `from`, where it sits ("2. Search", "under
+// “Tag clips”"). A step under one that's picked already shows under it, so
+// it isn't shown twice. `done` and `total` count the items and everything
+// under them.
+export function todayPicks(view, today) {
+  const items = [];
+  const walk = (list, section, parent) => {
+    for (const st of list) {
+      if (today && st.today_on === today) items.push({ ...st, from: fromLabel(section, parent) });
+      else walk(st.subs, section, st);
+    }
+  };
+  walk(view?.loose ?? [], null, null);
+  for (const s of view?.sections ?? []) walk(s.steps, s, null);
+  const flat = (list) => list.flatMap((st) => [st, ...flat(st.subs)]);
+  const every = flat(items);
+  return { items, done: every.filter((st) => st.done_on).length, total: every.length };
+}
+
+function fromLabel(section, parent) {
+  const where = section ? `${section.number}. ${section.title}` : null;
+  const under = parent ? `under “${String(parent.text ?? "").slice(0, 60)}${String(parent.text ?? "").length > 60 ? "…" : ""}”` : null;
+  return [where, under].filter(Boolean).join(" · ") || null;
+}
+
+// What picking changed: the ids now picked (`sel`, a Set) that weren't on
+// today before (`before`), and the ones taken off.
+export function pickDiff(before, sel) {
+  const was = new Set(before);
+  return { add: [...sel].filter((id) => !was.has(id)), remove: [...was].filter((id) => !sel.has(id)) };
+}
+
+// A quest's Today on Quests: for each of its camps, in order, the steps
+// picked for today there, as todayPicks gives them. Camps with nothing
+// picked are left out. Each is { camp, number, items, done, total }.
+export function questToday(camps, sections, steps, today) {
+  return [...(camps ?? [])]
+    .sort(BYPOS)
+    .map((camp, i) => {
+      const view = buildCamp(
+        (sections ?? []).filter((s) => s.camp_id === camp.id),
+        (steps ?? []).filter((st) => st.camp_id === camp.id)
+      );
+      return { camp, number: i + 1, ...todayPicks(view, today) };
+    })
+    .filter((g) => g.items.length);
 }
 
 // Every step under `id` in a camp's steps, however deep.

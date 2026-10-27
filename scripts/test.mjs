@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
-import { listDays, ongoingList, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine, campTally } from "../src/lib/questTasks.js";
+import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -28,6 +28,9 @@ import {
   noteBlocks,
   boldRuns,
   mountainsOf,
+  todayPicks,
+  questToday,
+  pickDiff,
 } from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
@@ -1726,6 +1729,59 @@ console.log("\nthe mark");
   ok("sub-steps aren't steps of their own in the section", s2.steps.map((x) => x.id).join() === "c,d");
   ok("a sub-step whose step is gone stands on its own", s1.steps.map((x) => x.id).join() === "a,b,z1" && !s1.complete);
   ok("sub-steps count on the section and the camp", s2.total === 4 && s1.done === 3 && withSubs.total === 10 && withSubs.done === 3);
+
+  // Today (0090): steps picked for today show again in the camp's Today, as the same steps.
+  {
+    const T = "2026-10-27";
+    const picked = [
+      ...steps.map((x) => (x.id === "d" || x.id === "a" ? { ...x, today_on: T } : x.id === "e" ? { ...x, today_on: "2026-10-26" } : x)),
+      { id: "c1", section_id: "s2", parent_id: "c", text: "The free ones", position: 0, done_on: null, today_on: T },
+      { id: "c2", section_id: "s2", parent_id: "c", text: "The paid ones", position: 1, done_on: T },
+      { id: "d1", section_id: "s2", parent_id: "d", text: "Under a picked step", position: 0, done_on: null, today_on: T },
+    ];
+    const view = buildCamp(sections, picked, T);
+    const tp = todayPicks(view, T);
+    ok("today's picks come in the camp's order, a picked sub-step on its own", tp.items.map((x) => x.id).join() === "a,c1,d");
+    ok("yesterday's pick isn't on today", !tp.items.some((x) => x.id === "e"));
+    ok("a step under a picked step shows under it, not twice", tp.items.find((x) => x.id === "d").subs.map((x) => x.id).join() === "d1" && tp.items.filter((x) => x.id === "d1").length === 0);
+    ok("each pick says where it sits", tp.items[0].from === "1. Name the job" && tp.items[1].from === "2. Market research · under “List the competitors”");
+    ok("today counts its picks and what's under them", tp.total === 4 && tp.done === 1);
+    ok("nothing picked: an empty Today", todayPicks(buildCamp(sections, steps, T), T).items.length === 0 && todayPicks(null, T).total === 0);
+    ok("a step picked for today comes next, before the first open one", view.next.id === "c1" && buildCamp(sections, picked).next.id === "e");
+    ok(
+      "working on a step still comes first",
+      buildCamp(sections, picked.map((x) => (x.id === "f" ? { ...x, working_since: "2026-10-27T15:00:00Z" } : x)), T).next.id === "f"
+    );
+    const loosePick = todayPicks(buildCamp(sections, picked.map((x) => (x.id === "e" ? { ...x, today_on: T } : x)), T), T);
+    ok("a loose step picked says nothing about a section", loosePick.items[0].id === "e" && loosePick.items[0].from === null);
+
+    const camps = [
+      { id: "k2", quest_id: "q", title: "Multicam", position: 1 },
+      { id: "k1", quest_id: "q", title: "Sift", position: 0 },
+      { id: "k3", quest_id: "q", title: "Graphica", position: 2 },
+    ];
+    const qsecs = [{ id: "x1", camp_id: "k1", title: "Search", position: 0 }];
+    const qsteps = [
+      { id: "m1", camp_id: "k2", text: "Angle strip", position: 0, today_on: T, done_on: null },
+      { id: "m2", camp_id: "k2", text: "Not today", position: 1, today_on: null },
+      { id: "s1", camp_id: "k1", section_id: "x1", text: "Search by tag", position: 0, today_on: T, done_on: T },
+      { id: "g1", camp_id: "k3", text: "Old pick", position: 0, today_on: "2026-10-20" },
+    ];
+    const qt = questToday(camps, qsecs, qsteps, T);
+    ok("a quest's Today: each camp's picks under it, camps in order, none for camps with nothing", qt.map((g) => `${g.number}${g.camp.title}:${g.items.map((x) => x.id).join("+")}`).join() === "1Sift:s1,2Multicam:m1");
+    ok("each camp's Today knows how far along it is", qt[0].done === 1 && qt[0].total === 1 && qt[1].done === 0 && qt[0].items[0].from === "1. Search");
+    ok("no camps, no Today", questToday([], [], [], T).length === 0 && questToday(null, null, null, T).length === 0);
+
+    const d = pickDiff(["a", "b", "c"], new Set(["b", "c", "x", "y"]));
+    ok("picking works out what to put on today and what to take off", d.add.join() === "x,y" && d.remove.join() === "a");
+    ok("picking nothing new changes nothing", pickDiff(["a"], new Set(["a"])).add.length === 0 && pickDiff(["a"], new Set(["a"])).remove.length === 0);
+
+    const tally = campTally([{ camp_id: "k1", today_on: T }, { camp_id: "k1", today_on: "2026-10-26", done_on: T }, { camp_id: "k2" }], T);
+    ok("the camps on Quests count today's picks", tally.get("k1").today === 1 && tally.get("k1").done === 1 && tally.get("k2").today === 0 && campTally([{ camp_id: "k1", today_on: T }]).get("k1").today === 0);
+
+    const fin = withFinishedStep([{ id: "z", camp_id: "k1", done_on: T }], { id: "s1", camp_id: "k1", text: "Search by tag", note: null, done_on: T, subs: [], from: "x" });
+    ok("a step ticked in a quest's Today lays its bricks, untouched otherwise", fin.length === 2 && fin[1].text === "Search by tag" && !("subs" in fin[1]) && withFinishedStep(fin, { id: "s1", done_on: null }).length === 1);
+  }
   // Quest tags on the day's blocks (0085).
   const tq = [{ id: "q1", title: "Plugin", position: 0 }, { id: "ml", title: "Integrity", lesson_id: "l1" }];
   const tc = [{ id: "c2", quest_id: "q1", title: "Sift tab", position: 1 }, { id: "c1", quest_id: "q1", title: "Multicam tab", position: 0 }];
@@ -1803,7 +1859,7 @@ console.log("\nthe mark");
     { camp_id: "a", done_on: null },
     { camp_id: "b", done_on: "2026-10-21", working_since: "2026-10-21T10:00:00Z" },
   ]);
-  ok("camp tally: steps done of all, and whether an open one is being worked on", JSON.stringify(ct.get("a")) === '{"done":1,"total":3,"working":true}' && JSON.stringify(ct.get("b")) === '{"done":1,"total":1,"working":false}' && !ct.has("c"));
+  ok("camp tally: steps done of all, and whether an open one is being worked on", JSON.stringify(ct.get("a")) === '{"done":1,"total":3,"working":true,"today":0}' && JSON.stringify(ct.get("b")) === '{"done":1,"total":1,"working":false,"today":0}' && !ct.has("c"));
 
   // Scrolling while dragging, in a box from 60 (under the top bar) to 760 (above the tab bar).
   ok("no scroll in the middle of the box", edgePush(400, 60, 760) === 0 && edgePush(141, 60, 760) === 0 && edgePush(679, 60, 760) === 0);
@@ -2075,6 +2131,21 @@ console.log("\nthe mark");
   const lastSub = ongoingList(more.map((r) => (r.id === "o5s" ? { ...r, done_on: T } : r)), T);
   ok("ticking the last open sub-task today keeps its line in view", lastSub.items.some((i) => i.id === "o5") && lastSub.earlier.map((i) => i.id).join() === "o4");
   ok("a new ongoing line goes after the last ongoing one", nextLinePosition(more, null) === 5 && nextLinePosition(more, T) === 3 && nextLinePosition(more, null, "o5") === 1);
+
+  // Lines picked for today (0090) from the ongoing list and earlier days show again in today's list.
+  {
+    const pk = more.map((r) =>
+      r.id === "o1" || r.id === "o2" || r.id === "a" || r.id === "c" || r.id === "s1" ? { ...r, today_on: T } : r.id === "y" ? { ...r, today_on: "2026-10-22" } : r
+    );
+    pk.push({ id: "w", day: "2026-10-22", kind: "task", text: "yesterday's open task", position: 3, done_on: null, today_on: T });
+    const p = pickedLines(pk, T);
+    ok("picked lines: the ongoing list's first, then earlier days newest first", p.items.map((i) => i.id).join() === "o2,o1,w,a");
+    ok("a line on today's own list isn't shown twice, nor a sub-task alone", !p.items.some((i) => i.id === "c" || i.id === "s1"));
+    ok("a picked line keeps its sub-tasks and says where it's from", p.items[1].subs.map((x) => x.id).join() === "o1s" && p.items[0].from === "ongoing" && p.items[2].from === "2026-10-22");
+    ok("a line picked on another day isn't on today", !pickedLines(pk, "2026-10-28").items.length);
+    ok("picked lines count their tasks and sub-tasks, not notes", p.total === 4 && p.done === 1);
+    ok("picked lines stay where they sit too", ongoingList(pk, T).items.some((i) => i.id === "o1") && listDays(pk, T).some((d) => d.items.some((i) => i.id === "a")));
+  }
 
   const b = boardOf({
     quests: [

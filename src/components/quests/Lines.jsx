@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, Repeat, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, Repeat, StickyNote, Sun } from "lucide-react";
 import { parseLines } from "../../lib/questTasks";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
@@ -26,8 +26,14 @@ function useGrow(value) {
 // One line. Tap the words to open it: change them, write notes on what he
 // did, add sub-tasks (on a top line), turn it into a note line or back,
 // move it, put it on the ongoing list or off it (`onShift`, a top line
-// only), or take it off.
-export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onRemove, children }) {
+// only), pick it for today or take it off today (`onToday`), or take it off.
+//
+// Picked for today (`isToday`, 0090), it wears a small Today tag where it
+// sits. In today's list (`mirror`) it's the same line shown again: it says
+// where it's from (`from`) and is moved or removed only where it sits.
+// While picking (`pick`), its box picks it instead of ticking it; a line
+// that can't be picked (`locked`) waits, greyed, until picking is done.
+export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", onRemove, children }) {
   const note = line.kind === "note";
   const done = Boolean(line.done_on);
   const [text, setText] = useState(line.text);
@@ -52,23 +58,39 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
 
   return (
     <li
-      id={`line-${line.id}`}
+      id={`${idPrefix}-${line.id}`}
       style={tint.style}
-      className={"camp-step qs-line" + (done ? " done" : "") + (open ? " open" : "") + (note ? " qs-line--note" : "") + (line.parent_id ? " qs-line--sub" : "") + tint.className}
+      className={
+        "camp-step qs-line" +
+        (done ? " done" : "") +
+        (open ? " open" : "") +
+        (note ? " qs-line--note" : "") +
+        (line.parent_id ? " qs-line--sub" : "") +
+        (mirror ? " mirror" : "") +
+        (pick?.on ? " picked" : "") +
+        (locked ? " locked" : "") +
+        tint.className
+      }
     >
       <div className="camp-step__row">
-        {note ? (
+        {pick ? (
+          <button type="button" className="camp-pick" role="checkbox" aria-checked={pick.on} aria-label={pick.on ? "Picked for today. Tap to take it off" : "Pick for today"} onClick={pick.toggle}>
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </button>
+        ) : note ? (
           <span className="qs-pen" aria-hidden="true">
             <NotebookPen size={13} />
           </span>
         ) : (
-          <button type="button" className="camp-check" role="checkbox" aria-checked={done} aria-label={done ? "Done. Tap to open it again" : "Mark done"} onClick={onDone}>
+          <button type="button" className="camp-check" role="checkbox" aria-checked={done} aria-label={done ? "Done. Tap to open it again" : "Mark done"} disabled={locked} onClick={onDone}>
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         )}
-        <button type="button" className="camp-step__text" aria-expanded={open} onClick={onOpen}>
+        <button type="button" className="camp-step__text" aria-expanded={pick || locked ? undefined : open} aria-pressed={pick ? pick.on : undefined} disabled={locked} onClick={pick ? pick.toggle : onOpen}>
+          {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
             <Rich text={line.text} />
+            {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
           {line.note && !open && (
             <small className="camp-step__note">
@@ -104,12 +126,21 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             <SketchButton itemId={line.id} />
             {done && <span className="ascent-mini">Done {fmtShortDate(line.done_on)}</span>}
             <span className="spacer" />
-            <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">
-              <ArrowUp size={15} />
-            </button>
-            <button type="button" className="btn-icon" onClick={() => onMove(1)} disabled={last} aria-label="Move down" title="Move down">
-              <ArrowDown size={15} />
-            </button>
+            {onMove && (
+              <>
+                <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">
+                  <ArrowUp size={15} />
+                </button>
+                <button type="button" className="btn-icon" onClick={() => onMove(1)} disabled={last} aria-label="Move down" title="Move down">
+                  <ArrowDown size={15} />
+                </button>
+              </>
+            )}
+            {onToday && (
+              <button type="button" className={"btn-link" + (isToday ? "" : " btn-link--accent")} onClick={onToday}>
+                {isToday ? "Off today" : "Do today"}
+              </button>
+            )}
             {onShift && !line.parent_id && (
               <button type="button" className="btn-link" onClick={onShift}>
                 {line.ongoing ? "Put it on today" : "Make it ongoing"}
@@ -118,9 +149,11 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             <button type="button" className="btn-link" onClick={onKind}>
               {note ? "Make it a task" : "Make it a note"}
             </button>
-            <button type="button" className="btn-link" onClick={onRemove}>
-              Remove
-            </button>
+            {onRemove && (
+              <button type="button" className="btn-link" onClick={onRemove}>
+                Remove
+              </button>
+            )}
             <button type="button" className="btn btn--sm" onClick={onOpen}>
               Close
             </button>
@@ -136,7 +169,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
 // one line each, with indented lines going under the line above as
 // sub-tasks. On a top list its button turns the next line into a note line
 // instead of a task.
-export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false }) {
+export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false, hidden = false }) {
   const [value, setValue] = useState("");
   const [kind, setKind] = useState("task");
   const [busy, setBusy] = useState(false);
@@ -160,6 +193,7 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
   return (
     <form
       className={"camp-add qs-add" + (sub ? " qs-add--sub" : "")}
+      hidden={hidden}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -204,18 +238,23 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
 }
 
 // Lines with their sub-tasks under them, and (open) the box to add a
-// sub-task under the line that's open.
-function LineTree({ items, openId, row, onAddSubs, className = "" }) {
+// sub-task under the line that's open. In today's list (`mirror`) the rows'
+// ids start with `idPrefix`, so they don't clash with the same lines where
+// they sit, and each top line says where it's from (`fromOf`).
+export function LineTree({ items, openId, row, onAddSubs, mirror = false, idPrefix, fromOf, className = "" }) {
   return (
     <ul className={"camp-steps qs-lines" + className}>
-      {items.map((it, i) => (
-        <LineRow key={it.id} line={it} open={openId === it.id} first={i === 0} last={i === items.length - 1} {...row(it, items)}>
-          {(it.subs.length > 0 || openId === it.id) && (
+      {items.map((it, i) => {
+        const props = row(it, items);
+        const open = !props.pick && openId === it.id;
+        return (
+        <LineRow key={it.id} line={it} open={open} first={i === 0} last={i === items.length - 1} mirror={mirror} from={mirror ? fromOf?.(it) : null} idPrefix={idPrefix} {...props}>
+          {(it.subs.length > 0 || open) && (
             <ul className="camp-steps qs-subs">
               {it.subs.map((s, k) => (
-                <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === it.subs.length - 1} {...row(s, it.subs)} />
+                <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === it.subs.length - 1} mirror={mirror} idPrefix={idPrefix} {...row(s, it.subs)} />
               ))}
-              {openId === it.id && (
+              {open && (
                 <li className="qs-subs__add">
                   <AddLine sub onAdd={(lines) => onAddSubs(it, lines)} />
                 </li>
@@ -223,23 +262,33 @@ function LineTree({ items, openId, row, onAddSubs, className = "" }) {
             </ul>
           )}
         </LineRow>
-      ))}
+        );
+      })}
     </ul>
   );
 }
 
 // A day's list: its lines with their sub-tasks. Today's list ends with the
 // box to add lines; an earlier day folds away to its name and how it went.
-export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, children }) {
+// Today's also takes what's picked for today from elsewhere (`lead`, 0090),
+// counted in with `extra` ({ done, total, count }), and an `action` beside
+// its name.
+export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, lead, extra, action, children }) {
   const isToday = day.day === today;
   const open = !folded;
-  const tally = [sub, day.total ? `${day.done} of ${day.total} done` : day.items.length ? "Notes" : isToday ? null : "Nothing yet"].filter(Boolean).join(" · ");
+  const done = day.done + (extra?.done ?? 0);
+  const total = day.total + (extra?.total ?? 0);
+  const count = day.items.length + (extra?.count ?? 0);
+  const tally = [sub, total ? `${done} of ${total} done` : count ? "Notes" : isToday ? null : "Nothing yet"].filter(Boolean).join(" · ");
   return (
-    <section className={"card qs-day" + (isToday ? " qs-day--today" : "") + (open ? " open" : "")} aria-label={label}>
+    <section className={"card qs-day" + (isToday ? " qs-day--today today-card" : "") + (open ? " open" : "")} aria-label={label}>
       <div className="qs-day__head">
         {isToday ? (
           <div className="qs-day__title">
-            <h2>{label}</h2>
+            <h2>
+              <Sun size={17} strokeWidth={2.4} aria-hidden="true" />
+              {label}
+            </h2>
             <small>{tally}</small>
           </div>
         ) : (
@@ -249,7 +298,9 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
             <ChevronDown size={16} className="qs-day__chev" aria-hidden="true" />
           </button>
         )}
+        {action}
       </div>
+      {open && lead}
       {open && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} />}
       {open && children}
     </section>
@@ -258,8 +309,9 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
 
 // The quest's ongoing list (Aaron, 2026-10-27): what stays on the quest
 // whatever the day, from `ongoingList`. Lines done before today wait under
-// a fold at the foot; the box to add lines comes in as `children`.
-export function OngoingList({ list, kind, openId, row, onAddSubs, children }) {
+// a fold at the foot; the box to add lines comes in as `children`, and
+// `action` sits beside its name.
+export function OngoingList({ list, kind, openId, row, onAddSubs, action, children }) {
   const [showDone, setShowDone] = useState(false);
   const tally = list.total ? `${list.done} of ${list.total} done` : list.items.length ? "Notes" : null;
   return (
@@ -272,6 +324,7 @@ export function OngoingList({ list, kind, openId, row, onAddSubs, children }) {
           </h2>
           {tally && <small>{tally}</small>}
         </div>
+        {action}
       </div>
       {list.items.length > 0 ? (
         <LineTree items={list.items} openId={openId} row={row} onAddSubs={onAddSubs} />
