@@ -32,7 +32,7 @@ import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
-const MODEL = "claude-opus-5-5";
+const MODEL = "claude-sonnet-5-5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
