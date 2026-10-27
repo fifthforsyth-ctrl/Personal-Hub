@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Castle, ChevronRight, Plus, Repeat } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -92,6 +92,9 @@ export default function Quests() {
     reload: reloadLines,
     mutate: mutateLines,
   } = useLoad(() => (userId && questId ? fetchQuestTasks(userId, questId) : []), [userId, questId]);
+  // The lines as they are now, for an Undo tapped after other changes.
+  const linesNow = useRef(null);
+  linesNow.current = lines;
 
   const village = useMemo(
     () =>
@@ -423,18 +426,20 @@ export default function Quests() {
     // One row at a time, in an order where every step on the way can be
     // shown: going under, its sub-tasks move first, then it; coming back,
     // it moves first, then they do. So a write that fails part way never
-    // leaves a sub-task under a sub-task, where no list would show it.
-    const put = (rows, order) => {
+    // leaves a sub-task under a sub-task, where no list would show it. The
+    // screen changes at once; Undo's writes wait for the move's to finish,
+    // so a quick Undo can't be overtaken by the move it undoes.
+    const put = (rows, order, after = Promise.resolve()) => {
       const by = new Map(rows.map(({ id, ...fields }) => [id, fields]));
       mutateLines((list) => (list ?? []).map((x) => (by.has(x.id) ? { ...x, ...by.get(x.id) } : x)));
       requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-      return order
-        .reduce((p, { id, ...fields }) => p.then(() => updateQuestTask(id, fields)), Promise.resolve())
+      return after
+        .then(() => order.reduce((p, { id, ...fields }) => p.then(() => updateQuestTask(id, fields)), Promise.resolve()))
         .catch((err) => failed(err, "Couldn't move that."));
     };
-    put(now, [...now.slice(1), now[0]]);
+    const going = put(now, [...now.slice(1), now[0]]);
     const name = String(target.text ?? "");
-    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was, was) });
+    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was, was, going) });
   }
 
   // Carried out of its list onto today's list or the ongoing list (`where`):
@@ -462,21 +467,27 @@ export default function Quests() {
     );
     const scroll = () => requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     scroll();
-    (same ? Promise.resolve() : Promise.all([updateQuestTask(line.id, top), subs.length ? updateQuestTasks(subs, rest) : null]))
+    const going = (same ? Promise.resolve() : Promise.all([updateQuestTask(line.id, top), subs.length ? updateQuestTasks(subs, rest) : null]))
       .then(() => reorder("quest_tasks", next))
       .catch((err) => failed(err, "Couldn't move that."));
     if (same) return;
     // What Undo puts back: the line where it was, its sub-tasks with it, and
-    // the lines it landed among closed up again in their own order.
+    // the lines it landed among closed up again, in their order as it is
+    // when Undo is tapped (they may have been moved since). Its writes wait
+    // for the move's, so a quick Undo can't be overtaken by the move.
     const was = { parent_id: line.parent_id ?? null, day: line.day, ongoing: Boolean(line.ongoing), position: line.position ?? 0 };
     const subsWas = all.filter((x) => x.parent_id === line.id).map((x) => ({ id: x.id, day: x.day, ongoing: Boolean(x.ongoing) }));
     const undo = () => {
-      const back = new Map([[line.id, was], ...subsWas.map(({ id, ...f }) => [id, f]), ...there.map((x, k) => [x.id, { position: k }])]);
+      const left = (linesNow.current ?? [])
+        .filter((x) => x.quest_id === line.quest_id && !x.parent_id && x.id !== line.id && (onList ? x.ongoing : !x.ongoing && x.day === today))
+        .sort(byPos);
+      const back = new Map([[line.id, was], ...subsWas.map(({ id, ...f }) => [id, f]), ...left.map((x, k) => [x.id, { position: k }])]);
       mutateLines((list) => (list ?? []).map((x) => (back.has(x.id) ? { ...x, ...back.get(x.id) } : x)));
       scroll();
-      updateQuestTask(line.id, was)
+      going
+        .then(() => updateQuestTask(line.id, was))
         .then(() => subsWas.reduce((p, { id, ...f }) => p.then(() => updateQuestTask(id, f)), Promise.resolve()))
-        .then(() => reorder("quest_tasks", there.map((x) => ({ id: x.id, position: pos.get(x.id) }))))
+        .then(() => reorder("quest_tasks", left))
         .catch((err) => failed(err, "Couldn't move that back."));
     };
     toast.show(onList ? "On the ongoing list" : "On today's list", { actionLabel: "Undo", onAction: undo });

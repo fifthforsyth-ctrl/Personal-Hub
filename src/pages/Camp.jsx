@@ -332,21 +332,25 @@ export default function Camp() {
       position: data.steps.filter((x) => x.parent_id === parent.id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0),
     };
     // The steps under it follow it into the new section (and back), the ones
-    // under it then: a sub-step added before Undo goes back with it too.
-    const put = (fields) => {
-      const along = stepsUnder(stepsNow.current, st.id)
-        .filter((x) => (x.section_id ?? null) !== fields.section_id)
-        .map((x) => x.id);
+    // under it then: a sub-step added before Undo goes back with it too, and
+    // the ones under it when it moved go back even if this page has since
+    // turned to another camp. The screen changes at once; Undo's writes wait
+    // for the move's, so a quick Undo can't be overtaken by the move.
+    const put = (fields, after = Promise.resolve()) => {
+      const shown = new Map((stepsNow.current ?? []).map((x) => [x.id, x]));
+      const along = [...new Set([...under, ...stepsUnder(stepsNow.current, st.id)].map((x) => x.id))].filter(
+        (k) => !shown.has(k) || (shown.get(k).section_id ?? null) !== fields.section_id
+      );
       const ids = new Set(along);
       setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : ids.has(x.id) ? { ...x, section_id: fields.section_id } : x)));
       if (fields.section_id) setOpened((o) => ({ ...o, [fields.section_id]: true }));
       requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-      return Promise.all([updateStep(st.id, fields), along.length ? updateSteps(along, { section_id: fields.section_id }) : null]).catch((err) =>
-        failed(err, "Couldn't move that step.")
-      );
+      return after
+        .then(() => Promise.all([updateStep(st.id, fields), along.length ? updateSteps(along, { section_id: fields.section_id }) : null]))
+        .catch((err) => failed(err, "Couldn't move that step."));
     };
-    put(now);
-    toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => put(was) });
+    const going = put(now);
+    toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => put(was, going) });
   }
 
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
