@@ -157,15 +157,20 @@ export function withFinishedStep(finished, step) {
 
 // Each camp's steps, for the camps under each quest on Quests: camp id →
 // { done, total, working, today }, where `working` means an open step there
-// is being worked on now and `today` counts the steps picked for `today`.
-export function campTally(steps, today = null) {
+// is being worked on now and `today` counts what's on today there: the
+// steps picked for `today`, and in a section picked for it (0091, from
+// `sections`) its steps that show in Today, the ones not done before today.
+export function campTally(steps, today = null, sections = null) {
+  const whole = new Set(today ? (sections ?? []).filter((x) => x.today_on === today).map((x) => x.id) : []);
   const m = new Map();
   for (const s of steps ?? []) {
     const t = m.get(s.camp_id) ?? { done: 0, total: 0, working: false, today: 0 };
     t.total += 1;
     if (s.done_on) t.done += 1;
     else if (s.working_since) t.working = true;
-    if (today && s.today_on === today) t.today += 1;
+    if (s.section_id && whole.has(s.section_id)) {
+      if (!s.parent_id && (!s.done_on || s.done_on >= today)) t.today += 1;
+    } else if (today && s.today_on === today) t.today += 1;
     m.set(s.camp_id, t);
   }
   return m;

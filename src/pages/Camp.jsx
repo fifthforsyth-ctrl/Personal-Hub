@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
+import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
 import { buildCamp, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
@@ -17,7 +17,7 @@ import { markDrop, useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
-import { PickBar, TodayHead, usePick } from "../components/camp/Today";
+import { PickBar, TodayBlocks, TodayHead, usePick } from "../components/camp/Today";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 
@@ -28,9 +28,9 @@ import "../styles/camp.css";
 // same mountain are a tap away along the top.
 //
 // Above the steps sits Today (0090, Aaron 2026-10-27): any steps he picks
-// to do today, shown again there without leaving their sections. A tick, a
-// note or a sub-step in either place is the same one. Each day's Today
-// starts empty; nothing carries forward.
+// to do today, or whole sections (0091), shown again there without leaving
+// where they sit. A tick, a note or a sub-step in either place is the same
+// one. Each day's Today starts empty; nothing carries forward.
 
 const HIDE_KEY = "hub.camp.hideDone";
 
@@ -43,6 +43,15 @@ function readHide() {
 }
 
 const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
+
+// A step's or a section's words, cut short for a toast.
+const short = (t) => {
+  const s = String(t ?? "");
+  return s.length > 40 ? `${s.slice(0, 40).trimEnd()}…` : s;
+};
+
+// A step's pick box while its whole section is picked: on, and fixed.
+const LOCKED = { on: true, locked: true, toggle: () => {} };
 
 export default function Camp() {
   const { id } = useParams();
@@ -133,7 +142,12 @@ export default function Camp() {
 
   // --- Today ---------------------------------------------------------------------
 
-  const onToday = (st) => st.today_on === today;
+  // A step or a section (0091) picked for today.
+  const onToday = (x) => x.today_on === today;
+  // A step in a section picked whole is on today with it: while picking,
+  // as picked so far.
+  const withSection = (st) =>
+    Boolean(st.section_id) && (pick.on ? pick.sel.has(st.section_id) : data.sections.some((s) => s.id === st.section_id && onToday(s)));
 
   // One step onto today, or off it.
   function setToday(st, on) {
@@ -145,34 +159,65 @@ export default function Camp() {
     updateStep(st.id, fields).catch((err) => failed(err, "Couldn't change that."));
   }
 
+  // Picking starts from what's on today: the sections, and the steps not
+  // already on with their section (those come off as steps of their own if
+  // it's saved).
   function startPicking() {
     setOpenStep(null);
     setOpenToday(null);
-    pick.start(data.steps.filter(onToday).map((x) => x.id));
+    const whole = new Set(data.sections.filter(onToday).map((s) => s.id));
+    pick.start([...whole, ...data.steps.filter((x) => onToday(x) && !whole.has(x.section_id)).map((x) => x.id)]);
     haptic("tap");
   }
 
   async function savePicks() {
-    const { add, remove } = pickDiff(data.steps.filter(onToday).map((x) => x.id), pick.sel);
-    if (!add.length && !remove.length) {
+    const isSection = new Set(data.sections.map((s) => s.id));
+    const picked = [...pick.sel];
+    const steps = pickDiff(data.steps.filter(onToday).map((x) => x.id), new Set(picked.filter((x) => !isSection.has(x))));
+    const secs = pickDiff(data.sections.filter(onToday).map((s) => s.id), new Set(picked.filter((x) => isSection.has(x))));
+    if (!steps.add.length && !steps.remove.length && !secs.add.length && !secs.remove.length) {
       pick.stop();
       return;
     }
     setSaving(true);
     try {
-      await Promise.all([updateSteps(add, { today_on: today }), updateSteps(remove, { today_on: null })]);
-      const on = new Set(add);
-      const off = new Set(remove);
-      setSteps((list) => list.map((x) => (on.has(x.id) ? { ...x, today_on: today } : off.has(x.id) ? { ...x, today_on: null } : x)));
+      await Promise.all([
+        updateSteps(steps.add, { today_on: today }),
+        updateSteps(steps.remove, { today_on: null }),
+        updateSections(secs.add, { today_on: today }),
+        updateSections(secs.remove, { today_on: null }),
+      ]);
+      const on = new Set([...steps.add, ...secs.add]);
+      const off = new Set([...steps.remove, ...secs.remove]);
+      const put = (x) => (on.has(x.id) ? { ...x, today_on: today } : off.has(x.id) ? { ...x, today_on: null } : x);
+      mutate((d) => d && { ...d, steps: d.steps.map(put), sections: d.sections.map(put) });
       pick.stop();
       haptic("success");
-      toast.show(pick.sel.size ? `${pick.sel.size} on today` : "Today is clear");
+      const k = picked.filter((x) => isSection.has(x)).length;
+      const n = picked.length - k;
+      toast.show(
+        picked.length ? `${[k ? `${k} section${k === 1 ? "" : "s"}` : "", n ? `${n} step${n === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ")} on today` : "Today is clear"
+      );
     } catch (err) {
       toast.error(err, "Couldn't save today's picks.");
       reload();
     } finally {
       setSaving(false);
     }
+  }
+
+  // A whole section onto today, or off it, from Today's "Off today".
+  function setSectionToday(s, on) {
+    const fields = { today_on: on ? today : null };
+    mutate((d) => d && { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, ...fields } : x)) });
+    updateSection(s.id, fields).catch((err) => failed(err, "Couldn't change that."));
+  }
+
+  function sectionOff(s) {
+    if (openToday && data.steps.some((x) => x.id === openToday && x.section_id === s.id)) setOpenToday(null);
+    haptic("tap");
+    setSectionToday(s, false);
+    toast.show(`“${short(s.title)}” is off today`, { actionLabel: "Undo", onAction: () => setSectionToday(s, true) });
   }
 
   // Everything under it goes with it.
@@ -295,8 +340,7 @@ export default function Camp() {
       );
     };
     put(now);
-    const name = String(parent.text ?? "");
-    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was) });
+    toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => put(was) });
   }
 
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
@@ -344,15 +388,16 @@ export default function Camp() {
     onSave: (fields) => saveStep(st, fields),
     onMove: (by) => moveStep(st, shown, by),
     onRemove: () => removeStep(st),
-    isToday: onToday(st),
-    onToday: () => setToday(st, !onToday(st)),
-    pick: pick.of(st.id),
+    isToday: onToday(st) && !withSection(st),
+    onToday: withSection(st) ? undefined : () => setToday(st, !onToday(st)),
+    pick: pick.on && withSection(st) ? LOCKED : pick.of(st.id),
     sections: sectionChoices,
     onMoveTo: (sectionId) => moveToSection(st, sectionId),
   });
 
   // The same steps again in Today: they tick, take notes and sub-steps and
-  // come off today there, but move and go only where they sit.
+  // come off today there (one in a section on today comes off with it), but
+  // move and go only where they sit.
   const todayProps = (st) => ({
     onOpen: () => {
       setOpenStep(null);
@@ -361,7 +406,7 @@ export default function Camp() {
     onDone: () => toggleDone(st),
     onSave: (fields) => saveStep(st, fields),
     isToday: onToday(st),
-    onToday: () => setToday(st, !onToday(st)),
+    onToday: withSection(st) ? undefined : () => setToday(st, !onToday(st)),
   });
 
   // --- Sections and the camp's notes ---------------------------------------------
@@ -539,11 +584,13 @@ export default function Camp() {
               <section className="card today-card camp-today" aria-labelledby="camp-today-h">
                 <TodayHead id="camp-today-h" done={picks.done} total={picks.total} picking={pick.on} onPick={startPicking} />
                 {pick.on ? (
-                  <p className="today-hint">Tap the steps below to pick them for today. Tap one again to take it off.</p>
-                ) : picks.items.length ? (
-                  <StepList list={picks.items} openStep={openToday} hideDone={false} step={todayProps} onAddSubs={addSubs} mirror idPrefix="today-step" />
+                  <p className="today-hint">Tap the steps below to pick them for today, or a section's box for all of it. Tap one again to take it off.</p>
+                ) : picks.blocks.length ? (
+                  <TodayBlocks blocks={picks.blocks} openStep={openToday} step={todayProps} onAddSubs={addSubs} idPrefix="today-step" onSectionOff={sectionOff} />
                 ) : (
-                  <p className="today-hint">Pick the steps you'll do today. They stay where they are and show up here too, so a tick or a note in either place is the same.</p>
+                  <p className="today-hint">
+                    Pick the steps you'll do today, or whole sections. They stay where they are and show up here too, so a tick or a note in either place is the same.
+                  </p>
                 )}
               </section>
             )}
@@ -581,6 +628,8 @@ export default function Camp() {
                 section={s}
                 open={pick.on || isOpen(s)}
                 picking={pick.on}
+                pick={pick.on ? pick.of(s.id, data.steps.filter((x) => x.section_id === s.id).map((x) => x.id)) : null}
+                isToday={onToday(s)}
                 hideDone={hideDone}
                 openStep={openStep}
                 onToggle={pick.on ? undefined : () => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}

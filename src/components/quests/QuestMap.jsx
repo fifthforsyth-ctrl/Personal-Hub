@@ -8,7 +8,7 @@ import { splitSteps } from "../../lib/camp";
 // list below and unfolds the pill to show the camps on its mountain, each
 // with how far along it is; a camp goes to its checklist. Tapping the open
 // pill again folds it. `tally` is camp id → { done, total, working, today },
-// `today` being how many of its steps are picked for today (0090). A quest
+// `today` being how many of its steps are on today (0090, 0091). A quest
 // that's finished or set aside, opened from a link (`sel`), gets a pill of
 // its own, marked as not on. The open pill also adds camps (`onAddCamps`,
 // Aaron 2026-10-27): one per line, at the end of the mountain.

@@ -55,7 +55,8 @@ function WorkingBadge() {
 // Picked for today (`isToday`, 0090), it wears a small Today tag where it
 // sits. In a Today section (`mirror`) it's the same step shown again: it
 // says where it sits (`from`) and can't be moved or removed from there.
-// While picking (`pick`), its box picks it instead of ticking it.
+// While picking (`pick`), its box picks it instead of ticking it; in a
+// section picked whole (`pick.locked`, 0091) it's picked with the section.
 export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, idPrefix = "step", sections, sort, children }) {
   const done = Boolean(step.done_on);
   const working = !done && Boolean(step.working_since);
@@ -94,12 +95,21 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         (sort?.nesting ? " nesting" : "") +
         (mirror ? " mirror" : "") +
         (pick?.on ? " picked" : "") +
+        (pick?.locked ? " with-sec" : "") +
         tint.className
       }
     >
       <div className="camp-step__row">
         {pick ? (
-          <button type="button" className="camp-pick" role="checkbox" aria-checked={pick.on} aria-label={pick.on ? "Picked for today. Tap to take it off" : "Pick for today"} onClick={pick.toggle}>
+          <button
+            type="button"
+            className="camp-pick"
+            role="checkbox"
+            aria-checked={pick.on}
+            aria-label={pick.locked ? "On today with its section" : pick.on ? "Picked for today. Tap to take it off" : "Pick for today"}
+            disabled={pick.locked}
+            onClick={pick.toggle}
+          >
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         ) : (
@@ -114,7 +124,14 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         )}
-        <button type="button" className="camp-step__text" aria-expanded={pick ? undefined : open} aria-pressed={pick ? pick.on : undefined} onClick={pick ? pick.toggle : onOpen}>
+        <button
+          type="button"
+          className="camp-step__text"
+          aria-expanded={pick ? undefined : open}
+          aria-pressed={pick ? pick.on : undefined}
+          disabled={pick?.locked}
+          onClick={pick ? pick.toggle : onOpen}
+        >
           {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
             {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
@@ -362,8 +379,10 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false }) {
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
 // a handle to drag the whole section into a new place. In a colour (0089)
-// the whole card wears it. While picking for today it has no box to add.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, onInto, step, sort, picking = false }) {
+// the whole card wears it. While picking for today it has no box to add,
+// and (`pick`, 0091) a box of its own to pick the whole section; on today
+// (`isToday`) it wears the Today tag.
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, onInto, step, sort, picking = false, pick = null, isToday = false }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -372,20 +391,42 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
     <section
       ref={sort?.ref}
       style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
-      className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "") + (tint.style ? " camp-sec--tinted" : "")}
+      className={
+        "card camp-sec" +
+        (s.complete ? " complete" : "") +
+        (open ? " open" : "") +
+        (sort?.lifted ? " lifted" : "") +
+        (tint.style ? " camp-sec--tinted" : "") +
+        (pick?.on ? " picked" : "")
+      }
       aria-labelledby={`sec-${s.id}`}
       data-drop={s.id}
     >
       <div className="camp-sec__head">
-        <button type="button" className="camp-sec__toggle" aria-expanded={open} onClick={onToggle}>
+        {pick && (
+          <button
+            type="button"
+            className="camp-pick camp-sec__pick"
+            role="checkbox"
+            aria-checked={pick.on}
+            aria-label={pick.on ? `All of ${s.title} is picked for today. Tap to take it off` : `Pick all of ${s.title} for today`}
+            onClick={pick.toggle}
+          >
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </button>
+        )}
+        <button type="button" className="camp-sec__toggle" aria-expanded={pick ? undefined : open} aria-pressed={pick ? pick.on : undefined} onClick={pick ? pick.toggle : onToggle}>
           <span className="camp-sec__n" aria-hidden="true">
             {s.complete ? <Check size={14} strokeWidth={3} /> : s.number}
           </span>
           <span className="camp-sec__name">
             <h2 id={`sec-${s.id}`}>{s.title}</h2>
-            <small>{s.total ? `${s.done} of ${s.total}` : "No steps yet"}</small>
+            <small>
+              {s.total ? `${s.done} of ${s.total}` : "No steps yet"}
+              {isToday && !pick && <span className="today-tag">Today</span>}
+            </small>
           </span>
-          <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />
+          {!pick && <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />}
         </button>
         <button type="button" className="btn-icon" onClick={onEdit} aria-label={`Edit ${s.title}`} title="Edit section">
           <Pencil size={14} />

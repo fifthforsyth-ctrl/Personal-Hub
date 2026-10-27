@@ -15,6 +15,7 @@ import {
   updateQuest,
   updateQuestTask,
   updateQuestTasks,
+  updateSection,
   updateStep,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
@@ -32,8 +33,7 @@ import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
 import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
-import { StepList } from "../components/camp/Steps";
-import { PickBar, usePick } from "../components/camp/Today";
+import { PickBar, TodayBlocks, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -53,8 +53,9 @@ import "../styles/quests.css";
 // opens its list and its camps. New camps are added there too.
 //
 // Today's list also shows what's picked for today elsewhere (0090, Aaron
-// 2026-10-27): steps picked in any of the quest's camps, under each camp's
-// name, and lines picked from the ongoing list or an earlier day. They're
+// 2026-10-27): steps and whole sections (0091) picked in any of the quest's
+// camps, under each camp's name, and lines picked from the ongoing list or
+// an earlier day. They're
 // the same steps and lines, not copies, so a tick or a note here is a tick
 // or a note there too.
 //
@@ -102,7 +103,7 @@ export default function Quests() {
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
   const ongoing = useMemo(() => ongoingList(lines ?? [], today), [lines, today]);
 
-  const tally = useMemo(() => campTally(board?.campSteps, today), [board, today]);
+  const tally = useMemo(() => campTally(board?.campSteps, today, board?.campSections), [board, today]);
 
   // What's picked for today: lines from the ongoing list and earlier days,
   // and steps in the quest's camps.
@@ -286,13 +287,41 @@ export default function Quests() {
     saveStep(st, { today_on: on ? today : null });
   }
 
+  // A whole section picked in a camp (0091): its steps come off today with it.
+  const sectionOnToday = (st) => Boolean(st.section_id) && (campData?.sections ?? []).some((x) => x.id === st.section_id && x.today_on === today);
+
+  function setSectionToday(sec, on) {
+    const fields = { today_on: on ? today : null };
+    const put = (x) => (x.id === sec.id ? { ...x, ...fields } : x);
+    mutateCamps((d) => d && { ...d, sections: d.sections.map(put) });
+    mutateBoard((b) => b && { ...b, campSections: (b.campSections ?? []).map(put) });
+    updateSection(sec.id, fields).catch((err) => stepFailed(err, "Couldn't change that."));
+  }
+
+  function sectionOff(sec) {
+    if (openStep && (campData?.steps ?? []).some((x) => x.id === openStep && x.section_id === sec.id)) setOpenStep(null);
+    haptic("tap");
+    setSectionToday(sec, false);
+    const name = String(sec.title ?? "");
+    toast.show(`“${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}” is off today`, { actionLabel: "Undo", onAction: () => setSectionToday(sec, true) });
+  }
+
   async function addStepSubs(st, texts) {
     const under = (campData?.steps ?? []).filter((x) => x.parent_id === st.id);
     const start = under.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     try {
       const rows = await addSteps(userId, st.camp_id, st.section_id ?? null, texts, start, st.id);
       setCampSteps((list) => [...list, ...rows]);
-      mutateBoard((b) => b && { ...b, campSteps: [...(b.campSteps ?? []), ...rows.map((r) => ({ id: r.id, camp_id: r.camp_id, done_on: null, working_since: null, today_on: null }))] });
+      mutateBoard(
+        (b) =>
+          b && {
+            ...b,
+            campSteps: [
+              ...(b.campSteps ?? []),
+              ...rows.map((r) => ({ id: r.id, camp_id: r.camp_id, section_id: r.section_id ?? null, parent_id: r.parent_id ?? null, done_on: null, working_since: null, today_on: null })),
+            ],
+          }
+      );
       haptic("tap");
       return true;
     } catch (err) {
@@ -318,7 +347,7 @@ export default function Quests() {
     onDone: () => toggleStepDone(st),
     onSave: (fields) => saveStep(st, fields),
     isToday: st.today_on === today,
-    onToday: () => setStepToday(st, st.today_on !== today),
+    onToday: sectionOnToday(st) ? undefined : () => setStepToday(st, st.today_on !== today),
   });
 
   function removeLine(line) {
@@ -680,7 +709,7 @@ export default function Quests() {
             <ChevronRight size={14} aria-hidden="true" />
           </Link>
           <SketchProvider kind="step" userId={userId} scopeId={g.camp.id} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
-            <StepList list={g.items} openStep={openStep} hideDone={false} step={stepRow} onAddSubs={addStepSubs} mirror idPrefix="qs-step" />
+            <TodayBlocks blocks={g.blocks} openStep={openStep} step={stepRow} onAddSubs={addStepSubs} idPrefix="qs-step" onSectionOff={sectionOff} />
           </SketchProvider>
         </div>
       ))}
