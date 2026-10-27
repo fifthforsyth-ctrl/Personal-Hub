@@ -2903,12 +2903,25 @@ export async function deleteLesson(id) {
 // ---------------------------------------------------------------------------
 
 const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, done_on, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, today_on, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
-// Every step's camp and whether it's done, for the camp lists on the Range.
+// Every step's camp, whether it's done and whether it's picked for a day,
+// for the camp lists on the Range and Quests.
 export function fetchStepTally(userId) {
-  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on, working_since").eq("user_id", userId).order("id"));
+  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on, working_since, today_on").eq("user_id", userId).order("id"));
+}
+
+// The sections and steps of several camps (a quest's), for its Today on
+// Quests: the steps picked for today, with what's under them and the
+// section each sits in.
+export async function fetchCampsSteps(userId, campIds) {
+  if (!campIds.length) return { sections: [], steps: [] };
+  const [sections, steps] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("user_id", userId).in("camp_id", campIds).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).in("camp_id", campIds).order("id")),
+  ]);
+  return { sections, steps };
 }
 
 // One camp: the camp, the mountain it's on (a quest, or a lesson's own),
@@ -2972,6 +2985,17 @@ export async function updateStep(id, fields) {
     .from("camp_steps")
     .update({ ...fields, updated_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) throw error;
+}
+
+// The same fields on several steps at once: steps picked for today, or
+// taken off it.
+export async function updateSteps(ids, fields) {
+  if (!ids.length) return;
+  const { error } = await supabase
+    .from("camp_steps")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .in("id", ids);
   if (error) throw error;
 }
 
@@ -3421,7 +3445,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, ongoing, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, ongoing, today_on, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3571,7 +3595,7 @@ export async function updateQuestTask(id, fields) {
 }
 
 // The same fields on several lines at once: a line and its sub-tasks moved
-// onto the ongoing list or off it.
+// onto the ongoing list or off it, or lines picked for today.
 export async function updateQuestTasks(ids, fields) {
   if (!ids.length) return;
   const { error } = await supabase

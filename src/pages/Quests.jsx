@@ -1,9 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Castle, Plus } from "lucide-react";
+import { Castle, ChevronRight, Plus, Repeat } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { addCamps, addQuest, addQuestTasks, deleteQuestTask, fetchQuestBoard, fetchQuestTasks, reorder, updateQuest, updateQuestTask, updateQuestTasks } from "../lib/api";
-import { boardOf, campTally, dayLabel, listDays, nextPosition, ongoingList, withFinished } from "../lib/questTasks";
+import {
+  addCamps,
+  addQuest,
+  addQuestTasks,
+  addSteps,
+  deleteQuestTask,
+  fetchCampsSteps,
+  fetchQuestBoard,
+  fetchQuestTasks,
+  reorder,
+  updateQuest,
+  updateQuestTask,
+  updateQuestTasks,
+  updateStep,
+} from "../lib/api";
+import { boardOf, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
+import { pickDiff, questToday } from "../lib/camp";
 import { villageOf } from "../lib/village";
 import { appendToNote } from "../lib/sketch";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
@@ -14,8 +29,10 @@ import { useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
-import { AddLine, DayList, OngoingList } from "../components/quests/Lines";
+import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
+import { StepList } from "../components/camp/Steps";
+import { PickBar, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -33,6 +50,12 @@ import "../styles/quests.css";
 // First come the quests and lessons as pills (Aaron, 2026-10-26): the one
 // that's open unfolds to show the camps on its mountain, and tapping another
 // opens its list and its camps. New camps are added there too.
+//
+// Today's list also shows what's picked for today elsewhere (0090, Aaron
+// 2026-10-27): steps picked in any of the quest's camps, under each camp's
+// name, and lines picked from the ongoing list or an earlier day. They're
+// the same steps and lines, not copies, so a tick or a note here is a tick
+// or a note there too.
 //
 // The build going up in the village floats at the top. Every task he ticks,
 // on any list, lays its bricks on it until it stands; then he chooses the
@@ -78,9 +101,29 @@ export default function Quests() {
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
   const ongoing = useMemo(() => ongoingList(lines ?? [], today), [lines, today]);
 
-  const tally = useMemo(() => campTally(board?.campSteps), [board]);
+  const tally = useMemo(() => campTally(board?.campSteps, today), [board, today]);
 
+  // What's picked for today: lines from the ongoing list and earlier days,
+  // and steps in the quest's camps.
+  const picked = useMemo(() => pickedLines(lines ?? [], today), [lines, today]);
+  const questCamps = useMemo(() => (board && questId ? board.camps.filter((c) => c.quest_id === questId) : []), [board, questId]);
+  const campKey = questCamps
+    .map((c) => c.id)
+    .sort()
+    .join(",");
+  const {
+    data: campData,
+    error: campsError,
+    reload: reloadCamps,
+    mutate: mutateCamps,
+  } = useLoad(() => (userId && campKey ? fetchCampsSteps(userId, campKey.split(",")) : { sections: [], steps: [] }), [userId, campKey]);
+  const campToday = useMemo(() => questToday(questCamps, campData?.sections, campData?.steps, today), [questCamps, campData, today]);
+
+  // A line open where it sits is its id; open in today's list, "t:" and its id.
   const [openId, setOpenId] = useState(null);
+  const [openStep, setOpenStep] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const picker = usePick(saving);
   const [openKey, setOpenKey] = useState(null);
   const [unfolded, setUnfolded] = useState({});
   const [allEarlier, setAllEarlier] = useState(false);
@@ -92,8 +135,11 @@ export default function Quests() {
 
   useEffect(() => {
     setOpenId(null);
+    setOpenStep(null);
     setUnfolded({});
     setAllEarlier(false);
+    picker.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.key]);
   useEffect(() => setNote(sel?.note ?? ""), [sel?.key, sel?.note]);
   // The quest that's open shows its camps; tapping its pill folds them away.
@@ -117,19 +163,22 @@ export default function Quests() {
   // The village counts finished tasks, so it hears about every tick.
   const tellVillage = (line) => mutateBoard((b) => b && { ...b, finished: { ...b.finished, tasks: withFinished(b.finished.tasks, line) } });
 
+  // A tick lays bricks; the one that finishes the build gets a little more.
+  function cheer(before) {
+    if (before && !before.complete && before.done + 1 >= before.need) {
+      playClink();
+      haptic("win");
+      toast.show(`The ${before.name.toLowerCase()} stands`, { actionLabel: "Choose the next build", onAction: () => navigate("/village?choose") });
+    } else haptic("tap");
+  }
+
   function toggleDone(line) {
     const done_on = line.done_on ? null : today;
     const done_at = done_on ? new Date().toISOString() : null;
     const before = buildNow(village, today);
     setLine(line.id, { done_on, done_at });
     tellVillage({ ...line, done_on, done_at });
-    if (done_on) {
-      if (before && !before.complete && before.done + 1 >= before.need) {
-        playClink();
-        haptic("win");
-        toast.show(`The ${before.name.toLowerCase()} stands`, { actionLabel: "Choose the next build", onAction: () => navigate("/village?choose") });
-      } else haptic("tap");
-    }
+    if (done_on) cheer(before);
     updateQuestTask(line.id, { done_on, done_at }).catch((err) => failed(err, "Couldn't save that."));
   }
 
@@ -146,6 +195,130 @@ export default function Quests() {
     tellVillage({ ...line, ...fields });
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't change that."));
   }
+
+  // --- Today: lines picked from the ongoing list and earlier days -------------------
+
+  // Only a top line off today's own list can be picked; its sub-tasks come with it.
+  const pickable = (line) => !line.parent_id && (line.ongoing || line.day !== today);
+  const isPicked = (line) => pickable(line) && line.today_on === today;
+
+  function setLineToday(line, on) {
+    const fields = { today_on: on ? today : null };
+    setLine(line.id, fields);
+    if (!on && openId === `t:${line.id}`) setOpenId(null);
+    haptic("tap");
+    toast.show(on ? "On today" : "Off today");
+    updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't change that."));
+  }
+
+  function startPicking() {
+    setOpenId(null);
+    setOpenStep(null);
+    picker.start((lines ?? []).filter(isPicked).map((x) => x.id));
+    haptic("tap");
+  }
+
+  async function savePicks() {
+    const { add, remove } = pickDiff((lines ?? []).filter(isPicked).map((x) => x.id), picker.sel);
+    if (!add.length && !remove.length) {
+      picker.stop();
+      return;
+    }
+    setSaving(true);
+    try {
+      await Promise.all([updateQuestTasks(add, { today_on: today }), updateQuestTasks(remove, { today_on: null })]);
+      const on = new Set(add);
+      const off = new Set(remove);
+      mutateLines((list) => (list ?? []).map((x) => (on.has(x.id) ? { ...x, today_on: today } : off.has(x.id) ? { ...x, today_on: null } : x)));
+      picker.stop();
+      haptic("success");
+      toast.show(picker.sel.size ? `${picker.sel.size} on today` : "Nothing picked for today");
+    } catch (err) {
+      toast.error(err, "Couldn't save today's picks.");
+      reloadLines();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // --- Today: steps picked in the quest's camps ----------------------------------------
+
+  const setCampSteps = (fn) => mutateCamps((d) => d && { ...d, steps: fn(d.steps) });
+  const rawStep = (id) => campData?.steps.find((x) => x.id === id);
+  // The village counts finished steps, and the camps along the top count every step.
+  const tellBoard = (st) =>
+    mutateBoard(
+      (b) =>
+        b && {
+          ...b,
+          finished: { ...b.finished, steps: withFinishedStep(b.finished.steps, st) },
+          campSteps: (b.campSteps ?? []).map((x) => (x.id === st.id ? { ...x, done_on: st.done_on ?? null, working_since: st.working_since ?? null, today_on: st.today_on ?? null } : x)),
+        }
+    );
+  const stepFailed = (err, what) => {
+    toast.error(err, what);
+    reloadCamps();
+    reload();
+  };
+
+  function toggleStepDone(st) {
+    const done_on = st.done_on ? null : today;
+    // Finishing it means you're no longer working on it.
+    const fields = done_on && st.working_since ? { done_on, working_since: null } : { done_on };
+    const before = buildNow(village, today);
+    setCampSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
+    tellBoard({ ...(rawStep(st.id) ?? st), ...fields });
+    if (done_on) cheer(before);
+    updateStep(st.id, fields).catch((err) => stepFailed(err, "Couldn't save that step."));
+  }
+
+  function saveStep(st, fields) {
+    setCampSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
+    tellBoard({ ...(rawStep(st.id) ?? st), ...fields });
+    updateStep(st.id, fields).catch((err) => stepFailed(err, "Couldn't save that step."));
+  }
+
+  function setStepToday(st, on) {
+    if (!on && openStep === st.id) setOpenStep(null);
+    haptic("tap");
+    toast.show(on ? "On today" : "Off today");
+    saveStep(st, { today_on: on ? today : null });
+  }
+
+  async function addStepSubs(st, texts) {
+    const under = (campData?.steps ?? []).filter((x) => x.parent_id === st.id);
+    const start = under.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    try {
+      const rows = await addSteps(userId, st.camp_id, st.section_id ?? null, texts, start, st.id);
+      setCampSteps((list) => [...list, ...rows]);
+      mutateBoard((b) => b && { ...b, campSteps: [...(b.campSteps ?? []), ...rows.map((r) => ({ id: r.id, camp_id: r.camp_id, done_on: null, working_since: null, today_on: null }))] });
+      haptic("tap");
+      return true;
+    } catch (err) {
+      toast.error(err, texts.length > 1 ? "Couldn't add those sub-steps." : "Couldn't add that sub-step.");
+      return false;
+    }
+  }
+
+  // A sketch's summary, added to the end of its step's notes.
+  function addToStepNote(stepId, text) {
+    const st = rawStep(stepId);
+    if (!st) return "gone";
+    const { note, status } = appendToNote(st.note, text, 4000);
+    if (status !== "full") saveStep(st, { note });
+    return status;
+  }
+
+  const stepRow = (st) => ({
+    onOpen: () => {
+      setOpenId(null);
+      setOpenStep((o) => (o === st.id ? null : st.id));
+    },
+    onDone: () => toggleStepDone(st),
+    onSave: (fields) => saveStep(st, fields),
+    isToday: st.today_on === today,
+    onToday: () => setStepToday(st, st.today_on !== today),
+  });
 
   function removeLine(line) {
     const gone = new Set([line.id, ...(lines ?? []).filter((x) => x.parent_id === line.id).map((x) => x.id)]);
@@ -267,13 +440,34 @@ export default function Quests() {
   }
 
   const row = (line, siblings) => ({
-    onOpen: () => setOpenId((o) => (o === line.id ? null : line.id)),
+    onOpen: () => {
+      setOpenStep(null);
+      setOpenId((o) => (o === line.id ? null : line.id));
+    },
     onDone: () => toggleDone(line),
     onSave: (fields) => saveLine(line, fields),
     onKind: () => switchKind(line),
     onMove: (by) => moveLine(line, siblings, by),
     onShift: line.parent_id ? undefined : () => shiftLine(line),
+    isToday: isPicked(line),
+    onToday: pickable(line) ? () => setLineToday(line, !isPicked(line)) : undefined,
+    pick: pickable(line) ? picker.of(line.id) : null,
+    locked: picker.on && !pickable(line),
     onRemove: () => removeLine(line),
+  });
+
+  // The same lines again in today's list: they tick, take notes and
+  // sub-tasks and come off today there, but move and go only where they sit.
+  const mirrorRow = (line) => ({
+    onOpen: () => {
+      setOpenStep(null);
+      setOpenId((o) => (o === `t:${line.id}` ? null : `t:${line.id}`));
+    },
+    onDone: () => toggleDone(line),
+    onSave: (fields) => saveLine(line, fields),
+    onKind: () => switchKind(line),
+    isToday: isPicked(line),
+    onToday: pickable(line) ? () => setLineToday(line, !isPicked(line)) : undefined,
   });
 
   // --- The quest's notes and a new quest ----------------------------------------
@@ -353,6 +547,59 @@ export default function Quests() {
 
   const goal = sel?.goalId ? board.goals.find((g) => g.id === sel.goalId)?.title : null;
   const [todayList, ...earlierAll] = days;
+  const kind = sel?.type === "Lesson" ? "lesson" : "quest";
+  const homeOpen = openId && !String(openId).startsWith("t:") ? openId : null;
+  const todayOpen = openId && String(openId).startsWith("t:") ? String(openId).slice(2) : null;
+  const pickedAll = campToday.length > 0 || picked.items.length > 0;
+  const todayExtra = {
+    done: picked.done + campToday.reduce((n, g) => n + g.done, 0),
+    total: picked.total + campToday.reduce((n, g) => n + g.total, 0),
+    count: picked.items.length + campToday.reduce((n, g) => n + g.items.length, 0),
+  };
+  // While picking, today's list shows what to do instead of its copies, so
+  // nothing there can change what's being picked.
+  const todayLead = picker.on ? (
+    <div className="today-from">
+      <p className="today-hint">Pick lines from the lists below. A camp's steps are picked on the camp's own page.</p>
+      {todayList.items.length > 0 && <span className="today-group__label today-group__label--own">Written for today</span>}
+    </div>
+  ) : pickedAll ? (
+    <div className="today-from">
+      {campToday.map((g) => (
+        <div key={g.camp.id} className="today-group">
+          <Link to={`/ascent/camp/${g.camp.id}`} state={{ from: "quests" }} className="today-group__label">
+            <span className="today-group__n" aria-hidden="true">
+              {g.number}
+            </span>
+            <span className="today-group__name">{g.camp.title}</span>
+            <small>{`${g.done} of ${g.total}`}</small>
+            <ChevronRight size={14} aria-hidden="true" />
+          </Link>
+          <SketchProvider kind="step" userId={userId} scopeId={g.camp.id} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
+            <StepList list={g.items} openStep={openStep} hideDone={false} step={stepRow} onAddSubs={addStepSubs} mirror idPrefix="qs-step" />
+          </SketchProvider>
+        </div>
+      ))}
+      {picked.items.length > 0 && (
+        <div className="today-group">
+          <span className="today-group__label today-group__label--list">
+            <Repeat size={13} aria-hidden="true" />
+            <span className="today-group__name">From this {kind}'s list</span>
+          </span>
+          <LineTree
+            items={picked.items}
+            openId={todayOpen}
+            row={mirrorRow}
+            onAddSubs={addSubs}
+            mirror
+            idPrefix="today-line"
+            fromOf={(l) => (l.from === "ongoing" ? "Ongoing" : dayLabel(l.from, today))}
+          />
+        </div>
+      )}
+      {todayList.items.length > 0 && <span className="today-group__label today-group__label--own">Written for today</span>}
+    </div>
+  ) : null;
   const earlier = earlierAll.filter((d) => d.items.length);
   const earlierShown = allEarlier ? earlier : earlier.slice(0, EARLIER_SHOWN);
   const building = buildNow(village, today);
@@ -411,7 +658,7 @@ export default function Quests() {
             )}
           </div>
 
-          <div className="qs-main">
+          <div className={"qs-main" + (picker.on ? " picking" : "")}>
             <BuildMini village={village} today={today} show={away} />
 
             {!sel ? (
@@ -425,18 +672,34 @@ export default function Quests() {
             ) : (
               <>
                 {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
-                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={openId} row={row} onAddSubs={addSubs}>
+                {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
+                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} lead={todayLead} extra={todayExtra}>
                   {!todayList.items.length && !linesLoading && (
                     <p className="qs-hint">
                       {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
                       {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
                     </p>
                   )}
-                  <AddLine key={sel.key} onAdd={(parsed, kind) => addLines(parsed, kind)} />
+                  <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind)} />
                 </DayList>
 
-                <OngoingList key={sel.key} list={ongoing} kind={sel.type === "Lesson" ? "lesson" : "quest"} openId={openId} row={row} onAddSubs={addSubs}>
-                  <AddLine key={sel.key} ongoing onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
+                <OngoingList
+                  key={sel.key}
+                  list={ongoing}
+                  kind={kind}
+                  openId={homeOpen}
+                  row={row}
+                  onAddSubs={addSubs}
+                  action={
+                    !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
+                      <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
+                        Pick for today
+                      </button>
+                    ) : null
+                  }
+                >
+                  {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
+                  <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
                 </OngoingList>
 
                 {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
@@ -448,7 +711,7 @@ export default function Quests() {
                     today={today}
                     folded={!unfolded[d.day]}
                     onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
-                    openId={openId}
+                    openId={homeOpen}
                     row={row}
                     onAddSubs={addSubs}
                   />
@@ -458,6 +721,7 @@ export default function Quests() {
                     Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
                   </button>
                 )}
+                {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
               </>
             )}
           </div>
