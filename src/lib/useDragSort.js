@@ -24,11 +24,13 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // selector, that row lights up (its li gets `drop-into`), the item tucks in
 // under it wearing `label`, and letting go there hands `drop(id, li)` the
 // row's li. Its own rows, the ones under it and the one it's already under
-// don't count. While it's over a row nothing else moves, so the row stays
-// right where it is under the finger; and once `into` is on, the room it
-// makes among its neighbours follows the finger, not its middle (a step
-// with sub-steps under it would otherwise slide its neighbours away before
-// the finger got to them).
+// don't count, nor do rows out of sight, nor any row while the page is
+// scrolling along at an edge (rows sliding past under a still finger would
+// otherwise light up one after another). While it's over a row nothing else
+// moves, so the row stays right where it is under the finger; and once
+// `into` is on, the room it makes among its neighbours follows the finger,
+// not its middle (a step with sub-steps under it would otherwise slide its
+// neighbours away before the finger got to them).
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
 const NEST_X = 28; // how far in it tucks under a row it's going into
@@ -119,6 +121,11 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     e.stopPropagation();
     const box = scrollerOf(e.currentTarget);
     const scrolled = () => (box ? box.scrollTop : window.scrollY);
+    // The part of the page you can see: the scroller's box, or the window.
+    const seen = () => {
+      const r = box?.getBoundingClientRect();
+      return { top: Math.max(0, r ? r.top : 0), bottom: Math.min(window.innerHeight, r ? r.bottom : window.innerHeight) };
+    };
     const rects = list.map((x) => els.current.get(x)?.getBoundingClientRect());
     if (rects.some((r) => !r)) return;
     const me = rects[from];
@@ -142,6 +149,7 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       grab: e.clientY - me.top,
       targets: [],
       into: null,
+      pushing: false,
       frame: 0,
     };
     const self = els.current.get(id);
@@ -163,21 +171,25 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     }
     // Over a row is from a quarter of the way down it to three quarters, so
     // the edges between rows still move it in among them. Rows are measured
-    // where they are now, room made for it and all.
+    // where they are now, room made for it and all, and only count where
+    // they can be seen, with the finger in sight too.
     const over = (t) => {
       const r = t.row.getBoundingClientRect();
       const q = r.height / 4;
+      const v = seen();
+      const mid = r.top + r.height / 2;
+      if (d.y < v.top || d.y > v.bottom || mid < v.top || mid > v.bottom) return false;
       return r.height > 0 && d.y > r.top + q && d.y < r.bottom - q && d.x >= r.left - 16 && d.x <= r.right + 32;
     };
     const update = () => {
       const dy = d.y - d.startY + (scrolled() - d.scroll0);
       const at = d.y + scrolled();
       const slack = d.step / 2;
-      if (d.into && !over(d.into)) {
+      if (d.into && (d.pushing || !over(d.into))) {
         d.into.li.classList.remove("drop-into");
         d.into = null;
       }
-      if (!d.into && d.targets.length) {
+      if (!d.into && !d.pushing && d.targets.length) {
         d.into = d.targets.find(over) ?? null;
         if (d.into) {
           d.into.li.classList.add("drop-into");
@@ -201,17 +213,20 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     };
     const tick = () => {
       if (live.current !== d) return;
-      const r = box?.getBoundingClientRect();
-      const top = Math.max(0, r ? r.top : 0);
-      const bottom = Math.min(window.innerHeight, r ? r.bottom : window.innerHeight);
+      const { top, bottom } = seen();
       const push = towardEdge(edgePush(d.y, top, bottom), d.startY, d.y);
+      let moving = false;
       if (push) {
         const before = scrolled();
         const by = Math.round(push * SPEED);
         if (box) box.scrollTop = before + by;
         else window.scrollBy(0, by);
-        if (scrolled() !== before) update();
+        moving = scrolled() !== before;
       }
+      // Once the page stops, the row under the finger can light up again.
+      const was = d.pushing;
+      d.pushing = moving;
+      if (moving || was) update();
       d.frame = requestAnimationFrame(tick);
     };
     d.onMove = (ev) => {

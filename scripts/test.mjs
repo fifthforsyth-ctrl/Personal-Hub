@@ -1791,6 +1791,17 @@ console.log("\nthe mark");
       [{ id: "x1", camp_id: "k1", today_on: T }, { id: "x2", camp_id: "k1", today_on: null }]
     );
     ok("a section on today counts its steps that show in Today, once each", secTally.get("k1").today === 3);
+    const openUnder = campTally(
+      [
+        { id: "p", camp_id: "k1", section_id: "x1", done_on: "2026-10-20" },
+        { id: "c", camp_id: "k1", section_id: "x1", parent_id: "p", done_on: null },
+        { id: "q", camp_id: "k1", section_id: "x1", done_on: null },
+      ],
+      T,
+      [{ id: "x1", camp_id: "k1", today_on: T }]
+    );
+    ok("a step done before today with a sub-step still to do counts, as Today shows it", openUnder.get("k1").today === 2);
+
 
     const qtSec = questToday(camps, [...qsecs, { id: "x3", camp_id: "k3", title: "Rings", position: 0, today_on: T }], [...qsteps, { id: "g2", camp_id: "k3", section_id: "x3", text: "Ring one", position: 1 }], T);
     ok("a quest's Today takes in a camp with only a section on today", qtSec.map((g) => g.camp.title).join() === "Sift,Multicam,Graphica" && qtSec[2].blocks[0].section.id === "x3" && qtSec[2].items.map((x) => x.id).join() === "g2");

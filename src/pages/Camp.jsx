@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -67,6 +67,9 @@ export default function Camp() {
 
   const { data, error, loading, reload, mutate } = useLoad(() => (userId ? fetchCamp(userId, id) : null), [userId, id]);
   const view = useMemo(() => (data ? buildCamp(data.sections, data.steps, today) : null), [data, today]);
+  // The steps as they are now, for an Undo that runs after more has changed.
+  const stepsNow = useRef(null);
+  stepsNow.current = data?.steps ?? null;
   const picks = useMemo(() => todayPicks(view, today), [view, today]);
 
   const [hideDone, setHideDone] = useState(readHide);
@@ -328,9 +331,12 @@ export default function Camp() {
       section_id: sectionId,
       position: data.steps.filter((x) => x.parent_id === parent.id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0),
     };
-    // The steps under it follow it into the new section (and back).
-    const along = sectionId !== was.section_id ? under.map((x) => x.id) : [];
+    // The steps under it follow it into the new section (and back), the ones
+    // under it then: a sub-step added before Undo goes back with it too.
     const put = (fields) => {
+      const along = stepsUnder(stepsNow.current, st.id)
+        .filter((x) => (x.section_id ?? null) !== fields.section_id)
+        .map((x) => x.id);
       const ids = new Set(along);
       setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : ids.has(x.id) ? { ...x, section_id: fields.section_id } : x)));
       if (fields.section_id) setOpened((o) => ({ ...o, [fields.section_id]: true }));

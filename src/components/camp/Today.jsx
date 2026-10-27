@@ -11,9 +11,11 @@ import { tintOf } from "./ColorPick";
 // Picking: while it's on, `sel` holds the ids picked so far, starting from
 // what's on today already; `of(id)` gives a row its { on, toggle }. A whole
 // section (0091) is `of(id, members)`: picking it takes in its steps, so
-// they come off `sel` as steps of their own.
+// they come off `sel` as steps of their own, and taking it off again gives
+// back the ones that were picked on their own before.
 export function usePick(busy = false) {
   const [sel, setSel] = useState(null);
+  const taken = useRef(new Map()); // section id -> its steps it took in
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const toggle = useCallback(
@@ -21,8 +23,11 @@ export function usePick(busy = false) {
       setSel((s) => {
         if (!s) return s;
         const next = new Set(s);
-        if (next.has(id)) next.delete(id);
-        else {
+        if (next.has(id)) {
+          next.delete(id);
+          for (const m of taken.current.get(id) ?? []) next.add(m);
+        } else {
+          taken.current.set(id, (members ?? []).filter((m) => s.has(m)));
           next.add(id);
           for (const m of members ?? []) next.delete(m);
         }
@@ -48,8 +53,14 @@ export function usePick(busy = false) {
   return {
     on: sel !== null,
     sel,
-    start: (ids) => setSel(new Set(ids)),
-    stop: () => setSel(null),
+    start: (ids) => {
+      taken.current = new Map();
+      setSel(new Set(ids));
+    },
+    stop: () => {
+      taken.current = new Map();
+      setSel(null);
+    },
     of: (id, members) => (sel ? { on: sel.has(id), toggle: () => toggle(id, members) } : null),
   };
 }

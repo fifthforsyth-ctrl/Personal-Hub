@@ -420,20 +420,28 @@ export default function Quests() {
       now[0].today_on = null;
       was[0].today_on = line.today_on;
     }
-    const put = (rows) => {
+    // One row at a time, in an order where every step on the way can be
+    // shown: going under, its sub-tasks move first, then it; coming back,
+    // it moves first, then they do. So a write that fails part way never
+    // leaves a sub-task under a sub-task, where no list would show it.
+    const put = (rows, order) => {
       const by = new Map(rows.map(({ id, ...fields }) => [id, fields]));
       mutateLines((list) => (list ?? []).map((x) => (by.has(x.id) ? { ...x, ...by.get(x.id) } : x)));
       requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-      return Promise.all(rows.map(({ id, ...fields }) => updateQuestTask(id, fields))).catch((err) => failed(err, "Couldn't move that."));
+      return order
+        .reduce((p, { id, ...fields }) => p.then(() => updateQuestTask(id, fields)), Promise.resolve())
+        .catch((err) => failed(err, "Couldn't move that."));
     };
-    put(now);
+    put(now, [...now.slice(1), now[0]]);
     const name = String(target.text ?? "");
-    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was) });
+    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was, was) });
   }
 
   // Carried out of its list onto today's list or the ongoing list (`where`):
   // it's a line of its own there, just before `beforeId` or at the end, and
   // its sub-tasks come along. A sub-task comes out from under its task.
+  // Undo puts it back where it was, on its own day (an earlier day's line
+  // otherwise has no way back there).
   function moveLineTo(line, where, beforeId = null) {
     const all = lines ?? [];
     const onList = where === "ongoing";
@@ -452,11 +460,26 @@ export default function Quests() {
         x.id === line.id ? { ...x, ...top, position: pos.get(x.id) } : subs.includes(x.id) ? { ...x, ...rest } : pos.has(x.id) ? { ...x, position: pos.get(x.id) } : x
       )
     );
-    if (!same) toast.show(onList ? "On the ongoing list" : "On today's list");
-    requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    const scroll = () => requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    scroll();
     (same ? Promise.resolve() : Promise.all([updateQuestTask(line.id, top), subs.length ? updateQuestTasks(subs, rest) : null]))
       .then(() => reorder("quest_tasks", next))
       .catch((err) => failed(err, "Couldn't move that."));
+    if (same) return;
+    // What Undo puts back: the line where it was, its sub-tasks with it, and
+    // the lines it landed among closed up again in their own order.
+    const was = { parent_id: line.parent_id ?? null, day: line.day, ongoing: Boolean(line.ongoing), position: line.position ?? 0 };
+    const subsWas = all.filter((x) => x.parent_id === line.id).map((x) => ({ id: x.id, day: x.day, ongoing: Boolean(x.ongoing) }));
+    const undo = () => {
+      const back = new Map([[line.id, was], ...subsWas.map(({ id, ...f }) => [id, f]), ...there.map((x, k) => [x.id, { position: k }])]);
+      mutateLines((list) => (list ?? []).map((x) => (back.has(x.id) ? { ...x, ...back.get(x.id) } : x)));
+      scroll();
+      updateQuestTask(line.id, was)
+        .then(() => subsWas.reduce((p, { id, ...f }) => p.then(() => updateQuestTask(id, f)), Promise.resolve()))
+        .then(() => reorder("quest_tasks", there.map((x) => ({ id: x.id, position: pos.get(x.id) }))))
+        .catch((err) => failed(err, "Couldn't move that back."));
+    };
+    toast.show(onList ? "On the ongoing list" : "On today's list", { actionLabel: "Undo", onAction: undo });
   }
 
   // A line carried out of its own list: today's list or the ongoing list
