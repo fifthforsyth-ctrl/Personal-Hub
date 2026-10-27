@@ -18,8 +18,40 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // is clear of the list, the others close back up and `onOut(phase, x, y, id)`
 // hears "move" as it goes ("back" if it comes home), then "drop" (or
 // "cancel") where it was let go.
+//
+// With `into` ({ rows, label, drop }), it can also go under another item
+// (Aaron, 2026-10-27): held over the middle of any row matching the `rows`
+// selector, that row lights up (its li gets `drop-into`), the item tucks in
+// under it wearing `label`, and letting go there hands `drop(id, li)` the
+// row's li. Its own rows, the ones under it and the one it's already under
+// don't count. While it's over a row nothing else moves, so the row stays
+// right where it is under the finger; and once `into` is on, the room it
+// makes among its neighbours follows the finger, not its middle (a step
+// with sub-steps under it would otherwise slide its neighbours away before
+// the finger got to them).
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
+const NEST_X = 28; // how far in it tucks under a row it's going into
+
+// How far the item at `i` has slid to make room, while the one at `from` is
+// carried to `to` and each takes `step` px.
+function shiftOf(i, from, to, step) {
+  if (from < to && i > from && i <= to) return -step;
+  if (to < from && i >= to && i < from) return step;
+  return 0;
+}
+
+// For `onOut`: lights up where a carried item would land, `hit.el` (a
+// [data-drop] box) and `hit.below`, the item it would go just before (none:
+// at the end). With no `hit` (let go, or back home) it all goes dark.
+export function markDrop(hit) {
+  document.querySelectorAll("[data-drop].drop-here").forEach((e) => e !== hit?.el && e.classList.remove("drop-here", "drop-end"));
+  document.querySelectorAll(".drop-before").forEach((e) => e !== hit?.below && e.classList.remove("drop-before"));
+  if (!hit) return;
+  hit.el.classList.add("drop-here");
+  hit.el.classList.toggle("drop-end", !hit.below);
+  hit.below?.classList.add("drop-before");
+}
 
 // The box that scrolls the list: its nearest scrolling ancestor, or the page.
 export function scrollerOf(el) {
@@ -30,12 +62,12 @@ export function scrollerOf(el) {
   return null;
 }
 
-export function useDragSort(ids, onDrop, { onOut } = {}) {
+export function useDragSort(ids, onDrop, { onOut, into } = {}) {
   const els = useRef(new Map());
   const live = useRef(null);
-  const [drag, setDrag] = useState(null); // { id, from, to, dy, step }
-  const latest = useRef({ ids, onDrop, onOut });
-  latest.current = { ids, onDrop, onOut };
+  const [drag, setDrag] = useState(null); // { id, from, to, x, y, step, nest }
+  const latest = useRef({ ids, onDrop, onOut, into });
+  latest.current = { ids, onDrop, onOut, into };
 
   const ref = useCallback(
     (id) => (el) => {
@@ -53,8 +85,18 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     window.removeEventListener("pointermove", d.onMove);
     window.removeEventListener("pointerup", d.onUp);
     window.removeEventListener("pointercancel", d.onCancel);
-    document.documentElement.classList.remove("drag-sorting");
+    document.documentElement.classList.remove("drag-sorting", "drag-into");
     setDrag(null);
+    if (d.into) {
+      d.into.li.classList.remove("drop-into");
+      // whatever was lit on the way here goes dark
+      if (d.wasOut) latest.current.onOut?.("cancel", d.x, d.y, d.id);
+      if (commit) {
+        haptic("tap");
+        latest.current.into?.drop(d.id, d.into.li);
+      }
+      return;
+    }
     if (d.out) {
       latest.current.onOut?.(commit ? "drop" : "cancel", d.x, d.y, d.id);
       if (commit) haptic("tap");
@@ -72,7 +114,7 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     if (e.button !== undefined && e.button !== 0) return;
     const list = latest.current.ids;
     const from = list.indexOf(id);
-    if (from < 0 || (list.length < 2 && !latest.current.onOut)) return;
+    if (from < 0 || (list.length < 2 && !latest.current.onOut && !latest.current.into)) return;
     e.preventDefault();
     e.stopPropagation();
     const box = scrollerOf(e.currentTarget);
@@ -96,17 +138,66 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
       // The list's own stretch of the page; past it (by half a step) is out.
       span: [rects[0].top + scrolled(), rects[rects.length - 1].bottom + scrolled()],
       step: me.height + gap,
+      // where on the item it was picked up, so it stays under the finger
+      grab: e.clientY - me.top,
+      targets: [],
+      into: null,
       frame: 0,
+    };
+    const self = els.current.get(id);
+    // Where the item sits in the page right now, without its own lift: room
+    // opening above it in another list moves it down.
+    const placed = () => {
+      const t = getComputedStyle(self).transform;
+      return self.getBoundingClientRect().top - (t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0);
+    };
+    // The rows it could go under: not its own, nor ones under it, nor the
+    // one it's already under.
+    const into = latest.current.into;
+    if (into) {
+      const above = self.parentElement?.closest("li");
+      for (const row of document.querySelectorAll(into.rows)) {
+        const li = row.closest("li");
+        if (li && !self.contains(li) && li !== above) d.targets.push({ li, row });
+      }
+    }
+    // Over a row is from a quarter of the way down it to three quarters, so
+    // the edges between rows still move it in among them. Rows are measured
+    // where they are now, room made for it and all.
+    const over = (t) => {
+      const r = t.row.getBoundingClientRect();
+      const q = r.height / 4;
+      return r.height > 0 && d.y > r.top + q && d.y < r.bottom - q && d.x >= r.left - 16 && d.x <= r.right + 32;
     };
     const update = () => {
       const dy = d.y - d.startY + (scrolled() - d.scroll0);
       const at = d.y + scrolled();
       const slack = d.step / 2;
-      d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
-      d.to = d.out ? d.from : dropIndex(d.mids, d.from, d.mids[d.from] + dy);
-      setDrag({ id: d.id, from: d.from, to: d.to, dy, step: d.step });
-      if (d.out || d.wasOut) latest.current.onOut?.(d.out ? "move" : "back", d.x, d.y, d.id);
-      d.wasOut = d.out;
+      if (d.into && !over(d.into)) {
+        d.into.li.classList.remove("drop-into");
+        d.into = null;
+      }
+      if (!d.into && d.targets.length) {
+        d.into = d.targets.find(over) ?? null;
+        if (d.into) {
+          d.into.li.classList.add("drop-into");
+          haptic("tap");
+        }
+      }
+      document.documentElement.classList.toggle("drag-into", Boolean(d.into));
+      // Over a row everything else keeps still, the room it was making
+      // included, so the row stays where it is under the finger.
+      if (!d.into) {
+        d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
+        d.to = d.out ? d.from : dropIndex(d.mids, d.from, into ? at : d.mids[d.from] + dy);
+        if (d.out || d.wasOut) latest.current.onOut?.(d.out ? "move" : "back", d.x, d.y, d.id);
+        d.wasOut = d.out;
+      }
+      // It follows the finger, or tucks in just under the row it's over, a
+      // little in from the edge.
+      const top = placed();
+      const y = d.into ? d.into.row.getBoundingClientRect().bottom - top : d.y - d.grab - top;
+      setDrag({ id: d.id, from: d.from, to: d.to, x: d.into ? NEST_X : 0, y, step: d.step, nest: d.into ? into.label : null });
     };
     const tick = () => {
       if (live.current !== d) return;
@@ -138,17 +229,16 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     live.current = d;
     d.frame = requestAnimationFrame(tick);
     haptic("tap");
-    setDrag({ id, from, to: from, dy: 0, step: d.step });
+    setDrag({ id, from, to: from, x: 0, y: 0, step: d.step, nest: null });
   }
 
   // The lifted item follows the pointer; the ones it has passed make room.
+  // Over a row it can go under, it tucks in under that row instead.
   function style(id) {
     if (!drag) return undefined;
     const i = ids.indexOf(id);
-    if (id === drag.id) return { transform: `translateY(${drag.dy}px)`, position: "relative", zIndex: 5 };
-    let shift = 0;
-    if (drag.from < drag.to && i > drag.from && i <= drag.to) shift = -drag.step;
-    if (drag.to < drag.from && i >= drag.to && i < drag.from) shift = drag.step;
+    if (id === drag.id) return { transform: drag.x ? `translate(${drag.x}px, ${drag.y}px)` : `translateY(${drag.y}px)`, position: "relative", zIndex: 5 };
+    const shift = shiftOf(i, drag.from, drag.to, drag.step);
     return { transform: shift ? `translateY(${shift}px)` : undefined, transition: "transform 0.18s ease" };
   }
 
@@ -161,5 +251,5 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     };
   }
 
-  return { ref, style, handle, dragging: drag?.id ?? null };
+  return { ref, style, handle, dragging: drag?.id ?? null, nesting: drag?.nest ?? null };
 }

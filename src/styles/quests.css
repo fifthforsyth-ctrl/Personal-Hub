@@ -179,6 +179,11 @@
 .qs-ongoing__done svg.flip { transform: rotate(180deg); }
 .qs-lines--done { opacity: 0.85; }
 .qs-older { align-self: flex-start; }
+/* A line carried out of its list onto today's or the ongoing list: the list
+   glows and room opens where it will land (camp.css has the rest). */
+.qs-day.drop-here { box-shadow: 0 0 0 2px var(--accent); }
+.drag-into .qs-day.drop-here { box-shadow: none; }
+.qs-day.drop-end > .camp-add { margin-top: 52px; }
 
 /* Sub-tasks sit under their task, a step in from its box. */
 .qs .qs-subs { margin: -4px 0 6px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }

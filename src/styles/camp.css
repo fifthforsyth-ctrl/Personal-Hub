@@ -154,6 +154,22 @@
 .camp-step.drop-before, .camp-sec.drop-end > .camp-sec__body > .camp-add, .camp-loose.drop-end > .camp-add { margin-top: 52px; }
 .camp-step, .camp-add { transition: margin-top 0.15s ease; }
 .camp-sec.lifted { box-shadow: 0 14px 36px rgba(20, 20, 20, 0.18); }
+/* Dropped onto another step, it goes under that one: the step lights up,
+   and the one being carried tucks in under it with a tag saying so (it
+   covers what's under it, so nothing peeks out beside it). Nothing changes
+   size, so nothing shifts while it's there; a section it's passing through
+   on the way stops glowing. */
+.camp-step.drop-into > .camp-step__row { position: relative; }
+.camp-step.drop-into > .camp-step__row::before {
+  content: ""; position: absolute; inset: 1px -8px; border-radius: 12px; pointer-events: none;
+  background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent);
+}
+.camp-step.nesting { box-shadow: 0 0 0 1.5px var(--accent), 0 8px 24px rgba(20, 20, 20, 0.16), -30px 0 0 0 var(--card); }
+.drag-into .camp-sec.drop-here { box-shadow: none; }
+.nest-tag {
+  position: absolute; top: -10px; left: 10px; z-index: 1; padding: 1px 8px; border-radius: 999px; pointer-events: none;
+  background: var(--accent); color: var(--on-accent); font: 650 11px/1.5 var(--font); letter-spacing: 0.01em; white-space: nowrap;
+}
 
 /* Urgency: red, yellow or green, a small dot before the step's words. */
 .camp-urgency { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 7px 1px 0; vertical-align: middle; flex: none; }

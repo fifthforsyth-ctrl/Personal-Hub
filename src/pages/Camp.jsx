@@ -13,7 +13,7 @@ import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
-import { useDragSort } from "../lib/useDragSort";
+import { markDrop, useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
@@ -264,18 +264,39 @@ export default function Camp() {
 
   function dragOut(phase, x, y, st) {
     const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st) : null;
-    document.querySelectorAll("[data-drop].drop-here").forEach((e) => e !== hit?.el && e.classList.remove("drop-here", "drop-end"));
-    document.querySelectorAll(".drop-before").forEach((e) => e !== hit?.below && e.classList.remove("drop-before"));
-    if (phase === "move") {
-      hit?.el.classList.add("drop-here");
-      hit?.el.classList.toggle("drop-end", !hit.below);
-      hit?.below?.classList.add("drop-before");
-    }
-    if (phase === "drop") {
-      hit?.el.classList.remove("drop-here", "drop-end");
-      hit?.below?.classList.remove("drop-before");
-      if (hit) moveToSection(st, hit.sectionId, hit.beforeId);
-    }
+    markDrop(phase === "move" ? hit : null);
+    if (phase === "drop" && hit) moveToSection(st, hit.sectionId, hit.beforeId);
+  }
+
+  // Dropped onto another step (Aaron, 2026-10-27): it goes under that one,
+  // after its sub-steps, in that step's section, and its own sub-steps come
+  // along. Undo puts it back where it was.
+  function nestUnder(st, parentId) {
+    const parent = data.steps.find((x) => x.id === parentId);
+    if (!st || !parent || parent.id === st.id || st.parent_id === parent.id) return;
+    const under = stepsUnder(data.steps, st.id);
+    if (under.some((x) => x.id === parent.id)) return;
+    const sectionId = parent.section_id ?? null;
+    const was = { parent_id: st.parent_id ?? null, section_id: st.section_id ?? null, position: st.position ?? 0 };
+    const now = {
+      parent_id: parent.id,
+      section_id: sectionId,
+      position: data.steps.filter((x) => x.parent_id === parent.id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0),
+    };
+    // The steps under it follow it into the new section (and back).
+    const along = sectionId !== was.section_id ? under.map((x) => x.id) : [];
+    const put = (fields) => {
+      const ids = new Set(along);
+      setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : ids.has(x.id) ? { ...x, section_id: fields.section_id } : x)));
+      if (fields.section_id) setOpened((o) => ({ ...o, [fields.section_id]: true }));
+      requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+      return Promise.all([updateStep(st.id, fields), along.length ? updateSteps(along, { section_id: fields.section_id }) : null]).catch((err) =>
+        failed(err, "Couldn't move that step.")
+      );
+    };
+    put(now);
+    const name = String(parent.text ?? "");
+    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, { actionLabel: "Undo", onAction: () => put(was) });
   }
 
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
@@ -548,7 +569,7 @@ export default function Camp() {
 
             {(view.loose.length > 0 || empty) && (
               <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
-                {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} />}
+                {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} onInto={nestUnder} />}
                 {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
                 <AddStep hidden={pick.on} onAdd={(texts) => addTo(null, texts)} />
               </section>
@@ -568,6 +589,7 @@ export default function Camp() {
                 onAddSubs={addSubs}
                 onReorder={reorderSteps}
                 onDragOut={dragOut}
+                onInto={nestUnder}
                 step={stepProps}
                 sort={
                   view.sections.length > 1 && !pick.on

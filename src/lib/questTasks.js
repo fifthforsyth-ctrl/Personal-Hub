@@ -13,7 +13,7 @@
 
 import { addDays, parseDateStr } from "./planDates.js";
 
-const byPos = (a, b) =>
+export const byPos = (a, b) =>
   (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id));
 
 // Each top line with its sub-tasks under it, in order.
