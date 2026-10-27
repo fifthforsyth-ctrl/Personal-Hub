@@ -2333,5 +2333,44 @@ function sectionOf({ x, y }) {
   ok("?choose opens Choose, ?choose=<kind> points at one", P.linkOf("?choose").choose === true && P.linkOf("?choose=forge").choose === "forge" && P.linkOf("").choose === null && P.linkOf("").build === null);
 }
 
+// Saves in order (2026-10-27): a quick Undo waits for the move it undoes.
+{
+  const { savesInOrder, undoableSave } = await import("../src/lib/inOrder.js");
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+  const seen = [];
+  const save = (name, ms, bad = false) => () => tick(ms).then(() => (seen.push(name), bad ? Promise.reject(new Error(name)) : null));
+
+  const inOrder = savesInOrder();
+  const a = inOrder(save("slow", 30, true)).catch(() => "caught");
+  const b = inOrder(save("fast", 1));
+  ok("saves land in the order they were made, even after one fails", (await a) === "caught" && (await b) === null && seen.join() === "slow,fast");
+
+  // The move fails after Undo was tapped: Undo's save runs, then the failure.
+  seen.length = 0;
+  const log = [];
+  const q = savesInOrder();
+  const undo = undoableSave(q, save("move", 20, true), (err) => log.push(`failed ${err.message}`));
+  undo(save("back", 1), (err) => log.push(`back failed ${err.message}`));
+  await tick(60);
+  ok("a move that fails after Undo is reported once Undo's save has landed", seen.join() === "move,back" && log.join() === "failed move");
+
+  // The move fails before Undo: reported at once.
+  seen.length = 0;
+  log.length = 0;
+  const q2 = savesInOrder();
+  undoableSave(q2, save("move", 1, true), (err) => log.push(`failed ${err.message}`));
+  await tick(20);
+  ok("a move that fails with no Undo is reported right away", log.join() === "failed move");
+
+  // Undo's own save fails: its own message, and nothing else.
+  seen.length = 0;
+  log.length = 0;
+  const q3 = savesInOrder();
+  const undo3 = undoableSave(q3, save("move", 5), (err) => log.push(`failed ${err.message}`));
+  undo3(save("back", 1, true), (err) => log.push(`back failed ${err.message}`));
+  await tick(40);
+  ok("Undo's own failure is reported as Undo's", seen.join() === "move,back" && log.join() === "back failed back");
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

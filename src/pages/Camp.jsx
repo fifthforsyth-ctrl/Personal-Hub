@@ -6,6 +6,7 @@ import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, u
 import { buildCamp, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
+import { savesInOrder, undoableSave } from "../lib/inOrder";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
 import { playClink } from "../lib/clink";
@@ -70,6 +71,8 @@ export default function Camp() {
   // The steps as they are now, for an Undo that runs after more has changed.
   const stepsNow = useRef(null);
   stepsNow.current = data?.steps ?? null;
+  // Moves (drags, Undo) save one after another, in the order they were made.
+  const inOrder = useMemo(savesInOrder, []);
   const picks = useMemo(() => todayPicks(view, today), [view, today]);
 
   const [hideDone, setHideDone] = useState(readHide);
@@ -254,7 +257,7 @@ export default function Camp() {
     next.splice(to, 0, st);
     const at = new Map(next.map((x, k) => [x.id, k]));
     setSteps((list) => list.map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
-    reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
+    inOrder(() => reorder("camp_steps", next)).catch((err) => failed(err, "Couldn't move that step."));
   }
 
   // Into a section (null: the camp's top) as one of its own steps, just
@@ -289,9 +292,9 @@ export default function Camp() {
     haptic("tap");
     if (!same) toast.show(to ? `Moved to ${to.title}` : "Moved to the top");
     requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-    (same ? Promise.resolve() : moveStepToSection(st.id, under, sectionId, pos.get(st.id)))
-      .then(() => reorder("camp_steps", next))
-      .catch((err) => failed(err, "Couldn't move that step."));
+    inOrder(() => (same ? Promise.resolve() : moveStepToSection(st.id, under, sectionId, pos.get(st.id))).then(() => reorder("camp_steps", next))).catch((err) =>
+      failed(err, "Couldn't move that step.")
+    );
   }
 
   // A step carried out of its own list: the section under the finger lights
@@ -334,9 +337,9 @@ export default function Camp() {
     // The steps under it follow it into the new section (and back), the ones
     // under it then: a sub-step added before Undo goes back with it too, and
     // the ones under it when it moved go back even if this page has since
-    // turned to another camp. The screen changes at once; Undo's writes wait
-    // for the move's, so a quick Undo can't be overtaken by the move.
-    const put = (fields, after = Promise.resolve()) => {
+    // turned to another camp. The screen changes at once; the saves go in
+    // line, so Undo's land after the move's.
+    const put = (fields) => {
       const shown = new Map((stepsNow.current ?? []).map((x) => [x.id, x]));
       const along = [...new Set([...under, ...stepsUnder(stepsNow.current, st.id)].map((x) => x.id))].filter(
         (k) => !shown.has(k) || (shown.get(k).section_id ?? null) !== fields.section_id
@@ -345,12 +348,10 @@ export default function Camp() {
       setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : ids.has(x.id) ? { ...x, section_id: fields.section_id } : x)));
       if (fields.section_id) setOpened((o) => ({ ...o, [fields.section_id]: true }));
       requestAnimationFrame(() => document.getElementById(`step-${st.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-      return after
-        .then(() => Promise.all([updateStep(st.id, fields), along.length ? updateSteps(along, { section_id: fields.section_id }) : null]))
-        .catch((err) => failed(err, "Couldn't move that step."));
+      return () => Promise.all([updateStep(st.id, fields), along.length ? updateSteps(along, { section_id: fields.section_id }) : null]);
     };
-    const going = put(now);
-    toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => put(was, going) });
+    const undo = undoableSave(inOrder, put(now), (err) => failed(err, "Couldn't move that step."));
+    toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => undo(put(was), (err) => failed(err, "Couldn't move that step back.")) });
   }
 
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
@@ -365,7 +366,7 @@ export default function Camp() {
     const next = full.map((x) => (onScreen.has(x.id) ? byId.get(queue.shift()) : x)).filter(Boolean);
     const at = new Map(next.map((x, k) => [x.id, k]));
     setSteps((list) => list.map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
-    reorder("camp_steps", next).catch((err) => failed(err, "Couldn't move that step."));
+    inOrder(() => reorder("camp_steps", next)).catch((err) => failed(err, "Couldn't move that step."));
   }
 
   async function addTo(sectionId, texts, parent = null) {
