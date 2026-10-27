@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Castle, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { addQuest, addQuestTasks, deleteQuestTask, fetchQuestBoard, fetchQuestTasks, reorder, updateQuest, updateQuestTask } from "../lib/api";
-import { boardOf, campTally, dayLabel, listDays, nextPosition, withFinished } from "../lib/questTasks";
+import { addCamps, addQuest, addQuestTasks, deleteQuestTask, fetchQuestBoard, fetchQuestTasks, reorder, updateQuest, updateQuestTask, updateQuestTasks } from "../lib/api";
+import { boardOf, campTally, dayLabel, listDays, nextPosition, ongoingList, withFinished } from "../lib/questTasks";
 import { villageOf } from "../lib/village";
 import { appendToNote } from "../lib/sketch";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
@@ -14,7 +14,7 @@ import { useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
-import { AddLine, DayList } from "../components/quests/Lines";
+import { AddLine, DayList, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
@@ -26,11 +26,13 @@ import "../styles/quests.css";
 // he did, and does it again the next day. Lines can be tasks, sub-tasks under
 // them, or note lines, and every one can carry notes, a colour and sketches.
 // Nothing is carried forward (Aaron, 2026-10-14): an earlier day's list stays
-// on its day, still there to tick.
+// on its day, still there to tick. Beside the days, each quest keeps an
+// ongoing list (Aaron, 2026-10-27) for what stays on it whatever the day; a
+// line moves onto it or back onto today from its own tools.
 //
 // First come the quests and lessons as pills (Aaron, 2026-10-26): the one
 // that's open unfolds to show the camps on its mountain, and tapping another
-// opens its list and its camps.
+// opens its list and its camps. New camps are added there too.
 //
 // The build going up in the village floats at the top. Every task he ticks,
 // on any list, lays its bricks on it until it stands; then he chooses the
@@ -74,6 +76,7 @@ export default function Quests() {
     [board, today]
   );
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
+  const ongoing = useMemo(() => ongoingList(lines ?? [], today), [lines, today]);
 
   const tally = useMemo(() => campTally(board?.campSteps), [board]);
 
@@ -180,17 +183,21 @@ export default function Quests() {
     return { id, made: true };
   }
 
-  async function addLines(parsed, kind) {
+  // New lines at the end of today's list, or (`onList`) the ongoing list.
+  async function addLines(parsed, kind, onList = false) {
+    let made = false;
     try {
-      const { id: qid, made } = await ensureQuest();
+      const q = await ensureQuest();
+      const qid = q.id;
+      made = q.made;
       const all = lines ?? [];
-      let pos = nextPosition(all, today);
+      let pos = nextPosition(all, onList ? null : today);
       let parent = null;
       const rows = [];
       // Top lines first, so the sub-tasks can name them.
       const tops = await addQuestTasks(
         userId,
-        parsed.filter((l) => !l.sub).map((l) => ({ quest_id: qid, kind, text: l.text, day: today, position: pos++ }))
+        parsed.filter((l) => !l.sub).map((l) => ({ quest_id: qid, kind, text: l.text, day: today, ongoing: onList, position: pos++ }))
       );
       rows.push(...tops);
       let t = 0;
@@ -200,7 +207,7 @@ export default function Quests() {
         if (!l.sub) {
           parent = tops[t++];
           subPos = 0;
-        } else if (parent) subs.push({ quest_id: qid, parent_id: parent.id, kind: "task", text: l.text, day: today, position: subPos++ });
+        } else if (parent) subs.push({ quest_id: qid, parent_id: parent.id, kind: "task", text: l.text, day: today, ongoing: onList, position: subPos++ });
       }
       if (subs.length) rows.push(...(await addQuestTasks(userId, subs)));
       haptic("tap");
@@ -212,6 +219,8 @@ export default function Quests() {
       return true;
     } catch (err) {
       toast.error(err, parsed.length > 1 ? "Couldn't add those." : "Couldn't add that.");
+      // A mountain made just now stays; load it so the next try writes there.
+      if (made) reload();
       return false;
     }
   }
@@ -221,7 +230,7 @@ export default function Quests() {
       let pos = nextPosition(lines ?? [], parent.day, parent.id);
       const rows = await addQuestTasks(
         userId,
-        parsed.map((l) => ({ quest_id: parent.quest_id, parent_id: parent.id, kind: "task", text: l.text, day: parent.day, position: pos++ }))
+        parsed.map((l) => ({ quest_id: parent.quest_id, parent_id: parent.id, kind: "task", text: l.text, day: parent.day, ongoing: Boolean(parent.ongoing), position: pos++ }))
       );
       mutateLines((list) => [...(list ?? []), ...rows]);
       haptic("tap");
@@ -230,6 +239,21 @@ export default function Quests() {
       toast.error(err, parsed.length > 1 ? "Couldn't add those." : "Couldn't add that.");
       return false;
     }
+  }
+
+  // A line (with its sub-tasks) onto the end of the ongoing list, or off it
+  // onto the end of today's.
+  function shiftLine(line) {
+    const all = lines ?? [];
+    const onList = !line.ongoing;
+    const subs = all.filter((x) => x.parent_id === line.id).map((x) => x.id);
+    const top = { ongoing: onList, ...(onList ? {} : { day: today }), position: nextPosition(all, onList ? null : today) };
+    const rest = { ongoing: onList, ...(onList ? {} : { day: today }) };
+    setOpenId(null);
+    mutateLines((list) => (list ?? []).map((x) => (x.id === line.id ? { ...x, ...top } : subs.includes(x.id) ? { ...x, ...rest } : x)));
+    haptic("tap");
+    toast.show(onList ? "On the ongoing list" : "On today's list");
+    Promise.all([updateQuestTask(line.id, top), updateQuestTasks(subs, rest)]).catch((err) => failed(err, "Couldn't move that."));
   }
 
   // A sketch's summary, added to the end of its line's notes ("cut" or
@@ -248,6 +272,7 @@ export default function Quests() {
     onSave: (fields) => saveLine(line, fields),
     onKind: () => switchKind(line),
     onMove: (by) => moveLine(line, siblings, by),
+    onShift: line.parent_id ? undefined : () => shiftLine(line),
     onRemove: () => removeLine(line),
   });
 
@@ -256,8 +281,11 @@ export default function Quests() {
   async function saveNote() {
     const value = note.trim() || null;
     if (!sel || value === (sel.note ?? null)) return;
+    let made = false;
     try {
-      const { id, made } = await ensureQuest();
+      const q = await ensureQuest();
+      const id = q.id;
+      made = q.made;
       await updateQuest(id, { note: value });
       mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === id ? { ...q, note: value } : q)) });
       if (made) {
@@ -268,6 +296,30 @@ export default function Quests() {
       setTimeout(() => setNoteSaved(false), 1800);
     } catch (err) {
       toast.error(err, "Couldn't save your notes.");
+      if (made) reload();
+    }
+  }
+
+  // New camps at the end of a quest's mountain, from its pill.
+  async function newCamps(item, titles) {
+    if (item.key !== sel?.key) return false;
+    let made = false;
+    try {
+      const q = await ensureQuest();
+      const qid = q.id;
+      made = q.made;
+      const startAt = (board?.camps ?? []).filter((c) => c.quest_id === qid).reduce((m, c) => Math.max(m, (c.position ?? 0) + 1), 0);
+      const rows = await addCamps(userId, qid, titles, startAt);
+      haptic("tap");
+      if (made) {
+        await reload();
+        navigate(`/quests/${qid}`, { replace: true });
+      } else mutateBoard((b) => b && { ...b, camps: [...b.camps, ...rows] });
+      return true;
+    } catch (err) {
+      toast.error(err, titles.length > 1 ? "Couldn't add those camps." : "Couldn't add that camp.");
+      if (made) reload();
+      return false;
     }
   }
 
@@ -325,7 +377,7 @@ export default function Quests() {
         </Link>
       </header>
 
-      <QuestMap items={items} sel={sel} camps={board.camps} tally={tally} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} />
+      <QuestMap items={items} sel={sel} camps={board.camps} tally={tally} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} onAddCamps={newCamps} />
 
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 
@@ -380,8 +432,12 @@ export default function Quests() {
                       {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
                     </p>
                   )}
-                  <AddLine key={sel.key} onAdd={addLines} />
+                  <AddLine key={sel.key} onAdd={(parsed, kind) => addLines(parsed, kind)} />
                 </DayList>
+
+                <OngoingList key={sel.key} list={ongoing} kind={sel.type === "Lesson" ? "lesson" : "quest"} openId={openId} row={row} onAddSubs={addSubs}>
+                  <AddLine key={sel.key} ongoing onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
+                </OngoingList>
 
                 {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
                 {earlierShown.map((d) => (
@@ -431,7 +487,7 @@ function NewQuest({ onSave, onClose }) {
           <span>Name</span>
           <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="Build the best Premiere Pro plugin" autoFocus />
         </label>
-        <p className="ascent-mini">Its goal, camps and the rest can be set on The Range.</p>
+        <p className="ascent-mini">Add its camps from its pill here. Its goal can be set on The Range.</p>
         <div className="ascent-sheet__actions">
           <span className="spacer" />
           <button type="submit" className="btn btn--accent" disabled={busy || !title.trim()}>

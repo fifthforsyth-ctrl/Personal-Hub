@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, Repeat, StickyNote } from "lucide-react";
 import { parseLines } from "../../lib/questTasks";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
@@ -25,8 +25,9 @@ function useGrow(value) {
 
 // One line. Tap the words to open it: change them, write notes on what he
 // did, add sub-tasks (on a top line), turn it into a note line or back,
-// move it or take it off.
-export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onRemove, children }) {
+// move it, put it on the ongoing list or off it (`onShift`, a top line
+// only), or take it off.
+export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onRemove, children }) {
   const note = line.kind === "note";
   const done = Boolean(line.done_on);
   const [text, setText] = useState(line.text);
@@ -109,6 +110,11 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             <button type="button" className="btn-icon" onClick={() => onMove(1)} disabled={last} aria-label="Move down" title="Move down">
               <ArrowDown size={15} />
             </button>
+            {onShift && !line.parent_id && (
+              <button type="button" className="btn-link" onClick={onShift}>
+                {line.ongoing ? "Put it on today" : "Make it ongoing"}
+              </button>
+            )}
             <button type="button" className="btn-link" onClick={onKind}>
               {note ? "Make it a task" : "Make it a note"}
             </button>
@@ -130,13 +136,13 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
 // one line each, with indented lines going under the line above as
 // sub-tasks. On a top list its button turns the next line into a note line
 // instead of a task.
-export function AddLine({ onAdd, sub = false, autoFocus = false }) {
+export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false }) {
   const [value, setValue] = useState("");
   const [kind, setKind] = useState("task");
   const [busy, setBusy] = useState(false);
   const ref = useGrow(value);
   const lines = parseLines(value);
-  const label = sub ? "Add a sub-task" : kind === "note" ? "Write a note line" : "Add a task";
+  const label = sub ? "Add a sub-task" : kind === "note" ? (ongoing ? "Write an ongoing note line" : "Write a note line") : ongoing ? "Add an ongoing task" : "Add a task";
 
   async function submit() {
     if (!lines.length || busy) return;
@@ -197,9 +203,33 @@ export function AddLine({ onAdd, sub = false, autoFocus = false }) {
   );
 }
 
-// A day's list: its lines with their sub-tasks, and (open) the box to add a
-// sub-task under the line that's open. Today's list ends with the box to
-// add lines; an earlier day folds away to its name and how it went.
+// Lines with their sub-tasks under them, and (open) the box to add a
+// sub-task under the line that's open.
+function LineTree({ items, openId, row, onAddSubs, className = "" }) {
+  return (
+    <ul className={"camp-steps qs-lines" + className}>
+      {items.map((it, i) => (
+        <LineRow key={it.id} line={it} open={openId === it.id} first={i === 0} last={i === items.length - 1} {...row(it, items)}>
+          {(it.subs.length > 0 || openId === it.id) && (
+            <ul className="camp-steps qs-subs">
+              {it.subs.map((s, k) => (
+                <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === it.subs.length - 1} {...row(s, it.subs)} />
+              ))}
+              {openId === it.id && (
+                <li className="qs-subs__add">
+                  <AddLine sub onAdd={(lines) => onAddSubs(it, lines)} />
+                </li>
+              )}
+            </ul>
+          )}
+        </LineRow>
+      ))}
+    </ul>
+  );
+}
+
+// A day's list: its lines with their sub-tasks. Today's list ends with the
+// box to add lines; an earlier day folds away to its name and how it went.
 export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, children }) {
   const isToday = day.day === today;
   const open = !folded;
@@ -220,27 +250,44 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
           </button>
         )}
       </div>
-      {open && day.items.length > 0 && (
-        <ul className="camp-steps qs-lines">
-          {day.items.map((it, i) => (
-            <LineRow key={it.id} line={it} open={openId === it.id} first={i === 0} last={i === day.items.length - 1} {...row(it, day.items)}>
-              {(it.subs.length > 0 || openId === it.id) && (
-                <ul className="camp-steps qs-subs">
-                  {it.subs.map((s, k) => (
-                    <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === it.subs.length - 1} {...row(s, it.subs)} />
-                  ))}
-                  {openId === it.id && (
-                    <li className="qs-subs__add">
-                      <AddLine sub onAdd={(lines) => onAddSubs(it, lines)} />
-                    </li>
-                  )}
-                </ul>
-              )}
-            </LineRow>
-          ))}
-        </ul>
-      )}
+      {open && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} />}
       {open && children}
+    </section>
+  );
+}
+
+// The quest's ongoing list (Aaron, 2026-10-27): what stays on the quest
+// whatever the day, from `ongoingList`. Lines done before today wait under
+// a fold at the foot; the box to add lines comes in as `children`.
+export function OngoingList({ list, kind, openId, row, onAddSubs, children }) {
+  const [showDone, setShowDone] = useState(false);
+  const tally = list.total ? `${list.done} of ${list.total} done` : list.items.length ? "Notes" : null;
+  return (
+    <section className="card qs-day qs-day--ongoing open" aria-labelledby="qs-ongoing-h">
+      <div className="qs-day__head">
+        <div className="qs-day__title">
+          <h2 id="qs-ongoing-h">
+            <Repeat size={15} aria-hidden="true" />
+            Ongoing
+          </h2>
+          {tally && <small>{tally}</small>}
+        </div>
+      </div>
+      {list.items.length > 0 ? (
+        <LineTree items={list.items} openId={openId} row={row} onAddSubs={onAddSubs} />
+      ) : (
+        <p className="qs-hint">What stays on this {kind} whatever the day. It sits here until it's done.</p>
+      )}
+      {children}
+      {list.earlier.length > 0 && (
+        <>
+          <button type="button" className="btn-link qs-ongoing__done" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)}>
+            {showDone ? "Hide" : "Show"} {list.earlier.length} done
+            <ChevronDown size={14} className={showDone ? "flip" : ""} aria-hidden="true" />
+          </button>
+          {showDone && <LineTree items={list.earlier} openId={openId} row={row} onAddSubs={onAddSubs} className=" qs-lines--done" />}
+        </>
+      )}
     </section>
   );
 }

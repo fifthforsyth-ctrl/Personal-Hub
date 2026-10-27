@@ -1,17 +1,20 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, Flag, Plus } from "lucide-react";
 import { shortName } from "../../lib/village";
+import { splitSteps } from "../../lib/camp";
 
 // The top of Quests: every quest and lesson as a pill. Tapping one opens its
 // list below and unfolds the pill to show the camps on its mountain, each
 // with how far along it is; a camp goes to its checklist. Tapping the open
 // pill again folds it. `tally` is camp id → { done, total, working }. A quest
 // that's finished or set aside, opened from a link (`sel`), gets a pill of
-// its own, marked as not on.
+// its own, marked as not on. The open pill also adds camps (`onAddCamps`,
+// Aaron 2026-10-27): one per line, at the end of the mountain.
 
 const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
-export default function QuestMap({ items, sel, camps, tally, openKey, onPick, onNew }) {
+export default function QuestMap({ items, sel, camps, tally, openKey, onPick, onNew, onAddCamps }) {
   const selKey = sel?.key;
   const all = sel && !items.some((i) => i.key === sel.key) ? [...items, sel] : items;
   const quests = all.filter((i) => i.type === "Quest");
@@ -68,13 +71,9 @@ export default function QuestMap({ items, sel, camps, tally, openKey, onPick, on
                 })}
               </ol>
             ) : (
-              <p className="qs-pill__none">
-                No camps on this {kind} yet.{" "}
-                <Link to="/ascent" className="btn-link btn-link--accent">
-                  Add them on the Range
-                </Link>
-              </p>
+              <p className="qs-pill__none">No camps on this {kind} yet. Each camp is a stop on the way up, with its own steps.</p>
             )}
+            {onAddCamps && <NewCamp key={i.key} first={!list.length} onAdd={(titles) => onAddCamps(i, titles)} />}
           </div>
         )}
       </div>
@@ -91,5 +90,74 @@ export default function QuestMap({ items, sel, camps, tally, openKey, onPick, on
         New quest
       </button>
     </nav>
+  );
+}
+
+// "New camp": a button that opens a box for its name. Enter adds it; a
+// pasted list adds one camp a line. The box grows with what's in it and
+// stays open for the next one.
+function NewCamp({ first, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef(null);
+  const titles = splitSteps(value).map((t) => t.slice(0, 200));
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [value, open]);
+
+  async function submit() {
+    if (!titles.length || busy) return;
+    setBusy(true);
+    const ok = await onAdd(titles);
+    setBusy(false);
+    if (ok) setValue("");
+    ref.current?.focus();
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="qs-newcamp" onClick={() => setOpen(true)}>
+        <Plus size={14} aria-hidden="true" />
+        {first ? "Add the first camp" : "New camp"}
+      </button>
+    );
+  }
+  return (
+    <form
+      className="qs-newcamp__form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <Plus size={15} aria-hidden="true" />
+      <textarea
+        ref={ref}
+        rows={1}
+        className="camp-add__input"
+        value={value}
+        placeholder="Name the camp"
+        aria-label="New camp's name"
+        autoFocus
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          } else if (e.key === "Escape") setOpen(false);
+        }}
+        onBlur={() => !value.trim() && !busy && setOpen(false)}
+      />
+      {titles.length > 0 && (
+        <button type="submit" className="btn btn--sm btn--accent" disabled={busy}>
+          {busy ? "Adding…" : titles.length > 1 ? `Add ${titles.length} camps` : "Add"}
+        </button>
+      )}
+    </form>
   );
 }

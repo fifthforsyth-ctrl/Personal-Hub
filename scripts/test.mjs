@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
-import { listDays, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine, campTally } from "../src/lib/questTasks.js";
+import { listDays, ongoingList, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, countLine, campTally } from "../src/lib/questTasks.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2053,6 +2053,28 @@ console.log("\nthe mark");
   ok("today is there even with nothing on it", listDays([], T).length === 1 && listDays([], T)[0].items.length === 0);
   ok("day names", dayLabel(T, T) === "Today" && dayLabel("2026-10-22", T) === "Yesterday" && dayLabel("2026-10-20", T) === "Tue, Oct 20" && dayLabel("2025-10-20", T).includes("2025"));
   ok("a new line goes after the last one, a sub-task after its last sibling", nextLinePosition(rows, T) === 3 && nextLinePosition(rows, T, "c") === 1 && nextLinePosition(rows, "2026-10-24") === 0);
+
+  // The ongoing list (0089): its lines are on no day, its sub-tasks go with them.
+  const more = [
+    ...rows,
+    { id: "o1", day: "2026-10-21", ongoing: true, kind: "task", text: "keep it on one page", position: 1, done_on: null },
+    { id: "o2", day: "2026-10-20", ongoing: true, kind: "note", text: "aim for clarity", position: 0 },
+    { id: "o1s", day: "2026-10-21", parent_id: "o1", kind: "task", text: "sub with no mark", position: 0, done_on: "2026-10-22" },
+    { id: "o3", day: T, ongoing: true, kind: "task", text: "ticked today", position: 2, done_on: T },
+    { id: "o4", day: T, ongoing: true, kind: "task", text: "ticked before", position: 3, done_on: "2026-10-22" },
+    { id: "o5", day: T, ongoing: true, kind: "task", text: "ticked before, a sub still open", position: 4, done_on: "2026-10-22" },
+    { id: "o5s", day: T, ongoing: true, parent_id: "o5", kind: "task", text: "open sub", position: 0, done_on: null },
+  ];
+  const daysWith = listDays(more, T);
+  ok("ongoing lines stay off the days", daysWith.map((d) => d.items.map((i) => i.id).join("+")).join("|") === listDays(rows, T).map((d) => d.items.map((i) => i.id).join("+")).join("|"));
+  const og = ongoingList(more, T);
+  ok("the ongoing list in order, its sub-tasks under them", og.items.map((i) => i.id).join() === "o2,o1,o3,o5" && og.items[1].subs.map((x) => x.id).join() === "o1s");
+  ok("lines done before today tuck away, unless a sub-task is still open", og.earlier.map((i) => i.id).join() === "o4");
+  ok("the ongoing list counts all its tasks, not its notes", og.done === 4 && og.total === 6);
+  ok("nothing ongoing: an empty list", ongoingList(rows, T).items.length === 0 && ongoingList(rows, T).total === 0);
+  const lastSub = ongoingList(more.map((r) => (r.id === "o5s" ? { ...r, done_on: T } : r)), T);
+  ok("ticking the last open sub-task today keeps its line in view", lastSub.items.some((i) => i.id === "o5") && lastSub.earlier.map((i) => i.id).join() === "o4");
+  ok("a new ongoing line goes after the last ongoing one", nextLinePosition(more, null) === 5 && nextLinePosition(more, T) === 3 && nextLinePosition(more, null, "o5") === 1);
 
   const b = boardOf({
     quests: [
