@@ -5,13 +5,26 @@
 //
 //   const inOrder = savesInOrder();
 //   inOrder(() => reorder("quest_tasks", next)).catch(...);
+//
+// `inOrder.reload(load)` reloads in line, after every save before it, so the
+// answer can't show one of them half done; and again if more were made while
+// it was waiting or out, since its answer would wipe those off the screen.
 export function savesInOrder() {
   let last = Promise.resolve();
-  return (save) => {
+  let made = 0;
+  const inOrder = (save) => {
+    made += 1;
     const p = last.then(save);
     last = p.catch(() => {});
     return p;
   };
+  inOrder.reload = (load) => {
+    const at = made + 1;
+    inOrder(load)
+      .catch(() => {})
+      .then(() => made > at && inOrder.reload(load));
+  };
+  return inOrder;
 }
 
 // A move that can be undone. Its saves go in line (`inOrder`); `undo(saveBack)`

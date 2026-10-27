@@ -159,10 +159,10 @@ export default function Quests() {
     else navigate(`/quests/${item.key}`, { replace: true });
   }
 
+  // The reload waits for the moves already saving (see inOrder.js).
   const failed = (err, what) => {
     toast.error(err, what);
-    reloadLines();
-    reload();
+    inOrder.reload(() => Promise.all([reloadLines(), reload()]));
   };
 
   // --- The list -------------------------------------------------------------

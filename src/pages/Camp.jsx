@@ -106,9 +106,10 @@ export default function Camp() {
   }
 
   const setSteps = (fn) => mutate((d) => d && { ...d, steps: fn(d.steps) });
+  // The reload waits for the moves already saving (see inOrder.js).
   const failed = (err, what) => {
     toast.error(err, what);
-    reload();
+    inOrder.reload(reload);
   };
 
   // --- Steps ------------------------------------------------------------------

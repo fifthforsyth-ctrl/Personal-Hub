@@ -2370,6 +2370,17 @@ function sectionOf({ x, y }) {
   undo3(save("back", 1, true), (err) => log.push(`back failed ${err.message}`));
   await tick(40);
   ok("Undo's own failure is reported as Undo's", seen.join() === "move,back" && log.join() === "back failed back");
+
+  // A failure's reload waits for the saves already in line, and goes again
+  // for any made while it was out.
+  seen.length = 0;
+  const q4 = savesInOrder();
+  q4(save("first", 5, true)).catch(() => q4.reload(save("reload", 10)));
+  q4(save("second", 10));
+  await tick(12);
+  q4(save("third", 1));
+  await tick(60);
+  ok("a reload after a failure runs after the saves before it, and again after one made while it was out", seen.join() === "first,second,reload,third,reload");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
