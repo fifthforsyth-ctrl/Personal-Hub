@@ -15,6 +15,7 @@ import Sheet from "../components/ascent/Sheet";
 import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
 import { useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
+import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -271,7 +272,7 @@ export default function Camp() {
     try {
       if (sheet?.new) {
         const position = data.sections.reduce((m, s) => Math.max(m, s.position + 1), 0);
-        const row = await addSection(userId, id, { title: values.title, why: values.why, position });
+        const row = await addSection(userId, id, { title: values.title, why: values.why, color: values.color, position });
         if (values.note) await updateSection(row.id, { note: values.note });
         mutate((d) => d && { ...d, sections: [...d.sections, { ...row, note: values.note }] });
         setOpened((o) => ({ ...o, [row.id]: true }));
@@ -545,6 +546,7 @@ function SectionSheet({ section, onSave, onDelete, onClose }) {
   const [title, setTitle] = useState(section?.title ?? "");
   const [why, setWhy] = useState(section?.why ?? "");
   const [note, setNote] = useState(section?.note ?? "");
+  const [color, setColor] = useState(section?.color ?? null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(null);
 
@@ -558,7 +560,7 @@ function SectionSheet({ section, onSave, onDelete, onClose }) {
             return;
           }
           setBusy(true);
-          await onSave({ title: title.trim(), why: why.trim() || null, note: note.trim() || null });
+          await onSave({ title: title.trim(), why: why.trim() || null, note: note.trim() || null, color });
           setBusy(false);
         }}
       >
@@ -574,6 +576,7 @@ function SectionSheet({ section, onSave, onDelete, onClose }) {
           <span>Note</span>
           <textarea className="textarea" rows={3} value={note} onChange={(e) => setNote(e.target.value)} maxLength={4000} placeholder="Who to check in with, a rule to keep…" />
         </label>
+        <ColorPick value={color} onChange={setColor} />
         {problem && <p className="form-error">{problem}</p>}
         <div className="ascent-sheet__actions">
           {section && (

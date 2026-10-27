@@ -5,6 +5,10 @@
 // day (nothing is carried forward, Aaron 2026-10-14), so an earlier day's
 // open task is still there to tick where it was written.
 //
+// Beside the days each quest keeps one ongoing list (0089, Aaron
+// 2026-10-27): lines marked ongoing belong to no day. A sub-task goes where
+// its task is, whatever its own mark says.
+//
 // Everything here is pure; the page is src/pages/Quests.jsx.
 
 import { addDays, parseDateStr } from "./planDates.js";
@@ -12,11 +16,8 @@ import { addDays, parseDateStr } from "./planDates.js";
 const byPos = (a, b) =>
   (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || String(a.id).localeCompare(String(b.id));
 
-// The days of a quest's list, today first, then the rest newest first:
-//   [{ day, items: [{ ...line, subs: [...] }], done, total }]
-// `done` and `total` count tasks and sub-tasks (note lines don't count).
-// Today is always there, even empty, so there's somewhere to write.
-export function listDays(tasks, today) {
+// Each top line with its sub-tasks under it, in order.
+function treeOf(tasks) {
   const subs = new Map();
   const tops = [];
   for (const t of tasks) {
@@ -25,18 +26,41 @@ export function listDays(tasks, today) {
       subs.get(t.parent_id).push(t);
     } else tops.push(t);
   }
+  return tops.sort(byPos).map((t) => ({ ...t, subs: (subs.get(t.id) ?? []).sort(byPos) }));
+}
+
+// How many tasks and sub-tasks are done of how many (note lines don't count).
+function tallyOf(items) {
+  const all = items.flatMap((i) => [i, ...i.subs]).filter((x) => x.kind !== "note");
+  return { done: all.filter((x) => x.done_on).length, total: all.length };
+}
+
+// The days of a quest's list, today first, then the rest newest first:
+//   [{ day, items: [{ ...line, subs: [...] }], done, total }]
+// `done` and `total` count tasks and sub-tasks (note lines don't count).
+// Today is always there, even empty, so there's somewhere to write. Lines
+// on the ongoing list aren't on any day.
+export function listDays(tasks, today) {
   const days = new Map([[today, []]]);
-  for (const t of tops) {
+  for (const t of treeOf(tasks)) {
+    if (t.ongoing) continue;
     if (!days.has(t.day)) days.set(t.day, []);
-    days.get(t.day).push({ ...t, subs: (subs.get(t.id) ?? []).sort(byPos) });
+    days.get(t.day).push(t);
   }
   return [...days.entries()]
     .sort((a, b) => (a[0] === today ? -1 : b[0] === today ? 1 : a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
-    .map(([day, items]) => {
-      items.sort(byPos);
-      const all = items.flatMap((i) => [i, ...i.subs]).filter((x) => x.kind !== "note");
-      return { day, items, done: all.filter((x) => x.done_on).length, total: all.length };
-    });
+    .map(([day, items]) => ({ day, items, ...tallyOf(items) }));
+}
+
+// The quest's ongoing list: { items, earlier, done, total }. `items` are the
+// lines still open and the ones ticked today (so a tick doesn't make a line
+// vanish under his finger); `earlier` are the ones done before today, sub-tasks
+// and all, kept out of the way. `done` and `total` count the whole list.
+export function ongoingList(tasks, today) {
+  const all = treeOf(tasks).filter((t) => t.ongoing);
+  const before = (x) => Boolean(x.done_on) && x.done_on < today;
+  const gone = (t) => t.kind !== "note" && before(t) && t.subs.every((x) => x.kind === "note" || before(x));
+  return { items: all.filter((t) => !gone(t)), earlier: all.filter(gone), ...tallyOf(all) };
 }
 
 // "Today", "Yesterday", or "Tue, Oct 21" (with the year when it isn't this one).
@@ -49,10 +73,11 @@ export function dayLabel(day, today) {
   return d.toLocaleDateString("en-US", opts);
 }
 
-// Where a new line goes: after the last one on that day (or under that task).
+// Where a new line goes: after the last one on that day (or under that
+// task). A `day` of null means the ongoing list.
 export function nextPosition(tasks, day, parentId = null) {
   return tasks
-    .filter((t) => (parentId ? t.parent_id === parentId : !t.parent_id && t.day === day))
+    .filter((t) => (parentId ? t.parent_id === parentId : !t.parent_id && (day === null ? t.ongoing : !t.ongoing && t.day === day)))
     .reduce((m, t) => Math.max(m, (t.position ?? 0) + 1), 0);
 }
 

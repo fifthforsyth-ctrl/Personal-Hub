@@ -2863,6 +2863,18 @@ export async function updateCamp(id, fields) {
   if (error) throw error;
 }
 
+// New camps at the end of a quest's (or a lesson's) mountain, in order.
+// Resolves to the rows as saved.
+export async function addCamps(userId, questId, titles, startAt = 0) {
+  if (!titles.length) return [];
+  const { data, error } = await supabase
+    .from("quest_camps")
+    .insert(titles.map((title, i) => ({ user_id: userId, quest_id: questId, title, position: startAt + i })))
+    .select(ASCENT_CAMP);
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function addLesson(userId, { title, question, goalId, today, position = 0 }) {
   const { data, error } = await supabase
     .from("lessons")
@@ -2890,7 +2902,7 @@ export async function deleteLesson(id) {
 // edge function and kept, so it can fill any number of camps.
 // ---------------------------------------------------------------------------
 
-const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, position, created_at";
+const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, position, created_at";
 const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
@@ -2982,10 +2994,10 @@ export async function deleteStep(id) {
   if (error) throw error;
 }
 
-export async function addSection(userId, campId, { title, why = null, position = 0 }) {
+export async function addSection(userId, campId, { title, why = null, color = null, position = 0 }) {
   const { data, error } = await supabase
     .from("camp_sections")
-    .insert({ user_id: userId, camp_id: campId, title, why: why || null, position })
+    .insert({ user_id: userId, camp_id: campId, title, why: why || null, color: color || null, position })
     .select(CAMP_SECTION)
     .single();
   if (error) throw error;
@@ -3409,7 +3421,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, ongoing, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3555,6 +3567,17 @@ export async function updateQuestTask(id, fields) {
     .from("quest_tasks")
     .update({ ...fields, updated_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) throw error;
+}
+
+// The same fields on several lines at once: a line and its sub-tasks moved
+// onto the ongoing list or off it.
+export async function updateQuestTasks(ids, fields) {
+  if (!ids.length) return;
+  const { error } = await supabase
+    .from("quest_tasks")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .in("id", ids);
   if (error) throw error;
 }
 

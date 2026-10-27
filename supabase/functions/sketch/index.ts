@@ -65,25 +65,28 @@ const clip = (v: unknown, max: number) => {
 async function contextOf(db: SupabaseClient, sketch: { quest_task_id: string | null; camp_step_id: string | null }): Promise<Context> {
   const lines: string[] = [];
   if (sketch.quest_task_id) {
-    const { data: t, error } = await db.from("quest_tasks").select("id, quest_id, parent_id, kind, text, note, day").eq("id", sketch.quest_task_id).maybeSingle();
+    const { data: t, error } = await db.from("quest_tasks").select("id, quest_id, parent_id, kind, text, note, day, ongoing").eq("id", sketch.quest_task_id).maybeSingle();
     if (error) throw error;
     if (!t) throw new Error("The line this sketch was on is gone.");
-    const [quest, parent, subs, day] = await Promise.all([
+    const parent = t.parent_id ? await db.from("quest_tasks").select("text, ongoing").eq("id", t.parent_id).maybeSingle() : { data: null };
+    // On the quest's ongoing list (0089) rather than a day's: a sub-task goes where its task is.
+    const ongoing = Boolean(t.parent_id ? parent.data?.ongoing : t.ongoing);
+    const siblings = db.from("quest_tasks").select("id, text, kind").eq("quest_id", t.quest_id).is("parent_id", null);
+    const [quest, subs, list] = await Promise.all([
       db.from("quests").select("title, note").eq("id", t.quest_id).maybeSingle(),
-      t.parent_id ? db.from("quest_tasks").select("text").eq("id", t.parent_id).maybeSingle() : Promise.resolve({ data: null }),
       db.from("quest_tasks").select("text, kind").eq("parent_id", t.id).order("position").limit(30),
-      db.from("quest_tasks").select("id, text, kind").eq("quest_id", t.quest_id).eq("day", t.day).is("parent_id", null).order("position").limit(40),
+      (ongoing ? siblings.eq("ongoing", true) : siblings.eq("day", t.day).eq("ongoing", false)).order("position").limit(40),
     ]);
     const kind = t.kind === "note" ? "a note line" : t.parent_id ? "a sub-task" : "a task";
     if (quest.data?.title) lines.push(`Quest: ${clip(quest.data.title, 300)}`);
     if (quest.data?.note) lines.push(`The quest's notes:\n${clip(quest.data.note, 3000)}`);
     if (parent.data?.text) lines.push(`It sits under the task: ${clip(parent.data.text, 500)}`);
-    lines.push(`The sketch is on ${kind} on his list for ${t.day}: ${clip(t.text, 2000)}`);
+    lines.push(`The sketch is on ${kind} on ${ongoing ? "the quest's ongoing list (what stays on it whatever the day)" : `his list for ${t.day}`}: ${clip(t.text, 2000)}`);
     if (t.note) lines.push(`Its notes:\n${clip(t.note, 6000)}`);
     const under = (subs.data ?? []).map((s: { text: string }) => `- ${clip(s.text, 300)}`);
     if (under.length) lines.push(`Under it:\n${under.join("\n")}`);
-    const rest = (day.data ?? []).filter((x: { id: string }) => x.id !== t.id && x.id !== t.parent_id).map((x: { text: string }) => `- ${clip(x.text, 200)}`);
-    if (rest.length) lines.push(`The rest of that day's list:\n${rest.join("\n")}`);
+    const rest = (list.data ?? []).filter((x: { id: string }) => x.id !== t.id && x.id !== t.parent_id).map((x: { text: string }) => `- ${clip(x.text, 200)}`);
+    if (rest.length) lines.push(`The rest of ${ongoing ? "the ongoing list" : "that day's list"}:\n${rest.join("\n")}`);
     return { label: kind, lines };
   }
   const { data: st, error } = await db.from("camp_steps").select("id, camp_id, section_id, parent_id, text, note").eq("id", sketch.camp_step_id).maybeSingle();

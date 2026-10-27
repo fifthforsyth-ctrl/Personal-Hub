@@ -181,6 +181,19 @@
 .camp-step.tinted > .camp-step__row > .camp-check[aria-checked="true"] { background: var(--tint); box-shadow: none; }
 .camp-step.tinted > .camp-step__row > .qs-pen { color: var(--tint); }
 .camp-step.tinted + .camp-step, .camp-step.tinted + .camp-step.tinted { border-top-color: transparent; }
+
+/* A section in a colour (0089): the whole card takes a lighter wash of it,
+   a band down its edge, and its number and bar in it. A step in a colour of
+   its own still stands out on it. The band is painted, not a shadow, so it
+   stays while the card is dragged or dropped onto. */
+.camp-sec--tinted { background: linear-gradient(var(--tint), var(--tint)) left / 4px 100% no-repeat, color-mix(in srgb, var(--tint) 6%, var(--card)); }
+.camp-sec--tinted .camp-sec__n { box-shadow: inset 0 0 0 1.5px var(--tint); }
+.camp-sec--tinted.complete .camp-sec__n { background: var(--tint); color: #fff; box-shadow: none; }
+.camp-sec--tinted > .camp-bar { background: color-mix(in srgb, var(--tint) 16%, var(--card)); }
+.camp-sec--tinted > .camp-bar i { background: var(--tint); }
+/* (lighter than the 0088 rules, which hide the line beside a coloured step) */
+:where(.camp-sec--tinted) .camp-step + .camp-step { border-top-color: color-mix(in srgb, var(--tint) 14%, var(--line)); }
+.camp-sec--tinted .camp-add { border-top-color: color-mix(in srgb, var(--tint) 30%, var(--line-strong)); }
 .camp-color-pick > span { display: block; margin-bottom: 6px; }
 /* all nine on one row, a little smaller where the row is narrow */
 .camp-color-pick__opts { display: grid; grid-template-columns: repeat(9, minmax(0, 32px)); gap: 6px; }

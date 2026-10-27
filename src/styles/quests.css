@@ -44,6 +44,21 @@
 @keyframes qs-unfold { from { opacity: 0; transform: translateY(-6px) scaleY(0.96); } to { opacity: 1; transform: none; } }
 .qs-pill__none { margin: 4px 10px 8px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
 
+/* New camps, from the open pill (Aaron, 2026-10-27). */
+.qs-newcamp {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 38px; margin: 8px 4px 2px; padding: 8px 14px 8px 11px; border: 0;
+  border-radius: var(--r-pill); background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-2);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) { .qs-newcamp:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--ink); } }
+.qs-newcamp__form {
+  display: flex; align-items: flex-start; gap: 10px; margin: 8px 4px 2px; padding: 6px 6px 6px 12px;
+  border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.qs-newcamp__form > svg { flex: 0 0 auto; margin: 8px 0 0; color: var(--text-3); }
+.qs-newcamp__form .camp-add__input { padding-top: 7px; }
+.qs-newcamp__form .btn { flex: 0 0 auto; }
+
 .qs-pill--new {
   display: inline-flex; align-items: center; gap: 5px; min-height: 40px; padding: 8px 14px 8px 11px; border: 0; background: transparent;
   box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
@@ -151,6 +166,14 @@
 .qs-day:not(.open) { padding-top: 14px; padding-bottom: 14px; }
 .qs-hint { margin: 2px 0 4px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); max-width: 60ch; }
 .qs-earlier { margin: 10px 4px 0; }
+
+/* The ongoing list: the quest's own, beside the days. */
+.qs-day--ongoing .qs-day__title h2 { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-serif); font-size: 21px; font-weight: 500; letter-spacing: -0.015em; }
+.qs-day--ongoing .qs-day__title h2 svg { color: var(--text-3); }
+.qs-ongoing__done { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin-top: 2px; }
+.qs-ongoing__done svg { transition: transform 0.2s ease; }
+.qs-ongoing__done svg.flip { transform: rotate(180deg); }
+.qs-lines--done { opacity: 0.85; }
 .qs-older { align-self: flex-start; }
 
 /* Sub-tasks sit under their task, a step in from its box. */

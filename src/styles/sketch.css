@@ -24,7 +24,7 @@
 
 /* --- The pad ------------------------------------------------------------------ */
 
-html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; }
+html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .sk-pad {
   position: fixed; inset: 0; z-index: 58; display: flex; flex-direction: column; background: var(--bg);
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
@@ -54,8 +54,9 @@ html.sk-open, html.sk-open body { overflow: hidden; overscroll-behavior: none; }
 .sk-icon:disabled { opacity: 0.3; cursor: default; }
 @media (hover: hover) { .sk-icon:not(:disabled):hover, .sk-width:hover { background: var(--inset); } }
 
-.sk-area { position: relative; flex: 1; min-height: 0; margin-top: 6px; }
-.sk-canvas { position: absolute; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+.sk-area { position: relative; flex: 1; min-height: 0; margin-top: 6px; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.sk-area, .sk-canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
+.sk-canvas { position: absolute; inset: 0; display: block; touch-action: none; cursor: crosshair; outline: none; }
 .sk-canvas.erasing { cursor: cell; }
 .sk-saving {
   position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; border-radius: var(--r-pill);

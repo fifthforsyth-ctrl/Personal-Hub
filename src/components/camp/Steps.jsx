@@ -302,16 +302,18 @@ export function AddStep({ onAdd, label = "Add a step" }) {
 
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
-// a handle to drag the whole section into a new place.
+// a handle to drag the whole section into a new place. In a colour (0089)
+// the whole card wears it.
 export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, step, sort }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+  const tint = tintOf(s.color);
   return (
     <section
       ref={sort?.ref}
-      style={sort?.style}
-      className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "")}
+      style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
+      className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "") + (tint.style ? " camp-sec--tinted" : "")}
       aria-labelledby={`sec-${s.id}`}
       data-drop={s.id}
     >

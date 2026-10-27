@@ -47,6 +47,27 @@ export default function SketchPad({ sketch, about, onSave, onClose }) {
     return () => document.documentElement.classList.remove("sk-open");
   }, []);
 
+  // iPadOS takes a pencil held still, or pressed twice, as the start of a
+  // text selection: a blue highlight comes up over the pad and the pencil
+  // stops drawing (Aaron, 2026-10-27). Pointer events can't stop that; touch
+  // events can, when they aren't passive. Only the drawing area eats its
+  // touches, so the buttons still tap, and nothing anywhere starts a
+  // selection while the pad is open.
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    const stop = (e) => e.cancelable && e.preventDefault();
+    const touch = { passive: false };
+    const kinds = ["touchstart", "touchmove", "touchend", "gesturestart"];
+    for (const k of kinds) el.addEventListener(k, stop, touch);
+    document.addEventListener("selectstart", stop);
+    window.getSelection?.()?.removeAllRanges();
+    return () => {
+      for (const k of kinds) el.removeEventListener(k, stop, touch);
+      document.removeEventListener("selectstart", stop);
+    };
+  }, []);
+
   const paint = useCallback(
     (list) => {
       const c = canvas.current;
