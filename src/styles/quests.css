@@ -12,12 +12,68 @@
 .qs-title { text-wrap: balance; margin-bottom: 2px; }
 .qs-head__village { display: inline-flex; align-items: center; flex: 0 0 auto; }
 
-/* The quests and lessons, one tap apart. */
-.qs .qs-tabs { align-items: center; }
-.qs-tabs__label { flex: 0 0 auto; font: 500 10px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); padding: 0 2px 0 8px; }
-.qs .qs-tab { padding: 8px 14px; }
-.qs .qs-tab--new { border: 0; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-2); gap: 5px; padding: 8px 14px 8px 11px; }
-@media (hover: hover) { .qs .qs-tab--new:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--ink); } }
+/* The quests and lessons as pills (Aaron, 2026-10-26). The one that's open
+   unfolds into a card the width of the page with its camps in it, each with
+   how far along it is; the others stay small pills around it. */
+.qs-map { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px; }
+.qs-map__label { flex: 0 0 auto; font: 500 10px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); padding: 0 2px 0 6px; }
+.qs-pill { flex: 0 1 auto; min-width: 0; max-width: 100%; border-radius: var(--r-pill); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+.qs-pill__head {
+  display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 40px; padding: 8px 12px 8px 15px; border: 0; border-radius: var(--r-pill);
+  background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent; transition: background 0.18s ease, color 0.18s ease;
+}
+.qs-pill__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-pill__count {
+  flex: 0 0 auto; min-width: 20px; padding: 2px 6px; border-radius: var(--r-pill); background: var(--inset); color: var(--text-2);
+  font: 500 11px var(--font-mono); text-align: center; font-variant-numeric: tabular-nums;
+}
+.qs-pill__chev { flex: 0 0 auto; color: var(--text-3); transition: transform 0.22s ease; }
+.qs-pill.on .qs-pill__head { background: var(--ink); color: var(--on-ink); }
+.qs-pill.on .qs-pill__count { background: rgba(255, 255, 255, 0.16); color: var(--on-ink); }
+.qs-pill.on .qs-pill__chev { color: rgba(255, 255, 255, 0.7); }
+@media (hover: hover) { .qs-pill:not(.on) .qs-pill__head:hover { background: var(--inset); } }
+
+.qs-pill.open { flex: 1 1 100%; border-radius: var(--r-xl); padding: 6px; box-shadow: var(--shadow); }
+.qs-pill.open .qs-pill__head { width: 100%; min-height: 46px; padding: 10px 14px 10px 18px; font-size: 15px; }
+.qs-pill.open .qs-pill__name { flex: 1; white-space: normal; text-wrap: balance; }
+.qs-pill.open .qs-pill__chev { transform: rotate(180deg); }
+.qs-pill.off:not(.on) { box-shadow: inset 0 0 0 1px var(--line-strong); background: transparent; }
+.qs-pill__off { flex: 0 0 auto; font: 500 10px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.65; }
+.qs-pill__body { padding: 8px 4px 4px; animation: qs-unfold 0.24s cubic-bezier(0.2, 0.9, 0.3, 1); transform-origin: top center; }
+@keyframes qs-unfold { from { opacity: 0; transform: translateY(-6px) scaleY(0.96); } to { opacity: 1; transform: none; } }
+.qs-pill__none { margin: 4px 10px 8px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+
+.qs-pill--new {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 40px; padding: 8px 14px 8px 11px; border: 0; background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+@media (hover: hover) { .qs-pill--new:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--ink); } }
+
+/* A camp: its number (a flag once reached), its name, how many steps are
+   done, and a thin bar. */
+.qs-camps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.qs-camp {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "n name" "n bar"; align-items: center; gap: 6px 12px;
+  height: 100%; padding: 11px 14px 12px 11px; border-radius: var(--r-lg); background: var(--surface); color: var(--text); text-decoration: none;
+  -webkit-tap-highlight-color: transparent; transition: background 0.15s ease, transform 0.12s ease;
+}
+.qs-camp:active { transform: scale(0.985); }
+@media (hover: hover) { .qs-camp:hover { background: var(--inset); } }
+.qs-camp__n {
+  grid-area: n; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; align-self: center;
+  background: var(--card); box-shadow: inset 0 0 0 1.5px var(--line-strong); font: 600 12px var(--font-mono); color: var(--text-2);
+}
+.qs-camp.reached .qs-camp__n { background: var(--ink); box-shadow: none; color: var(--accent); }
+.qs-camp__name { grid-area: name; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.qs-camp__name b { font-size: 14px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.qs-camp__name small { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.qs-camp__working { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-text); font-family: inherit; }
+.qs-camp__working i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: qs-pulse 1.6s ease-in-out infinite; }
+@keyframes qs-pulse { 50% { opacity: 0.35; } }
+.qs-camp__bar { grid-area: bar; display: block; height: 4px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
+.qs-camp__bar i { display: block; height: 100%; background: var(--ink); border-radius: inherit; }
+.qs-camp.reached .qs-camp__bar i { background: var(--accent); }
 
 /* The list beside the build and the notes; on a phone, one column with the
    build on top, then the list, then the notes. */
@@ -122,19 +178,10 @@
 .qs .qs-add { align-items: flex-start; }
 .qs-add .camp-add__input { padding-top: 6px; }
 
-/* --- Notes and camps ------------------------------------------------------------ */
+/* --- Notes ----------------------------------------------------------------------- */
 
-.qs-notes, .qs-camps { display: flex; flex-direction: column; gap: 10px; }
+.qs-notes { display: flex; flex-direction: column; gap: 10px; }
 .qs-notes .textarea { min-height: 120px; }
-.qs-camps ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.qs-camps li { border-top: 1px solid var(--line); }
-.qs-camps li:first-child { border-top: 0; }
-.qs-camp { display: flex; align-items: center; gap: 10px; padding: 9px 0; color: var(--text); text-decoration: none; }
-.qs-camp b { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; }
-.qs-camp small { font: 500 11px var(--font-mono); color: var(--text-2); }
-.qs-camp svg { color: var(--accent); flex: 0 0 auto; }
-.qs-camp__dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); flex: 0 0 auto; margin: 0 2px; }
-@media (hover: hover) { .qs-camp:hover b { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
 .qs-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .qs-empty p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); max-width: 56ch; }
 .qs-empty .btn { display: inline-flex; align-items: center; }
@@ -162,6 +209,16 @@
   .qs-subs .camp-step__edit { padding-left: 0; }
 }
 
+@media (max-width: 520px) {
+  /* two camps a row, so the other pills stay close */
+  .qs-camps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .qs-camp { grid-template-areas: "n name" "bar bar"; align-items: start; gap: 8px 8px; padding: 9px 10px 10px 9px; }
+  .qs-camp__n { width: 24px; height: 24px; font-size: 11px; }
+  .qs-camp__name b { font-size: 13px; }
+  .qs-camp__name small { font-size: 10.5px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qs-mini__bar, .qs-bar i { transition: none; }
+  .qs-pill__body, .qs-camp__working i { animation: none; }
 }

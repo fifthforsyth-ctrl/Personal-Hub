@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Castle, Flag, Plus } from "lucide-react";
+import { Castle, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { addQuest, addQuestTasks, deleteQuestTask, fetchQuestBoard, fetchQuestTasks, reorder, updateQuest, updateQuestTask } from "../lib/api";
-import { boardOf, dayLabel, listDays, nextPosition, withFinished } from "../lib/questTasks";
-import { shortName, villageOf } from "../lib/village";
+import { boardOf, campTally, dayLabel, listDays, nextPosition, withFinished } from "../lib/questTasks";
+import { villageOf } from "../lib/village";
+import { appendToNote } from "../lib/sketch";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
@@ -14,24 +15,28 @@ import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
 import { AddLine, DayList } from "../components/quests/Lines";
+import QuestMap from "../components/quests/QuestMap";
+import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 import "../styles/quests.css";
 
 // Quests: a running to-do list and notepad for each quest and lesson. Every
 // day he puts in what he'll do for it, ticks things off, writes notes on what
-// he did, and does it again the next day; the pills along the top jump
-// between quests and lessons. Lines can be tasks, sub-tasks under them, or
-// note lines, and every one can carry notes. Nothing is carried forward
-// (Aaron, 2026-10-14): an earlier day's list stays on its day, still there
-// to tick.
+// he did, and does it again the next day. Lines can be tasks, sub-tasks under
+// them, or note lines, and every one can carry notes, a colour and sketches.
+// Nothing is carried forward (Aaron, 2026-10-14): an earlier day's list stays
+// on its day, still there to tick.
+//
+// First come the quests and lessons as pills (Aaron, 2026-10-26): the one
+// that's open unfolds to show the camps on its mountain, and tapping another
+// opens its list and its camps.
 //
 // The build going up in the village floats at the top. Every task he ticks,
 // on any list, lays its bricks on it until it stands; then he chooses the
 // next build (/village?choose).
 
 const EARLIER_SHOWN = 10;
-const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
 export default function Quests() {
   const { key } = useParams();
@@ -70,7 +75,10 @@ export default function Quests() {
   );
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
 
+  const tally = useMemo(() => campTally(board?.campSteps), [board]);
+
   const [openId, setOpenId] = useState(null);
+  const [openKey, setOpenKey] = useState(null);
   const [unfolded, setUnfolded] = useState({});
   const [allEarlier, setAllEarlier] = useState(false);
   const [away, setAway] = useState(false);
@@ -85,6 +93,14 @@ export default function Quests() {
     setAllEarlier(false);
   }, [sel?.key]);
   useEffect(() => setNote(sel?.note ?? ""), [sel?.key, sel?.note]);
+  // The quest that's open shows its camps; tapping its pill folds them away.
+  useEffect(() => setOpenKey(sel?.key ?? null), [sel?.key]);
+
+  function pick(item) {
+    haptic("tap");
+    if (item.key === sel?.key) setOpenKey((k) => (k === item.key ? null : item.key));
+    else navigate(`/quests/${item.key}`, { replace: true });
+  }
 
   const failed = (err, what) => {
     toast.error(err, what);
@@ -216,6 +232,16 @@ export default function Quests() {
     }
   }
 
+  // A sketch's summary, added to the end of its line's notes ("cut" or
+  // "full" when they're too long to take all of it).
+  function addToNote(id, text) {
+    const line = (lines ?? []).find((x) => x.id === id);
+    if (!line) return "gone";
+    const { note, status } = appendToNote(line.note, text, 20000);
+    if (status !== "full") saveLine(line, { note });
+    return status;
+  }
+
   const row = (line, siblings) => ({
     onOpen: () => setOpenId((o) => (o === line.id ? null : line.id)),
     onDone: () => toggleDone(line),
@@ -274,15 +300,10 @@ export default function Quests() {
   }
 
   const goal = sel?.goalId ? board.goals.find((g) => g.id === sel.goalId)?.title : null;
-  const camps = questId ? board.camps.filter((c) => c.quest_id === questId).sort(byPos) : [];
-  const stepsDone = new Map();
-  for (const s of board.finished.steps) stepsDone.set(s.camp_id, (stepsDone.get(s.camp_id) ?? 0) + 1);
   const [todayList, ...earlierAll] = days;
   const earlier = earlierAll.filter((d) => d.items.length);
   const earlierShown = allEarlier ? earlier : earlier.slice(0, EARLIER_SHOWN);
   const building = buildNow(village, today);
-  const quests = items.filter((i) => i.type === "Quest");
-  const lessons = items.filter((i) => i.type === "Lesson");
 
   return (
     <div className="page ascent qs">
@@ -304,122 +325,88 @@ export default function Quests() {
         </Link>
       </header>
 
-      <nav className="camp-tabs qs-tabs" aria-label="Quests and lessons">
-        {quests.map((i) => (
-          <Link key={i.key} to={`/quests/${i.key}`} className="camp-tab qs-tab" aria-current={sel?.key === i.key ? "page" : undefined} title={i.name} replace>
-            {shortName(i.name)}
-          </Link>
-        ))}
-        {lessons.length > 0 && <span className="qs-tabs__label">Lessons</span>}
-        {lessons.map((i) => (
-          <Link key={i.key} to={`/quests/${i.key}`} className="camp-tab qs-tab" aria-current={sel?.key === i.key ? "page" : undefined} title={i.name} replace>
-            {shortName(i.name)}
-          </Link>
-        ))}
-        <button type="button" className="camp-tab qs-tab qs-tab--new" onClick={() => setNewQuest(true)}>
-          <Plus size={13} aria-hidden="true" />
-          New quest
-        </button>
-      </nav>
+      <QuestMap items={items} sel={sel} camps={board.camps} tally={tally} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} />
 
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 
-      <div className="qs-grid">
-        <div className="qs-rail">
-          <div className="qs-rail__build">
-            <FloatingBuild village={village} today={today} onAway={onAway} />
+      <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => (lines ?? []).find((x) => x.id === id)?.text} onAddToNote={addToNote}>
+        <div className="qs-grid">
+          <div className="qs-rail">
+            <div className="qs-rail__build">
+              <FloatingBuild village={village} today={today} onAway={onAway} />
+            </div>
+
+            {sel && (
+              <aside className="qs-side">
+                <section className="card qs-notes" aria-labelledby="qs-notes-h">
+                  <div className="ascent-row">
+                    <h2 className="eyebrow" id="qs-notes-h">
+                      Notes on this {sel.type === "Lesson" ? "lesson" : "quest"}
+                    </h2>
+                    {noteSaved && <span className="ascent-mini camp-saved">Saved</span>}
+                  </div>
+                  <textarea
+                    className="textarea"
+                    rows={5}
+                    value={note}
+                    maxLength={20000}
+                    placeholder="Where it's headed, decisions, ideas, links…"
+                    onChange={(e) => setNote(e.target.value)}
+                    onBlur={saveNote}
+                  />
+                </section>
+              </aside>
+            )}
           </div>
 
-          {sel && (
-            <aside className="qs-side">
-              <section className="card qs-notes" aria-labelledby="qs-notes-h">
-                <div className="ascent-row">
-                  <h2 className="eyebrow" id="qs-notes-h">
-                    Notes on this {sel.type === "Lesson" ? "lesson" : "quest"}
-                  </h2>
-                  {noteSaved && <span className="ascent-mini camp-saved">Saved</span>}
-                </div>
-                <textarea
-                  className="textarea"
-                  rows={5}
-                  value={note}
-                  maxLength={20000}
-                  placeholder="Where it's headed, decisions, ideas, links…"
-                  onChange={(e) => setNote(e.target.value)}
-                  onBlur={saveNote}
-                />
-              </section>
+          <div className="qs-main">
+            <BuildMini village={village} today={today} show={away} />
 
-              {camps.length > 0 && (
-                <section className="card qs-camps" aria-labelledby="qs-camps-h">
-                  <h2 className="eyebrow" id="qs-camps-h">
-                    Camps on this mountain
-                  </h2>
-                  <ul>
-                    {camps.map((c) => (
-                      <li key={c.id}>
-                        <Link to={`/ascent/camp/${c.id}`} className="qs-camp">
-                          {c.reached_on ? <Flag size={12} aria-hidden="true" /> : <span className="qs-camp__dot" aria-hidden="true" />}
-                          <b>{c.title}</b>
-                          {stepsDone.get(c.id) ? <small>{stepsDone.get(c.id)} done</small> : null}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="ascent-mini">Steps done at a camp lay pieces too.</p>
-                </section>
-              )}
-            </aside>
-          )}
-        </div>
-
-        <div className="qs-main">
-          <BuildMini village={village} today={today} show={away} />
-
-          {!sel ? (
-            <section className="card qs-empty">
-              <p>No quests on yet. Start one, and its list lives here: what you'll do for it each day, ticked off, with notes on what you did.</p>
-              <button type="button" className="btn btn--sm btn--accent" onClick={() => setNewQuest(true)}>
-                <Plus size={14} />
-                Start a quest
-              </button>
-            </section>
-          ) : (
-            <>
-              {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
-              <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={openId} row={row} onAddSubs={addSubs}>
-                {!todayList.items.length && !linesLoading && (
-                  <p className="qs-hint">
-                    {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
-                    {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
-                  </p>
-                )}
-                <AddLine key={sel.key} onAdd={addLines} />
-              </DayList>
-
-              {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
-              {earlierShown.map((d) => (
-                <DayList
-                  key={d.day}
-                  day={d}
-                  label={dayLabel(d.day, today)}
-                  today={today}
-                  folded={!unfolded[d.day]}
-                  onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
-                  openId={openId}
-                  row={row}
-                  onAddSubs={addSubs}
-                />
-              ))}
-              {earlier.length > earlierShown.length && (
-                <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
-                  Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
+            {!sel ? (
+              <section className="card qs-empty">
+                <p>No quests on yet. Start one, and its list lives here: what you'll do for it each day, ticked off, with notes on what you did.</p>
+                <button type="button" className="btn btn--sm btn--accent" onClick={() => setNewQuest(true)}>
+                  <Plus size={14} />
+                  Start a quest
                 </button>
-              )}
-            </>
-          )}
+              </section>
+            ) : (
+              <>
+                {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
+                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={openId} row={row} onAddSubs={addSubs}>
+                  {!todayList.items.length && !linesLoading && (
+                    <p className="qs-hint">
+                      {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
+                      {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
+                    </p>
+                  )}
+                  <AddLine key={sel.key} onAdd={addLines} />
+                </DayList>
+
+                {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
+                {earlierShown.map((d) => (
+                  <DayList
+                    key={d.day}
+                    day={d}
+                    label={dayLabel(d.day, today)}
+                    today={today}
+                    folded={!unfolded[d.day]}
+                    onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+                    openId={openId}
+                    row={row}
+                    onAddSubs={addSubs}
+                  />
+                ))}
+                {earlier.length > earlierShown.length && (
+                  <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
+                    Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      </SketchProvider>
 
       {newQuest && <NewQuest onSave={startQuest} onClose={() => setNewQuest(false)} />}
     </div>

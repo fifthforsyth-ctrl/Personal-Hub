@@ -3,6 +3,8 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, NotebookPen, Plus, StickyNote }
 import { parseLines } from "../../lib/questTasks";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
+import { ColorPick, tintOf } from "../camp/ColorPick";
+import { SketchButton, SketchStrip } from "../sketch/Sketches";
 
 // The pieces of a quest's running list: one line (a task he can tick or a
 // line of notes) with its sub-tasks under it, the box he types into, and a
@@ -35,6 +37,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
   }, [line.id, line.text, line.note]);
   const textRef = useGrow(open ? text : "");
   const noteRef = useGrow(open ? notes : "");
+  const tint = tintOf(line.color);
 
   function saveText() {
     const t = text.trim();
@@ -47,7 +50,11 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
   }
 
   return (
-    <li id={`line-${line.id}`} className={"camp-step qs-line" + (done ? " done" : "") + (open ? " open" : "") + (note ? " qs-line--note" : "") + (line.parent_id ? " qs-line--sub" : "")}>
+    <li
+      id={`line-${line.id}`}
+      style={tint.style}
+      className={"camp-step qs-line" + (done ? " done" : "") + (open ? " open" : "") + (note ? " qs-line--note" : "") + (line.parent_id ? " qs-line--sub" : "") + tint.className}
+    >
       <div className="camp-step__row">
         {note ? (
           <span className="qs-pen" aria-hidden="true">
@@ -70,6 +77,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
           )}
         </button>
       </div>
+      <SketchStrip itemId={line.id} />
       {open && (
         <div className="camp-step__edit">
           <label className="field">
@@ -90,7 +98,9 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
               autoFocus
             />
           </label>
+          <ColorPick value={line.color ?? null} onChange={(color) => onSave({ color })} />
           <div className="camp-step__tools">
+            <SketchButton itemId={line.id} />
             {done && <span className="ascent-mini">Done {fmtShortDate(line.done_on)}</span>}
             <span className="spacer" />
             <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">

@@ -107,3 +107,18 @@ export function withFinished(finished, line) {
   if (!line.done_on || line.kind !== "task") return rest;
   return [...rest, { id: line.id, quest_id: line.quest_id, kind: line.kind, text: line.text, note: line.note ?? null, done_on: line.done_on, done_at: line.done_at ?? null, updated_at: line.updated_at ?? null }];
 }
+
+// Each camp's steps, for the camps under each quest on Quests: camp id →
+// { done, total, working }, where `working` means an open step there is
+// being worked on now.
+export function campTally(steps) {
+  const m = new Map();
+  for (const s of steps ?? []) {
+    const t = m.get(s.camp_id) ?? { done: 0, total: 0, working: false };
+    t.total += 1;
+    if (s.done_on) t.done += 1;
+    else if (s.working_since) t.working = true;
+    m.set(s.camp_id, t);
+  }
+  return m;
+}

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchCamp, addSteps, updateStep, deleteStep, addSection, updateSection, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
 import { buildCamp, stepsLine, stepsUnder } from "../lib/camp";
 import { todayStr, fmtShortDate } from "../lib/planDates";
+import { appendToNote } from "../lib/sketch";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
 import { playClink } from "../lib/clink";
@@ -14,6 +15,7 @@ import Sheet from "../components/ascent/Sheet";
 import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
 import { useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
+import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 
@@ -37,6 +39,9 @@ const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.create
 
 export default function Camp() {
   const { id } = useParams();
+  const location = useLocation();
+  // Opened from a quest's camps on Quests, it goes back there.
+  const fromQuests = location.state?.from === "quests";
   const { user } = useAuth();
   const userId = user?.id;
   const today = todayStr();
@@ -101,6 +106,15 @@ export default function Camp() {
   function saveStep(st, fields) {
     setSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
     updateStep(st.id, fields).catch((err) => failed(err, "Couldn't save that step."));
+  }
+
+  // A sketch's summary, added to the end of its step's notes.
+  function addToNote(stepId, text) {
+    const st = data?.steps.find((x) => x.id === stepId);
+    if (!st) return "gone";
+    const { note, status } = appendToNote(st.note, text, 4000);
+    if (status !== "full") saveStep(st, { note });
+    return status;
   }
 
   // Everything under it goes with it.
@@ -352,9 +366,9 @@ export default function Camp() {
   return (
     <div className="page ascent camp">
       <header className="ascent-head camp-head">
-        <Link to="/ascent" className="btn-link camp-back">
+        <Link to={fromQuests ? `/quests/${data.camp.quest_id}` : "/ascent"} className="btn-link camp-back">
           <ChevronLeft size={14} />
-          The Range
+          {fromQuests ? "Quests" : "The Range"}
         </Link>
         <div className="eyebrow">{mountain}</div>
         <h1 className="page-title">{data.camp.title}</h1>
@@ -367,7 +381,7 @@ export default function Camp() {
       {camps.length > 1 && (
         <nav className="camp-tabs" aria-label="Camps on this mountain">
           {camps.map((c, i) => (
-            <Link key={c.id} to={`/ascent/camp/${c.id}`} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
+            <Link key={c.id} to={`/ascent/camp/${c.id}`} state={location.state} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
               {c.reached_on ? <Flag size={12} aria-hidden="true" /> : <span className="camp-tab__n">{i + 1}</span>}
               {c.title}
             </Link>
@@ -419,69 +433,71 @@ export default function Camp() {
           ) : null}
         </section>
 
-        <div className="camp-main">
-          <div className="ascent-row camp-main__head">
-            <h2 className="eyebrow">Steps</h2>
-            {view.done > 0 && (
-              <button type="button" className="btn-link" aria-pressed={hideDone} onClick={toggleHide}>
-                {hideDone ? "Show done steps" : "Hide done steps"}
+        <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
+          <div className="camp-main">
+            <div className="ascent-row camp-main__head">
+              <h2 className="eyebrow">Steps</h2>
+              {view.done > 0 && (
+                <button type="button" className="btn-link" aria-pressed={hideDone} onClick={toggleHide}>
+                  {hideDone ? "Show done steps" : "Hide done steps"}
+                </button>
+              )}
+            </div>
+
+            {empty && (
+              <section className="card camp-empty">
+                <p>No steps here yet. Type them in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you.</p>
+                <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--accent">
+                  <BookOpen size={14} />
+                  Bring in a plan
+                </Link>
+              </section>
+            )}
+
+            {(view.loose.length > 0 || empty) && (
+              <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
+                {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} />}
+                {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
+                <AddStep onAdd={(texts) => addTo(null, texts)} />
+              </section>
+            )}
+
+            {view.sections.map((s) => (
+              <SectionCard
+                key={s.id}
+                section={s}
+                open={isOpen(s)}
+                hideDone={hideDone}
+                openStep={openStep}
+                onToggle={() => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
+                onEdit={() => setSheet(s)}
+                onAdd={addTo}
+                onAddSubs={addSubs}
+                onReorder={reorderSteps}
+                onDragOut={dragOut}
+                step={stepProps}
+                sort={
+                  view.sections.length > 1
+                    ? { ref: sectionSort.ref(s.id), style: sectionSort.style(s.id), handle: sectionSort.handle(s.id), lifted: sectionSort.dragging === s.id }
+                    : null
+                }
+              />
+            ))}
+
+            <div className="camp-more">
+              <button type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ new: true })}>
+                <Plus size={14} />
+                Add a section
               </button>
-            )}
+              {!empty && (
+                <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--on-page">
+                  <BookOpen size={14} />
+                  Bring in a plan
+                </Link>
+              )}
+            </div>
           </div>
-
-          {empty && (
-            <section className="card camp-empty">
-              <p>No steps here yet. Type them in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you.</p>
-              <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--accent">
-                <BookOpen size={14} />
-                Bring in a plan
-              </Link>
-            </section>
-          )}
-
-          {(view.loose.length > 0 || empty) && (
-            <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
-              {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} />}
-              {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
-              <AddStep onAdd={(texts) => addTo(null, texts)} />
-            </section>
-          )}
-
-          {view.sections.map((s) => (
-            <SectionCard
-              key={s.id}
-              section={s}
-              open={isOpen(s)}
-              hideDone={hideDone}
-              openStep={openStep}
-              onToggle={() => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
-              onEdit={() => setSheet(s)}
-              onAdd={addTo}
-              onAddSubs={addSubs}
-              onReorder={reorderSteps}
-              onDragOut={dragOut}
-              step={stepProps}
-              sort={
-                view.sections.length > 1
-                  ? { ref: sectionSort.ref(s.id), style: sectionSort.style(s.id), handle: sectionSort.handle(s.id), lifted: sectionSort.dragging === s.id }
-                  : null
-              }
-            />
-          ))}
-
-          <div className="camp-more">
-            <button type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ new: true })}>
-              <Plus size={14} />
-              Add a section
-            </button>
-            {!empty && (
-              <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--on-page">
-                <BookOpen size={14} />
-                Bring in a plan
-              </Link>
-            )}
-          </div>
-        </div>
+        </SketchProvider>
 
         <aside className="camp-side">
           <section className="card camp-notes" aria-labelledby="camp-notes-h">

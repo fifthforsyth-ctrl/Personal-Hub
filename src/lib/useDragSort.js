@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { haptic } from "./haptics";
-import { dropIndex, moved } from "./dragOrder";
+import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 
 // Drag to reorder, by a handle only, so a stray touch never moves anything.
 // Works the same with a finger or a mouse (pointer events): press the handle,
 // the item lifts and follows, the others slide out of its way, and letting
 // go hands the new order of ids to `onDrop`. Near the top or bottom of the
-// screen the page scrolls along with it.
+// screen the page scrolls along with it: the app's page scrolls inside
+// `.main`, not the window, so it scrolls whatever the list sits in, and the
+// edges are that box's own (under the top bar, above the phone's tab bar).
 //
 //   const sort = useDragSort(ids, (newIds) => save(newIds));
 //   <li ref={sort.ref(id)} style={sort.style(id)} className={sort.dragging === id ? "lifted" : ""}>
@@ -17,8 +19,16 @@ import { dropIndex, moved } from "./dragOrder";
 // hears "move" as it goes ("back" if it comes home), then "drop" (or
 // "cancel") where it was let go.
 
-const EDGE = 72; // px from the top or bottom of the screen where it scrolls
-const SPEED = 14; // px per frame at the very edge
+const SPEED = 16; // px per frame at the very edge (faster past it)
+
+// The box that scrolls the list: its nearest scrolling ancestor, or the page.
+export function scrollerOf(el) {
+  for (let n = el?.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    const y = getComputedStyle(n).overflowY;
+    if ((y === "auto" || y === "scroll" || y === "overlay") && n.scrollHeight > n.clientHeight) return n;
+  }
+  return null;
+}
 
 export function useDragSort(ids, onDrop, { onOut } = {}) {
   const els = useRef(new Map());
@@ -65,6 +75,8 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     if (from < 0 || (list.length < 2 && !latest.current.onOut)) return;
     e.preventDefault();
     e.stopPropagation();
+    const box = scrollerOf(e.currentTarget);
+    const scrolled = () => (box ? box.scrollTop : window.scrollY);
     const rects = list.map((x) => els.current.get(x)?.getBoundingClientRect());
     if (rects.some((r) => !r)) return;
     const me = rects[from];
@@ -79,16 +91,16 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
       x: e.clientX,
       y: e.clientY,
       out: false,
-      scroll0: window.scrollY,
-      mids: rects.map((r) => r.top + r.height / 2 + window.scrollY),
+      scroll0: scrolled(),
+      mids: rects.map((r) => r.top + r.height / 2 + scrolled()),
       // The list's own stretch of the page; past it (by half a step) is out.
-      span: [rects[0].top + window.scrollY, rects[rects.length - 1].bottom + window.scrollY],
+      span: [rects[0].top + scrolled(), rects[rects.length - 1].bottom + scrolled()],
       step: me.height + gap,
       frame: 0,
     };
     const update = () => {
-      const dy = d.y - d.startY + (window.scrollY - d.scroll0);
-      const at = d.y + window.scrollY;
+      const dy = d.y - d.startY + (scrolled() - d.scroll0);
+      const at = d.y + scrolled();
       const slack = d.step / 2;
       d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
       d.to = d.out ? d.from : dropIndex(d.mids, d.from, d.mids[d.from] + dy);
@@ -98,11 +110,16 @@ export function useDragSort(ids, onDrop, { onOut } = {}) {
     };
     const tick = () => {
       if (live.current !== d) return;
-      const h = window.innerHeight;
-      const push = d.y < EDGE ? -(EDGE - d.y) / EDGE : d.y > h - EDGE ? (d.y - (h - EDGE)) / EDGE : 0;
+      const r = box?.getBoundingClientRect();
+      const top = Math.max(0, r ? r.top : 0);
+      const bottom = Math.min(window.innerHeight, r ? r.bottom : window.innerHeight);
+      const push = towardEdge(edgePush(d.y, top, bottom), d.startY, d.y);
       if (push) {
-        window.scrollBy(0, Math.round(push * SPEED));
-        update();
+        const before = scrolled();
+        const by = Math.round(push * SPEED);
+        if (box) box.scrollTop = before + by;
+        else window.scrollBy(0, by);
+        if (scrolled() !== before) update();
       }
       d.frame = requestAnimationFrame(tick);
     };

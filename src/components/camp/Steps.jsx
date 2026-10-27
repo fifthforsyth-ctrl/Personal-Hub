@@ -4,6 +4,8 @@ import { splitSteps } from "../../lib/camp";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "./Rich";
 import { useDragSort } from "../../lib/useDragSort";
+import { ColorPick, tintOf } from "./ColorPick";
+import { SketchButton, SketchStrip } from "../sketch/Sketches";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
 // add steps, and a section with its steps.
@@ -58,6 +60,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   }, [step.id, step.text, step.note]);
   const textRef = useGrow(open ? text : "");
   const noteRef = useGrow(open ? note : "");
+  const tint = tintOf(step.color);
 
   function saveText() {
     const t = text.trim();
@@ -73,8 +76,8 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
     <li
       id={`step-${step.id}`}
       ref={sort?.ref}
-      style={sort?.style}
-      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (working ? " working" : "") + (sort?.lifted ? " lifted" : "")}
+      style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
+      className={"camp-step" + (done ? " done" : "") + (open ? " open" : "") + (step.parent_id ? " camp-step--sub" : "") + (working ? " working" : "") + (sort?.lifted ? " lifted" : "") + tint.className}
     >
       <div className="camp-step__row">
         <button
@@ -102,6 +105,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         </button>
         {sort && <DragHandle {...sort.handle} label="Drag to move this step" />}
       </div>
+      <SketchStrip itemId={step.id} />
       {open && (
         <div className="camp-step__edit">
           <label className="field">
@@ -137,6 +141,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
               ))}
             </div>
           </div>
+          <ColorPick value={step.color ?? null} onChange={(color) => onSave({ color })} />
           {sections && (
             <label className="field">
               <span>Section</span>
@@ -169,6 +174,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             />
           </label>
           <div className="camp-step__tools">
+            <SketchButton itemId={step.id} />
             {done && <span className="ascent-mini">Done {fmtShortDate(step.done_on)}</span>}
             <span className="spacer" />
             <button type="button" className="btn-icon" onClick={() => onMove(-1)} disabled={first} aria-label="Move up" title="Move up">
