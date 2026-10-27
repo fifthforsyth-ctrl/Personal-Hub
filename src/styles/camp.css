@@ -154,6 +154,22 @@
 .camp-step.drop-before, .camp-sec.drop-end > .camp-sec__body > .camp-add, .camp-loose.drop-end > .camp-add { margin-top: 52px; }
 .camp-step, .camp-add { transition: margin-top 0.15s ease; }
 .camp-sec.lifted { box-shadow: 0 14px 36px rgba(20, 20, 20, 0.18); }
+/* Dropped onto another step, it goes under that one: the step lights up,
+   and the one being carried tucks in under it with a tag saying so (it
+   covers what's under it, so nothing peeks out beside it). Nothing changes
+   size, so nothing shifts while it's there; a section it's passing through
+   on the way stops glowing. */
+.camp-step.drop-into > .camp-step__row { position: relative; isolation: isolate; }
+.camp-step.drop-into > .camp-step__row::after {
+  content: ""; position: absolute; inset: 1px -8px; z-index: -1; border-radius: 12px; pointer-events: none;
+  background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent);
+}
+.camp-step.nesting { box-shadow: 0 0 0 1.5px var(--accent), 0 8px 24px rgba(20, 20, 20, 0.16), -30px 0 0 0 var(--card); }
+.drag-into .camp-sec.drop-here { box-shadow: none; }
+.nest-tag {
+  position: absolute; top: -10px; left: 10px; z-index: 1; padding: 1px 8px; border-radius: 999px; pointer-events: none;
+  background: var(--accent); color: var(--on-accent); font: 650 11px/1.5 var(--font); letter-spacing: 0.01em; white-space: nowrap;
+}
 
 /* Urgency: red, yellow or green, a small dot before the step's words. */
 .camp-urgency { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 7px 1px 0; vertical-align: middle; flex: none; }
@@ -519,3 +535,30 @@ html:has(.pick-bar) .toast-region { bottom: 88px; }
 @media (hover: hover) { a.today-group__label:hover .today-group__name { text-decoration: underline; text-underline-offset: 3px; } }
 .today-group__label--own { color: var(--text-2); border-top: 1px dashed var(--accent-line); padding-top: 10px; margin-top: 2px; }
 .qs-camp__today { color: var(--accent-text); font-weight: 700; }
+
+/* A whole section on today (0091): its number and name over its steps, how
+   far along today, and "Off today" at the end of the line. A dashed line
+   sets it off from the steps picked one by one around it. */
+.today-sec { display: flex; flex-direction: column; min-width: 0; }
+:is(.camp-steps, .today-sec) + .today-sec, .today-sec + .camp-steps { border-top: 1px dashed var(--accent-line); padding-top: 6px; }
+.today-sec__head { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; min-width: 0; padding: 4px 0 2px; }
+.today-sec__n {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 11px var(--font-mono); color: var(--accent-text); box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.today-sec.tinted .today-sec__n { color: var(--text); box-shadow: inset 0 0 0 1.5px var(--tint); background: color-mix(in srgb, var(--tint) 12%, var(--card)); }
+.today-sec__name { margin: 0; min-width: 0; font-size: 15px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.3; color: var(--text); overflow-wrap: anywhere; }
+.today-sec__head small { font: 600 11px var(--font-mono); color: var(--accent-text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.btn-link.today-sec__off { margin-left: auto; min-height: 32px; padding: 0 2px; white-space: nowrap; }
+.today-sec > .today-hint { padding: 4px 0 6px 34px; }
+.today-sec__earlier { margin: 0; padding: 2px 0 4px 38px; }
+@media (max-width: 560px) { .today-sec > .today-hint, .today-sec__earlier { padding-left: 0; } }
+
+/* Picking a whole section: its own box in its head, the card ringed in the
+   accent while it's picked, and its steps picked with it, their boxes
+   fixed. */
+.camp-sec__pick { margin: 0 6px 0 0; }
+.camp-sec.picked { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+.camp-sec__name small .today-tag { margin-left: 8px; }
+.camp-step.with-sec > .camp-step__row .camp-pick:disabled { cursor: default; opacity: 0.75; }
+.camp-step.with-sec > .camp-step__row .camp-step__text:disabled { cursor: default; color: inherit; }

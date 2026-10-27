@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Castle, ChevronRight, Plus, Repeat } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -15,14 +15,17 @@ import {
   updateQuest,
   updateQuestTask,
   updateQuestTasks,
+  updateSection,
   updateStep,
 } from "../lib/api";
-import { boardOf, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
+import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { pickDiff, questToday } from "../lib/camp";
 import { villageOf } from "../lib/village";
 import { appendToNote } from "../lib/sketch";
+import { savesInOrder, undoableSave } from "../lib/inOrder";
 import { fmtDayHeading, todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
+import { markDrop } from "../lib/useDragSort";
 import { haptic } from "../lib/haptics";
 import { playClink } from "../lib/clink";
 import { useToast } from "../components/ui/Feedback";
@@ -31,8 +34,7 @@ import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
 import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
-import { StepList } from "../components/camp/Steps";
-import { PickBar, usePick } from "../components/camp/Today";
+import { PickBar, TodayBlocks, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -52,8 +54,9 @@ import "../styles/quests.css";
 // opens its list and its camps. New camps are added there too.
 //
 // Today's list also shows what's picked for today elsewhere (0090, Aaron
-// 2026-10-27): steps picked in any of the quest's camps, under each camp's
-// name, and lines picked from the ongoing list or an earlier day. They're
+// 2026-10-27): steps and whole sections (0091) picked in any of the quest's
+// camps, under each camp's name, and lines picked from the ongoing list or
+// an earlier day. They're
 // the same steps and lines, not copies, so a tick or a note here is a tick
 // or a note there too.
 //
@@ -90,6 +93,11 @@ export default function Quests() {
     reload: reloadLines,
     mutate: mutateLines,
   } = useLoad(() => (userId && questId ? fetchQuestTasks(userId, questId) : []), [userId, questId]);
+  // The lines as they are now, for an Undo tapped after other changes.
+  const linesNow = useRef(null);
+  linesNow.current = lines;
+  // Moves (drags, Undo) save one after another, in the order they were made.
+  const inOrder = useMemo(savesInOrder, []);
 
   const village = useMemo(
     () =>
@@ -101,7 +109,7 @@ export default function Quests() {
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
   const ongoing = useMemo(() => ongoingList(lines ?? [], today), [lines, today]);
 
-  const tally = useMemo(() => campTally(board?.campSteps, today), [board, today]);
+  const tally = useMemo(() => campTally(board?.campSteps, today, board?.campSections), [board, today]);
 
   // What's picked for today: lines from the ongoing list and earlier days,
   // and steps in the quest's camps.
@@ -151,10 +159,10 @@ export default function Quests() {
     else navigate(`/quests/${item.key}`, { replace: true });
   }
 
+  // The reload waits for the moves already saving (see inOrder.js).
   const failed = (err, what) => {
     toast.error(err, what);
-    reloadLines();
-    reload();
+    inOrder.reload(() => Promise.all([reloadLines(), reload()]));
   };
 
   // --- The list -------------------------------------------------------------
@@ -285,13 +293,41 @@ export default function Quests() {
     saveStep(st, { today_on: on ? today : null });
   }
 
+  // A whole section picked in a camp (0091): its steps come off today with it.
+  const sectionOnToday = (st) => Boolean(st.section_id) && (campData?.sections ?? []).some((x) => x.id === st.section_id && x.today_on === today);
+
+  function setSectionToday(sec, on) {
+    const fields = { today_on: on ? today : null };
+    const put = (x) => (x.id === sec.id ? { ...x, ...fields } : x);
+    mutateCamps((d) => d && { ...d, sections: d.sections.map(put) });
+    mutateBoard((b) => b && { ...b, campSections: (b.campSections ?? []).map(put) });
+    updateSection(sec.id, fields).catch((err) => stepFailed(err, "Couldn't change that."));
+  }
+
+  function sectionOff(sec) {
+    if (openStep && (campData?.steps ?? []).some((x) => x.id === openStep && x.section_id === sec.id)) setOpenStep(null);
+    haptic("tap");
+    setSectionToday(sec, false);
+    const name = String(sec.title ?? "");
+    toast.show(`“${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}” is off today`, { actionLabel: "Undo", onAction: () => setSectionToday(sec, true) });
+  }
+
   async function addStepSubs(st, texts) {
     const under = (campData?.steps ?? []).filter((x) => x.parent_id === st.id);
     const start = under.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     try {
       const rows = await addSteps(userId, st.camp_id, st.section_id ?? null, texts, start, st.id);
       setCampSteps((list) => [...list, ...rows]);
-      mutateBoard((b) => b && { ...b, campSteps: [...(b.campSteps ?? []), ...rows.map((r) => ({ id: r.id, camp_id: r.camp_id, done_on: null, working_since: null, today_on: null }))] });
+      mutateBoard(
+        (b) =>
+          b && {
+            ...b,
+            campSteps: [
+              ...(b.campSteps ?? []),
+              ...rows.map((r) => ({ id: r.id, camp_id: r.camp_id, section_id: r.section_id ?? null, parent_id: r.parent_id ?? null, done_on: null, working_since: null, today_on: null })),
+            ],
+          }
+      );
       haptic("tap");
       return true;
     } catch (err) {
@@ -317,7 +353,7 @@ export default function Quests() {
     onDone: () => toggleStepDone(st),
     onSave: (fields) => saveStep(st, fields),
     isToday: st.today_on === today,
-    onToday: () => setStepToday(st, st.today_on !== today),
+    onToday: sectionOnToday(st) ? undefined : () => setStepToday(st, st.today_on !== today),
   });
 
   function removeLine(line) {
@@ -346,7 +382,151 @@ export default function Quests() {
     next.splice(i + by, 0, line);
     const at = new Map(next.map((x, k) => [x.id, k]));
     mutateLines((list) => (list ?? []).map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
-    reorder("quest_tasks", next).catch((err) => failed(err, "Couldn't move that."));
+    inOrder(() => reorder("quest_tasks", next)).catch((err) => failed(err, "Couldn't move that."));
+  }
+
+  // --- Dragging lines ------------------------------------------------------------------
+
+  // The lines beside this one: its task's sub-tasks, or the top lines of its
+  // day or of the ongoing list.
+  const lineSiblings = (line) =>
+    (lines ?? []).filter((x) =>
+      line.parent_id ? x.parent_id === line.parent_id : !x.parent_id && Boolean(x.ongoing) === Boolean(line.ongoing) && (line.ongoing || x.day === line.day)
+    );
+
+  // Dragged into a new order: `shown` is the list as it stood on screen and
+  // `ids` its new order. Lines hidden from it (the ongoing list's done ones)
+  // keep their places.
+  function reorderLines(shown, ids) {
+    if (!shown.length) return;
+    const full = lineSiblings(shown[0]).sort(byPos);
+    const byId = new Map(full.map((x) => [x.id, x]));
+    const onScreen = new Set(ids);
+    const queue = [...ids];
+    const next = full.map((x) => (onScreen.has(x.id) ? byId.get(queue.shift()) : x)).filter(Boolean);
+    const at = new Map(next.map((x, k) => [x.id, k]));
+    mutateLines((list) => (list ?? []).map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
+    inOrder(() => reorder("quest_tasks", next)).catch((err) => failed(err, "Couldn't move that."));
+  }
+
+  // Dropped onto another line (Aaron, 2026-10-27): it goes under that one as
+  // a sub-task, after its others, on that line's day or list. Lines go one
+  // deep, so its own sub-tasks come along as that line's sub-tasks too, and
+  // it's no longer picked for today on its own. Undo puts them all back.
+  function nestLine(line, targetId) {
+    const all = lines ?? [];
+    const target = all.find((x) => x.id === targetId);
+    if (!line || !target || target.id === line.id || target.parent_id || line.parent_id === target.id) return;
+    const moving = [line, ...all.filter((x) => x.parent_id === line.id).sort(byPos)];
+    const place = { parent_id: target.id, day: target.day, ongoing: Boolean(target.ongoing) };
+    let pos = nextPosition(all, target.day, target.id);
+    const now = moving.map((x) => ({ id: x.id, ...place, position: pos++ }));
+    const was = moving.map((x) => ({ id: x.id, parent_id: x.parent_id ?? null, day: x.day, ongoing: Boolean(x.ongoing), position: x.position ?? 0 }));
+    if (line.today_on) {
+      now[0].today_on = null;
+      was[0].today_on = line.today_on;
+    }
+    const show = (rows) => {
+      const by = new Map(rows.map(({ id, ...fields }) => [id, fields]));
+      mutateLines((list) => (list ?? []).map((x) => (by.has(x.id) ? { ...x, ...by.get(x.id) } : x)));
+      requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    };
+    // One row at a time, in an order where every step on the way can be
+    // shown: going under, its sub-tasks move first, then it; coming back,
+    // it moves first, then they do. So a write that fails part way never
+    // leaves a sub-task under a sub-task, where no list would show it.
+    const save = (order) => () => order.reduce((p, { id, ...fields }) => p.then(() => updateQuestTask(id, fields)), Promise.resolve());
+    show(now);
+    const undo = undoableSave(inOrder, save([...now.slice(1), now[0]]), (err) => failed(err, "Couldn't move that."));
+    const name = String(target.text ?? "");
+    toast.show(`Moved under “${name.length > 40 ? `${name.slice(0, 40).trimEnd()}…` : name}”`, {
+      actionLabel: "Undo",
+      onAction: () => {
+        show(was);
+        undo(save(was), (err) => failed(err, "Couldn't move that back."));
+      },
+    });
+  }
+
+  // Carried out of its list onto today's list or the ongoing list (`where`):
+  // it's a line of its own there, just before `beforeId` or at the end, and
+  // its sub-tasks come along. A sub-task comes out from under its task.
+  // Undo puts it back where it was, on its own day (an earlier day's line
+  // otherwise has no way back there).
+  function moveLineTo(line, where, beforeId = null) {
+    const all = lines ?? [];
+    const onList = where === "ongoing";
+    const there = all.filter((x) => !x.parent_id && x.id !== line.id && (onList ? x.ongoing : !x.ongoing && x.day === today)).sort(byPos);
+    const at = beforeId ? there.findIndex((x) => x.id === beforeId) : -1;
+    const next = [...there];
+    next.splice(at < 0 ? next.length : at, 0, line);
+    const pos = new Map(next.map((x, k) => [x.id, k]));
+    const same = !line.parent_id && Boolean(line.ongoing) === onList && (onList || line.day === today);
+    if (same && next.every((x) => x.position === pos.get(x.id))) return;
+    const rest = { ongoing: onList, ...(onList ? {} : { day: today }) };
+    const top = { parent_id: null, ...rest };
+    const subs = all.filter((x) => x.parent_id === line.id).map((x) => x.id);
+    mutateLines((list) =>
+      (list ?? []).map((x) =>
+        x.id === line.id ? { ...x, ...top, position: pos.get(x.id) } : subs.includes(x.id) ? { ...x, ...rest } : pos.has(x.id) ? { ...x, position: pos.get(x.id) } : x
+      )
+    );
+    const scroll = () => requestAnimationFrame(() => document.getElementById(`line-${line.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    scroll();
+    if (same) {
+      inOrder(() => reorder("quest_tasks", next)).catch((err) => failed(err, "Couldn't move that."));
+      return;
+    }
+    const undoMove = undoableSave(
+      inOrder,
+      () => Promise.all([updateQuestTask(line.id, top), subs.length ? updateQuestTasks(subs, rest) : null]).then(() => reorder("quest_tasks", next)),
+      (err) => failed(err, "Couldn't move that.")
+    );
+    // What Undo puts back: the line where it was, its sub-tasks with it, and
+    // the lines it landed among closed up again, in their order as it is
+    // when Undo is tapped (they may have been moved since; those saves are
+    // in line before Undo's, so the positions here are the saved ones).
+    const was = { parent_id: line.parent_id ?? null, day: line.day, ongoing: Boolean(line.ongoing), position: line.position ?? 0 };
+    const subsWas = all.filter((x) => x.parent_id === line.id).map((x) => ({ id: x.id, day: x.day, ongoing: Boolean(x.ongoing) }));
+    const undo = () => {
+      const left = (linesNow.current ?? [])
+        .filter((x) => x.quest_id === line.quest_id && !x.parent_id && x.id !== line.id && (onList ? x.ongoing : !x.ongoing && x.day === today))
+        .sort(byPos);
+      const back = new Map([[line.id, was], ...subsWas.map(({ id, ...f }) => [id, f]), ...left.map((x, k) => [x.id, { position: k }])]);
+      mutateLines((list) => (list ?? []).map((x) => (back.has(x.id) ? { ...x, ...back.get(x.id) } : x)));
+      scroll();
+      undoMove(
+        () =>
+          updateQuestTask(line.id, was)
+            .then(() => subsWas.reduce((p, { id, ...f }) => p.then(() => updateQuestTask(id, f)), Promise.resolve()))
+            .then(() => reorder("quest_tasks", left)),
+        (err) => failed(err, "Couldn't move that back.")
+      );
+    };
+    toast.show(onList ? "On the ongoing list" : "On today's list", { actionLabel: "Undo", onAction: undo });
+  }
+
+  // A line carried out of its own list: today's list or the ongoing list
+  // lights up under the finger, and letting go there drops it in, between
+  // the lines it landed on.
+  function lineDropTarget(x, y, line) {
+    const el = document
+      .elementsFromPoint(x, y)
+      .find((e) => !e.closest(`#line-${line.id}`) && e.closest("[data-drop]"))
+      ?.closest("[data-drop]");
+    if (!el) return null;
+    const below = [...el.querySelectorAll(":scope > ul.qs-lines:not(.qs-lines--done) > li.qs-line")].find((li) => {
+      if (li.id === `line-${line.id}`) return false;
+      const r = li.getBoundingClientRect();
+      return y < r.top + r.height / 2;
+    });
+    return { el, below, where: el.dataset.drop, beforeId: below ? below.id.slice(5) : null };
+  }
+
+  function dragLineOut(phase, x, y, line) {
+    const hit = phase === "move" || phase === "drop" ? lineDropTarget(x, y, line) : null;
+    markDrop(phase === "move" ? hit : null);
+    if (phase === "drop" && hit) moveLineTo(line, hit.where, hit.beforeId);
   }
 
   // A lesson's list lives on its own mountain, made the first time he writes on it.
@@ -426,7 +606,7 @@ export default function Quests() {
     mutateLines((list) => (list ?? []).map((x) => (x.id === line.id ? { ...x, ...top } : subs.includes(x.id) ? { ...x, ...rest } : x)));
     haptic("tap");
     toast.show(onList ? "On the ongoing list" : "On today's list");
-    Promise.all([updateQuestTask(line.id, top), updateQuestTasks(subs, rest)]).catch((err) => failed(err, "Couldn't move that."));
+    inOrder(() => Promise.all([updateQuestTask(line.id, top), updateQuestTasks(subs, rest)])).catch((err) => failed(err, "Couldn't move that."));
   }
 
   // A sketch's summary, added to the end of its line's notes ("cut" or
@@ -576,7 +756,7 @@ export default function Quests() {
             <ChevronRight size={14} aria-hidden="true" />
           </Link>
           <SketchProvider kind="step" userId={userId} scopeId={g.camp.id} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
-            <StepList list={g.items} openStep={openStep} hideDone={false} step={stepRow} onAddSubs={addStepSubs} mirror idPrefix="qs-step" />
+            <TodayBlocks blocks={g.blocks} openStep={openStep} step={stepRow} onAddSubs={addStepSubs} idPrefix="qs-step" onSectionOff={sectionOff} />
           </SketchProvider>
         </div>
       ))}
@@ -601,6 +781,8 @@ export default function Quests() {
     </div>
   ) : null;
   const earlier = earlierAll.filter((d) => d.items.length);
+  // Lines drag by their handles, but not while picking for today.
+  const drag = picker.on ? {} : { onReorder: reorderLines, onDragOut: dragLineOut, onInto: nestLine };
   const earlierShown = allEarlier ? earlier : earlier.slice(0, EARLIER_SHOWN);
   const building = buildNow(village, today);
 
@@ -673,7 +855,7 @@ export default function Quests() {
               <>
                 {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
                 {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
-                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} lead={todayLead} extra={todayExtra}>
+                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} extra={todayExtra}>
                   {!todayList.items.length && !linesLoading && (
                     <p className="qs-hint">
                       {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
@@ -690,6 +872,8 @@ export default function Quests() {
                   openId={homeOpen}
                   row={row}
                   onAddSubs={addSubs}
+                  {...drag}
+                  drop="ongoing"
                   action={
                     !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
                       <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
@@ -714,6 +898,7 @@ export default function Quests() {
                     openId={homeOpen}
                     row={row}
                     onAddSubs={addSubs}
+                    {...drag}
                   />
                 ))}
                 {earlier.length > earlierShown.length && (

@@ -2902,14 +2902,20 @@ export async function deleteLesson(id) {
 // edge function and kept, so it can fill any number of camps.
 // ---------------------------------------------------------------------------
 
-const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, position, created_at";
+const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, position, created_at";
 const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, today_on, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp, whether it's done and whether it's picked for a day,
-// for the camp lists on the Range and Quests.
+// for the camp lists on the Range and Quests. Its section and the step it's
+// under count a section picked for today (0091) by its own steps.
 export function fetchStepTally(userId) {
-  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, done_on, working_since, today_on").eq("user_id", userId).order("id"));
+  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, section_id, parent_id, done_on, working_since, today_on").eq("user_id", userId).order("id"));
+}
+
+// Every section's camp and the day it was picked for (0091), for the same.
+export function fetchSectionTally(userId) {
+  return selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, today_on").eq("user_id", userId).order("id"));
 }
 
 // The sections and steps of several camps (a quest's), for its Today on
@@ -3030,6 +3036,13 @@ export async function addSection(userId, campId, { title, why = null, color = nu
 
 export async function updateSection(id, fields) {
   const { error } = await supabase.from("camp_sections").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+// The same change to several sections at once (picking them for today, 0091).
+export async function updateSections(ids, fields) {
+  if (!ids.length) return;
+  const { error } = await supabase.from("camp_sections").update(fields).in("id", ids);
   if (error) throw error;
 }
 
@@ -3546,10 +3559,11 @@ export async function updateVillageProject(id, fields) {
 }
 
 // The quests page: the lists along the top, the goals they serve, the camps
-// on each and every step in them (for how far along each camp is), the
-// builds and everything finished (for the build going up).
+// on each and every step and section in them (for how far along each camp
+// is and what's on today there), the builds and everything finished (for
+// the build going up).
 export async function fetchQuestBoard(userId) {
-  const [[tasks, steps], projects, quests, lessons, camps, goals, campSteps] = await Promise.all([
+  const [[tasks, steps], projects, quests, lessons, camps, goals, campSteps, campSections] = await Promise.all([
     fetchFinished(userId),
     supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
     supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
@@ -3557,6 +3571,7 @@ export async function fetchQuestBoard(userId) {
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
     fetchStepTally(userId),
+    fetchSectionTally(userId),
   ]);
   for (const r of [projects, quests, lessons, camps]) if (r.error) throw r.error;
   return {
@@ -3566,6 +3581,7 @@ export async function fetchQuestBoard(userId) {
     lessons: lessons.data ?? [],
     camps: camps.data ?? [],
     campSteps,
+    campSections,
     goals,
   };
 }

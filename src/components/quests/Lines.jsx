@@ -5,6 +5,8 @@ import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
 import { ColorPick, tintOf } from "../camp/ColorPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
+import { DragHandle } from "../camp/Steps";
+import { useDragSort } from "../../lib/useDragSort";
 
 // The pieces of a quest's running list: one line (a task he can tick or a
 // line of notes) with its sub-tasks under it, the box he types into, and a
@@ -33,7 +35,9 @@ function useGrow(value) {
 // where it's from (`from`) and is moved or removed only where it sits.
 // While picking (`pick`), its box picks it instead of ticking it; a line
 // that can't be picked (`locked`) waits, greyed, until picking is done.
-export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", onRemove, children }) {
+// With `sort` (from useDragSort) it has a handle to drag it into a new
+// place, or onto another line to go under it as a sub-task.
+export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", sort, onRemove, children }) {
   const note = line.kind === "note";
   const done = Boolean(line.done_on);
   const [text, setText] = useState(line.text);
@@ -59,13 +63,16 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
   return (
     <li
       id={`${idPrefix}-${line.id}`}
-      style={tint.style}
+      ref={sort?.ref}
+      style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
       className={
         "camp-step qs-line" +
         (done ? " done" : "") +
         (open ? " open" : "") +
         (note ? " qs-line--note" : "") +
         (line.parent_id ? " qs-line--sub" : "") +
+        (sort?.lifted ? " lifted" : "") +
+        (sort?.nesting ? " nesting" : "") +
         (mirror ? " mirror" : "") +
         (pick?.on ? " picked" : "") +
         (locked ? " locked" : "") +
@@ -99,7 +106,9 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             </small>
           )}
         </button>
+        {sort && !pick && !locked && <DragHandle {...sort.handle} label={note ? "Drag to move this note line" : line.parent_id ? "Drag to move this sub-task" : "Drag to move this task"} />}
       </div>
+      {sort?.nesting && <span className="nest-tag">{sort.nesting}</span>}
       <SketchStrip itemId={line.id} />
       {open && (
         <div className="camp-step__edit">
@@ -237,33 +246,70 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
   );
 }
 
+// The lines a line can be dropped onto to go under: any top line where it
+// sits (ids "line-…"), not their copies in today's list. Lines go one deep,
+// so a sub-task isn't one.
+const INTO_LINES = "li.qs-line:not(.mirror):not(.qs-line--sub) > .camp-step__row";
+
+// Drag for one list of lines (a day's, the ongoing list, or a task's
+// sub-tasks), by each line's handle: into a new place among its neighbours
+// (`onReorder(list, ids)`), carried out of its list to `onDragOut(phase, x,
+// y, line)`, or let go over another line to `onInto(line, id)` with that
+// line's id. Gives each line's `sort`, or null when the list doesn't drag.
+function useLineSort(list, { onReorder, onDragOut, onInto, mirror }) {
+  const sort = useDragSort(
+    list.map((x) => x.id),
+    (ids) => onReorder?.(list, ids),
+    {
+      onOut: onDragOut && ((phase, x, y, id) => onDragOut(phase, x, y, list.find((l) => l.id === id))),
+      into: onInto && {
+        rows: INTO_LINES,
+        label: "Make it a sub-task",
+        drop: (id, li) => onInto(list.find((l) => l.id === id), li.id.slice("line-".length)),
+      },
+    }
+  );
+  if (mirror || !onReorder || !(list.length > 1 || onDragOut || onInto)) return () => null;
+  return (id) => ({ ref: sort.ref(id), style: sort.style(id), handle: sort.handle(id), lifted: sort.dragging === id, nesting: sort.dragging === id ? sort.nesting : null });
+}
+
 // Lines with their sub-tasks under them, and (open) the box to add a
-// sub-task under the line that's open. In today's list (`mirror`) the rows'
-// ids start with `idPrefix`, so they don't clash with the same lines where
-// they sit, and each top line says where it's from (`fromOf`).
-export function LineTree({ items, openId, row, onAddSubs, mirror = false, idPrefix, fromOf, className = "" }) {
+// sub-task under the line that's open. Each drags by its handle (see
+// useLineSort). In today's list (`mirror`) the rows' ids start with
+// `idPrefix`, so they don't clash with the same lines where they sit, each
+// top line says where it's from (`fromOf`), and nothing drags.
+export function LineTree({ items, openId, row, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, fromOf, className = "" }) {
+  const sortOf = useLineSort(items, { onReorder, onDragOut, onInto, mirror });
   return (
     <ul className={"camp-steps qs-lines" + className}>
       {items.map((it, i) => {
         const props = row(it, items);
         const open = !props.pick && openId === it.id;
         return (
-        <LineRow key={it.id} line={it} open={open} first={i === 0} last={i === items.length - 1} mirror={mirror} from={mirror ? fromOf?.(it) : null} idPrefix={idPrefix} {...props}>
-          {(it.subs.length > 0 || open) && (
-            <ul className="camp-steps qs-subs">
-              {it.subs.map((s, k) => (
-                <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === it.subs.length - 1} mirror={mirror} idPrefix={idPrefix} {...row(s, it.subs)} />
-              ))}
-              {open && (
-                <li className="qs-subs__add">
-                  <AddLine sub onAdd={(lines) => onAddSubs(it, lines)} />
-                </li>
-              )}
-            </ul>
-          )}
-        </LineRow>
+          <LineRow key={it.id} line={it} open={open} first={i === 0} last={i === items.length - 1} mirror={mirror} from={mirror ? fromOf?.(it) : null} idPrefix={idPrefix} sort={sortOf(it.id)} {...props}>
+            {(it.subs.length > 0 || open) && (
+              <SubLines parent={it} open={open} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} mirror={mirror} idPrefix={idPrefix} />
+            )}
+          </LineRow>
         );
       })}
+    </ul>
+  );
+}
+
+// A task's sub-tasks, and (open) the box to add more.
+function SubLines({ parent, open, openId, row, onAddSubs, onReorder, onDragOut, onInto, mirror, idPrefix }) {
+  const sortOf = useLineSort(parent.subs, { onReorder, onDragOut, onInto, mirror });
+  return (
+    <ul className="camp-steps qs-subs">
+      {parent.subs.map((s, k) => (
+        <LineRow key={s.id} line={s} open={openId === s.id} first={k === 0} last={k === parent.subs.length - 1} mirror={mirror} idPrefix={idPrefix} sort={sortOf(s.id)} {...row(s, parent.subs)} />
+      ))}
+      {open && (
+        <li className="qs-subs__add">
+          <AddLine sub onAdd={(lines) => onAddSubs(parent, lines)} />
+        </li>
+      )}
     </ul>
   );
 }
@@ -272,8 +318,10 @@ export function LineTree({ items, openId, row, onAddSubs, mirror = false, idPref
 // box to add lines; an earlier day folds away to its name and how it went.
 // Today's also takes what's picked for today from elsewhere (`lead`, 0090),
 // counted in with `extra` ({ done, total, count }), and an `action` beside
-// its name.
-export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, lead, extra, action, children }) {
+// its name. Its lines drag (`onReorder`, `onDragOut`, `onInto`, see
+// useLineSort); with `drop` a line carried out of another list can be let
+// go here.
+export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, lead, extra, action, children }) {
   const isToday = day.day === today;
   const open = !folded;
   const done = day.done + (extra?.done ?? 0);
@@ -281,7 +329,7 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
   const count = day.items.length + (extra?.count ?? 0);
   const tally = [sub, total ? `${done} of ${total} done` : count ? "Notes" : isToday ? null : "Nothing yet"].filter(Boolean).join(" · ");
   return (
-    <section className={"card qs-day" + (isToday ? " qs-day--today today-card" : "") + (open ? " open" : "")} aria-label={label}>
+    <section className={"card qs-day" + (isToday ? " qs-day--today today-card" : "") + (open ? " open" : "")} aria-label={label} data-drop={drop}>
       <div className="qs-day__head">
         {isToday ? (
           <div className="qs-day__title">
@@ -301,7 +349,7 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
         {action}
       </div>
       {open && lead}
-      {open && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} />}
+      {open && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} />}
       {open && children}
     </section>
   );
@@ -310,12 +358,13 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
 // The quest's ongoing list (Aaron, 2026-10-27): what stays on the quest
 // whatever the day, from `ongoingList`. Lines done before today wait under
 // a fold at the foot; the box to add lines comes in as `children`, and
-// `action` sits beside its name.
-export function OngoingList({ list, kind, openId, row, onAddSubs, action, children }) {
+// `action` sits beside its name. Its open lines drag like a day's, and with
+// `drop` a line carried out of another list can be let go here.
+export function OngoingList({ list, kind, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, action, children }) {
   const [showDone, setShowDone] = useState(false);
   const tally = list.total ? `${list.done} of ${list.total} done` : list.items.length ? "Notes" : null;
   return (
-    <section className="card qs-day qs-day--ongoing open" aria-labelledby="qs-ongoing-h">
+    <section className="card qs-day qs-day--ongoing open" aria-labelledby="qs-ongoing-h" data-drop={drop}>
       <div className="qs-day__head">
         <div className="qs-day__title">
           <h2 id="qs-ongoing-h">
@@ -327,7 +376,7 @@ export function OngoingList({ list, kind, openId, row, onAddSubs, action, childr
         {action}
       </div>
       {list.items.length > 0 ? (
-        <LineTree items={list.items} openId={openId} row={row} onAddSubs={onAddSubs} />
+        <LineTree items={list.items} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} />
       ) : (
         <p className="qs-hint">What stays on this {kind} whatever the day. It sits here until it's done.</p>
       )}

@@ -1778,6 +1778,52 @@ console.log("\nthe mark");
 
     const tally = campTally([{ camp_id: "k1", today_on: T }, { camp_id: "k1", today_on: "2026-10-26", done_on: T }, { camp_id: "k2" }], T);
     ok("the camps on Quests count today's picks", tally.get("k1").today === 1 && tally.get("k1").done === 1 && tally.get("k2").today === 0 && campTally([{ camp_id: "k1", today_on: T }]).get("k1").today === 0);
+    const secTally = campTally(
+      [
+        { camp_id: "k1", section_id: "x1", done_on: null },
+        { camp_id: "k1", section_id: "x1", done_on: T, today_on: T },
+        { camp_id: "k1", section_id: "x1", done_on: "2026-10-20" },
+        { camp_id: "k1", section_id: "x1", parent_id: "p", done_on: null },
+        { camp_id: "k1", section_id: "x2", today_on: T },
+        { camp_id: "k1", section_id: "x2" },
+      ],
+      T,
+      [{ id: "x1", camp_id: "k1", today_on: T }, { id: "x2", camp_id: "k1", today_on: null }]
+    );
+    ok("a section on today counts its steps that show in Today, once each", secTally.get("k1").today === 3);
+    const openUnder = campTally(
+      [
+        { id: "p", camp_id: "k1", section_id: "x1", done_on: "2026-10-20" },
+        { id: "c", camp_id: "k1", section_id: "x1", parent_id: "p", done_on: null },
+        { id: "q", camp_id: "k1", section_id: "x1", done_on: null },
+      ],
+      T,
+      [{ id: "x1", camp_id: "k1", today_on: T }]
+    );
+    ok("a step done before today with a sub-step still to do counts, as Today shows it", openUnder.get("k1").today === 2);
+
+
+    const qtSec = questToday(camps, [...qsecs, { id: "x3", camp_id: "k3", title: "Rings", position: 0, today_on: T }], [...qsteps, { id: "g2", camp_id: "k3", section_id: "x3", text: "Ring one", position: 1 }], T);
+    ok("a quest's Today takes in a camp with only a section on today", qtSec.map((g) => g.camp.title).join() === "Sift,Multicam,Graphica" && qtSec[2].blocks[0].section.id === "x3" && qtSec[2].items.map((x) => x.id).join() === "g2");
+
+    // A whole section on today (0091).
+    const secs = sections.map((x) => (x.id === "s2" ? { ...x, today_on: T } : x));
+    const whole = todayPicks(buildCamp(secs, picked, T), T);
+    ok(
+      "a section picked whole is a block of its own, between the steps picked one by one",
+      whole.blocks.map((b) => (b.section ? `[${b.section.id}:${b.items.map((x) => x.id).join("+")}]` : b.items.map((x) => x.id).join("+"))).join() === "a,[s2:c+d]"
+    );
+    ok("a step picked on its own inside a picked section shows there once", whole.items.filter((x) => x.id === "c1").length === 0 && whole.items.find((x) => x.id === "c").subs.some((x) => x.id === "c1"));
+    ok("a picked section's steps don't say where they sit", whole.blocks[1].items.every((x) => !x.from));
+    ok("each block counts itself, and today counts them all", whole.blocks[1].total === 5 && whole.blocks[1].done === 1 && whole.total === 6 && whole.done === 2);
+    const s2done = picked.map((x) => (["c", "c1", "c2"].includes(x.id) ? { ...x, done_on: "2026-10-20" } : x.id === "d" ? { ...x, done_on: T } : x));
+    const later = todayPicks(buildCamp(secs, s2done, T), T).blocks[1];
+    ok("a picked section leaves out what was done before today, keeps what's done today, and counts the rest", later.items.map((x) => x.id).join() === "d" && later.earlier === 1);
+    ok("a step done before today stays while something under it is still to do", todayPicks(buildCamp(secs, picked.map((x) => (x.id === "c" ? { ...x, done_on: "2026-10-20" } : x)), T), T).blocks[1].items.map((x) => x.id).join() === "c,d");
+    ok("a section picked yesterday isn't on today", todayPicks(buildCamp(sections.map((x) => (x.id === "s2" ? { ...x, today_on: "2026-10-26" } : x)), steps, T), T).blocks.length === 0);
+    const empty = todayPicks(buildCamp([...secs, { id: "s9", title: "Later", position: 9, today_on: T }], steps, T), T);
+    ok("a picked section with no steps still shows, empty", empty.blocks.some((b) => b.section?.id === "s9" && b.items.length === 0 && b.total === 0));
+    ok("a step in a section on today comes next", buildCamp(secs, steps, T).next.id === "c" && buildCamp(secs, steps).next.id === "e");
 
     const fin = withFinishedStep([{ id: "z", camp_id: "k1", done_on: T }], { id: "s1", camp_id: "k1", text: "Search by tag", note: null, done_on: T, subs: [], from: "x" });
     ok("a step ticked in a quest's Today lays its bricks, untouched otherwise", fin.length === 2 && fin[1].text === "Search by tag" && !("subs" in fin[1]) && withFinishedStep(fin, { id: "s1", done_on: null }).length === 1);
@@ -2285,6 +2331,56 @@ function sectionOf({ x, y }) {
   // Links.
   ok("?build=<id> opens that build", JSON.stringify(P.linkOf("?build=abc")) === '{"build":"abc","choose":null}');
   ok("?choose opens Choose, ?choose=<kind> points at one", P.linkOf("?choose").choose === true && P.linkOf("?choose=forge").choose === "forge" && P.linkOf("").choose === null && P.linkOf("").build === null);
+}
+
+// Saves in order (2026-10-27): a quick Undo waits for the move it undoes.
+{
+  const { savesInOrder, undoableSave } = await import("../src/lib/inOrder.js");
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+  const seen = [];
+  const save = (name, ms, bad = false) => () => tick(ms).then(() => (seen.push(name), bad ? Promise.reject(new Error(name)) : null));
+
+  const inOrder = savesInOrder();
+  const a = inOrder(save("slow", 30, true)).catch(() => "caught");
+  const b = inOrder(save("fast", 1));
+  ok("saves land in the order they were made, even after one fails", (await a) === "caught" && (await b) === null && seen.join() === "slow,fast");
+
+  // The move fails after Undo was tapped: Undo's save runs, then the failure.
+  seen.length = 0;
+  const log = [];
+  const q = savesInOrder();
+  const undo = undoableSave(q, save("move", 20, true), (err) => log.push(`failed ${err.message}`));
+  undo(save("back", 1), (err) => log.push(`back failed ${err.message}`));
+  await tick(60);
+  ok("a move that fails after Undo is reported once Undo's save has landed", seen.join() === "move,back" && log.join() === "failed move");
+
+  // The move fails before Undo: reported at once.
+  seen.length = 0;
+  log.length = 0;
+  const q2 = savesInOrder();
+  undoableSave(q2, save("move", 1, true), (err) => log.push(`failed ${err.message}`));
+  await tick(20);
+  ok("a move that fails with no Undo is reported right away", log.join() === "failed move");
+
+  // Undo's own save fails: its own message, and nothing else.
+  seen.length = 0;
+  log.length = 0;
+  const q3 = savesInOrder();
+  const undo3 = undoableSave(q3, save("move", 5), (err) => log.push(`failed ${err.message}`));
+  undo3(save("back", 1, true), (err) => log.push(`back failed ${err.message}`));
+  await tick(40);
+  ok("Undo's own failure is reported as Undo's", seen.join() === "move,back" && log.join() === "back failed back");
+
+  // A failure's reload waits for the saves already in line, and goes again
+  // for any made while it was out.
+  seen.length = 0;
+  const q4 = savesInOrder();
+  q4(save("first", 5, true)).catch(() => q4.reload(save("reload", 10)));
+  q4(save("second", 10));
+  await tick(12);
+  q4(save("third", 1));
+  await tick(60);
+  ok("a reload after a failure runs after the saves before it, and again after one made while it was out", seen.join() === "first,second,reload,third,reload");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -49,12 +49,14 @@ function WorkingBadge() {
 // the words to open it: change the words, set how urgent it is, write notes,
 // pick it for today or take it off today (`onToday`), move it or take it
 // off. Its sub-steps come in as `children`. With `sort` (from useDragSort)
-// it has a handle to drag it into a new place.
+// it has a handle to drag it into a new place, or onto another step to go
+// under it (`sort.nesting` is what it says while it's over one).
 //
 // Picked for today (`isToday`, 0090), it wears a small Today tag where it
 // sits. In a Today section (`mirror`) it's the same step shown again: it
 // says where it sits (`from`) and can't be moved or removed from there.
-// While picking (`pick`), its box picks it instead of ticking it.
+// While picking (`pick`), its box picks it instead of ticking it; in a
+// section picked whole (`pick.locked`, 0091) it's picked with the section.
 export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, idPrefix = "step", sections, sort, children }) {
   const done = Boolean(step.done_on);
   const working = !done && Boolean(step.working_since);
@@ -90,14 +92,24 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         (step.parent_id ? " camp-step--sub" : "") +
         (working ? " working" : "") +
         (sort?.lifted ? " lifted" : "") +
+        (sort?.nesting ? " nesting" : "") +
         (mirror ? " mirror" : "") +
         (pick?.on ? " picked" : "") +
+        (pick?.locked ? " with-sec" : "") +
         tint.className
       }
     >
       <div className="camp-step__row">
         {pick ? (
-          <button type="button" className="camp-pick" role="checkbox" aria-checked={pick.on} aria-label={pick.on ? "Picked for today. Tap to take it off" : "Pick for today"} onClick={pick.toggle}>
+          <button
+            type="button"
+            className="camp-pick"
+            role="checkbox"
+            aria-checked={pick.on}
+            aria-label={pick.locked ? "On today with its section" : pick.on ? "Picked for today. Tap to take it off" : "Pick for today"}
+            disabled={pick.locked}
+            onClick={pick.toggle}
+          >
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         ) : (
@@ -112,7 +124,14 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         )}
-        <button type="button" className="camp-step__text" aria-expanded={pick ? undefined : open} aria-pressed={pick ? pick.on : undefined} onClick={pick ? pick.toggle : onOpen}>
+        <button
+          type="button"
+          className="camp-step__text"
+          aria-expanded={pick ? undefined : open}
+          aria-pressed={pick ? pick.on : undefined}
+          disabled={pick?.locked}
+          onClick={pick ? pick.toggle : onOpen}
+        >
           {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
             {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
@@ -129,6 +148,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         </button>
         {sort && !pick && <DragHandle {...sort.handle} label="Drag to move this step" />}
       </div>
+      {sort?.nesting && <span className="nest-tag">{sort.nesting}</span>}
       <SketchStrip itemId={step.id} />
       {open && (
         <div className="camp-step__edit">
@@ -232,6 +252,10 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
   );
 }
 
+// The steps a step can be dropped onto: any on the page where it sits (ids
+// "step-…"), not their copies in Today.
+const INTO_ROWS = "li.camp-step:not(.mirror):not(.qs-line) > .camp-step__row";
+
 // The grip a step or section is dragged by. Only it starts a drag.
 export function DragHandle({ label, ...props }) {
   return (
@@ -247,15 +271,24 @@ export function DragHandle({ label, ...props }) {
 // by its handle into a new place among its neighbours; `onReorder` gets the
 // list and its ids in the new order. Carried out of its list, a step goes
 // to `onDragOut(phase, x, y, step)`, which can drop it in another section.
+// Let go over another step on the page, it goes to `onInto(step, id)` with
+// that step's id, to go under it.
 // A Today section's list (`mirror`) doesn't drag, and its rows' ids start
 // with `idPrefix` so they don't clash with the same steps where they sit.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, mirror = false, idPrefix, sub = false, children }) {
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, sub = false, children }) {
   const sort = useDragSort(
     list.map((x) => x.id),
     (ids) => onReorder?.(list, ids),
-    { onOut: onDragOut && ((phase, x, y, id) => onDragOut(phase, x, y, list.find((st) => st.id === id))) }
+    {
+      onOut: onDragOut && ((phase, x, y, id) => onDragOut(phase, x, y, list.find((st) => st.id === id))),
+      into: onInto && {
+        rows: INTO_ROWS,
+        label: "Make it a sub-step",
+        drop: (id, li) => onInto(list.find((st) => st.id === id), li.id.slice("step-".length)),
+      },
+    }
   );
-  const sortable = !mirror && onReorder && (list.length > 1 || onDragOut);
+  const sortable = !mirror && onReorder && (list.length > 1 || onDragOut || onInto);
   return (
     <ul className={"camp-steps" + (sub ? " camp-subs" : "")}>
       {list.map((st, i) => {
@@ -269,14 +302,14 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
             open={open}
             first={i === 0}
             last={i === list.length - 1}
-            sort={sortable ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id } : null}
+            sort={sortable ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id, nesting: sort.dragging === st.id ? sort.nesting : null } : null}
             mirror={mirror}
             from={mirror && !sub ? st.from : null}
             idPrefix={idPrefix}
             {...props}
           >
             {(subs.length > 0 || open) && (
-              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} mirror={mirror} idPrefix={idPrefix} sub>
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} mirror={mirror} idPrefix={idPrefix} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />
@@ -346,8 +379,10 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false }) {
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
 // a handle to drag the whole section into a new place. In a colour (0089)
-// the whole card wears it. While picking for today it has no box to add.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, step, sort, picking = false }) {
+// the whole card wears it. While picking for today it has no box to add,
+// and (`pick`, 0091) a box of its own to pick the whole section; on today
+// (`isToday`) it wears the Today tag.
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, onInto, step, sort, picking = false, pick = null, isToday = false }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -356,20 +391,42 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
     <section
       ref={sort?.ref}
       style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
-      className={"card camp-sec" + (s.complete ? " complete" : "") + (open ? " open" : "") + (sort?.lifted ? " lifted" : "") + (tint.style ? " camp-sec--tinted" : "")}
+      className={
+        "card camp-sec" +
+        (s.complete ? " complete" : "") +
+        (open ? " open" : "") +
+        (sort?.lifted ? " lifted" : "") +
+        (tint.style ? " camp-sec--tinted" : "") +
+        (pick?.on ? " picked" : "")
+      }
       aria-labelledby={`sec-${s.id}`}
       data-drop={s.id}
     >
       <div className="camp-sec__head">
-        <button type="button" className="camp-sec__toggle" aria-expanded={open} onClick={onToggle}>
+        {pick && (
+          <button
+            type="button"
+            className="camp-pick camp-sec__pick"
+            role="checkbox"
+            aria-checked={pick.on}
+            aria-label={pick.on ? `All of ${s.title} is picked for today. Tap to take it off` : `Pick all of ${s.title} for today`}
+            onClick={pick.toggle}
+          >
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </button>
+        )}
+        <button type="button" className="camp-sec__toggle" aria-expanded={pick ? undefined : open} aria-pressed={pick ? pick.on : undefined} onClick={pick ? pick.toggle : onToggle}>
           <span className="camp-sec__n" aria-hidden="true">
             {s.complete ? <Check size={14} strokeWidth={3} /> : s.number}
           </span>
           <span className="camp-sec__name">
             <h2 id={`sec-${s.id}`}>{s.title}</h2>
-            <small>{s.total ? `${s.done} of ${s.total}` : "No steps yet"}</small>
+            <small>
+              {s.total ? `${s.done} of ${s.total}` : "No steps yet"}
+              {isToday && !pick && <span className="today-tag">Today</span>}
+            </small>
           </span>
-          <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />
+          {!pick && <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />}
         </button>
         <button type="button" className="btn-icon" onClick={onEdit} aria-label={`Edit ${s.title}`} title="Edit section">
           <Pencil size={14} />
@@ -393,7 +450,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
               <Rich text={s.note} />
             </p>
           )}
-          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} />}
+          {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
           <AddStep hidden={picking} onAdd={(texts) => onAdd(s.id, texts)} />
         </div>
