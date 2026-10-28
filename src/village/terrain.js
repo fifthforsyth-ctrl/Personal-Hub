@@ -15,7 +15,7 @@
 // but true to the slope, so the hills show their shape.
 
 import * as THREE from "three";
-import { WORLD_R, fbm2, forestAt, noise2, riverAt, shoreDist, smooth } from "./coast.js";
+import { RIVERS, WORLD_R, fbm2, forestAt, noise2, riverAt, shoreDist, smooth } from "./coast.js";
 import { noiseTexture } from "./glade.js";
 
 export const TILE = 64;
@@ -23,8 +23,9 @@ export const STEP = 2;
 // the tiles cover x0..x1, z0..z1; the far grid the rest (every bound a multiple of FAR_STEP from -WORLD_R)
 export const CORE = { x0: -448, x1: 448, z0: -704, z1: 256 };
 const FAR_STEP = 16;
-// tiles nearer the plaza than this are at STEP, the rest at twice it
+// tiles nearer the plaza than this are at STEP, the rest at twice it (but for those a river runs through)
 const NEAR = 360;
+const RIVER_NEAR = 12;
 // the lanes' picture covers this much of the world
 const PATH_BOX = { x0: -380, z0: -720, x1: 380, z1: 120 };
 const PATH_PX = 1024;
@@ -47,6 +48,7 @@ export const PALETTE = {
   seabed: "#c4b68c",
   deep: "#6f8a83",
   mud: "#7f7258",
+  bed: "#5f5a49",
   snow: "#f1f3f5",
   rockA: "#8f897e",
   rockB: "#b5ad9d",
@@ -56,7 +58,7 @@ export const PALETTE = {
 const C = Object.fromEntries(Object.entries(PALETTE).map(([k, v]) => [k, lin(v)]));
 
 // The colour a point of ground is before the light (linear), and what it is:
-// [r, g, b], soil [grass 0..1, forest floor 0..1, wet 0..1, snow 0..1].
+// [r, g, b], soil [grass 0..1, forest floor 0..1, river bed and bank 0..1, snow 0..1].
 // cav: how much the ground round it stands above it (a hollow is positive).
 export function groundLook(x, z, h, cav) {
   const dc = shoreDist(x, z);
@@ -67,18 +69,19 @@ export function groundLook(x, z, h, cav) {
   c = mix3(c, C.grassLush, clamp(cav * 0.22 + (-n1 - 0.1) * 1.2, 0, 1) * 0.75);
   c = mix3(c, C.grassDry, clamp(smooth(30, 110, h) * 0.6 - cav * 0.08 + n2 * 0.25, 0, 1) * 0.6);
   let grass = 1;
-  let wet = 0;
+  let bank = 0;
   // forest floor under the trees
   const rv = riverAt(x, z);
   const fo = forestAt(x, z, h, rv);
   if (fo > 0) c = mix3(c, C.forest, smooth(0.15, 0.7, fo) * 0.85);
-  // river banks: wet earth at the water's edge
+  // the river's bed dark wet stone, its banks wet earth drying over a metre or two
   if (rv && !rv.past) {
-    const e = 1 - smooth(rv.w / 2 + 0.3, rv.w / 2 + 2.2, rv.d);
+    const edge = rv.w / 2 + 0.4 * n2;
+    const e = 1 - smooth(edge + 0.2, edge + 2.4, rv.d);
     if (e > 0) {
-      c = mix3(c, C.mud, e);
+      c = mix3(c, mix3(C.mud, C.bed, 1 - smooth(edge - 1.2, edge + 0.6, rv.d)), e);
       grass -= e;
-      wet = Math.max(wet, e);
+      bank = e;
     }
   }
   // sand on the beach and under the shallows, the sea bed darker as it deepens
@@ -90,11 +93,9 @@ export function groundLook(x, z, h, cav) {
     const k = Math.max(under, beach);
     c = mix3(c, s, k);
     grass -= k;
-    wet = Math.max(wet, 1 - smooth(-0.5, 0.4, h) * 0.5);
   } else if (beach > 0) {
     c = mix3(c, mix3(C.sand, C.sandWet, smooth(1.0, 0.4, h)), beach);
     grass -= beach;
-    wet = Math.max(wet, smooth(1.0, 0.4, h) * beach);
   }
   // the peaks: snow on the tops
   let snow = 0;
@@ -103,7 +104,7 @@ export function groundLook(x, z, h, cav) {
     c = mix3(c, C.snow, snow);
     grass -= snow;
   }
-  return [c, [clamp(grass, 0, 1), fo, clamp(wet, 0, 1), snow]];
+  return [c, [clamp(grass, 0, 1), fo, clamp(bank, 0, 1), snow]];
 }
 
 // The coarse hollowness of the ground round a tile: heights every 8 m with a border of two, and a reader.
@@ -235,6 +236,32 @@ function tileGeo(ground, x0, z0, size, step) {
   return g;
 }
 
+// Whether a river runs through (or close by) the tile from (x0, z0).
+function riverIn(x0, z0) {
+  const r = RIVER_NEAR;
+  return RIVERS.some((rv) => rv.samples.some((p) => p.x > x0 - r - p.w && p.x < x0 + TILE + r + p.w && p.z > z0 - r - p.w && p.z < z0 + TILE + r + p.w));
+}
+
+// The grid the land is drawn on at (x, z): STEP round the town, the cove and along the rivers, twice it out on
+// the hills, FAR_STEP past CORE (open sea inside CORE is coarser still, but nothing stands on it). Anything that
+// sits on the ground as drawn reads it from here, so it matches the tiles.
+let TILE_STEPS = null;
+export function tileStep(x, z) {
+  if (x < CORE.x0 || x >= CORE.x1 || z < CORE.z0 || z >= CORE.z1) return FAR_STEP;
+  const nx = (CORE.x1 - CORE.x0) / TILE;
+  if (!TILE_STEPS) {
+    const nz = (CORE.z1 - CORE.z0) / TILE;
+    TILE_STEPS = new Uint8Array(nx * nz);
+    for (let j = 0; j < nz; j++)
+      for (let i = 0; i < nx; i++) {
+        const x0 = CORE.x0 + i * TILE;
+        const z0 = CORE.z0 + j * TILE;
+        TILE_STEPS[j * nx + i] = Math.hypot(clamp(0, x0, x0 + TILE), clamp(0, z0, z0 + TILE)) < NEAR || riverIn(x0, z0) ? STEP : STEP * 2;
+      }
+  }
+  return TILE_STEPS[Math.floor((z - CORE.z0) / TILE) * nx + Math.floor((x - CORE.x0) / TILE)];
+}
+
 // Whether a tile is open sea, deep all over: it can be coarse.
 function deepTile(ground, x0, z0, size) {
   for (let j = 0; j <= 4; j++)
@@ -325,7 +352,7 @@ const TERRAIN_VERT = [
 const TERRAIN_FRAG = [
   "uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyCol; uniform vec3 uGndCol; uniform vec3 uFogCol; uniform vec3 uFog; uniform float uShadeLift;",
   "uniform sampler2D uStroke; uniform sampler2D uNoise; uniform sampler2D uPaths; uniform vec4 uPathBox;",
-  "uniform vec3 uRockA; uniform vec3 uRockB; uniform vec3 uDirt; uniform vec3 uDirtDark;",
+  "uniform vec3 uRockA; uniform vec3 uRockB; uniform vec3 uDirt; uniform vec3 uDirtDark; uniform vec3 uMoss; uniform vec4 uFalls[2]; uniform vec4 uFallDir;",
   "varying vec3 vPW; varying vec3 vNW; varying vec4 vSoil; varying float vAO;",
 ].join("\n");
 const TERRAIN_MAIN = [
@@ -376,21 +403,41 @@ const TERRAIN_MAIN = [
   // along the face (for streaks that run down it) and up it (for the layers)
   "vec2 fd = normalize(vec2(-N.z, N.x) + 1e-4);",
   "float fu = dot(p, fd);",
-  "float ly = vPW.y + (nB.b - 0.5) * 9.0 + (texture2D(uNoise, vec2(fu / 31.0, vPW.y / 40.0)).r - 0.5) * 4.0;",
-  "float band = fract(ly / 5.2);",
-  "float layer = floor(ly / 5.2);",
+  "float ly = vPW.y + (nB.b - 0.5) * 7.0 + (texture2D(uNoise, vec2(fu / 37.0, vPW.y / 50.0)).r - 0.5) * 3.0;",
+  "float band = fract(ly / 6.4);",
+  "float layer = floor(ly / 6.4);",
   "float lk = fract(sin(layer * 12.9898) * 43758.5453);",
-  "vec3 rock = mix(uRockA, uRockB, clamp(lk * 0.7 + (nB.g - 0.5) * 0.8 + (nD.r - 0.5) * 0.3, 0.0, 1.0));",
-  "rock *= mix(vec3(1.0), vec3(1.06, 1.0, 0.9), smoothstep(0.4, 0.9, lk));",
-  "float seam = smoothstep(0.0, 0.07, band) * (1.0 - smoothstep(0.93, 1.0, band) * 0.3);",
-  "rock *= mix(0.74, 1.0, seam);",
-  // streaks down the face where water runs, and the cracks between blocks
-  "float streak = texture2D(uNoise, vec2(fu / 4.5, vPW.y / 26.0)).a;",
-  "rock *= 0.86 + streak * 0.24;",
-  "float crack = smoothstep(0.035, 0.0, abs(texture2D(uNoise, vec2(fu / 9.0, layer * 0.37)).g - 0.5));",
-  "rock *= 1.0 - crack * 0.25;",
-  "rock *= 0.94 + (nD.b - 0.5) * 0.2;",
+  // each layer broken into blocks, staggered layer to layer, each its own shade
+  "float bx = (fu + lk * 17.0 + (nC.g - 0.5) * 4.0) / (6.0 + lk * 6.0);",
+  "float blk = fract(bx);",
+  "float bk = fract(sin(floor(bx) * 7.13 + layer * 3.71) * 43758.5453);",
+  "vec3 rock = mix(uRockA, uRockB, clamp(lk * 0.45 + bk * 0.4 + (nB.g - 0.5) * 0.6 + (nD.r - 0.5) * 0.2, 0.0, 1.0));",
+  "rock *= mix(vec3(1.0), vec3(1.05, 1.0, 0.92), smoothstep(0.5, 0.95, bk));",
+  // near to, the blocks' shape: lit along the top, shaded at the foot, dark in the joints; far off, only the layers
+  "float rd = 1.0 - smoothstep(260.0, 900.0, camD);",
+  "float seam = smoothstep(0.0, 0.07, band);",
+  "float joint = smoothstep(0.0, 0.045, blk) * smoothstep(1.0, 0.955, blk);",
+  "rock *= mix(1.0, mix(0.82, 1.07, smoothstep(0.05, 0.92, band)), rd);",
+  "rock *= mix(0.72, 1.0, seam) * mix(1.0, mix(0.8, 1.0, joint), rd);",
+  // streaks down the face where water runs
+  "float streak = texture2D(uNoise, vec2(fu / 13.0, vPW.y / 34.0)).a;",
+  "rock *= 0.9 + streak * 0.16;",
+  "rock *= 0.95 + (nD.b - 0.5) * 0.16 * rd;",
   "rock = mix(rock, alb * 0.9, smoothstep(0.62, 0.86, N.y) * 0.55 * (1.0 - vSoil.w));",
+  // either side of a fall the cliff is wet: darker, and mossy where the spray settles
+  "float spray = 0.0;",
+  "for (int i = 0; i < 2; i++) {",
+  "  vec4 F = uFalls[i]; vec2 dir = i == 0 ? uFallDir.xy : uFallDir.zw;",
+  "  vec2 q = p - F.xy; float al = dot(q, dir); float ac = dot(q, vec2(-dir.y, dir.x));",
+  "  float e = length(vec2(ac / (F.z * 1.5), (al - 3.0) / max(9.0, F.z)));",
+  "  spray = max(spray, (1.0 - smoothstep(0.55, 1.0, e + (nC.g - 0.5) * 0.5)) * (1.0 - smoothstep(F.w - 1.0, F.w + 1.5, vPW.y)));",
+  "}",
+  "rock *= mix(1.0, 0.62, spray);",
+  "rock = mix(rock, uMoss * (0.8 + streak * 0.4), spray * smoothstep(0.3, 0.6, nC.b * 0.6 + streak * 0.4 + (nD.r - 0.5) * 0.4 + band * 0.2) * 0.85);",
+  // no layers of rock in a river's bed or banks: wet stones there, darker as they go under
+  "float bnk = vSoil.z;",
+  "rk *= 1.0 - smoothstep(0.2, 0.8, bnk);",
+  "alb *= mix(1.0, 0.86 + (nD.g - 0.5) * 0.3 + (nC.a - 0.5) * 0.2, bnk);",
   "alb = mix(alb, rock, rk);",
   // the light: the kit's sun, sky and haze, true to the slope so the hills read; shade takes the sky's blue
   "float sh = smoothstep(0.1, 0.9, pShadow);",
@@ -419,6 +466,9 @@ export function terrainMaterial(paths) {
     uRockB: { value: new THREE.Vector3(...C.rockB) },
     uDirt: { value: new THREE.Vector3(...C.dirt) },
     uDirtDark: { value: new THREE.Vector3(...C.dirtDark) },
+    uMoss: { value: new THREE.Vector3(...lin("#4f6a3a")) },
+    uFalls: { value: RIVERS.map((rv) => new THREE.Vector4(rv.fall.x, rv.fall.z, rv.fall.w, rv.fall.top)) },
+    uFallDir: { value: new THREE.Vector4(RIVERS[0].fall.dx, RIVERS[0].fall.dz, RIVERS[1].fall.dx, RIVERS[1].fall.dz) },
   };
   m.onBeforeCompile = (sh) => {
     for (const k of ["uSunDir", "uSunCol", "uSkyCol", "uGndCol", "uFogCol", "uFog", "uShadeLift", "uStroke"]) sh.uniforms[k] = G[k];
@@ -488,9 +538,7 @@ export function makeTerrain(ground) {
     const x0 = CORE.x0 + tx * TILE;
     const z0 = CORE.z0 + tz * TILE;
     const deep = deepTile(ground, x0, z0, TILE);
-    // finest round the town and the cove, coarser out on the hills
-    const near = Math.hypot(clamp(0, x0, x0 + TILE), clamp(0, z0, z0 + TILE)) < NEAR;
-    const m = mesh(tileGeo(ground, x0, z0, TILE, deep ? 16 : near ? STEP : STEP * 2), !deep);
+    const m = mesh(tileGeo(ground, x0, z0, TILE, deep ? 16 : tileStep(x0, z0)), !deep);
     m.userData.tile = [tx, tz];
     return m;
   };

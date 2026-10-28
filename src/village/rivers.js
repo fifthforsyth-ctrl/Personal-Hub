@@ -29,7 +29,7 @@
 import * as THREE from "three";
 import { RIVERS, naturalAt, smooth } from "./coast.js";
 import { noiseTexture } from "./glade.js";
-import { CORE, STEP, TILE } from "./terrain.js";
+import { tileStep } from "./terrain.js";
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lin = (hex) => new THREE.Color(hex).convertSRGBToLinear();
@@ -74,22 +74,8 @@ const ang = (w) => ((Math.round((w * WRAP) / (2 * Math.PI)) * 2 * Math.PI) / WRA
 
 // ------------------------------------------------------------------ the ground as drawn
 
-// terrain.js makes its tiles at STEP within NEAR (360 m) of the plaza and at twice STEP beyond: the grid at (x, z).
-const NEAR_TILES = 360;
-const TNX = (CORE.x1 - CORE.x0) / TILE;
-const TNZ = (CORE.z1 - CORE.z0) / TILE;
-const TILE_STEP = new Uint8Array(TNX * TNZ);
-for (let j = 0; j < TNZ; j++)
-  for (let i = 0; i < TNX; i++) {
-    const x0 = CORE.x0 + i * TILE;
-    const z0 = CORE.z0 + j * TILE;
-    TILE_STEP[j * TNX + i] = Math.hypot(clamp(0, x0, x0 + TILE), clamp(0, z0, z0 + TILE)) < NEAR_TILES ? STEP : STEP * 2;
-  }
-function gridAt(x, z) {
-  const i = Math.floor((x - CORE.x0) / TILE);
-  const j = Math.floor((z - CORE.z0) / TILE);
-  return i >= 0 && j >= 0 && i < TNX && j < TNZ ? TILE_STEP[j * TNX + i] : STEP * 2;
-}
+// the grid terrain.js draws the land on at (x, z)
+const gridAt = tileStep;
 
 // The ground as the terrain's mesh draws it: heights on its grid (fine near the
 // town, coarser in the hills), each square split along the diagonal terrain.js

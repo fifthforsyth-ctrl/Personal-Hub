@@ -35,7 +35,7 @@
 // lifted toward the sky's blue, a warm rim, the same haze.
 
 import * as THREE from "three";
-import { CORE, TILE } from "./terrain.js";
+import { CORE, tileStep } from "./terrain.js";
 import { PIER, STACKS, forestAt, heightAt, naturalAt, noise2, rectOut, riverAt, shoreDist, smooth } from "./coast.js";
 import { noiseTexture } from "./glade.js";
 
@@ -1507,9 +1507,6 @@ const MARK_FS = [
 
 // ------------------------------------------------------------------ the ground as the terrain draws it
 
-// Tiles nearer the plaza than this are at terrain.js STEP (2 m), the rest at twice it (as terrain.js makes them).
-const NEAR_R = 360;
-const FAR_STEP = 16;
 
 // The height of the land as its triangles have it (so feet and shadows sit on what is drawn), each node of the
 // terrain's grid read from the ground once and kept.
@@ -1532,10 +1529,7 @@ class Surface {
     return h;
   }
   step(x, z) {
-    if (x < CORE.x0 || x >= CORE.x1 || z < CORE.z0 || z >= CORE.z1) return FAR_STEP;
-    const x0 = CORE.x0 + Math.floor((x - CORE.x0) / TILE) * TILE;
-    const z0 = CORE.z0 + Math.floor((z - CORE.z0) / TILE) * TILE;
-    return Math.hypot(clamp(0, x0, x0 + TILE), clamp(0, z0, z0 + TILE)) < NEAR_R ? 2 : 4;
+    return tileStep(x, z);
   }
   at(x, z) {
     const st = this.step(x, z);

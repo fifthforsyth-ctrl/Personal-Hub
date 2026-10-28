@@ -233,17 +233,26 @@ function shoreH(x, z) {
 // ------------------------------------------------------------------ rivers
 
 // Each river from its spring in the hills to the lip it falls from: control
-// points, the width it starts and ends at.
+// points, the width it starts and ends at, how far (m) and how long (m) its
+// bends swing, its own seed, and how much wider its tarn at the spring is.
 const RIVER_DEFS = [
   {
     id: "west",
     pts: [[-360, -560], [-290, -420], [-226, -300], [-176, -196], [-142, -118], [-124, -58], [-112, -6], [-104, 34], [-100, 70], [-98, 110]],
     w: [4.5, 8],
+    wander: 9,
+    bend: 120,
+    seed: 1.7,
+    tarn: 9,
   },
   {
     id: "east",
     pts: [[360, -520], [286, -380], [236, -260], [204, -150], [190, -60], [186, 10], [184, 70], [184, 120], [186, 160]],
     w: [5, 9.5],
+    wander: 10,
+    bend: 104,
+    seed: 4.2,
+    tarn: 10,
   },
 ];
 
@@ -272,26 +281,39 @@ function catmull(pts, step) {
 // A river: samples { x, z, s (metres from the spring), w, level }, cut at the
 // lip, and the fall from the lip into the sea { x, z, top, bottom, dx, dz }.
 function makeRiver(def) {
-  const raw = catmull(def.pts, 3);
-  // where it first reaches the cliff's edge is the lip
-  let end = raw.length - 1;
-  for (let i = 0; i < raw.length; i++) {
-    if (shoreDist(raw[i][0], raw[i][1]) < 2.5) {
-      end = i;
-      break;
-    }
-  }
-  const pts = raw.slice(0, end + 1);
-  let s = 0;
-  const total = pts.reduce((a, p, i) => (i ? a + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+  const lipOf = (line) => {
+    for (let i = 0; i < line.length; i++) if (shoreDist(line[i][0], line[i][1]) < 2.5) return i;
+    return line.length - 1;
+  };
+  const along = (line) => line.reduce((a, p, i) => (a.push(i ? a[i - 1] + Math.hypot(p[0] - line[i - 1][0], p[1] - line[i - 1][1]) : 0), a), []);
+  // where the smooth line first reaches the cliff's edge is the lip
+  const raw = catmull(def.pts, 3).slice(0, lipOf(catmull(def.pts, 3)) + 1);
+  const rawS = along(raw);
+  const rawL = rawS[rawS.length - 1];
+  // it wanders: bends either side of the smooth line, long and short ones together, none at the lip so the
+  // fall stays where the cliff is
+  const bent = raw.map((p, i) => {
+    const s = rawS[i];
+    const a = raw[Math.max(0, i - 1)];
+    const b = raw[Math.min(raw.length - 1, i + 1)];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const side = Math.sin((s / def.bend) * 2 * Math.PI + def.seed) * 0.62 + Math.sin((s / (def.bend * 0.41)) * 2 * Math.PI + def.seed * 2.3) * 0.26 + noise2(s / 70, def.seed) * 0.3;
+    const k = def.wander * side * smooth(0, 30, s) * smooth(0, 60, rawL - s);
+    return [p[0] - ((b[1] - a[1]) / L) * k, p[1] + ((b[0] - a[0]) / L) * k];
+  });
+  const pts = bent.slice(0, lipOf(bent) + 1);
+  const S = along(pts);
+  const total = S[S.length - 1];
   let level = Infinity;
   const samples = pts.map((p, i) => {
-    if (i) s += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]);
+    const s = S[i];
     const dc = Math.max(0, shoreDist(p[0], p[1]));
     const bank = landH(p[0], p[1], dc);
     // always downhill, a little under its banks
-    level = Math.min(level - 0.012 * (i ? Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), bank - 0.9);
-    return { x: p[0], z: p[1], s, w: lerp(def.w[0], def.w[1], s / total), level };
+    level = Math.min(level - 0.012 * (i ? s - S[i - 1] : 0), bank - 0.9);
+    // wider and narrower by turns, and a little round tarn at the spring
+    const w = lerp(def.w[0], def.w[1], s / total) * (1 + 0.2 * noise2(s / 41, def.seed + 7)) + def.tarn * (1 - smooth(0, 16, s));
+    return { x: p[0], z: p[1], s, w, level };
   });
   const a = samples[samples.length - 2];
   const b = samples[samples.length - 1];
@@ -449,12 +471,14 @@ let SITES = null;
 function siteNear(x, z) {
   return shoreDist(x, z) >= 18 && x > riverX(0, z) && x < riverX(1, z);
 }
-function siteOk(x, z) {
-  if (!siteNear(x, z)) return false;
-  const half = PAD / 2;
-  for (const [ox, oz] of [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1], [0, 1], [1, 0], [0, -1], [-1, 0]]) {
-    const px = x + ox * half;
-    const pz = z + oz * half;
+function siteOk(s) {
+  if (!siteNear(s.x, s.z)) return false;
+  const c = Math.cos(s.ry);
+  const n = Math.sin(s.ry);
+  // the pad's middle, corners and edges, turned as it is
+  for (const [a, b] of [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1], [0, 1], [1, 0], [0, -1], [-1, 0]]) {
+    const px = s.x + a * s.hw * c + b * s.hd * n;
+    const pz = s.z - a * s.hw * n + b * s.hd * c;
     if (shoreDist(px, pz) < 18) return false;
     const rv = riverAt(px, pz);
     if (rv && !rv.past && rv.d < rv.w / 2 + 12) return false;
@@ -498,7 +522,7 @@ export function sites() {
       if (!siteNear(x, z)) continue;
       if (out.some((o) => near(o, s))) continue;
       if (r < 80 && padGap(s, PLAZA_PAD) < GAP + 4) continue;
-      if (!siteOk(x, z)) continue;
+      if (!siteOk(s)) continue;
       out.push(s);
     }
   }
