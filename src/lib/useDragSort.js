@@ -38,7 +38,8 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // side (Today's board, 2026-10-28): the item is out of its list once the
 // pointer leaves the column sideways too, it follows the pointer across, and
 // `scroller()` (the box the columns scroll sideways in) scrolls along at its
-// left and right edges.
+// left and right edges; once it has, `settle()` brings them to rest when
+// the drag ends.
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
 const NEST_X = 28; // how far in it tucks under a row it's going into
@@ -97,6 +98,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
     window.removeEventListener("pointercancel", d.onCancel);
     document.documentElement.classList.remove("drag-sorting", "drag-into");
     setDrag(null);
+    // Columns carried sideways come to rest on one.
+    if (d.xbox && d.xbox.scrollLeft !== d.scrollX0) latest.current.cross?.settle?.();
     if (d.into) {
       d.into.li.classList.remove("drop-into");
       // whatever was lit on the way here goes dark
@@ -169,6 +172,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       nest: into ?? null,
       pushing: false,
       frame: 0,
+      xbox,
+      scrollX0,
     };
     const self = els.current.get(id);
     // Where the item sits in the page right now, without its own lift: room

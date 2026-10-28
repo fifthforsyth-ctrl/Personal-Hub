@@ -70,6 +70,17 @@ function markCol(hit) {
   hit.below?.classList.add("tb-drop-before");
 }
 
+// After a card carried sideways is let go, the columns ease onto the one
+// nearest, rather than resting halfway across two.
+function settleCols(box) {
+  if (!box) return;
+  const left = box.getBoundingClientRect().left;
+  const cols = [...box.children].map((c) => box.scrollLeft + c.getBoundingClientRect().left - left - 4);
+  const to = cols.reduce((a, b) => (Math.abs(b - box.scrollLeft) < Math.abs(a - box.scrollLeft) ? b : a), 0);
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  box.scrollTo({ left: Math.max(0, to), behavior: reduce ? "auto" : "smooth" });
+}
+
 // The column under the pointer (not the card being carried), and the card
 // in it the carried one would go before.
 function colAt(x, y, key) {
@@ -304,7 +315,7 @@ export default function TodayBoard({
       </div>
     );
   } else {
-    const cross = { scroller: () => colsRef.current };
+    const cross = { scroller: () => colsRef.current, settle: () => settleCols(colsRef.current) };
     content = (
       <div className="tb-cols" ref={colsRef}>
         {pcCols.map((col) => {

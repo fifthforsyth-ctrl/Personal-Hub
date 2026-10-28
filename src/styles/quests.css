@@ -421,6 +421,7 @@
 @media (max-width: 600px) {
   .tb-seg .seg-btn { padding: 7px 10px; }
   .tb-col { flex: 0 0 86%; padding: 10px 12px 12px; }
+  .tb-filters__label { flex-basis: 100%; }
   .tb-col--add { flex: 0 0 132px; }
 }
 @media (max-width: 420px) {
