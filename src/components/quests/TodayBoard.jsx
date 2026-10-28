@@ -71,12 +71,15 @@ function markCol(hit) {
 }
 
 // After a card carried sideways is let go, the columns ease onto the one
-// nearest, rather than resting halfway across two.
-function settleCols(box) {
+// under the pointer (where it was let go), or else the nearest, rather than
+// resting halfway across two.
+function settleCols(box, x) {
   if (!box) return;
   const left = box.getBoundingClientRect().left;
-  const cols = [...box.children].map((c) => box.scrollLeft + c.getBoundingClientRect().left - left - 4);
-  const to = cols.reduce((a, b) => (Math.abs(b - box.scrollLeft) < Math.abs(a - box.scrollLeft) ? b : a), 0);
+  const rects = [...box.children].map((c) => c.getBoundingClientRect());
+  const cols = rects.map((r) => box.scrollLeft + r.left - left - 4);
+  const under = rects.findIndex((r) => x >= r.left && x <= r.right);
+  const to = under >= 0 ? cols[under] : cols.reduce((a, b) => (Math.abs(b - box.scrollLeft) < Math.abs(a - box.scrollLeft) ? b : a), 0);
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   box.scrollTo({ left: Math.max(0, to), behavior: reduce ? "auto" : "smooth" });
 }
@@ -290,7 +293,7 @@ export default function TodayBoard({
     content = list(cards.filter(shows), null);
   } else if (view === "camp") {
     content = (
-      <div className="tb-cols" ref={colsRef}>
+      <div className="tb-cols" ref={colsRef} data-drag-clip="">
         {campColumns(cards)
           .map((col) => ({ ...col, shown: col.cards.filter(shows) }))
           .filter((col) => col.shown.length)
@@ -319,9 +322,9 @@ export default function TodayBoard({
       </div>
     );
   } else {
-    const cross = { scroller: () => colsRef.current, settle: () => settleCols(colsRef.current) };
+    const cross = { scroller: () => colsRef.current, settle: (x) => settleCols(colsRef.current, x) };
     content = (
-      <div className="tb-cols" ref={colsRef}>
+      <div className="tb-cols" ref={colsRef} data-drag-clip="">
         {pcCols.map((col) => {
           const open = col.open.filter(shows);
           const sunk = col.finished.filter(shows);

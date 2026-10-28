@@ -186,16 +186,24 @@ export default function Quests() {
     [questCamps, campData, ownToday, picked, today, todayKeys]
   );
   // The order as it is now, for an Undo tapped after other changes, and
-  // the quest open now, for one tapped after another was opened.
+  // the quest and day open now (and whether its order is in), for one
+  // tapped after another was opened.
   const cardKeys = useRef([]);
   cardKeys.current = cards.map((c) => c.key);
   const questNow = useRef(questId);
   questNow.current = questId;
+  const dayNow = useRef(today);
+  dayNow.current = today;
+  const readyNow = useRef(orderReady);
+  readyNow.current = orderReady;
   const [boardView, setBoardView] = useBoardView();
-  // A filter, and the cards on Today when it was set: one added or picked
-  // since shows whatever it is, so it doesn't vanish as it's made.
-  const [boardFilter, setBoardFilterOnly] = useState({ ...NO_FILTER, since: null });
-  const setBoardFilter = (f) => setBoardFilterOnly({ ...f, since: new Set(cardKeys.current) });
+  // A filter, and the cards on Today when it was set (`since`, with `at`
+  // the quest and day they were on): one added or picked since shows
+  // whatever it is, so it doesn't vanish as it's made. On another quest or
+  // day, or set before this one's cards were in, it's taken afresh once
+  // they are, and until then the filter holds for every card.
+  const [boardFilter, setBoardFilterOnly] = useState({ ...NO_FILTER, since: null, at: null });
+  const boardAt = `${questId}|${today}`;
   const [filtering, setFiltering] = useState(false);
   const roomy = useWide();
 
@@ -215,6 +223,12 @@ export default function Quests() {
     campData !== undefined &&
     lines.every((l) => l.quest_id === questId) &&
     (campData.steps ?? []).every((s) => questCamps.some((c) => c.id === s.camp_id));
+  const cardsIn = hereLoaded && orderReady;
+  const setBoardFilter = (f) => setBoardFilterOnly({ ...f, since: cardsIn ? new Set(cardKeys.current) : null, at: cardsIn ? boardAt : null });
+  useEffect(() => {
+    if (cardsIn) setBoardFilterOnly((f) => (f.at === boardAt ? f : { ...f, since: new Set(cardKeys.current), at: boardAt }));
+  }, [cardsIn, boardAt]);
+  const shownFilter = boardFilter.at === boardAt ? boardFilter : { ...boardFilter, since: null };
   const doneAll = useMemo(
     () =>
       board
@@ -628,7 +642,7 @@ export default function Quests() {
         const r = c.getBoundingClientRect();
         return y < r.top + r.height / 2;
       });
-      return { el, below, where: "today", board: true, beforeKey: below?.dataset.card ?? null, col: col?.dataset.col ?? null, colKeys: others.map((c) => c.dataset.card) };
+      return { el, below, where: "today", board: true, beforeKey: below?.dataset.card ?? null, col: col?.dataset.col ?? null, colEl: col, colKeys: others.map((c) => c.dataset.card) };
     }
     const below = [...el.querySelectorAll(":scope > ul.qs-lines:not(.qs-lines--done) > li.qs-line")].find((li) => {
       if (li.id === `line-${line.id}`) return false;
@@ -640,7 +654,13 @@ export default function Quests() {
 
   function dragLineOut(phase, x, y, line) {
     const hit = phase === "move" || phase === "drop" ? lineDropTarget(x, y, line) : null;
-    markDrop(phase === "move" ? hit : null);
+    // over a column, the column lights up and room opens in it (not under
+    // the whole board)
+    const col = phase === "move" ? (hit?.colEl ?? null) : null;
+    markDrop(phase === "move" ? (col && !hit.below ? { ...hit, below: col } : hit) : null);
+    document.querySelectorAll(".tb-col.tb-drop").forEach((e) => e !== col && e.classList.remove("tb-drop", "tb-drop-end"));
+    col?.classList.add("tb-drop");
+    col?.classList.toggle("tb-drop-end", !hit.below);
     if (phase !== "drop" || !hit) return;
     if (hit.board) dropOnBoard(line, hit);
     else moveLineTo(line, hit.where, hit.beforeId);
@@ -740,8 +760,12 @@ export default function Quests() {
       actionLabel: "Undo",
       onAction: () => {
         const here = questNow.current === qid;
-        let back = keys && !here ? wasKeys : null;
-        if (keys && here) {
+        // its order on screen now, for the same quest and day
+        const live = here && dayNow.current === today && readyNow.current;
+        // otherwise the order it was handed over from is saved back for that
+        // quest and day, and nothing on screen is touched
+        let back = keys && !live ? wasKeys : null;
+        if (keys && live) {
           // just before the first card that followed it then and is still here
           const now = cardKeys.current.filter((k) => k !== card.key);
           const after = wasKeys.slice(wasKeys.indexOf(card.key) + 1).find((k) => now.includes(k));
@@ -749,26 +773,32 @@ export default function Quests() {
           back.splice(after ? now.indexOf(after) : now.length, 0, card.key);
         }
         if (here) put(was);
-        if (back) {
+        if (back && live) {
           mutateTodayKeys(back);
           ownInOrder(back);
         }
         undo(save(was, back), (err) => boardFailed(err, "Couldn't put that back."));
+        // still loading here, what comes back is from before Undo
+        if (back && !live && here) inOrder.reload(reloadTodayKeys);
       },
     });
   }
 
   // His computers on this quest (quests.computers), renamed or added to.
+  // Saved in line with the rest (a computer taken off just before saves its
+  // shorter list first); if it doesn't save, what's saved is reloaded.
   function saveComputers(next) {
-    const before = board?.quests.find((q) => q.id === questId)?.computers ?? null;
-    const put = (list) => mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === questId ? { ...q, computers: list } : q)) });
-    put(next);
+    const qid = questId;
+    mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === qid ? { ...q, computers: next } : q)) });
     haptic("tap");
-    updateQuest(questId, { computers: next }).catch((err) => {
-      toast.error(err, "Couldn't save your computers.");
-      put(before);
-    });
+    inOrder(() => updateQuest(qid, { computers: next })).catch((err) => computersFailed(err, "Couldn't save your computers."));
   }
+
+  // A computer list that didn't save: the board and Today come back as saved.
+  const computersFailed = (err, what) => {
+    toast.error(err, what);
+    inOrder.reload(() => Promise.all([reload(), reloadLines(), reloadCamps(), reloadTodayKeys()]));
+  };
 
   // One taken off: whatever was handed to it, any day, goes back to no one.
   // That's saved first and the shorter list after, so if it can't all be
@@ -781,21 +811,16 @@ export default function Quests() {
     const stepIds = ids(campData?.steps);
     const secIds = ids(campData?.sections);
     const name = computers.find((c) => c.n === n)?.name ?? "That computer";
-    const before = board?.quests.find((q) => q.id === qid)?.computers ?? null;
     const next = computers.filter((c) => c.n !== n);
-    const putList = (list) => mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === qid ? { ...q, computers: list } : q)) });
     mutateLines((list) => (list ?? []).map(off));
     mutateCamps((d) => d && { ...d, steps: d.steps.map(off), sections: d.sections.map(off) });
-    putList(next);
+    mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === qid ? { ...q, computers: next } : q)) });
     haptic("tap");
     toast.show(`${name} is off the board`);
     inOrder(async () => {
       await Promise.all([updateQuestTasks(lineIds, { computer: null }), updateSteps(stepIds, { computer: null }), updateSections(secIds, { computer: null })]);
       await updateQuest(qid, { computers: next });
-    }).catch((err) => {
-      putList(before);
-      boardFailed(err, "Couldn't take everything off that computer.");
-    });
+    }).catch((err) => computersFailed(err, "Couldn't take everything off that computer."));
   }
 
   // A lesson's list lives on its own mountain, made the first time he writes on it.
@@ -1017,7 +1042,7 @@ export default function Quests() {
     <TodayBoard
       view={boardView}
       onView={setBoardView}
-      filter={boardFilter}
+      filter={shownFilter}
       onFilter={setBoardFilter}
       filtering={filtering}
       onFiltering={setFiltering}
