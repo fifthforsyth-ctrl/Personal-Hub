@@ -38,8 +38,11 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // side (Today's board, 2026-10-28): the item is out of its list once the
 // pointer leaves the column sideways too, it follows the pointer across, and
 // `scroller()` (the box the columns scroll sideways in) scrolls along at its
-// left and right edges; once it has, `settle()` brings them to rest when
-// the drag ends.
+// left and right edges (never past the last column, and only with the
+// pointer over them); once it has, `settle()` brings them to rest when the
+// drag ends. The columns' box clips what's in it, so carried out past its
+// top or bottom (to a list below), a copy of the item follows the pointer
+// in its place.
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
 const NEST_X = 28; // how far in it tucks under a row it's going into
@@ -62,6 +65,35 @@ export function markDrop(hit) {
   hit.el.classList.add("drop-here");
   hit.el.classList.toggle("drop-end", !hit.below);
   hit.below?.classList.add("drop-before");
+}
+
+// Out past the top or bottom of the columns' box (`d.ghostAt`, where on
+// screen), the carried item is hidden where it is and a copy of it is
+// drawn there instead, over the page; back over the columns, the item
+// itself shows again.
+function ghost(d) {
+  const at = d.ghostAt;
+  if (!at) {
+    if (d.ghost) d.ghost.style.display = "none";
+    d.self.style.visibility = "";
+    return;
+  }
+  if (!d.ghost) {
+    const g = d.self.cloneNode(true);
+    for (const e of [g, ...g.querySelectorAll("[id], [data-card], [data-drop]")]) {
+      e.removeAttribute("id");
+      e.removeAttribute("data-card");
+      e.removeAttribute("data-drop");
+    }
+    g.classList.add("drag-ghost");
+    g.setAttribute("aria-hidden", "true");
+    Object.assign(g.style, { position: "fixed", left: "0", top: "0", width: `${d.width}px`, margin: "0", zIndex: "60", pointerEvents: "none", transition: "none", visibility: "" });
+    d.xbox.parentElement.appendChild(g);
+    d.ghost = g;
+  }
+  d.ghost.style.display = "";
+  d.ghost.style.transform = `translate(${at.x}px, ${at.y}px)`;
+  d.self.style.visibility = "hidden";
 }
 
 // The box that scrolls the list: its nearest scrolling ancestor, or the page.
@@ -98,6 +130,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
     window.removeEventListener("pointercancel", d.onCancel);
     document.documentElement.classList.remove("drag-sorting", "drag-into");
     setDrag(null);
+    d.ghost?.remove();
+    if (d.self) d.self.style.visibility = "";
     // Columns carried sideways come to rest on one.
     if (d.xbox && d.xbox.scrollLeft !== d.scrollX0) latest.current.cross?.settle?.();
     if (d.into) {
@@ -137,6 +171,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
     const xbox = latest.current.cross?.scroller?.() ?? null;
     const scrollX0 = xbox ? xbox.scrollLeft : 0;
     const shiftX = () => (xbox ? xbox.scrollLeft - scrollX0 : 0);
+    // as far as they go before the carried item, out past the last, adds to them
+    const maxX = xbox ? xbox.scrollWidth - xbox.clientWidth : 0;
     // The part of the page you can see: the scroller's box, or the window.
     const seen = () => {
       const r = box?.getBoundingClientRect();
@@ -166,6 +202,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       step: me.height + gap,
       // where on the item it was picked up, so it stays under the finger
       grab: e.clientY - me.top,
+      grabX: e.clientX - me.left,
+      width: me.width,
       targets: [],
       into: null,
       // what going under a row does, for this item
@@ -174,13 +212,19 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       frame: 0,
       xbox,
       scrollX0,
+      ghost: null,
     };
     const self = els.current.get(id);
+    d.self = self;
     // Where the item sits in the page right now, without its own lift: room
     // opening above it in another list moves it down.
     const placed = () => {
       const t = getComputedStyle(self).transform;
       return self.getBoundingClientRect().top - (t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0);
+    };
+    const placedX = () => {
+      const t = getComputedStyle(self).transform;
+      return self.getBoundingClientRect().left - (t && t !== "none" ? new DOMMatrixReadOnly(t).m41 : 0);
     };
     // The rows it could go under: not its own, nor ones under it, nor the
     // one it's already under.
@@ -233,9 +277,17 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       const top = placed();
       const y = d.into ? d.into.row.getBoundingClientRect().bottom - top : d.y - d.grab - top;
       // Across columns it follows the pointer sideways too (less the
-      // columns' own scroll, which carries it along with them).
-      const x = d.into ? NEST_X : latest.current.cross && d.out ? d.x - d.startX + shiftX() : 0;
+      // columns' own scroll, which carries it along with them), and tucks
+      // in under a row in another column there, not back in its own.
+      const cross = Boolean(latest.current.cross);
+      const x = d.into ? (cross ? d.into.row.getBoundingClientRect().left - placedX() + NEST_X : NEST_X) : cross && d.out ? d.x - d.startX + shiftX() : 0;
       setDrag({ id: d.id, from: d.from, to: d.to, x, y, step: d.step, nest: d.into ? into.label : null });
+      if (xbox) {
+        const r = xbox.getBoundingClientRect();
+        const row = d.into?.row.getBoundingClientRect();
+        d.ghostAt = d.y < r.top || d.y > r.bottom ? (row ? { x: row.left + NEST_X, y: row.bottom } : { x: d.x - d.grabX, y: d.y - d.grab }) : null;
+        ghost(d);
+      }
     };
     const tick = () => {
       if (live.current !== d) return;
@@ -253,11 +305,17 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       // Sideways too, at the columns' own left and right edges.
       if (xbox) {
         const r = xbox.getBoundingClientRect();
-        const side = towardEdge(edgePush(d.x, r.left, r.right, 48), d.startX, d.x);
+        const side = d.y >= r.top && d.y <= r.bottom ? towardEdge(edgePush(d.x, r.left, r.right, 48), d.startX, d.x) : 0;
         if (side) {
           const before = xbox.scrollLeft;
-          xbox.scrollLeft = before + Math.round(side * SPEED);
+          xbox.scrollLeft = Math.max(0, Math.min(maxX, before + Math.round(side * SPEED)));
           if (xbox.scrollLeft !== before) moving = true;
+        }
+        // the copy, made again once the item shows it's tucked in (or out)
+        if (d.ghost && !d.self.querySelector(".nest-tag") !== !d.ghost.querySelector(".nest-tag")) {
+          d.ghost.remove();
+          d.ghost = null;
+          ghost(d);
         }
       }
       const was = d.pushing;

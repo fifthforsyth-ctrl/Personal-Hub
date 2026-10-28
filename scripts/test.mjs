@@ -2571,6 +2571,10 @@ function sectionOf({ x, y }) {
   ok("a colour: a section in it, or a sub-task in it", only({ urgency: [], color: ["blue"] }) === "sec:sec1,line:p1");
   ok("either of two urgencies", only({ urgency: ["red", "yellow"], color: [] }) === "sec:sec1,step:c,line:o1");
   ok("urgency and colour must be on the same row", only({ urgency: ["green"], color: ["blue"] }) === "line:p1" && only({ urgency: ["red"], color: ["blue"] }) === "");
+  {
+    const noteCard = { key: "line:n", rows: [{ id: "n", kind: "note", urgency: "red", color: "blue" }] };
+    ok("a line of notes is never urgent, but keeps its colour", !matchesFilter(noteCard, { urgency: ["red"], color: [] }) && matchesFilter(noteCard, { urgency: [], color: ["blue"] }));
+  }
 
   const cc = campColumns(cards);
   ok(
@@ -2604,6 +2608,7 @@ function sectionOf({ x, y }) {
     JSON.stringify(computersOf([{ n: 3, name: "  Mac  " }, { n: 3, name: "dup" }, { n: "x" }, { n: 0 }, { n: 1, name: "" }])) === JSON.stringify([{ n: 3, name: "Mac" }, { n: 1, name: "Computer 1" }])
   );
   ok("a new computer takes the lowest number free", JSON.stringify(nextComputer([{ n: 1 }, { n: 3 }])) === JSON.stringify({ n: 2, name: "Computer 2" }) && nextComputer([]).n === 1);
+  ok("nor one still handed out on a row (a removal that didn't clear it)", nextComputer([{ n: 1 }], [2, 1]).n === 3 && nextComputer([{ n: 1 }], []).n === 2);
   ok("where a card's computer is written", rowOf(by["sec:sec1"]).table === "camp_sections" && rowOf(by["step:c"]).table === "camp_steps" && rowOf(by["line:o1"]).table === "quest_tasks" && rowOf(by["line:o1"]).id === "o1");
 }
 

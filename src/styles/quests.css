@@ -100,10 +100,15 @@
   align-items: start;
 }
 .qs-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.qs-today, .qs-rest { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 /* Today's board in columns (0092), on a screen wide enough: Today spans the
-   page, with the rest of the list and the build beside each other under it. */
+   page, with the rest of the list and the build beside each other under it.
+   The list lets its two parts out into the grid for it, so Today itself
+   never moves in the page. */
 .qs-grid--board { grid-template-areas: "today today" "main rail"; }
-.qs-spread { grid-area: today; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.qs-grid--board .qs-main { display: contents; }
+.qs-grid--board .qs-today { grid-area: today; }
+.qs-grid--board .qs-rest, .qs-grid--board .qs-mini { grid-area: main; }
 .qs-rail { grid-area: rail; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs .card + .card { margin-top: 0; }
@@ -304,7 +309,9 @@
    white panel on Today's orange wash, and they scroll sideways where they
    don't all fit (on a phone, one and a bit at a time). */
 .tb { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.tb-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* The views and the Filter button share a line; on a phone too narrow for
+   both, Filter takes the next. */
+.tb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .tb-seg { flex: 0 1 auto; min-width: 0; background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .tb-seg .seg-btn { padding: 7px 14px; }
 .tb-seg .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
@@ -329,6 +336,8 @@
 .camp-swatch.tb-swatch { width: 30px; flex: none; }
 .btn-link.tb-filters__clear { align-self: flex-start; min-height: 32px; padding: 0 2px; }
 .tb-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 4px 0; }
+.tb-hidden { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.tb-hidden .btn-link { padding: 0; min-height: 0; font-size: inherit; }
 
 /* The cards: a rule between them, as between rows. */
 .tb-list { display: flex; flex-direction: column; min-width: 0; transition: padding-bottom 0.15s ease; }
@@ -342,7 +351,9 @@
 .tb-sec__head .today-sec__n { margin-top: 1px; }
 .tb-sec__name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .tb-sec__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; width: 100%; }
-.btn-link.tb-sec__pc { min-height: 32px; padding: 0 2px; gap: 5px; white-space: nowrap; }
+.btn-link.tb-sec__pc { min-height: 32px; min-width: 0; max-width: 100%; padding: 0 2px; gap: 5px; white-space: nowrap; }
+.tb-sec__pc > svg { flex: none; }
+.tb-sec__pc > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tb-sec__head .drag-handle { margin: -6px -6px 0 0; }
 .tb-sec.lifted { background: var(--card); border-radius: 12px; box-shadow: 0 10px 28px rgba(20, 20, 20, 0.16); }
 
@@ -396,7 +407,7 @@
 /* Carried over another computer's column: it glows, and room opens where
    the card will land. */
 .tb-col.tb-drop { background: color-mix(in srgb, var(--accent) 6%, var(--card)); box-shadow: inset 0 0 0 2px var(--accent); }
-.tb-card.tb-drop-before { margin-top: 52px; }
+.tb-card.tb-drop-before, .tb-card.drop-before { margin-top: 52px; }
 .tb-col.tb-drop-end > .tb-list[data-open] { padding-bottom: 52px; }
 .tb-col--add {
   flex: 0 0 150px; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-height: 96px;
@@ -426,6 +437,7 @@
 }
 @media (max-width: 420px) {
   .tb-filter-btn__word { display: none; }
+  .tb-seg .seg-btn { padding: 7px 8px; }
   .btn.tb-filter-btn { padding-left: 10px; padding-right: 10px; }
 }
 

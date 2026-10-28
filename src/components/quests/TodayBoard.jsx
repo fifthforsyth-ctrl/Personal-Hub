@@ -106,6 +106,7 @@ export default function TodayBoard({
   onFiltering,
   cards,
   computers,
+  usedComputers,
   today,
   kind,
   openStep,
@@ -141,7 +142,10 @@ export default function TodayBoard({
     if (col.deck) role.set(col.deck, "deck");
   }
   const filtered = filterOn(filter);
-  const shows = (c) => matchesFilter(c, filter);
+  // What the filter asks for, and anything put on today since it was set,
+  // so what's just added doesn't vanish as it's made.
+  const shows = (c) => matchesFilter(c, filter) || Boolean(filter.since && !filter.since.has(c.key));
+  const hidden = filtered ? cards.filter((c) => !shows(c)).length : 0;
   const campIds = [...new Set(cards.filter((c) => c.camp).map((c) => c.camp.id))].sort();
 
   // What a card wears at its top: in a computer's column, "Working on" or
@@ -357,7 +361,7 @@ export default function TodayBoard({
           );
         })}
         {computers.length < MAX_COMPUTERS && (
-          <button type="button" className="tb-col tb-col--add" onClick={() => onComputers([...computers, nextComputer(computers)])}>
+          <button type="button" className="tb-col tb-col--add" onClick={() => onComputers([...computers, nextComputer(computers, usedComputers)])}>
             <Plus size={15} aria-hidden="true" />
             Add a computer
           </button>
@@ -418,6 +422,14 @@ export default function TodayBoard({
       <SketchProvider kind="step" userId={sketch.userId} scopeId={campIds} about={sketch.about} onAddToNote={sketch.onAddToNote}>
         {content}
       </SketchProvider>
+      {hidden > 0 && !nothing && (
+        <p className="tb-hidden">
+          {hidden === 1 ? "1 more on today, hidden by the filter." : `${hidden} more on today, hidden by the filter.`}{" "}
+          <button type="button" className="btn-link" onClick={() => onFilter(NO_FILTER)}>
+            Show all
+          </button>
+        </p>
+      )}
 
       {sheet?.card && (
         <Sheet title={sheet.card.block.section.title} onClose={() => setSheet(null)}>
@@ -489,7 +501,7 @@ function BoardSection({ card, sort, badge, from, computerName, onComputer, onOff
             {b.total > 0 && <small>{`${b.done} of ${b.total}`}</small>}
             <button type="button" className="btn-link tb-sec__pc" aria-haspopup="dialog" aria-label={computerName ? `Handed to ${computerName}. Change it` : "Hand it to a computer"} onClick={onComputer}>
               <Monitor size={13} aria-hidden="true" />
-              {computerName ?? "Computer"}
+              <span>{computerName ?? "Computer"}</span>
             </button>
             <button type="button" className="btn-link today-sec__off" onClick={onOff}>
               Off today

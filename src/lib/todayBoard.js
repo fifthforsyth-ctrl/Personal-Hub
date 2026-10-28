@@ -39,9 +39,11 @@ export function computersOf(raw) {
   return out.slice(0, MAX_COMPUTERS);
 }
 
-// The next computer to add: the lowest number not taken.
-export function nextComputer(computers) {
-  const taken = new Set(computers.map((c) => c.n));
+// The next computer to add: the lowest number not taken, by a computer on
+// the list or by anything still handed to a number (`used`: a removal whose
+// clearing didn't land, or another device's), so nothing turns up on it.
+export function nextComputer(computers, used = []) {
+  const taken = new Set([...computers.map((c) => c.n), ...used]);
   let n = 1;
   while (taken.has(n)) n++;
   return { n, name: `Computer ${n}` };
@@ -149,7 +151,7 @@ export function orderCards(cards, keys) {
 
 // { urgency: ["red", ...], color: ["blue", ...] }: a card shows when one row
 // on it has one of the urgencies and one of the colours asked for (either
-// left empty asks nothing of it).
+// left empty asks nothing of it). A line of notes is never urgent.
 export const NO_FILTER = { urgency: [], color: [] };
 
 export function filterOn(filter) {
@@ -160,7 +162,7 @@ export function matchesFilter(card, filter) {
   const u = filter?.urgency ?? [];
   const c = filter?.color ?? [];
   if (!u.length && !c.length) return true;
-  return card.rows.some((r) => (!u.length || (r.urgency && u.includes(r.urgency))) && (!c.length || (r.color && c.includes(r.color))));
+  return card.rows.some((r) => (!u.length || (r.urgency && r.kind !== "note" && u.includes(r.urgency))) && (!c.length || (r.color && c.includes(r.color))));
 }
 
 // --- Columns -------------------------------------------------------------------

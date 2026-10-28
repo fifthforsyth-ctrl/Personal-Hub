@@ -101,7 +101,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
           <CardBadge badge={badge} />
           {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
-            <UrgencyMark value={line.urgency} />
+            {!note && <UrgencyMark value={line.urgency} />}
             <Rich text={line.text} />
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
