@@ -3019,6 +3019,21 @@ export async function moveStepToSection(id, underIds, sectionId, position) {
   if (e2) throw e2;
 }
 
+// Steps, or a section, into another camp of the quest (Today's board, By
+// camp). `rows` are each { id, camp_id, section_id?, parent_id?, position? }:
+// written one by one, so Undo can put each back as it was.
+export async function moveToCamp(table, rows) {
+  if (table !== "camp_steps" && table !== "camp_sections") throw new Error(`Can't move ${table}.`);
+  const at = new Date().toISOString();
+  for (const { id, ...fields } of rows) {
+    const { error } = await supabase
+      .from(table)
+      .update(table === "camp_steps" ? { ...fields, updated_at: at } : fields)
+      .eq("id", id);
+    if (error) throw error;
+  }
+}
+
 export async function deleteStep(id) {
   const { error } = await supabase.from("camp_steps").delete().eq("id", id);
   if (error) throw error;
