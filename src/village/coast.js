@@ -161,11 +161,15 @@ export function shoreDist(x, z) {
 // Behind the hills, a range of mountains: a high moor, and peaks on it in
 // ridges (the noise folded, its creases rounded off so no ridge is a knife).
 function mountains(x, z) {
-  const f = fbm2(x / 360 + 4.4, z / 360 - 1.7, 2);
-  const ridge = 1 - Math.sqrt(f * f + 0.012) * 1.9;
-  const peaks = Math.pow(clamp(ridge, 0, 1), 2) * 210;
+  // ridged: sharp crests where the noise crosses zero, a finer set riding on the broad ones
+  const r1 = 1 - Math.abs(fbm2(x / 300 + 4.4, z / 300 - 1.7, 2));
+  const r2 = 1 - Math.abs(noise2(x / 110 + 1.1, z / 110 + 8.3));
+  const crest = r1 * r1 * (0.72 + 0.28 * r2 * r2);
+  // peaks and saddles, not one long wall: the crests rise and fall along their length
+  const mass = smooth(-0.45, 0.35, fbm2(x / 420 - 2.1, z / 420 + 5.3, 2));
+  const peaks = Math.pow(crest, 1.7) * 200 * (0.3 + 0.7 * mass);
   const moor = (fbm2(x / 170, z / 170, 3) * 0.5 + 0.5) * 40;
-  return peaks * smooth(-0.35, 0.25, fbm2(x / 700 - 2.1, z / 700 + 5.3, 2)) + moor;
+  return peaks + moor;
 }
 
 // Sea stacks off the headlands and islands on the horizon: { x, z, r, h }.

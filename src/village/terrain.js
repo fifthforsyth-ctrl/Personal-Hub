@@ -421,7 +421,7 @@ const TERRAIN_MAIN = [
   "rock *= mix(0.72, 1.0, seam) * mix(1.0, mix(0.8, 1.0, joint), rd);",
   // streaks down the face where water runs
   "float streak = texture2D(uNoise, vec2(fu / 13.0, vPW.y / 34.0)).a;",
-  "rock *= 0.9 + streak * 0.16;",
+  "rock *= mix(0.98, 0.9 + streak * 0.16, rd);",
   "rock *= 0.95 + (nD.b - 0.5) * 0.16 * rd;",
   "rock = mix(rock, alb * 0.9, smoothstep(0.62, 0.86, N.y) * 0.55 * (1.0 - vSoil.w));",
   // either side of a fall the cliff is wet: darker, and mossy where the spray settles
