@@ -85,7 +85,7 @@ import "../styles/quests.css";
 
 const EARLIER_SHOWN = 10;
 // A quest task's own columns, for putting one back as it was.
-const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "done_on", "done_at", "position", "created_at", "updated_at"];
+const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "working_since", "done_on", "done_at", "position", "created_at", "updated_at"];
 
 // Wide enough for the list beside the build: Today's board in columns then
 // takes the whole width above them.
@@ -305,10 +305,12 @@ export default function Quests() {
     const done_on = line.done_on ? null : today;
     const done_at = done_on ? new Date().toISOString() : null;
     const before = buildNow(village, today);
-    setLine(line.id, { done_on, done_at });
+    // Finishing it means you're no longer working on it.
+    const fields = done_on && line.working_since ? { done_on, done_at, working_since: null } : { done_on, done_at };
+    setLine(line.id, fields);
     tellVillage({ ...line, done_on, done_at });
     if (done_on) cheer(before);
-    updateQuestTask(line.id, { done_on, done_at }).catch((err) => failed(err, "Couldn't save that."));
+    updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't save that."));
   }
 
   function saveLine(line, fields) {
@@ -887,12 +889,12 @@ export default function Quests() {
     }
     const position = (campData.steps ?? []).filter((x) => x.camp_id === campId && !x.section_id && !x.parent_id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     const id = crypto.randomUUID();
-    const base = (x) => ({ camp_id: campId, section_id: null, text: x.text, urgency: x.urgency ?? null, color: x.color ?? null, done_on: x.done_on ?? null, from: x.id });
+    const base = (x) => ({ camp_id: campId, section_id: null, text: x.text, urgency: x.urgency ?? null, color: x.color ?? null, done_on: x.done_on ?? null, working_since: x.working_since ?? null, from: x.id });
     const steps = [
       { ...base(task), id, parent_id: null, note, today_on: today, computer: task.computer ?? null, position },
       ...subTasks.map((x, i) => ({ ...base(x), id: crypto.randomUUID(), parent_id: id, note: x.note ?? null, position: i })),
     ];
-    const local = steps.map(({ from, ...r }) => ({ ...r, working_since: null, created_at: new Date().toISOString() }));
+    const local = steps.map(({ from, ...r }) => ({ ...r, created_at: new Date().toISOString() }));
     const tasks = [task, ...subs].map((x) => Object.fromEntries(Object.entries(x).filter(([k]) => QUEST_TASK_COLS.includes(k))));
     const was = `line:${task.id}`;
     const now = `step:${id}`;

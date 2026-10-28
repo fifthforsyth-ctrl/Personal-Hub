@@ -178,6 +178,12 @@ export default function TodayBoard({
   const shows = (c) => !(hideDone && c.finished) && matches(c);
   const hidden = filtered ? cards.filter((c) => !(hideDone && c.finished) && !matches(c)).length : 0;
   const doneHidden = hideDone ? cards.filter((c) => c.finished).length : 0;
+  // What he's marked he's working on (a step or a task) is lifted out of
+  // the views into "Working on" at the top.
+  const isWorking = (c) => !c.finished && (c.kind === "step" || (c.kind === "line" && c.actionable)) && Boolean(c.item.working_since);
+  const working = cards.filter((c) => isWorking(c) && shows(c));
+  const inView = (c) => shows(c) && !isWorking(c);
+  const emptyHint = (list) => (list.some((c) => isWorking(c) && shows(c)) ? "In Working on, above." : list.some(matches) ? "All done here." : "Nothing here matches.");
   const campIds = [...new Set(cards.filter((c) => c.camp).map((c) => c.camp.id))].sort();
 
   // What a card wears at its top: in a computer's column, "Working on" or
@@ -361,7 +367,7 @@ export default function TodayBoard({
       </div>
     );
   } else if (view === "order") {
-    content = list(cards.filter(shows), null);
+    content = list(cards.filter(inView), null);
   } else if (view === "camp") {
     const cross = { scroller: () => colsRef.current, settle: (x) => settleCols(colsRef.current, x) };
     // A camp's column stays while a filter or Hide done empties it, so a
@@ -369,7 +375,7 @@ export default function TodayBoard({
     content = (
       <div className="tb-cols" ref={colsRef} data-drag-clip="">
         {campCols
-          .map((col) => ({ ...col, shown: col.cards.filter(shows) }))
+          .map((col) => ({ ...col, shown: col.cards.filter(inView) }))
           .filter((col) => col.shown.length || col.camp)
           .map((col) => (
             <section key={col.key} className="tb-col" data-col={col.key} aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
@@ -391,7 +397,7 @@ export default function TodayBoard({
                 {col.total > 0 && <small className="tb-col__count">{`${col.done} of ${col.total}`}</small>}
               </div>
               {list(col.shown, cross)}
-              {!col.shown.length && <p className="tb-col__empty">{col.cards.some(matches) ? "All done here." : "Nothing here matches."}</p>}
+              {!col.shown.length && <p className="tb-col__empty">{emptyHint(col.cards)}</p>}
             </section>
           ))}
       </div>
@@ -401,8 +407,8 @@ export default function TodayBoard({
     content = (
       <div className="tb-cols" ref={colsRef} data-drag-clip="">
         {pcCols.map((col) => {
-          const open = col.open.filter(shows);
-          const sunk = col.finished.filter(shows);
+          const open = col.open.filter(inView);
+          const sunk = col.finished.filter(inView);
           const done = col.cards.reduce((n, c) => n + c.done, 0);
           const total = col.cards.reduce((n, c) => n + c.total, 0);
           const pc = col.n == null ? null : computers.find((c) => c.n === col.n);
@@ -422,7 +428,7 @@ export default function TodayBoard({
               </div>
               {list(open, cross)}
               {!col.cards.length && <p className="tb-col__empty">{pc ? `Drag a step, a section or a task here to hand it to ${pc.name}.` : "Everything on today is handed out."}</p>}
-              {col.cards.length > 0 && !open.length && !sunk.length && <p className="tb-col__empty">{col.open.some(matches) || col.finished.some(matches) ? "All done here." : "Nothing here matches."}</p>}
+              {col.cards.length > 0 && !open.length && !sunk.length && <p className="tb-col__empty">{emptyHint(col.cards)}</p>}
               {sunk.length > 0 && (
                 <>
                   <p className="tb-col__done">Done</p>
@@ -504,6 +510,15 @@ export default function TodayBoard({
       )}
 
       <SketchProvider kind="step" userId={sketch.userId} scopeId={campIds} about={sketch.about} onAddToNote={sketch.onAddToNote}>
+        {working.length > 0 && (
+          <section className="tb-working" aria-label="Working on">
+            <p className="tb-working__label">
+              <i className="camp-working__pulse" aria-hidden="true" />
+              Working on
+            </p>
+            {list(working, null)}
+          </section>
+        )}
         {content}
       </SketchProvider>
       {doneHidden > 0 && !allDone && (
