@@ -34,11 +34,13 @@
 // instances gathered from every chunk; the heavier kinds are split by region
 // (the two headlands and the valley, north and south, and the far hills), so
 // what is out of sight, or outside the sun's shadow, is not drawn. All of it
-// stands in the still layer. Every instance stands on the ground as it is
-// drawn (the terrain's own triangles), so nothing floats. The light is the
-// land's: the kit's sun (soft and wrapped round the leaves), its shadows, the
-// sky and ground fill with the shade lifted toward the sky's blue, and the
-// same haze.
+// stands in the still layer. The tufts and flowers shrink away far from the
+// eye, and a region of them is drawn thinner the farther it is (an even share
+// of them), so the whole town in view costs little more than a close look.
+// Every instance stands on the ground as it is drawn (the terrain's own
+// triangles), so nothing floats. The light is the land's: the kit's sun (soft
+// and wrapped round the leaves), its shadows, the sky and ground fill with the
+// shade lifted toward the sky's blue, and the same haze.
 
 import * as THREE from "three";
 import { CORE, PALETTE, groundLook } from "./terrain.js";
@@ -428,8 +430,9 @@ function branch(geo, [x0, y0, z0], [x1, y1, z1], r, c, part = 0) {
   for (let s = 0; s < 3; s++) {
     const a = base + s;
     const b = base + ((s + 1) % 3);
-    geo.t(a, a + 3, b);
-    geo.t(b, a + 3, b + 3);
+    // (its ring turns the other way round its length from a pole's, so its faces are wound the other way)
+    geo.t(a, b, a + 3);
+    geo.t(b, b + 3, a + 3);
   }
 }
 
@@ -536,10 +539,11 @@ function birchGeo() {
   return geo.build();
 }
 
-// A bush a metre across: a low soft mound of clumps.
+// A bush a metre across: a low soft mound of clumps (52 triangles: the middle one rounder, the two beside it plainer).
 function bushGeo() {
   const geo = new Geo();
-  crown(geo, [[0.0, 0.36, 0.0, 0.34], [-0.26, 0.24, 0.1, 0.27], [0.24, 0.22, -0.1, 0.27]], { shape: "tiny", seed: 11, squash: 0.85, flat: 0.6, aoLow: 0.4 });
+  const clumps = [[0.0, 0.36, 0.0, 0.34, "small"], [-0.26, 0.24, 0.1, 0.27], [0.24, 0.22, -0.1, 0.27]];
+  crown(geo, clumps, { shape: "tiny", seed: 11, squash: 0.85, flat: 0.6, aoLow: 0.4 });
   return geo.build();
 }
 
@@ -717,12 +721,13 @@ function wallGeo() {
     });
   }
   const P = prof.length;
+  // (wound to face outward: along the wall is +x, up the profile from the -z foot over the top to the +z foot)
   for (let k = 0; k < rings - 1; k++)
     for (let j = 0; j < P - 1; j++) {
       const a = base + k * P + j;
       const b = a + P;
-      geo.t(a, b, a + 1);
-      geo.t(a + 1, b, b + 1);
+      geo.t(a, a + 1, b);
+      geo.t(a + 1, b + 1, b);
     }
   // the ends
   for (const k of [0, rings - 1]) {
@@ -810,6 +815,13 @@ const VERT_BEGIN = [
   "  im = instanceMatrix;",
   "#endif",
   "vec3 rootW = (modelMatrix * im * vec4(0.0, 0.0, 0.0, 1.0)).xyz;",
+  // a wall's height and breadth wander along it by where along it a point is, so the overlapping pieces
+  // agree wherever they meet (no piece's end standing proud of the next)
+  "#ifdef WALL",
+  "  vec4 wn = texture2D(uNoise, (modelMatrix * im * vec4(transformed.x, 0.0, 0.0, 1.0)).xz / 60.0 + 0.23);",
+  "  transformed.y *= 0.9 + 0.2 * wn.r;",
+  "  transformed.z *= 0.94 + 0.12 * wn.g;",
+  "#endif",
   "#ifdef FADE_FAR",
   "  float fadeK = 1.0 - smoothstep(uFade.x, uFade.y, length(rootW - cameraPosition));",
   "  transformed *= fadeK;",
@@ -2257,7 +2269,12 @@ function growSite(K, s, U) {
     if (r() < 0.65) {
       const t = r();
       const kind = t < 0.7 ? "broad" : t < 0.85 ? "spruce" : "birch";
-      tree(kind, (r() < 0.5 ? -1 : 1) * (s.hw - 8 - r() * 4), (r() < 0.5 ? -1 : 1) * (s.hd - 8 - r() * 4), lerp(TREES[kind].h[1] * 0.9, TREES[kind].h[1] * 1.1, r()));
+      tree(
+        kind,
+        (r() < 0.5 ? -1 : 1) * (s.hw - 8 - r() * 4),
+        (r() < 0.5 ? -1 : 1) * (s.hd - 8 - r() * 4),
+        lerp(TREES[kind].h[1] * 0.9, TREES[kind].h[1] * 1.1, r()),
+      );
     }
     if (r() < 0.5) items.push({ kind: "bush", u: (r() - 0.5) * 20, v: (r() - 0.5) * 20, n: 2 + Math.floor(r() * 3) });
   } else if (use === "copse") {
@@ -2286,7 +2303,8 @@ function growSite(K, s, U) {
     if (it.kind === "hay") {
       if (!roomFor(K, x, z, 2)) return;
       K.S.at(x, z);
-      put(K.out, "hay", x, K.S.h - 0.1, z, it.yaw, it.s, it.s * (0.9 + ri() * 0.2), it.s, (ri() - 0.5) * 0.05, (ri() - 0.5) * 0.05, jitter(pick(ri, TONE.hay), ri, 0.7), ri());
+      const sy = it.s * (0.9 + ri() * 0.2);
+      put(K.out, "hay", x, K.S.h - 0.1, z, it.yaw, it.s, sy, it.s, (ri() - 0.5) * 0.05, (ri() - 0.5) * 0.05, jitter(pick(ri, TONE.hay), ri, 0.7), ri());
       shade(K.out, K.S, x, z, 2.2 * it.s, 0.55);
       if (K.look) tuftRing(K, ri, x, z, 1.8 * it.s, 4);
       return;
@@ -2314,8 +2332,9 @@ function lanesIn(K) {
       const z = lerp(az, bz, t) + ((bx - ax) / L) * off * side;
       if (!K.inside(x, z)) continue;
       const roll = r();
+      // a mound of bushes (never a lone one) or a tree by the lane
       if (roll < 0.3) {
-        if (roll < 0.3 * env.detail) bushClump(K, r, x, z, 1 + Math.floor(r() * 2), 0.85);
+        if (roll < 0.14 * env.detail) bushClump(K, r, x, z, 3 + Math.floor(r() * 3), 0.85);
       } else if (roll < 0.4) {
         const tx = x + (-(bz - az) / L) * side * 3;
         const tz = z + ((bx - ax) / L) * side * 3;
@@ -2329,6 +2348,8 @@ function lanesIn(K) {
 
 // How high a stone's top stands over its foot, as a share of its height: [rounded, blocky].
 const ROCK_TOP = [0.6, 0.52];
+// and how high its widest is
+const ROCK_MID = [0.18, 0.12];
 
 // A stone into the batches: the rounded or the blocky kind, those over a metre and a half among the
 // boulders that cast the sun's shadow, the smaller ones not (their contact shade is enough).
@@ -2365,22 +2386,19 @@ function rocksIn(K, r) {
     if (!far && opts.shade !== false && y > 0.5) shade(out, S, x, z, s * 0.8, 0.5);
     return true;
   };
-  // a stone in the sea or the surf, sitting on the bottom, made taller (never much) if it must be for its
-  // top to stand `top` out of the water; where the water is too deep for that there is none
-  const surf = (rr, x, z, s, sink, top = 0.6, grow = 2.2) => {
+  // a stone of size s in the sea or the surf, its top at least `top` out of the water
+  const surf = (rr, x, z, s, sink, top = 0.6) => {
     S.at(x, z);
-    if (S.h > 3.4 || S.h < -3.6 || S.slope > 1.6) return 0;
-    const blocky = rr() < 0.3;
+    if (S.h > 3.4 || S.h < -4.5 || S.slope > 1.6) return 0;
+    const blocky = rr() < 0.35;
     const tk = ROCK_TOP[blocky ? 1 : 0];
-    let sy = s * (0.75 + rr() * 0.35);
-    const need = (top - S.h) / (tk - sink);
-    if (need > sy) {
-      if (need > s * grow) return 0;
-      sy = need;
-    }
-    const y = S.h - sy * sink;
-    if (y + sy * tk < 0.35) return 0;
-    putRock(out, blocky, x, y, z, rr() * 6.28, sy * (1.0 + rr() * 0.45), sy, sy * (0.9 + rr() * 0.4), S.gx, S.gz, rockTint(rr), 0, 0.25);
+    const sy = s * (0.75 + rr() * 0.35);
+    // stood on the bed where the water is shallow; where it is deep, hung with its widest a little above the
+    // water line, so its sides drop steeply in (no broad pale shelf of rock just under the surface) and its foot
+    // is lost in the deep
+    const y = Math.max(S.h - sy * sink, -ROCK_MID[blocky ? 1 : 0] * sy + (rr() - 0.3) * 0.3);
+    if (y + sy * tk < top) return 0;
+    putRock(out, blocky, x, y, z, rr() * 6.28, s * (1.0 + rr() * 0.4), sy, s * (0.9 + rr() * 0.35), S.gx, S.gz, rockTint(rr), 0, 0.25);
     return sy;
   };
   if (!far) {
@@ -2411,7 +2429,7 @@ function rocksIn(K, r) {
       for (let k = 0; k < heap; k++) {
         const a = rh() * Math.PI * 2;
         const dd = sy * (0.55 + rh() * 0.6);
-        surf(rh, bx + Math.cos(a) * dd, bz + Math.sin(a) * dd, sy * (0.28 + rh() * 0.32), 0.15, 0.35, 2.8);
+        surf(rh, bx + Math.cos(a) * dd, bz + Math.sin(a) * dd, sy * (0.28 + rh() * 0.32), 0.15, 0.35);
       }
     }
     // scree under the highest cliffs: an apron of fallen stones along their foot, half in the water
@@ -2426,7 +2444,7 @@ function rocksIn(K, r) {
       const L = Math.hypot(sl, 1);
       const bx = x - (sl / L) * d;
       const bz = coastZ(x) + d / L;
-      if (K.inside(bx, bz)) surf(rh, bx, bz, s, 0.18, 0.35, 2.8);
+      if (K.inside(bx, bz)) surf(rh, bx, bz, s, 0.18, 0.35);
     }
   }
   // a jittered grid over the chunk, each point tried for what it suits
@@ -2655,9 +2673,8 @@ function farmIn(K) {
       const yaw = Math.atan2(-(w.z1 - w.z0), w.x1 - w.x0);
       const pitch = Math.atan2(hb - ha, L);
       const y = Math.min(hm, (ha + hb) / 2) - 0.05;
-      // the wall's height wanders slowly along it, so neighbouring pieces agree
-      const hk = 1 + 0.1 * noise2(mx / 6 + 3.1, mz / 6 - 1.4);
-      if (w.stone) put(out, "wall", mx, y, mz, yaw, (L / 2) * 1.18, 0.98 * hk, 1 + 0.06 * noise2(mx / 5, mz / 5), 0, pitch, pick(rr, TONE.wall), rr(), "YZX");
+      // (the wall's height and breadth wander along it in the shader, by where it is, so the pieces agree)
+      if (w.stone) put(out, "wall", mx, y, mz, yaw, (L / 2) * 1.18, 0.98, 1, 0, pitch, pick(rr, TONE.wall), rr(), "YZX");
       else put(out, "fence", mx, y, mz, yaw, L / 2.6, 1, 1, 0, pitch * 0.9, jitter(pick(rr, TONE.wood), rr, 0.6), rr(), "YZX");
       // tufts and weeds grown up against the wall's foot on both sides
       if (!K.look) continue;
@@ -2672,7 +2689,8 @@ function farmIn(K) {
         S.at(sx, sz);
         if (S.slope > 0.6) continue;
         if (roll < 0.06) {
-          putOnSlope(out, "flower", sx, S.h, sz, rr() * 6.28, 0.7, 0.9, 0.7, S.gx, S.gz, jitter(rr() < 0.6 ? TONE.flower.white : TONE.flower.yellow, rr, 0.4), 1, 0.7);
+          const yaw = rr() * 6.28;
+          putOnSlope(out, "flower", sx, S.h, sz, yaw, 0.7, 0.9, 0.7, S.gx, S.gz, jitter(rr() < 0.6 ? TONE.flower.white : TONE.flower.yellow, rr, 0.4), 1, 0.7);
           continue;
         }
         tuftAt(K, rr, sx, sz, K.look(sx, sz), 1.0 + rr() * 0.3);
@@ -2873,7 +2891,8 @@ class Batch {
       per.set(reg, (per.get(reg) || 0) + n);
       total += n;
     }
-    // a region with few of them shares a mesh with the others like it
+    // a region with few of them shares a mesh with the others like it (never with a big one: a bigger part is
+    // culled less often, which costs more than the draw call it saves)
     const minN = Math.max(150, total * 0.08);
     const keyOf = (reg) => (!this.split ? "all" : per.get(reg) >= minN ? "r" + reg : "rest");
     const want = new Map();
@@ -2922,7 +2941,8 @@ class Batch {
       const b = p.box;
       m.count = p.o;
       m.visible = p.o > 0;
-      m.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2), Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) / 2);
+      const mid = new THREE.Vector3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
+      m.geometry.boundingSphere = new THREE.Sphere(mid, Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) / 2);
       m.instanceMatrix.needsUpdate = true;
       m.geometry.attributes.aTint.needsUpdate = true;
     }

@@ -36,7 +36,7 @@
 
 import * as THREE from "three";
 import { CORE, tileStep } from "./terrain.js";
-import { PIER, STACKS, forestAt, heightAt, naturalAt, noise2, rectOut, riverAt, shoreDist, smooth } from "./coast.js";
+import { PIER, STACKS, cliffTop, fbm2, forestAt, heightAt, naturalAt, noise2, rectOut, riverAt, shoreDist, sites, smooth } from "./coast.js";
 import { noiseTexture } from "./glade.js";
 
 const TAU = Math.PI * 2;
@@ -62,7 +62,7 @@ function hash3(a, b, c) {
 
 // A stream of numbers in [0, 1) from a seed (xorshift).
 function rngOf(seed) {
-  let s = seed >>> 0 || 1;
+  let s = seed >>> 0 || 0x9e3779b9;
   return () => {
     s ^= s << 13;
     s >>>= 0;
@@ -656,7 +656,12 @@ const COATS = [
   { coat: "#a46534", hair: "#dcc797" },
   { coat: "#d4cfc6", hair: "#a29c93" },
   { coat: "#8a5531", hair: "#21170f", points: true },
+  { coat: "#d2b27a", hair: "#efe3c4" },
 ];
+// (their indices) the light coats: greys, a dun and a palomino; the dark: a black bay; the bays and chestnuts
+const COAT_LIGHT = [2, 3, 6, 8];
+const COAT_DARK = [4];
+const COAT_BROWN = [0, 1, 5, 7];
 
 // ------------------------------------------------------------------ sheep
 
@@ -778,10 +783,18 @@ const FACES = ["#2b2421", "#2b2421", "#332a25", "#d4c2a8", "#6d5848"];
 
 // ------------------------------------------------------------------ birds
 
-// A gull in flight, at its true size (the flocks draw it larger, so it reads from far off): body along +z,
-// wings out along x. Parts: 0 body, 1 inner wing (from the shoulder), 2 outer wing (from the wrist).
+// A gull in flight, at its true size (about 1.3 m across the wings): body along +z, wings out along x.
+// Parts: 0 body, 1 inner wing (from the shoulder), 2 outer wing (from the wrist).
 // Zones: 0 white, 1 the wing's top (grey), 2 wing tips, 3 beak, 4 the crown (a tern's black cap), 5 legs.
 const B_SHOULDER = [0.04, 0.02, 0.01];
+// how big the birds are drawn: a herring gull, a tern, a crow, a gull standing
+const GULL_K = 1.1;
+const TERN_K = 0.72;
+const PERCH_K = 1.2;
+// Far off, every bird is drawn larger (by the camera's distance over FAR_D, at most FAR_MOST times), so a gull
+// stays a fleck a few pixels across from the whole town's view and is its true size close up.
+const FAR_D = 160;
+const FAR_MOST = 2.6;
 const B_WRIST = [0.33, 0.03, -0.012];
 function birdGeo() {
   const g = new Geo();
@@ -843,10 +856,23 @@ vec3 birdAlbedo(float kind) {
 }
 `;
 
+// how much larger a bird is drawn far off (see FAR_D)
+const BIRD_FAR = `
+float birdFar() {
+  #ifdef USE_INSTANCING
+    vec3 o = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+    return clamp(distance(cameraPosition, o) / ${FAR_D.toFixed(1)}, 1.0, ${FAR_MOST.toFixed(2)});
+  #else
+    return 1.0;
+  #endif
+}
+`;
+
 const BIRD_VERT = `
 // aI0: wingbeat phase, how hard it flaps (0 gliding .. 1), the glide's dihedral (radians), kind (0 gull, 1 tern, 2 crow)
 const vec3 SHOULDER = vec3(${B_SHOULDER.join(", ")});
 const vec3 WRIST = vec3(${B_WRIST.join(", ")});
+${BIRD_FAR}
 void lifePose(inout vec3 p, inout vec3 n) {
   float part = partOf();
   float f = aI0.x, k = aI0.y;
@@ -862,6 +888,7 @@ void lifePose(inout vec3 p, inout vec3 n) {
     }
   }
   p.y -= k * 0.025 * sin(f);
+  p *= birdFar();
 }
 ${BIRD_ALBEDO}
 vec3 lifeAlbedo() { return birdAlbedo(aI0.w); }
@@ -921,8 +948,10 @@ function perchGeo() {
 const PERCH_VERT = `
 // aI0: the head's turn (radians), unused, unused, kind (0 gull)
 const vec3 PNECK = vec3(${P_NECK.join(", ")});
+${BIRD_FAR}
 void lifePose(inout vec3 p, inout vec3 n) {
   if (partOf() > 5.5) { p = PNECK + rotY(p - PNECK, aI0.x); n = rotY(n, aI0.x); }
+  p *= birdFar();
 }
 ${BIRD_ALBEDO}
 vec3 lifeAlbedo() { return birdAlbedo(aI0.w); }
@@ -1550,25 +1579,126 @@ class Surface {
 
 // ------------------------------------------------------------------ where the herds go
 
-// Whether an animal may stand at (x, z): on the drawn tiles, well up from the shore, off the rivers and their
-// banks, off the town's pads, out of the woods, below the moors, on gentle ground.
-// F (optional): { list: the fields, home: the field the herd keeps to, or null }: inside its home, 3 m in
-// from the wall (the dressing keeps the fields clear of trees); outside every other field by as much.
+// Every pad the town will ever level (coast.js sites()) with a margin round it (the hedges the dressing grows on
+// the pads not yet built stand on their edges), marked on a grid of 4 m cells over CORE, made once: the herds
+// graze where the town will never come, so a new build never has to move them.
+const KEEP = { cell: 4, margin: 7, grid: null, nx: 0, nz: 0 };
+function siteKeep() {
+  if (KEEP.grid) return KEEP;
+  const S = KEEP.cell;
+  KEEP.nx = Math.ceil((CORE.x1 - CORE.x0) / S);
+  KEEP.nz = Math.ceil((CORE.z1 - CORE.z0) / S);
+  const g = (KEEP.grid = new Uint8Array(KEEP.nx * KEEP.nz));
+  // (a cell is marked when its middle is within the margin and half a cell's diagonal)
+  const m = KEEP.margin + S * 0.71;
+  for (const s of sites()) {
+    const R = Math.hypot(s.hw, s.hd) + m;
+    const i0 = Math.max(0, Math.floor((s.x - R - CORE.x0) / S));
+    const i1 = Math.min(KEEP.nx - 1, Math.floor((s.x + R - CORE.x0) / S));
+    const j0 = Math.max(0, Math.floor((s.z - R - CORE.z0) / S));
+    const j1 = Math.min(KEEP.nz - 1, Math.floor((s.z + R - CORE.z0) / S));
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) if (rectOut(s, CORE.x0 + (i + 0.5) * S, CORE.z0 + (j + 0.5) * S) < m) g[j * KEEP.nx + i] = 1;
+  }
+  return KEEP;
+}
+function onSite(x, z) {
+  const K = siteKeep();
+  const i = Math.floor((x - CORE.x0) / K.cell);
+  const j = Math.floor((z - CORE.z0) / K.cell);
+  return i >= 0 && j >= 0 && i < K.nx && j < K.nz && K.grid[j * K.nx + i] === 1;
+}
+
+// The dressing's lone trees in the meadows (dressing.js clustersIn), worked out here the same way so the herds
+// keep off them: a cell 46 m across may hold a little cluster, a big tree and a few more within about 10 m of
+// its middle. (Each cell's answer is kept: { x, z } or null.)
+const CLUMP = { cell: 46, cells: new Map() };
+function clumpAt(ci, cj) {
+  const key = (ci + 512) * 1024 + (cj + 512);
+  let c = CLUMP.cells.get(key);
+  if (c !== undefined) return c;
+  const r = rngOf(hash3(ci, cj, 515));
+  const x = (ci + 0.2 + r() * 0.6) * CLUMP.cell;
+  const z = (cj + 0.2 + r() * 0.6) * CLUMP.cell;
+  const roll = r();
+  const rad = Math.hypot(x, z);
+  c = null;
+  if (rad >= 75 && rad <= 720 && shoreDist(x, z) >= 18 && forestAt(x, z) <= 0.35) {
+    const p = smooth(-0.15, 0.3, fbm2(x / 150 + 2.7, z / 150 - 8.1, 2)) * 0.75 + 0.08;
+    if (roll <= p) c = { x, z };
+  }
+  CLUMP.cells.set(key, c);
+  return c;
+}
+function nearClump(x, z, reach) {
+  const ci = Math.floor(x / CLUMP.cell);
+  const cj = Math.floor(z / CLUMP.cell);
+  for (let j = cj - 1; j <= cj + 1; j++)
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      const c = clumpAt(i, j);
+      if (c && Math.hypot(c.x - x, c.z - z) < reach) return true;
+    }
+  return false;
+}
+// How likely the dressing is to have planted a tree at (x, z) outside its clusters (dressing.js treesIn): the
+// woods' edge, a grove where a broad noise allows, a river's banks, the pines along the cliff tops. (sd, fo, rv:
+// shoreDist, forestAt and riverAt there.)
+function treeLikely(x, z, sd, fo, rv) {
+  let p = smooth(0.06, 0.55, fo);
+  const rad = Math.hypot(x, z);
+  p = Math.max(p, 0.42 * smooth(0.12, 0.42, fbm2(x / 64 + 5.3, z / 64 - 3.1, 2)) * smooth(40, 90, rad) * smooth(14, 30, sd));
+  if (rv && !rv.past) {
+    const edge = rv.d - rv.w / 2;
+    p = Math.max(p, 0.42 * smooth(2.5, 5, edge) * (1 - smooth(10, 22, edge)));
+  }
+  if (Math.abs(x) > 70 && sd < 45 && cliffTop(x) > 6) p = Math.max(p, 0.35 * smooth(6, 14, sd) * (1 - smooth(28, 45, sd)) * smooth(-0.3, 0.3, noise2(x / 30 + 4.1, z / 30)));
+  return p;
+}
+
+// Whether an animal may stand at (x, z): on the drawn tiles, off every pad the town will ever level and the pads
+// levelled now, well up from the shore, off the rivers and their banks, below the moors, on gentle ground; on open
+// ground, out of the woods and off the dressing's clusters of trees and where it is likely to have planted one.
+// F: { list: the fields, home: the field the herd keeps to, or null, clear: the caller's clearAt, or null }: inside
+// its home, 3 m in from the wall (the dressing keeps the fields clear of trees); outside every other field by as much.
 function landOk(x, z, pads, keep = 0, F = null) {
   if (x < CORE.x0 + 24 || x > CORE.x1 - 24 || z < CORE.z0 + 24 || z > CORE.z1 - 24) return false;
-  if (shoreDist(x, z) < 14 + keep) return false;
-  const rv = riverAt(x, z);
-  if (rv && !rv.past && rv.d < rv.w / 2 + 8 + keep) return false;
-  if (padNear(pads, x, z, 7 + keep)) return false;
+  if (onSite(x, z) || padNear(pads, x, z, 7 + keep)) return false;
   const home = F && F.home;
   if (home && fieldIn(home, x, z) < 3 + keep) return false;
   if (F) for (const f of F.list) if (f !== home && x > f.x0 - 5 && x < f.x1 + 5 && z > f.z0 - 5 && z < f.z1 + 5 && fieldIn(f, x, z) > -3 - keep) return false;
-  if (!home && forestAt(x, z) > 0.16) return false;
+  const sd = shoreDist(x, z);
+  if (sd < 14 + keep) return false;
+  const rv = riverAt(x, z);
+  if (rv && !rv.past && rv.d < rv.w / 2 + 10 + keep) return false;
   const h = naturalAt(x, z);
   if (h > 95) return false;
+  if (!home) {
+    const fo = forestAt(x, z, h, rv);
+    if (fo > 0.05 || treeLikely(x, z, sd, fo, rv) > 0.14 || nearClump(x, z, 13 + keep)) return false;
+  }
+  if (F && F.clear && !F.clear(x, z, 2 + keep)) return false;
   const gx = (naturalAt(x + 2.5, z) - naturalAt(x - 2.5, z)) / 5;
   const gz = (naturalAt(x, z + 2.5) - naturalAt(x, z - 2.5)) / 5;
   return Math.hypot(gx, gz) < 0.28;
+}
+// How likely trees are along a loop (the mean of treeLikely over it): of the loops that fit, the herd takes the
+// most open.
+function loopTrees(line, band) {
+  const o = [0, 0, 0, 0];
+  let sum = 0;
+  let n = 0;
+  for (let s = 0; s < line.L; s += 6) {
+    along(line, s, o);
+    for (const k of [-1, 0, 1]) {
+      const x = o[0] - o[3] * band * k;
+      const z = o[1] + o[2] * band * k;
+      const sd = shoreDist(x, z);
+      const rv = riverAt(x, z);
+      sum += treeLikely(x, z, sd, forestAt(x, z, null, rv), rv);
+      n++;
+    }
+  }
+  return sum / Math.max(1, n);
 }
 // The fields as the herds use them: each a convex polygon, its middle, the turn of its grid and its half sizes
 // along it (a little short of the jittered corners), and a box round it.
@@ -1712,12 +1842,15 @@ function loopOk(line, band, pads, full = true, F = null) {
 
 // A pasture for a herd near herd.at: { line, home (its field or null), laneK (how close its lanes are drawn
 // in to fit) } or null. A field of the kinds it likes, near and not another herd's, comes first: a loop round
-// its middle, kept off the walls; else the first loop on open ground that fits, looking further out each try.
-function pastureNear(herd, pads, salt = 0, fields = [], taken = new Set()) {
+// its middle, kept off the walls (horses keep to pasture; sheep take a fallow field too; the hay meadows have
+// their stacks in them). Else a loop on open ground: of the first few that fit, looking further out each try
+// and drawing the lanes in a little after a while, the one with the fewest trees likely along it, near at hand.
+// clear: the caller's clearAt(x, z, r), or null.
+function pastureNear(herd, pads, salt = 0, fields = [], taken = new Set(), clear = null) {
   const r = rngOf(hash3(herd.id, 911, salt));
-  const want = herd.kind === "horse" ? [4, 3] : [4, 3, 2];
+  const want = herd.kind === "horse" ? [4] : [4, 2];
   const far = (f) => Math.hypot(f.cx - herd.at[0], f.cz - herd.at[1]);
-  const homes = fields.filter((f) => want.includes(f.kind) && !taken.has(f) && far(f) < (herd.reach || 170));
+  const homes = herd.open ? [] : fields.filter((f) => want.includes(f.kind) && !taken.has(f) && far(f) < (herd.reach || 170));
   homes.sort((a, b) => want.indexOf(a.kind) - want.indexOf(b.kind) || far(a) - far(b));
   for (const f of homes) {
     const A = Math.min(f.hu, f.hv) - 3;
@@ -1729,20 +1862,28 @@ function pastureNear(herd, pads, salt = 0, fields = [], taken = new Set()) {
       const Rv = (Math.max(0, f.hv - 3 - band) * sh) / 1.13;
       if (Math.min(Ru, Rv) < band * 1.4) break;
       const line = loopAround(f.cx, f.cz, Math.sqrt(Ru * Rv), Math.sqrt(Ru / Rv), f.rot, r() * TAU, r() * TAU, 0.5);
-      if (loopOk(line, band, pads, true, { list: fields, home: f })) return { line, home: f, laneK: band / herd.band };
+      if (loopOk(line, band, pads, true, { list: fields, home: f, clear })) return { line, home: f, laneK: band / herd.band };
     }
   }
-  const F = fields.length ? { list: fields, home: null } : null;
-  for (let tries = 0; tries < 46; tries++) {
-    const reach = tries * 9;
+  const F = { list: fields, home: null, clear };
+  let best = null;
+  let found = 0;
+  const N = 140;
+  for (let tries = 0; tries < N && found < 4; tries++) {
+    const u = tries / N;
+    const reach = 6 + tries * 1.6;
     const a = r() * TAU;
     const cx = herd.at[0] + Math.cos(a) * reach * r();
     const cz = herd.at[1] + Math.sin(a) * reach * r();
-    const R = herd.R * (tries > 30 ? 0.7 : 1) * (0.85 + r() * 0.3);
-    const line = loopAround(cx, cz, R, 0.8 + r() * 0.5, r() * Math.PI, r() * TAU, r() * TAU);
-    if (loopOk(line, herd.band, pads, true, F)) return { line, home: null, laneK: 1 };
+    const R = herd.R * (1 - 0.4 * u) * (0.85 + r() * 0.3);
+    const laneK = 1 - 0.3 * u;
+    const line = loopAround(cx, cz, R, 0.62 + r() * 0.95, r() * Math.PI, r() * TAU, r() * TAU, 0.6);
+    if (!loopOk(line, herd.band * laneK, pads, true, F)) continue;
+    found++;
+    const score = loopTrees(line, herd.band * laneK) + Math.hypot(cx - herd.at[0], cz - herd.at[1]) * 0.0005;
+    if (!best || score < best.score) best = { line, home: null, laneK, score };
   }
-  return null;
+  return best;
 }
 
 // The ease of a walk: it gathers pace, keeps it, and slows to a stop (A of the time each).
@@ -1827,18 +1968,87 @@ function progress(sc, t, out) {
   return out;
 }
 
-// The herds: where each would like to graze (with fields, it settles in a pasture or a hay meadow within reach of
-// there, 170 m unless given; else on the nearest open ground that fits), how many, how many young, how big a loop.
+// The herds: where each would like to graze (with fields, it settles in a pasture within reach of there, 170 m
+// unless given, or a fallow field for sheep; else, or when open, on the open ground near there that fits best),
+// how many, how many young, how big a loop. The two headlands' pastures; the meadow east of the east river; the
+// town's west edge across the west river; the hills up the valley; the west headland's far pasture.
 const HERDS = [
-  { id: 1, kind: "horse", at: [-236, -40], R: 30, n: 5, foals: 1 },
-  { id: 2, kind: "horse", at: [238, -66], R: 28, n: 4, foals: 0, reach: 240 },
-  { id: 3, kind: "horse", at: [100, -105], R: 26, n: 4, foals: 1 },
-  { id: 4, kind: "sheep", at: [-62, -112], R: 22, n: 13, foals: 3 },
-  { id: 5, kind: "sheep", at: [148, -42], R: 20, n: 10, foals: 2 },
-  { id: 6, kind: "sheep", at: [-360, -220], R: 26, n: 9, foals: 1 },
+  { id: 1, kind: "horse", at: [-271, -1], R: 30, n: 5, foals: 1 },
+  { id: 2, kind: "horse", at: [384, -219], R: 28, n: 4, foals: 0, reach: 240 },
+  { id: 3, kind: "horse", at: [242, -82], R: 18, n: 4, foals: 1, open: true },
+  { id: 4, kind: "sheep", at: [-220, 19], R: 17, n: 12, foals: 3 },
+  { id: 5, kind: "sheep", at: [-40, -446], R: 11, n: 8, foals: 2, open: true },
+  { id: 6, kind: "sheep", at: [-363, -242], R: 26, n: 9, foals: 1 },
 ];
 
 // ------------------------------------------------------------------ the boats' and the birds' ways
+
+// The lowest a flock may fly over each point of a box (x0, z0, x1, z1): what is under it (the land, the sea at 0,
+// the stacks) and the woods' canopy (canopy metres where the woods are thick), clear metres above that; the
+// highest of that within three cells round each point, then softened, so a bird rises before it reaches a cliff
+// and glides down after it. Made once, on a grid of 8 m cells: { x0, z0, S, nx, nz, F }.
+function airFloor(x0, z0, x1, z1, clear, canopy) {
+  const S = 8;
+  const nx = Math.ceil((x1 - x0) / S) + 1;
+  const nz = Math.ceil((z1 - z0) / S) + 1;
+  const raw = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++)
+    for (let i = 0; i < nx; i++) {
+      const x = x0 + i * S;
+      const z = z0 + j * S;
+      // (far out at sea there is nothing but the water, and the stacks, which naturalAt has)
+      const far = shoreDist(x, z) < -40 && !STACKS.some((st) => Math.hypot(st.x - x, st.z - z) < st.r + 12);
+      raw[j * nx + i] = far ? clear : Math.max(0, naturalAt(x, z)) + clear + (canopy ? canopy * forestAt(x, z) : 0);
+    }
+  const pass = (src, R, op) => {
+    const out = new Float32Array(nx * nz);
+    for (let j = 0; j < nz; j++)
+      for (let i = 0; i < nx; i++) {
+        let m = op === "max" ? -Infinity : 0;
+        let n = 0;
+        for (let dj = -R; dj <= R; dj++)
+          for (let di = -R; di <= R; di++) {
+            const ii = Math.min(nx - 1, Math.max(0, i + di));
+            const jj = Math.min(nz - 1, Math.max(0, j + dj));
+            const v = src[jj * nx + ii];
+            if (op === "max") m = Math.max(m, v);
+            else m += v;
+            n++;
+          }
+        out[j * nx + i] = op === "max" ? m : m / n;
+      }
+    return out;
+  };
+  const F = pass(pass(pass(raw, 3, "max"), 1, "mean"), 1, "mean");
+  return { x0, z0, S, nx, nz, F, clear };
+}
+// The floor at (x, z), between the grid's points; out of its box, the sea's.
+function floorAt(A, x, z) {
+  const fx = (x - A.x0) / A.S;
+  const fz = (z - A.z0) / A.S;
+  if (fx < 0 || fz < 0 || fx > A.nx - 1 || fz > A.nz - 1) return A.clear;
+  const i = Math.min(A.nx - 2, Math.floor(fx));
+  const j = Math.min(A.nz - 2, Math.floor(fz));
+  const u = fx - i;
+  const v = fz - j;
+  const F = A.F;
+  const a = F[j * A.nx + i];
+  const b = F[j * A.nx + i + 1];
+  const c = F[(j + 1) * A.nx + i];
+  const d = F[(j + 1) * A.nx + i + 1];
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+// The larger of a and b, the corner between them rounded over k.
+const smax = (a, b, k) => {
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.max(a, b) + h * h * k * 0.25;
+};
+// The ship's gulls' floor: the sea, and a hump over each stack as high as it and clear over it.
+function stackFloor(x, z, clear) {
+  let y = clear;
+  for (const st of STACKS) y = Math.max(y, (st.h + clear) * (1 - smooth(st.r + 2, st.r + 28, Math.hypot(st.x - x, st.z - z))));
+  return y;
+}
 
 // A closed smooth line through points (Catmull-Rom), every metre.
 function splineLoop(ctrl, step = 2) {
@@ -1905,7 +2115,7 @@ const ROWED_WAY = [
 
 // ------------------------------------------------------------------ making it
 
-export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
+export function makeLife(stage, ground, { pads = [], fields = null, clearAt = null } = {}) {
   const KIT = window.KIT;
   const G = KIT.G;
   const PAL = KIT.PAL || {};
@@ -2043,6 +2253,24 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
     // the herd's own table of rests and walks, and where in it the herd is at t = 0
     const base = scheduleOf(kind, rngOf(hash3(def.id, 5, 99)));
     const off = r() * base.T[base.K];
+    // the grown horses' coats, none twice: a light one and a dark one in every herd (a light coat is what shows a
+    // herd from far off), then bays and chestnuts, no more than two, then whatever is left
+    const coats = [];
+    if (def.kind === "horse") {
+      const adults = def.n - def.foals;
+      const grab = (list) => {
+        const free = list.filter((c) => !coats.includes(c));
+        if (free.length && coats.length < adults) coats.push(free[Math.floor(r() * free.length)]);
+      };
+      grab(COAT_LIGHT);
+      grab(COAT_DARK);
+      for (let k = 0; k < 2; k++) grab(COAT_BROWN);
+      while (coats.length < adults) grab(COATS.map((c, i) => i));
+      for (let k = coats.length - 1; k > 0; k--) {
+        const j = Math.floor(r() * (k + 1));
+        [coats[k], coats[j]] = [coats[j], coats[k]];
+      }
+    }
     for (let m = 0; m < def.n; m++) {
       const young = m >= def.n - def.foals;
       const lag = (r() - 0.5) * (def.kind === "horse" ? 14 : 10);
@@ -2057,13 +2285,13 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
         young,
       };
       if (def.kind === "horse") {
-        // a foal takes its mother's coat (the herd's first)
-        const ci = young ? herd.members[0].ci : Math.floor(r() * COATS.length);
+        // a foal takes its mother's coat (the herd's first), a little paler, as a foal's is
+        const ci = young ? herd.members[0].ci : coats[m % coats.length];
         const C = COATS[ci];
-        const k = 0.92 + r() * 0.16;
+        const k = young ? 1.14 : 0.94 + r() * 0.12;
         mem.ci = ci;
         mem.coat = nudge(lin(C.coat), k);
-        mem.hair = nudge(lin(C.hair), 0.9 + r() * 0.2);
+        mem.hair = nudge(lin(C.hair), (0.9 + r() * 0.2) * (young ? 1.1 : 1));
         let marks = (C.points ? 32 : 0) | (C.dorsal ? 64 : 0);
         if (r() < 0.4) marks |= 1;
         for (let l = 0; l < 4; l++) if (r() < (l < 2 ? 0.16 : 0.3)) marks |= 2 << l;
@@ -2076,7 +2304,7 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
       }
       herd.members.push(mem);
     }
-    settle(herd, pastureNear(herd, padList, 0, fieldList, taken));
+    settle(herd, pastureNear(herd, padList, 0, fieldList, taken, clearAt));
     const L = herd.line ? Math.round(herd.line.L) : 0;
     stats.herds.push({ id: def.id, kind: def.kind, n: def.n, placed: !!herd.line, L, field: herd.home ? herd.home.kind : null });
     return herd;
@@ -2108,13 +2336,20 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
     flocks.push(f);
   };
   // gulls: over the cove, round the east stacks, along the west cliffs, over the town, and following the longship
-  addFlock({ kind: 0, n: 7, c: [6, 70], drift: [26, 18, 140], R: [18, 50], speed: [7, 9.5], h: [16, 38], scale: 1.9 });
-  addFlock({ kind: 0, n: 6, c: [128, 158], drift: [22, 16, 170], R: [14, 40], speed: [7, 9], h: [22, 46], scale: 1.9 });
-  addFlock({ kind: 0, n: 5, c: [-118, 92], drift: [24, 20, 160], R: [16, 42], speed: [7, 9], h: [20, 44], scale: 1.9 });
-  addFlock({ kind: 0, n: 3, c: [10, -20], drift: [30, 24, 200], R: [22, 40], speed: [7, 8.5], h: [34, 52], scale: 1.9 });
-  addFlock({ kind: 0, n: 4, c: null, ship: true, drift: [0, 0, 1], R: [8, 18], speed: [6, 8], h: [10, 18], scale: 1.9 });
+  // (clear: the least they keep over what is under them; canopy: over thick woods, as much again)
+  addFlock({ kind: 0, n: 7, c: [6, 70], drift: [26, 18, 140], R: [18, 50], speed: [7, 9.5], h: [16, 38], scale: GULL_K, clear: 9, canopy: 14 });
+  addFlock({ kind: 0, n: 6, c: [128, 158], drift: [22, 16, 170], R: [14, 40], speed: [7, 9], h: [22, 46], scale: GULL_K, clear: 9, canopy: 14 });
+  addFlock({ kind: 0, n: 5, c: [-118, 92], drift: [24, 20, 160], R: [16, 42], speed: [7, 9], h: [20, 44], scale: GULL_K, clear: 9, canopy: 14 });
+  addFlock({ kind: 0, n: 3, c: [10, -20], drift: [30, 24, 200], R: [22, 40], speed: [7, 8.5], h: [34, 52], scale: GULL_K, clear: 24, canopy: 10 });
+  addFlock({ kind: 0, n: 4, c: null, ship: true, drift: [0, 0, 1], R: [8, 18], speed: [6, 8], h: [10, 18], scale: GULL_K, clear: 8 });
   // crows over the woods up the valley
-  addFlock({ kind: 2, n: 5, c: [-40, -380], drift: [30, 26, 150], R: [10, 26], speed: [6, 7.5], h: [28, 40], scale: 1.25, ground: true, dir: 1 });
+  addFlock({ kind: 2, n: 5, c: [-40, -380], drift: [30, 26, 150], R: [10, 26], speed: [6, 7.5], h: [28, 40], scale: 0.95, ground: true, dir: 1, clear: 14, canopy: 16 });
+  // each flock's floor, over all the ground its circles can drift across
+  for (const f of flocks) {
+    if (f.ship) continue;
+    const reach = Math.max(...f.birds.map((b) => b.R * (1 + b.rm))) + 12;
+    f.air = airFloor(f.c[0] - f.drift[0] - reach, f.c[1] - f.drift[1] - reach, f.c[0] + f.drift[0] + reach, f.c[1] + f.drift[1] + reach, f.clear, f.canopy);
+  }
   // terns, skimming the cove beyond the pier on their own looping ways
   const terns = [];
   for (let i = 0; i < 4; i++)
@@ -2132,7 +2367,7 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
       p3: fr() * TAU,
       h: 2.8 + fr() * 1.2,
       seed: fr() * 50,
-      k: 1.3,
+      k: TERN_K,
     });
   const nFly = flocks.reduce((a, f) => a + f.n, 0) + terns.length;
   const birds = instanced("birds", birdGeom, { vert: BIRD_VERT, wrap: 0.45, rim: 0.6 }, nFly);
@@ -2154,14 +2389,14 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
         const flat = Math.abs(naturalAt(x + 0.6, z) - naturalAt(x - 0.6, z)) + Math.abs(naturalAt(x, z + 0.6) - naturalAt(x, z - 0.6));
         if (flat < 0.5 && (!best || h > best.h - 0.3) && !perched.some((p) => Math.hypot(p.x - x, p.z - z) < 1.2)) best = { x, z, h };
       }
-      if (best) perched.push({ x: best.x, z: best.z, y: null, yaw: pr() * TAU, seed: pr() * 40, k: 1.55 });
+      if (best) perched.push({ x: best.x, z: best.z, y: null, yaw: pr() * TAU, seed: pr() * 40, k: PERCH_K });
     }
   }
   // three on the pier's deck near its end, a little in from either edge (harbour.js keeps these spots clear)
   for (let i = 0; i < 3; i++) {
     const s = i % 2 ? -1 : 1;
     const yaw = (s > 0 ? -1 : 1) * Math.PI * 0.5 + (pr() - 0.5);
-    perched.push({ x: PIER.x + s * (PIER.w / 2 - 0.3), z: PIER.z1 - 0.8 - i * 2.3, y: PIER.deck, yaw, seed: pr() * 40, k: 1.55, deck: true });
+    perched.push({ x: PIER.x + s * (PIER.w / 2 - 0.3), z: PIER.z1 - 0.8 - i * 2.3, y: PIER.deck, yaw, seed: pr() * 40, k: PERCH_K, deck: true });
   }
   for (let tr = 0; tr < 80 && perched.filter((p) => p.sand).length < 4; tr++) {
     const x = -30 + pr() * 54;
@@ -2170,7 +2405,7 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
     const h = heightAt(x, z);
     if (h < 0.2 || h > 0.7) continue;
     if (perched.some((p) => Math.hypot(p.x - x, p.z - z) < 2)) continue;
-    perched.push({ x, z, y: null, yaw: Math.PI * 0.85 + (pr() - 0.5) * 1.5, seed: pr() * 40, k: 1.55, sand: true });
+    perched.push({ x, z, y: null, yaw: Math.PI * 0.85 + (pr() - 0.5) * 1.5, seed: pr() * 40, k: PERCH_K, sand: true });
   }
   const perch = instanced("perched", perchGeom, { vert: PERCH_VERT, wrap: 0.45, rim: 0.6 }, perched.length);
 
@@ -2410,9 +2645,13 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
     }
     const th = b.w * t + b.ph;
     const r = b.R * (1 + b.rm * Math.sin(b.rw * t + b.rp));
-    out[0] = cx + r * Math.cos(th);
-    out[2] = cz + r * Math.sin(th);
-    out[1] = (f.ground ? f.base : 0) + b.h + b.hA * Math.sin(b.hw * t + b.hp);
+    const x = cx + r * Math.cos(th);
+    const z = cz + r * Math.sin(th);
+    out[0] = x;
+    out[2] = z;
+    // its own height on its circle, but never below the flock's floor there: it rises softly over a cliff
+    const y = (f.ground ? f.base : 0) + b.h + b.hA * Math.sin(b.hw * t + b.hp);
+    out[1] = smax(y, f.ship ? stackFloor(x, z, f.clear) : floorAt(f.air, x, z), 6);
     return out;
   };
   const ternAt = (b, t, out) => {
@@ -2581,7 +2820,7 @@ export function makeLife(stage, ground, { pads = [], fields = null } = {}) {
       for (const herd of herds) {
         if (herd.line && loopOk(herd.line, herd.band * herd.laneK, padList, false)) continue;
         if (herd.home) taken.delete(herd.home);
-        settle(herd, pastureNear(herd, padList, 1, fieldList, taken));
+        settle(herd, pastureNear(herd, padList, 1, fieldList, taken, clearAt));
       }
       for (const p of perched) if (!p.deck) p.y = null;
       // read the new ground under everything now, not over the next frames
