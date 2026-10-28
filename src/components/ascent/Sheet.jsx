@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 // The Ascent page's edit sheets: a bottom sheet on a phone, a panel on a
 // desk. Escape closes the top one only, so a confirm opened over a sheet
 // closes first. Opening one takes the focus into it (unless a box in it took
-// it already), so a keyboard carries on in the sheet rather than the page
+// it already), so a keyboard starts in the sheet rather than on the page
 // behind; closing gives it back to whatever had it.
 export default function Sheet({ title, onClose, children }) {
   const id = useId();
