@@ -100,6 +100,10 @@
   align-items: start;
 }
 .qs-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* Today's board in columns (0092), on a screen wide enough: Today spans the
+   page, with the rest of the list and the build beside each other under it. */
+.qs-grid--board { grid-template-areas: "today today" "main rail"; }
+.qs-spread { grid-area: today; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .qs-rail { grid-area: rail; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs .card + .card { margin-top: 0; }
@@ -294,7 +298,137 @@
 .done-list--earlier .camp-step__from { color: var(--text-2); }
 .done-list.done-list--earlier:not(.done-list--subs) > .done-item + .done-item { border-top-color: var(--line); }
 
+/* --- Today's board (0092) --------------------------------------------------
+   A row to pick how Today is laid out (one list in his own order, by camp,
+   by computer) and a filter; then the cards. In columns, each column is a
+   white panel on Today's orange wash, and they scroll sideways where they
+   don't all fit (on a phone, one and a bit at a time). */
+.tb { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tb-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tb-seg { flex: 0 1 auto; min-width: 0; background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.tb-seg .seg-btn { padding: 7px 14px; }
+.tb-seg .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.btn.tb-filter-btn { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; background: var(--card); }
+.btn.tb-filter-btn.on { border-color: var(--ink); }
+.tb-filter-btn__n {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent);
+  font: 700 10.5px/18px var(--font-mono); text-align: center; font-variant-numeric: tabular-nums;
+}
+.tb-filters {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-lg);
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); animation: fade-in 0.18s ease;
+}
+.tb-filters__row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tb-filters__label { flex: 0 0 66px; font: 600 10.5px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
+.tb-chip {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 0; border-radius: var(--r-pill);
+  background: var(--inset); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; touch-action: manipulation;
+}
+.tb-chip .camp-urgency { margin: 0 6px 0 0; }
+.tb-chip.on { background: var(--ink); color: var(--on-ink); }
+.camp-swatch.tb-swatch { width: 30px; flex: none; }
+.btn-link.tb-filters__clear { align-self: flex-start; min-height: 32px; padding: 0 2px; }
+.tb-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 4px 0; }
+
+/* The cards: a rule between them, as between rows. */
+.tb-list { display: flex; flex-direction: column; min-width: 0; transition: padding-bottom 0.15s ease; }
+.tb-card { min-width: 0; border-top: 1px solid var(--accent-line); transition: margin-top 0.15s ease; }
+.tb-card:first-child { border-top: 0; }
+.tb-card.is-lifted, .tb-card.is-lifted + .tb-card { border-top-color: transparent; }
+
+/* A section picked whole: its number, then its name, how far along, the
+   computer it's handed to and Off today, with the grip at the end. */
+.tb-sec__head { align-items: flex-start; flex-wrap: nowrap; padding-top: 8px; }
+.tb-sec__head .today-sec__n { margin-top: 1px; }
+.tb-sec__name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.tb-sec__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; width: 100%; }
+.btn-link.tb-sec__pc { min-height: 32px; padding: 0 2px; gap: 5px; white-space: nowrap; }
+.tb-sec__head .drag-handle { margin: -6px -6px 0 0; }
+.tb-sec.lifted { background: var(--card); border-radius: 12px; box-shadow: 0 10px 28px rgba(20, 20, 20, 0.16); }
+
+/* What a card wears at its top: "Working on" (orange, with a live dot), "On
+   deck" (black), or the computer it's handed to (grey). */
+.tb-badge {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; max-width: 100%; padding: 2px 9px 2px 7px;
+  border-radius: var(--r-pill); font: 700 10px/1.5 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tb-badge--working { background: var(--accent); color: var(--on-accent); }
+.tb-badge--working .camp-working__pulse, .tb-badge--working .camp-working__pulse::after { width: 6px; height: 6px; background: var(--on-accent); }
+.tb-badge--deck { background: var(--ink); color: var(--on-ink); }
+.tb-badge--pc { background: var(--inset); color: var(--text-2); }
+.camp-step.tb-row--working:not(.tinted) > .camp-step__row { position: relative; }
+.camp-step.tb-row--working:not(.tinted) > .camp-step__row::before {
+  content: ""; position: absolute; left: -10px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--accent);
+}
+
+/* Columns. */
+.tb-cols {
+  display: flex; align-items: stretch; gap: 10px; min-width: 0; margin: 0 -4px; padding: 2px 4px 6px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 4px;
+}
+.drag-sorting .tb-cols { scroll-snap-type: none; }
+.tb-col {
+  flex: 1 0 260px; min-width: 0; display: flex; flex-direction: column; padding: 10px 14px 12px;
+  border-radius: var(--r-lg); background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); scroll-snap-align: start;
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+.tb-col__head { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--accent-line); }
+.tb-col__name { flex: 1; min-width: 0; }
+.today-group__label.tb-col__name { padding: 0; }
+.tb-col__count { flex: none; font: 600 11px var(--font-mono); color: var(--accent-text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tb-pc-name {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0; border: 0; background: none;
+  font: 800 14px var(--font); letter-spacing: -0.01em; color: var(--text); text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.tb-pc-name > svg { flex: none; color: var(--accent); }
+.tb-pc-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-pc-name > svg.tb-pc-name__edit { color: var(--text-3); }
+@media (hover: hover) { button.tb-pc-name:hover > span { text-decoration: underline; text-underline-offset: 3px; } }
+.tb-pc-name--none { color: var(--text-2); font-weight: 700; cursor: default; }
+.tb-col--none { background: color-mix(in srgb, var(--card) 62%, transparent); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tb-col__empty { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.tb-col__done {
+  margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--accent-line);
+  font: 600 10.5px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2);
+}
+.tb-list--done { opacity: 0.85; }
+/* Carried over another computer's column: it glows, and room opens where
+   the card will land. */
+.tb-col.tb-drop { background: color-mix(in srgb, var(--accent) 6%, var(--card)); box-shadow: inset 0 0 0 2px var(--accent); }
+.tb-card.tb-drop-before { margin-top: 52px; }
+.tb-col.tb-drop-end > .tb-list[data-open] { padding-bottom: 52px; }
+.tb-col--add {
+  flex: 0 0 150px; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-height: 96px;
+  border: 1.5px dashed var(--line-strong); background: transparent; box-shadow: none;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); cursor: pointer; touch-action: manipulation;
+}
+@media (hover: hover) { .tb-col--add:hover { color: var(--text); border-color: var(--ink); } }
+
+/* Handing a section to a computer, and the choice in an open row. */
+.tb-pc-pick > span { display: block; margin-bottom: 6px; }
+.tb-pc-pick__opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-pc-opt {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 0; border-radius: var(--r-pill);
+  background: var(--inset); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; touch-action: manipulation;
+}
+.tb-pc-opt svg { color: var(--text-2); }
+.tb-pc-opt.on { background: var(--ink); color: var(--on-ink); }
+.tb-pc-opt.on svg { color: var(--accent); }
+.tb-sure { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.btn.tb-sure__go { margin-left: auto; background: var(--danger); border-color: var(--danger); color: #fff; }
+
+@media (max-width: 600px) {
+  .tb-seg .seg-btn { padding: 7px 10px; }
+  .tb-col { flex: 0 0 86%; padding: 10px 12px 12px; }
+  .tb-col--add { flex: 0 0 132px; }
+}
+@media (max-width: 420px) {
+  .tb-filter-btn__word { display: none; }
+  .btn.tb-filter-btn { padding-left: 10px; padding-right: 10px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .qs-mini__bar, .qs-bar i { transition: none; }
+  .qs-mini__bar, .qs-bar i, .tb-card, .tb-list, .tb-col { transition: none; }
   .qs-pill__body, .qs-camp__working i { animation: none; }
 }

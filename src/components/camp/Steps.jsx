@@ -5,6 +5,7 @@ import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "./Rich";
 import { useDragSort } from "../../lib/useDragSort";
 import { ColorPick, tintOf } from "./ColorPick";
+import { CardBadge, ComputerPick } from "./ComputerPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
@@ -29,6 +30,35 @@ export const URGENCY = [
   { key: "green", label: "Can wait" },
 ];
 const URGENCY_LABEL = Object.fromEntries(URGENCY.map((u) => [u.key, u.label]));
+
+// Its mark beside the words, and the choice of it in an open row. A quest's
+// lines wear the same ones (0092).
+export function UrgencyMark({ value }) {
+  return value ? <i className={`camp-urgency camp-urgency--${value}`} title={URGENCY_LABEL[value]} aria-label={URGENCY_LABEL[value]} /> : null;
+}
+
+export function UrgencyPick({ value, onChange }) {
+  return (
+    <div className="field camp-urgency-pick" role="radiogroup" aria-label="Urgency">
+      <span>Urgency</span>
+      <div className="camp-urgency-pick__opts">
+        {URGENCY.map((u) => (
+          <button
+            key={u.key}
+            type="button"
+            role="radio"
+            aria-checked={value === u.key}
+            className={`camp-urgency-opt camp-urgency-opt--${u.key}` + (value === u.key ? " on" : "")}
+            onClick={() => onChange(value === u.key ? null : u.key)}
+          >
+            <i className={`camp-urgency camp-urgency--${u.key}`} aria-hidden="true" />
+            {u.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // "Working on it…": a badge with a live pulse and dots that keep going.
 function WorkingBadge() {
@@ -57,7 +87,9 @@ function WorkingBadge() {
 // says where it sits (`from`) and can't be moved or removed from there.
 // While picking (`pick`), its box picks it instead of ticking it; in a
 // section picked whole (`pick.locked`, 0091) it's picked with the section.
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, idPrefix = "step", sections, sort, children }) {
+// On a quest's Today board (0092) it can wear a `badge` ("Working on", "On
+// deck", its computer) and, open, the choice of its `computer`.
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, idPrefix = "step", sections, sort, badge, computer, children }) {
   const done = Boolean(step.done_on);
   const working = !done && Boolean(step.working_since);
   const [text, setText] = useState(step.text);
@@ -96,6 +128,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
         (mirror ? " mirror" : "") +
         (pick?.on ? " picked" : "") +
         (pick?.locked ? " with-sec" : "") +
+        (badge ? ` tb-row--${badge.kind}` : "") +
         tint.className
       }
     >
@@ -132,9 +165,10 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
           disabled={pick?.locked}
           onClick={pick ? pick.toggle : onOpen}
         >
+          <CardBadge badge={badge} />
           {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
-            {step.urgency && <i className={`camp-urgency camp-urgency--${step.urgency}`} title={URGENCY_LABEL[step.urgency]} aria-label={URGENCY_LABEL[step.urgency]} />}
+            <UrgencyMark value={step.urgency} />
             <Rich text={step.text} />
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
@@ -167,25 +201,9 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
               {working ? "Working on it. Tap to stop" : "I'm working on this"}
             </button>
           )}
-          <div className="field camp-urgency-pick" role="radiogroup" aria-label="Urgency">
-            <span>Urgency</span>
-            <div className="camp-urgency-pick__opts">
-              {URGENCY.map((u) => (
-                <button
-                  key={u.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={step.urgency === u.key}
-                  className={`camp-urgency-opt camp-urgency-opt--${u.key}` + (step.urgency === u.key ? " on" : "")}
-                  onClick={() => onSave({ urgency: step.urgency === u.key ? null : u.key })}
-                >
-                  <i className={`camp-urgency camp-urgency--${u.key}`} aria-hidden="true" />
-                  {u.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <UrgencyPick value={step.urgency ?? null} onChange={(urgency) => onSave({ urgency })} />
           <ColorPick value={step.color ?? null} onChange={(color) => onSave({ color })} />
+          {computer && <ComputerPick {...computer} />}
           {sections && (
             <label className="field">
               <span>Section</span>
@@ -275,7 +293,9 @@ export function DragHandle({ label, ...props }) {
 // that step's id, to go under it.
 // A Today section's list (`mirror`) doesn't drag, and its rows' ids start
 // with `idPrefix` so they don't clash with the same steps where they sit.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, sub = false, children }) {
+// On Today's board (0092) each step is a card of its own that the board
+// drags: `sortOf(id)` gives the top row its `sort` from there.
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, sub = false, sortOf, children }) {
   const sort = useDragSort(
     list.map((x) => x.id),
     (ids) => onReorder?.(list, ids),
@@ -302,7 +322,13 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
             open={open}
             first={i === 0}
             last={i === list.length - 1}
-            sort={sortable ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id, nesting: sort.dragging === st.id ? sort.nesting : null } : null}
+            sort={
+              sortOf && !sub
+                ? sortOf(st.id)
+                : sortable
+                  ? { ref: sort.ref(st.id), style: sort.style(st.id), handle: sort.handle(st.id), lifted: sort.dragging === st.id, nesting: sort.dragging === st.id ? sort.nesting : null }
+                  : null
+            }
             mirror={mirror}
             from={mirror && !sub ? st.from : null}
             idPrefix={idPrefix}

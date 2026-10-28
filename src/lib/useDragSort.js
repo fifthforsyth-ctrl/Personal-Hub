@@ -30,7 +30,15 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // moves, so the row stays right where it is under the finger; and once
 // `into` is on, the room it makes among its neighbours follows the finger,
 // not its middle (a step with sub-steps under it would otherwise slide its
-// neighbours away before the finger got to them).
+// neighbours away before the finger got to them). `into` can also be a
+// function of the dragged item's id, giving that item's { rows, label, drop }
+// or nothing, when only some items in the list can go under a row.
+//
+// With `cross` ({ scroller }), the list is one column among others side by
+// side (Today's board, 2026-10-28): the item is out of its list once the
+// pointer leaves the column sideways too, it follows the pointer across, and
+// `scroller()` (the box the columns scroll sideways in) scrolls along at its
+// left and right edges.
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
 const NEST_X = 28; // how far in it tucks under a row it's going into
@@ -64,12 +72,12 @@ export function scrollerOf(el) {
   return null;
 }
 
-export function useDragSort(ids, onDrop, { onOut, into } = {}) {
+export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
   const els = useRef(new Map());
   const live = useRef(null);
   const [drag, setDrag] = useState(null); // { id, from, to, x, y, step, nest }
-  const latest = useRef({ ids, onDrop, onOut, into });
-  latest.current = { ids, onDrop, onOut, into };
+  const latest = useRef({ ids, onDrop, onOut, into, cross });
+  latest.current = { ids, onDrop, onOut, into, cross };
 
   const ref = useCallback(
     (id) => (el) => {
@@ -95,7 +103,7 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       if (d.wasOut) latest.current.onOut?.("cancel", d.x, d.y, d.id);
       if (commit) {
         haptic("tap");
-        latest.current.into?.drop(d.id, d.into.li);
+        d.nest?.drop(d.id, d.into.li);
       }
       return;
     }
@@ -116,11 +124,16 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     if (e.button !== undefined && e.button !== 0) return;
     const list = latest.current.ids;
     const from = list.indexOf(id);
-    if (from < 0 || (list.length < 2 && !latest.current.onOut && !latest.current.into)) return;
+    const into = typeof latest.current.into === "function" ? latest.current.into(id) : latest.current.into;
+    if (from < 0 || (list.length < 2 && !latest.current.onOut && !into)) return;
     e.preventDefault();
     e.stopPropagation();
     const box = scrollerOf(e.currentTarget);
     const scrolled = () => (box ? box.scrollTop : window.scrollY);
+    // The columns' box, and how far it has scrolled sideways since the drag began.
+    const xbox = latest.current.cross?.scroller?.() ?? null;
+    const scrollX0 = xbox ? xbox.scrollLeft : 0;
+    const shiftX = () => (xbox ? xbox.scrollLeft - scrollX0 : 0);
     // The part of the page you can see: the scroller's box, or the window.
     const seen = () => {
       const r = box?.getBoundingClientRect();
@@ -137,6 +150,7 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       from,
       to: from,
       startY: e.clientY,
+      startX: e.clientX,
       x: e.clientX,
       y: e.clientY,
       out: false,
@@ -144,11 +158,15 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       mids: rects.map((r) => r.top + r.height / 2 + scrolled()),
       // The list's own stretch of the page; past it (by half a step) is out.
       span: [rects[0].top + scrolled(), rects[rects.length - 1].bottom + scrolled()],
+      // and its stretch across, where it stood when the drag began
+      spanX: [Math.min(...rects.map((r) => r.left)), Math.max(...rects.map((r) => r.right))],
       step: me.height + gap,
       // where on the item it was picked up, so it stays under the finger
       grab: e.clientY - me.top,
       targets: [],
       into: null,
+      // what going under a row does, for this item
+      nest: into ?? null,
       pushing: false,
       frame: 0,
     };
@@ -161,7 +179,6 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     };
     // The rows it could go under: not its own, nor ones under it, nor the
     // one it's already under.
-    const into = latest.current.into;
     if (into) {
       const above = self.parentElement?.closest("li");
       for (const row of document.querySelectorAll(into.rows)) {
@@ -200,7 +217,8 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       // Over a row everything else keeps still, the room it was making
       // included, so the row stays where it is under the finger.
       if (!d.into) {
-        d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
+        const aside = Boolean(xbox || latest.current.cross) && (d.x < d.spanX[0] - shiftX() || d.x > d.spanX[1] - shiftX());
+        d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack || aside);
         d.to = d.out ? d.from : dropIndex(d.mids, d.from, into ? at : d.mids[d.from] + dy);
         if (d.out || d.wasOut) latest.current.onOut?.(d.out ? "move" : "back", d.x, d.y, d.id);
         d.wasOut = d.out;
@@ -209,7 +227,10 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       // little in from the edge.
       const top = placed();
       const y = d.into ? d.into.row.getBoundingClientRect().bottom - top : d.y - d.grab - top;
-      setDrag({ id: d.id, from: d.from, to: d.to, x: d.into ? NEST_X : 0, y, step: d.step, nest: d.into ? into.label : null });
+      // Across columns it follows the pointer sideways too (less the
+      // columns' own scroll, which carries it along with them).
+      const x = d.into ? NEST_X : latest.current.cross && d.out ? d.x - d.startX + shiftX() : 0;
+      setDrag({ id: d.id, from: d.from, to: d.to, x, y, step: d.step, nest: d.into ? into.label : null });
     };
     const tick = () => {
       if (live.current !== d) return;
@@ -224,6 +245,16 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
         moving = scrolled() !== before;
       }
       // Once the page stops, the row under the finger can light up again.
+      // Sideways too, at the columns' own left and right edges.
+      if (xbox) {
+        const r = xbox.getBoundingClientRect();
+        const side = towardEdge(edgePush(d.x, r.left, r.right, 48), d.startX, d.x);
+        if (side) {
+          const before = xbox.scrollLeft;
+          xbox.scrollLeft = before + Math.round(side * SPEED);
+          if (xbox.scrollLeft !== before) moving = true;
+        }
+      }
       const was = d.pushing;
       d.pushing = moving;
       if (moving || was) update();
