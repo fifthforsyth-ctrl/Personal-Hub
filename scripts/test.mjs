@@ -2234,43 +2234,76 @@ function sectionOf({ x, y }) {
   const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
   console.log("\nthe 3D village");
 
-  ok("each build faces the plaza, square to the grid", P.facing([0, -1]) === 0 && P.facing([0, 1]) === Math.PI && P.facing([1, 0]) === -Math.PI / 2 && P.facing([-1, 0]) === Math.PI / 2 && P.facing([2, 2]) === Math.PI);
-  const toward = layout(29).plots.every(({ tile }) => {
-    const [fx, fz] = P.frontOf(P.facing(tile));
-    return Math.abs(fx) + Math.abs(fz) === 1 && fx * -tile[0] + fz * -tile[1] > 0;
-  });
-  ok("every one of the 29 plots looks toward the plaza", toward);
-  ok("a build is scaled down only when it reaches past its plot", P.scaleFor(16.4) === 1 && near(P.scaleFor(18.6), (P.TILE / 2 - P.MARGIN) / 18.6));
+  // The coast: every plot's pad, in the order the town takes them.
+  const C = await import("../src/village/coast.js");
+  const S = C.sites();
+  ok("64 plots on the coast, nearest the plaza first", S.length === 64 && S.every((s, i) => i === 0 || Math.hypot(s.x, s.z) >= Math.hypot(S[i - 1].x, S[i - 1].z) - 1e-9));
+  ok("every build faces the plaza", S.every((s) => {
+    const [fx, fz] = P.frontOf(s.ry);
+    return (fx * -s.x + fz * -s.z) / Math.hypot(s.x, s.z) > 0.999;
+  }));
+  const onPad = (s) => [...C.cornersOf(s), [s.x, s.z]];
+  ok("every plot is on land, clear of the shore and the rivers", S.every((s) => onPad(s).every(([x, z]) => {
+    const rv = C.riverAt(x, z);
+    return C.shoreDist(x, z) >= 18 && C.naturalAt(x, z) > 1 && (!rv || rv.past || rv.d > rv.w / 2 + 6);
+  })));
+  const riverX = (rv, z) => rv.samples.reduce((b, t) => (Math.abs(t.z - z) < Math.abs(b.z - z) ? t : b)).x;
+  ok("the town stays between the two rivers", S.every((s) => s.x > riverX(C.RIVERS[0], s.z) && s.x < riverX(C.RIVERS[1], s.z)));
+  const plazaRect = { x: 0, z: 0, hw: P.PLAZA / 2, hd: P.PLAZA / 2, ry: 0 };
+  let tight = 0;
+  for (let i = 0; i < S.length; i++) {
+    const a = S[i];
+    if (Math.min(...onPad(a).map(([x, z]) => C.rectOut(plazaRect, x, z))) < C.GAP) tight++;
+    for (let j = i + 1; j < S.length; j++) {
+      const b = S[j];
+      if (Math.hypot(a.x - b.x, a.z - b.z) > P.TILE * 2) continue;
+      const gap = Math.min(...onPad(b).map(([x, z]) => C.rectOut(a, x, z)), ...onPad(a).map(([x, z]) => C.rectOut(b, x, z)));
+      if (gap < C.GAP - 1e-6) tight++;
+    }
+  }
+  ok("no two plots overlap, a lane's width apart, and none on the plaza", tight === 0, `${tight} too close`);
+  ok("a build is scaled down only when it reaches past its plot", P.scaleFor(P.TILE / 2 - P.MARGIN) === 1 && near(P.scaleFor(18.6), (P.TILE / 2 - P.MARGIN) / 18.6));
+
+  // The ground: the plaza and the plots in use levelled, the rest as the land lies.
+  const g1 = C.groundOf([S[0]]);
+  ok("a plot in use is cut level", onPad(S[0]).every(([x, z]) => near(g1.height(x, z), S[0].y)) && near(C.heightAt(0, 0), C.PLAZA_LEVEL));
+  ok("a plot not yet used is left as the land lies", near(C.groundOf([]).height(S[40].x, S[40].z), C.naturalAt(S[40].x, S[40].z)));
 
   const aaron = { projects: [{ id: "w", kind: "windmill", plot: 0 }], nextPlot: 1 };
   const plan = P.planOf(aaron);
-  ok("the windmill on plot 0 is north of the plaza, the next plot west", plan.plots[0].x === 0 && plan.plots[0].z === -P.TILE && plan.stake.x === -P.TILE && plan.stake.z === 0 && plan.stake.plot === 1);
-  ok("the green starts with the four corners of the first ring", plan.nature.length === 4 && plan.nature.every((n) => Math.abs(n.tile[0]) === 1 && Math.abs(n.tile[1]) === 1));
-  ok("the ground holds the plots in use and the next one", near(plan.radius, P.TILE * 1.62) && P.planOf({ projects: [], nextPlot: 0 }).radius === plan.radius);
+  ok("the windmill stands on the first plot, the next plot staked out", plan.plots[0].x === S[0].x && plan.plots[0].z === S[0].z && plan.plots[0].y === S[0].y && plan.stake.x === S[1].x && plan.stake.plot === 1);
+  ok("the town reaches as far as the plots in use and the next one", near(plan.radius, Math.max(P.PLAZA * 0.71, Math.hypot(S[0].x, S[0].z), Math.hypot(S[1].x, S[1].z)) + P.TILE * 0.62) && P.planOf({ projects: [], nextPlot: 0 }).radius <= plan.radius);
   const big = P.planOf({ projects: layout(16).plots.map(({ plot }) => ({ id: `p${plot}`, kind: "forge", plot })), nextPlot: 16 });
-  ok("a bigger village has a bigger ground and its ring's green", big.radius > plan.radius * 2 && big.nature.length > 4);
+  ok("a bigger village reaches further", big.radius > plan.radius * 1.5);
 
-  // Paths run between the plots, never over another plot's ground.
+  // Lanes run from each plot's front to the plaza, round every other plot, never through a river or the sea.
   const paths = P.pathsOf(big, () => 6);
   const inPlaza = ([x, z]) => Math.abs(x) <= P.PLAZA / 2 + 1e-9 && Math.abs(z) <= P.PLAZA / 2 + 1e-9;
-  ok("a path from every plot and the next", paths.length === 17 && paths.every((p) => p.points.length >= 2));
-  ok("every path ends in the plaza", paths.every((p) => inPlaza(p.points[p.points.length - 1])));
-  const all = [...big.plots, big.stake];
+  ok("a lane from every plot and the next", paths.length === 17 && paths.every((p) => p.points.length >= 3));
+  ok("every lane ends at the plaza", paths.every((p) => {
+    const [x, z] = p.points[p.points.length - 1];
+    return Math.abs(x) <= P.PLAZA / 2 + 0.5 && Math.abs(z) <= P.PLAZA / 2 + 0.5;
+  }));
   let crosses = 0;
-  for (const path of paths) {
-    for (let i = 0; i < path.points.length - 1; i++) {
+  let wet = 0;
+  for (const path of [...paths, ...C.allRoutes().map((points, plot) => ({ plot, points: [null, ...points] }))]) {
+    for (let i = 1; i < path.points.length - 1; i++) {
       const [ax, az] = path.points[i];
       const [bx, bz] = path.points[i + 1];
-      for (let k = 0; k <= 20; k++) {
-        const x = ax + ((bx - ax) * k) / 20;
-        const z = az + ((bz - az) * k) / 20;
-        for (const q of all) if (q.plot !== path.plot && Math.abs(x - q.x) < P.TILE / 2 - 2 && Math.abs(z - q.z) < P.TILE / 2 - 2) crosses++;
+      for (let k = 0; k <= 10; k++) {
+        const x = ax + ((bx - ax) * k) / 10;
+        const z = az + ((bz - az) * k) / 10;
+        for (const q of S) if (q.plot !== path.plot && Math.abs(x - q.x) < P.TILE && Math.abs(z - q.z) < P.TILE && C.rectOut(q, x, z) < 0.3) crosses++;
+        const rv = C.riverAt(x, z);
+        if (C.shoreDist(x, z) < 3 || (rv && !rv.past && rv.d < rv.w / 2 + 1)) wet++;
       }
     }
   }
-  ok("no path crosses another plot", crosses === 0, `${crosses} points inside other plots`);
+  ok("no lane, of all the town's, crosses another plot", crosses === 0, `${crosses} points inside other plots`);
+  ok("no lane runs into a river or the sea", wet === 0, `${wet} wet points`);
   const first = paths.find((p) => p.plot === 0).points;
-  ok("a path starts at its plot's front", near(first[0][0], 0) && near(first[0][1], -P.TILE + 6));
+  const [f0x, f0z] = P.frontOf(S[0].ry);
+  ok("a lane starts at its build's front", near(first[0][0], S[0].x + f0x * 6) && near(first[0][1], S[0].z + f0z * 6));
 
   // Progress, as the painted stills show it.
   const s1 = P.stageOf(106, 36, 45, 0);

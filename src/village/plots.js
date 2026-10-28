@@ -1,20 +1,22 @@
 // The 3D village's plan and its arithmetic, kept pure so it can be tested
-// (scripts/test.mjs): where every plot sits in metres and which way its
-// build faces, the paths from the plaza to each plot, the green between,
-// how big the ground must be; how far along each build stands on any day of
-// the replay; where the soldiers drill and the villagers stand; which labels
-// fit on the screen; and what a /village link asks for.
+// (scripts/test.mjs): where every plot sits on the coast and which way its
+// build faces, the lanes from each plot to the plaza, how far the town
+// reaches; how far along each build stands on any day of the replay; where
+// the soldiers drill and the villagers stand; which labels fit on the
+// screen; and what a /village link asks for.
 //
-// The plots come in the old map's order (layout() and tileOf() in
-// src/lib/village.js): the four beside the plaza, then the rings round them.
-// A tile here is TILE metres, so the biggest builds fit their plot.
+// The plots are the coast's pads (src/village/coast.js sites()), in the
+// order the town takes them: nearest the plaza first, spiralling out over
+// the valley between the two rivers, each pad's front to the plaza.
 
-import { NATURE_START, bowFor, dayIndex, layout, soldiersFor } from "../lib/village.js";
+import { bowFor, dayIndex, soldiersFor } from "../lib/village.js";
+import { PAD, PLAZA as PLAZA_RECT, PLAZA_LEVEL, doorOf, routeOf, siteOf } from "./coast.js";
 
-export const TILE = 36;
+// A plot's side, in metres: its levelled pad.
+export const TILE = PAD;
 // The plaza's side, in metres: paved, with the flag in the middle.
-export const PLAZA = 24;
-// The least room between a build and its tile's edge, where the paths run.
+export const PLAZA = PLAZA_RECT.w;
+// The least room between a build and its pad's edge.
 export const MARGIN = 1.6;
 // How many soldiers and villagers are drawn at most (the sheets give the full counts).
 export const MAX_SOLDIERS = 40;
@@ -24,21 +26,12 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 // ------------------------------------------------------------------ the plan
 
-// The turn (radians about +y) that puts a build's front, its +z, toward the
-// plaza, square to the grid. A corner tile faces along z.
-export function facing([tx, tz]) {
-  if (Math.abs(tz) >= Math.abs(tx)) return tz > 0 ? Math.PI : 0;
-  return tx > 0 ? -Math.PI / 2 : Math.PI / 2;
-}
-
-// The unit step toward the plaza for a turn from facing(): the way the front looks.
+// The way a build's front (its +z) looks for a turn about +y: [x, z].
 export function frontOf(ry) {
-  const x = Math.round(Math.sin(ry));
-  const z = Math.round(Math.cos(ry));
-  return [x === 0 ? 0 : x, z === 0 ? 0 : z];
+  return [Math.sin(ry), Math.cos(ry)];
 }
 
-// How much smaller a build has to stand so it keeps MARGIN to its tile's
+// How much smaller a build has to stand so it keeps MARGIN to its pad's
 // edge: 1 for every build that fits. `reach` is the farthest the build goes
 // from its own centre along x or z, in metres.
 export function scaleFor(reach, tile = TILE) {
@@ -46,65 +39,40 @@ export function scaleFor(reach, tile = TILE) {
   return reach > room ? room / reach : 1;
 }
 
-const at = (tile) => ({ tile, x: tile[0] * TILE, z: tile[1] * TILE, ry: facing(tile) });
+const at = (plot) => {
+  const s = siteOf(plot);
+  return { x: s.x, z: s.z, y: s.y, ry: s.ry, site: s };
+};
 
 // Everything that stands on the ground: a plot for every build (by its
-// stored plot), the next plot staked out, and the green. `village` is
-// villageOf()'s.
+// stored plot) and the next plot staked out. `village` is villageOf()'s.
 export function planOf(village) {
   const projects = village?.projects ?? [];
   const next = village?.nextPlot ?? 0;
-  const count = Math.max(next + 1, ...projects.map((p) => p.plot + 1));
-  const L = layout(count);
-  const tileAt = (plot) => L.plots[plot].tile;
-  const plots = projects.map((p) => ({ id: p.id, kind: p.kind, plot: p.plot, ...at(tileAt(p.plot)) }));
-  const stake = { plot: next, ...at(tileAt(next)) };
-  const nature = [...NATURE_START.map((n) => ({ tile: n.tile, kind: n.kind, withPlot: -1 })), ...L.nature.map((n) => ({ tile: n.tile, kind: n.nature, withPlot: n.withPlot }))].map(
-    (n) => ({ ...n, x: n.tile[0] * TILE, z: n.tile[1] * TILE })
-  );
-  const tiles = [...plots.map((p) => p.tile), stake.tile];
-  return { plots, stake, nature, radius: groundRadius(tiles), tile: TILE, plaza: { x: 0, z: 0, w: PLAZA, d: PLAZA } };
+  const plots = projects.map((p) => ({ id: p.id, kind: p.kind, plot: p.plot, ...at(p.plot) }));
+  const stake = { plot: next, ...at(next) };
+  return { plots, stake, radius: townRadius([...plots, stake]), tile: TILE, plaza: { ...PLAZA_RECT, y: PLAZA_LEVEL } };
 }
 
-// The ground's radius: every plot in use and the next one, with turf round them.
-export function groundRadius(tiles) {
-  let r = 0;
-  for (const [tx, tz] of tiles) r = Math.max(r, Math.hypot(tx * TILE, tz * TILE));
+// How far the town reaches from the plaza: every plot in use and the next one, with room round them.
+export function townRadius(plots) {
+  let r = PLAZA * 0.71;
+  for (const p of plots) r = Math.max(r, Math.hypot(p.x, p.z));
   return r + TILE * 0.62;
 }
 
-// A path of trodden earth from each plot's front to the plaza, in metres,
-// along the lanes between the tiles so it never crosses another plot.
-// `front(p)` is how far the plot's front edge is from its centre (half the
-// levelled ground's depth); the path starts there.
+// The lane from each plot's front to the plaza, in metres: out of the
+// build's door (`front(p)` metres from its centre, along its front), across
+// its pad, then the town's lane for that plot (coast.js routeOf), which
+// runs round every other pad and joins the lanes before it.
 export function pathsOf(plan, front = () => TILE * 0.3) {
-  const half = 0.5;
-  const pz = PLAZA / 2 / TILE;
   const out = [];
   for (const p of [...plan.plots, plan.stake]) {
-    const [cx, cz] = p.tile;
     const [fx, fz] = frontOf(p.ry);
-    const door = [cx + (fx * front(p)) / TILE, cz + (fz * front(p)) / TILE];
-    const pts = [door];
-    if (Math.abs(cx) + Math.abs(cz) === 1) {
-      // beside the plaza: straight in
-      pts.push([fx === 0 ? cx : -fx * pz, fz === 0 ? cz : -fz * pz]);
-    } else {
-      // out of the front, along the lane to the nearer corner, then in along the lanes
-      const edge = [cx + fx * half, cz + fz * half];
-      const side = fx === 0 ? edge[0] : edge[1];
-      const s = side === 0 ? (p.plot % 2 ? -1 : 1) : -Math.sign(side);
-      const corner = fx === 0 ? [edge[0] + s * half, edge[1]] : [edge[0], edge[1] + s * half];
-      pts.push(edge, corner);
-      const sx = Math.sign(corner[0]);
-      const sz = Math.sign(corner[1]);
-      if (fx === 0) pts.push([corner[0], sz * half]);
-      else pts.push([sx * half, corner[1]]);
-      pts.push([sx * half, sz * half], [sx * pz, sz * pz]);
-    }
+    const f = Math.min(front(p), TILE / 2);
+    const pts = [[p.x + fx * f, p.z + fz * f], doorOf(p.site, 0), ...routeOf(p.plot)];
     const metres = [];
-    for (const [x, z] of pts) {
-      const m = [x * TILE, z * TILE];
+    for (const m of pts) {
       const last = metres[metres.length - 1];
       if (!last || Math.hypot(last[0] - m[0], last[1] - m[1]) > 0.01) metres.push(m);
     }
@@ -185,7 +153,7 @@ export function rng(seed) {
   };
 }
 
-// The soldiers his arrows train, drawn up in the plaza in front of the flag,
+// The soldiers the arrows train, drawn up in the plaza in front of the flag,
 // facing the way the village is first seen from: archers drawing in the front
 // rank, archers and swordsmen standing guard behind.
 export function formationOf(n, tier = 0) {
