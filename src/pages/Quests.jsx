@@ -186,16 +186,15 @@ export default function Quests() {
     [questCamps, campData, ownToday, picked, today, todayKeys]
   );
   // The order as it is now, for an Undo tapped after other changes, and
-  // the quest and day open now (and whether its order is in), for one
-  // tapped after another was opened.
+  // the quest and day open now (and whether its cards and order are in),
+  // for one tapped after another was opened.
   const cardKeys = useRef([]);
   cardKeys.current = cards.map((c) => c.key);
   const questNow = useRef(questId);
   questNow.current = questId;
   const dayNow = useRef(today);
   dayNow.current = today;
-  const readyNow = useRef(orderReady);
-  readyNow.current = orderReady;
+  const readyNow = useRef(false);
   const [boardView, setBoardView] = useBoardView();
   // A filter, and the cards on Today when it was set (`since`, with `at`
   // the quest and day they were on): one added or picked since shows
@@ -224,6 +223,7 @@ export default function Quests() {
     lines.every((l) => l.quest_id === questId) &&
     (campData.steps ?? []).every((s) => questCamps.some((c) => c.id === s.camp_id));
   const cardsIn = hereLoaded && orderReady;
+  readyNow.current = cardsIn;
   const setBoardFilter = (f) => setBoardFilterOnly({ ...f, since: cardsIn ? new Set(cardKeys.current) : null, at: cardsIn ? boardAt : null });
   useEffect(() => {
     if (cardsIn) setBoardFilterOnly((f) => (f.at === boardAt ? f : { ...f, since: new Set(cardKeys.current), at: boardAt }));
@@ -282,7 +282,8 @@ export default function Quests() {
 
   // --- The list -------------------------------------------------------------
 
-  const setLine = (id, fields) => mutateLines((list) => (list ?? []).map((x) => (x.id === id ? { ...x, ...fields } : x)));
+  // (before they're in, there's nothing to change: what loads is the saved)
+  const setLine = (id, fields) => mutateLines((list) => list && list.map((x) => (x.id === id ? { ...x, ...fields } : x)));
   // The village counts finished tasks, so it hears about every tick.
   const tellVillage = (line) => mutateBoard((b) => b && { ...b, finished: { ...b.finished, tasks: withFinished(b.finished.tasks, line) } });
 
@@ -635,7 +636,8 @@ export default function Quests() {
     const tb = el.dataset.drop === "today" ? el.querySelector(".tb") : null;
     if (tb) {
       const inCols = Boolean(tb.querySelector(".tb-cols"));
-      const col = inCols ? (under.find((e) => e.closest(".tb-col:not(.tb-col--add)"))?.closest(".tb-col") ?? null) : null;
+      // only a computer's column takes it there (by camp it goes on today's list)
+      const col = inCols ? (under.find((e) => e.closest(".tb-col[data-col]"))?.closest(".tb-col[data-col]") ?? null) : null;
       const cards = inCols ? (col ? [...col.querySelectorAll("[data-open] > [data-card]")] : []) : [...tb.querySelectorAll("[data-open] > [data-card]")];
       const others = cards.filter((c) => c.dataset.card !== `line:${line.id}`);
       const below = others.find((c) => {
@@ -760,7 +762,7 @@ export default function Quests() {
       actionLabel: "Undo",
       onAction: () => {
         const here = questNow.current === qid;
-        // its order on screen now, for the same quest and day
+        // its cards and order on screen now, for the same quest and day
         const live = here && dayNow.current === today && readyNow.current;
         // otherwise the order it was handed over from is saved back for that
         // quest and day, and nothing on screen is touched
@@ -779,7 +781,7 @@ export default function Quests() {
         }
         undo(save(was, back), (err) => boardFailed(err, "Couldn't put that back."));
         // still loading here, what comes back is from before Undo
-        if (back && !live && here) inOrder.reload(reloadTodayKeys);
+        if (here && !live) inOrder.reload(() => Promise.all([reloadLines(), reloadCamps(), reloadTodayKeys()]));
       },
     });
   }
