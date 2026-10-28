@@ -3,10 +3,26 @@ import { X } from "lucide-react";
 
 // The Ascent page's edit sheets: a bottom sheet on a phone, a panel on a
 // desk. Escape closes the top one only, so a confirm opened over a sheet
-// closes first.
+// closes first. Opening one takes the focus into it (unless a box in it took
+// it already), so a keyboard starts in the sheet rather than on the page
+// behind; closing gives it back to whatever had it.
 export default function Sheet({ title, onClose, children }) {
   const id = useId();
   const backdrop = useRef(null);
+  const dialog = useRef(null);
+  // What had the focus as it opened, read before a box in it can take it.
+  const opener = useRef(undefined);
+  if (opener.current === undefined) opener.current = typeof document === "undefined" ? null : document.activeElement;
+
+  useEffect(() => {
+    const el = dialog.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const back = opener.current;
+    return () => {
+      const now = document.activeElement;
+      if (back && back !== document.body && back.isConnected && (!now || now === document.body)) back.focus({ preventScroll: true });
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -21,7 +37,7 @@ export default function Sheet({ title, onClose, children }) {
 
   return (
     <div className="sheet-backdrop" ref={backdrop} onClick={onClose}>
-      <div className="sheet ascent-sheet" role="dialog" aria-modal="true" aria-labelledby={id} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialog} tabIndex={-1} className="sheet ascent-sheet" role="dialog" aria-modal="true" aria-labelledby={id} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <h2 className="card-title" id={id}>
             {title}

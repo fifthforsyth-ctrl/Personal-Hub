@@ -13,6 +13,7 @@ import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js"
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
+import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2381,6 +2382,144 @@ function sectionOf({ x, y }) {
   q4(save("third", 1));
   await tick(60);
   ok("a reload after a failure runs after the saves before it, and again after one made while it was out", seen.join() === "first,second,reload,third,reload");
+}
+
+// Everything finished today: what the count on a quest's Today, and the
+// build's "N today", open.
+{
+  const T = "2026-10-27";
+  const camps = [
+    { id: "k2", quest_id: "q", title: "Multicam", position: 1 },
+    { id: "k1", quest_id: "q", title: "Sift", position: 0 },
+    { id: "k3", quest_id: "q", title: "Graphica", position: 2 },
+    { id: "k9", quest_id: "other", title: "Elsewhere", position: 0 },
+  ];
+  const sections = [
+    { id: "x1", camp_id: "k1", title: "Search", position: 0 },
+    { id: "x2", camp_id: "k1", title: "Tags", position: 1 },
+  ];
+  const steps = [
+    { id: "a", camp_id: "k1", section_id: "x2", text: "Tag panel", position: 0, done_on: T },
+    { id: "a1", camp_id: "k1", section_id: "x2", parent_id: "a", text: "Panel layout", position: 0, done_on: T },
+    { id: "a2", camp_id: "k1", section_id: "x2", parent_id: "a", text: "Panel colours", position: 1, done_on: null },
+    { id: "a21", camp_id: "k1", section_id: "x2", parent_id: "a2", text: "Pick the orange", position: 0, done_on: T },
+    { id: "b", camp_id: "k1", section_id: "x1", text: "Search by tag", position: 0, done_on: null },
+    { id: "b1", camp_id: "k1", section_id: "x1", parent_id: "b", text: "Index the tags", position: 0, done_on: T },
+    { id: "c", camp_id: "k1", text: "Loose one", position: 0, done_on: T, note: "Took an hour" },
+    { id: "m", camp_id: "k2", text: "Done yesterday", position: 0, done_on: "2026-10-26" },
+    { id: "g", camp_id: "k3", text: "Ring one", position: 0, done_on: T },
+    { id: "z", camp_id: "k9", text: "Other quest's", position: 0, done_on: T },
+  ];
+  const lines = [
+    { id: "t1", quest_id: "q", kind: "task", text: "Today's own", day: T, position: 0, done_on: T },
+    { id: "t2", quest_id: "q", kind: "task", text: "Still open", day: T, position: 1, done_on: null },
+    { id: "t21", quest_id: "q", kind: "task", parent_id: "t2", text: "Its first part", day: T, position: 0, done_on: T },
+    { id: "n1", quest_id: "q", kind: "note", text: "A note", day: T, position: 2, done_on: null },
+    { id: "o1", quest_id: "q", kind: "task", text: "Ongoing one", ongoing: true, day: "2026-10-20", position: 0, done_on: T },
+    { id: "o11", quest_id: "q", kind: "task", parent_id: "o1", text: "Ongoing part", ongoing: false, day: "2026-10-25", position: 0, done_on: T },
+    { id: "e1", quest_id: "q", kind: "task", text: "From the 20th", day: "2026-10-20", position: 0, done_on: T },
+    { id: "e2", quest_id: "q", kind: "task", text: "From the 25th", day: "2026-10-25", position: 0, done_on: T },
+    { id: "e3", quest_id: "q", kind: "task", text: "Done back then", day: "2026-10-25", position: 1, done_on: "2026-10-25" },
+    { id: "lost", quest_id: "q", kind: "task", parent_id: "gone", text: "Orphan", day: T, position: 0, done_on: T },
+  ];
+  const mine = questDoneToday({ camps: camps.filter((c) => c.quest_id === "q"), sections, steps, lines }, T);
+  const shape = (items) => items.map((i) => i.id + (i.subs.length ? `(${shape(i.subs)})` : "")).join("+");
+  const find = (items, id) => items.reduce((hit, i) => hit ?? (i.id === id ? i : find(i.subs, id)), null);
+  const at = (id) => mine.groups.reduce((hit, g) => hit ?? find(g.items, id), null);
+  ok(
+    "done today: each camp's steps as they sit in it, camps in order, then the list's lines",
+    mine.groups.map((g) => `${g.camp ? g.number + g.camp.title : g.key}:${shape(g.items)}`).join() === "1Sift:c+b1+a(a1+a21),3Graphica:g,list:t1+t21+o1(o11)+e2+e1",
+    mine.groups.map((g) => `${g.camp ? g.number + g.camp.title : g.key}:${shape(g.items)}`).join()
+  );
+  ok(
+    "each says where it sits when that isn't plain",
+    at("c").from === null && at("b1").from === "1. Search · under “Search by tag”" && at("a").from === "2. Tags" && at("a1").from === null && at("a21").from === "under “Panel colours”"
+  );
+  ok(
+    "a line says which list it's on unless it's today's",
+    at("t1").from === null && at("t21").from === "under “Still open”" && at("o1").from === "Ongoing" && at("o11").from === null && at("e2").from === "Sun, Oct 25" && at("e1").from === "Tue, Oct 20"
+  );
+  ok("notes, steps done other days, other quests' steps and orphans stay out", !at("n1") && !at("m") && !at("z") && !at("e3") && !at("lost") && !at("t2") && !at("b"));
+  ok("an item keeps its note", at("c").note === "Took an hour" && at("t1").note === null);
+  ok("done today counts everything, what's under each too", mine.count === 12 && countDone(mine.groups[0].items) === 5 && countDone(null) === 0);
+  ok("each group counts what's under its items too, and they add up", mine.groups.map((g) => g.count).join() === "5,1,6" && mine.groups.reduce((n, g) => n + g.count, 0) === mine.count);
+
+  const onToday = [
+    [{ id: "x", kind: "task", done_on: T, subs: [{ id: "x1", kind: "task", done_on: "2026-10-26", subs: [] }] }],
+    [
+      { id: "y", done_on: "2026-10-25", subs: [{ id: "y1", done_on: null, subs: [{ id: "y11", done_on: "2026-10-24", subs: [] }] }] },
+      { id: "x", kind: "task", done_on: T, subs: [{ id: "x1", kind: "task", done_on: "2026-10-26", subs: [] }] },
+    ],
+    [{ id: "n", kind: "note", done_on: "2026-10-20", subs: [] }],
+  ];
+  const early = earlierOnToday(onToday, T);
+  ok(
+    "what Today counts as done but was finished before today: each once, in order, saying when",
+    early.map((x) => `${x.id}:${x.from}`).join() === "x1:Finished yesterday,y:Finished Sun, Oct 25,y11:Finished Sat, Oct 24",
+    early.map((x) => `${x.id}:${x.from}`).join()
+  );
+  ok("nothing on Today, nothing earlier", earlierOnToday([], T).length === 0 && earlierOnToday(null, T).length === 0 && earlierOnToday([[{ id: "a", done_on: T, subs: [] }]], T).length === 0);
+  ok("nothing loaded, nothing done", questDoneToday({}, T).count === 0 && questDoneToday(undefined, T).groups.length === 0 && questDoneToday({ camps: null, sections: null, steps: null, lines: null }, T).count === 0);
+
+  const items = [
+    { key: "q", questId: "q", name: "Plugin" },
+    { key: "lesson-l1", questId: null, lessonId: "l1", name: "Integrity" },
+    { key: "lq", questId: "lq", name: "Patience" },
+  ];
+  const quests = [
+    { id: "q", title: "Plugin" },
+    { id: "lq", title: "Mountain", lesson_id: "l2" },
+    { id: "old", title: "Old quest" },
+    { id: "other", title: "Another" },
+    { id: "lz", title: "Mountain", lesson_id: "l3" },
+  ];
+  const lessons = [
+    { id: "l2", title: "Patience" },
+    { id: "l3", title: "Honesty" },
+  ];
+  const tasks = [
+    { id: "t1", quest_id: "q", kind: "task", text: "Second", done_on: T, done_at: "2026-10-27T15:00:00Z" },
+    { id: "t0", quest_id: "q", kind: "task", text: "First", done_on: T, done_at: "2026-10-27T09:00:00Z" },
+    { id: "ty", quest_id: "q", kind: "task", text: "Yesterday", done_on: "2026-10-26" },
+    { id: "lt", quest_id: "lq", kind: "task", text: "Held my tongue", done_on: T },
+    { id: "ot", quest_id: "old", kind: "task", text: "Old one", done_on: T },
+    { id: "zt", quest_id: "lz", kind: "task", text: "Told the truth", done_on: T },
+  ];
+  const fsteps = [
+    { id: "s2", camp_id: "k1", text: "Later step", done_on: T, updated_at: "2026-10-27T12:00:00Z" },
+    { id: "s1", camp_id: "k1", text: "Earlier step", done_on: T, updated_at: "2026-10-27T08:00:00Z" },
+    { id: "s3", camp_id: "k2", text: "Multicam step", done_on: T },
+    { id: "sy", camp_id: "k2", text: "Yesterday's", done_on: "2026-10-26" },
+    { id: "sz", camp_id: "k9", text: "Other quest's", done_on: T },
+    { id: "sx", camp_id: "nowhere", text: "No camp", done_on: T },
+  ];
+  const all = allDoneToday({ items, quests, lessons, camps, tasks, steps: fsteps }, T);
+  ok(
+    "all quests: in the order along the top, then the rest by name, a lesson's mountain by the lesson's",
+    all.map((q) => `${q.key}=${q.name}:${q.count}`).join() === "q=Plugin:5,lq=Patience:1,other=Another:1,lz=Honesty:1,old=Old quest:1",
+    all.map((q) => `${q.key}=${q.name}:${q.count}`).join()
+  );
+  ok(
+    "each quest's camps in order, then its list, each in the order they were done",
+    all[0].groups.map((g) => `${g.camp ? g.number + g.camp.title : g.key}:${shape(g.items)}`).join() === "1Sift:s1+s2,2Multicam:s3,list:t0+t1"
+  );
+  ok("each quest's groups count themselves", all[0].groups.map((g) => g.count).join() === "2,1,2" && all.every((q) => q.count === q.groups.reduce((n, g) => n + g.count, 0)));
+  ok("nothing done anywhere, no quests", allDoneToday({}, T).length === 0 && allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T).length === 0);
+
+  // The open quest's own day stands in for what the village knows of it.
+  const fresh = { groups: [{ key: "list", items: [{ id: "n", text: "New", note: null, from: null, subs: [{ id: "n1", text: "Sub", note: null, from: null, subs: [] }] }], count: 2 }], count: 2 };
+  const over = allDoneToday({ items, quests, lessons, camps, tasks, steps: fsteps }, T, { questId: "q", ...fresh });
+  ok(
+    "the open quest's own day replaces the village's, in its place",
+    over.map((q) => `${q.key}:${q.count}`).join() === "q:2,lq:1,other:1,lz:1,old:1" && over[0].groups === fresh.groups && over[0].name === "Plugin",
+    over.map((q) => `${q.key}:${q.count}`).join()
+  );
+  const gone = allDoneToday({ items, quests, lessons, camps, tasks, steps: fsteps }, T, { questId: "q", groups: [], count: 0 });
+  ok("an open quest with nothing done today isn't listed, whatever the village had", gone.map((q) => q.key).join() === "lq,other,lz,old");
+  const added = allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T, { questId: "lq", ...fresh });
+  ok("an open quest the village had nothing for yet is listed", added.length === 1 && added[0].key === "lq" && added[0].name === "Patience" && added[0].count === 2);
+  const unlisted = allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T, { questId: "old", ...fresh });
+  ok("…and one not along the top too, by its name", unlisted.length === 1 && unlisted[0].name === "Old quest" && unlisted[0].groups === fresh.groups);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

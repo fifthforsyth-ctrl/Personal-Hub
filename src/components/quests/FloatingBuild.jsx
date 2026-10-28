@@ -8,7 +8,11 @@ import Painting from "../../village/Painting";
 // and how many it still needs. Every task he ticks, on any quest or lesson,
 // lays its pieces on it here (today's in orange, what's to come in pencil),
 // painted again as he ticks, until it stands; then it asks what to build
-// next.
+// next. Its "N today" is how many tasks were finished today (`todayDone`,
+// on any quest) and opens the list of them (`onToday`). The bar's orange is
+// the pieces laid today, which is the same number except on a day a build
+// is chosen while finished tasks wait for one, or one stands and the next
+// is chosen.
 //
 // `village` is villageOf() over what the page has, kept in step as he ticks.
 // The painter (src/village/paint.js) starts once the list has settled, so
@@ -41,9 +45,27 @@ function Bar({ done, laid, need }) {
   );
 }
 
-export default function FloatingBuild({ village, today, onAway }) {
+// "N today", a button that opens what got finished today when there's `onToday`.
+function Today({ n, onToday, lead = " · ", words = "today" }) {
+  if (!n) return null;
+  return (
+    <span className="qs-build__today">
+      {lead}
+      {onToday ? (
+        <button type="button" className="qs-done-btn" aria-haspopup="dialog" aria-label={`${n} ${words}. See everything finished today`} onClick={onToday}>
+          {n} {words}
+        </button>
+      ) : (
+        `${n} ${words}`
+      )}
+    </span>
+  );
+}
+
+export default function FloatingBuild({ village, today, onAway, todayDone, onToday }) {
   const p = buildNow(village, today);
   const { done, laid, need, left } = counts(p, today);
+  const shown = todayDone ?? laid;
   const card = useRef(null);
 
   // Out of sight, the page shows the slim bar instead.
@@ -70,6 +92,11 @@ export default function FloatingBuild({ village, today, onAway }) {
               ? `${countLine(waiting, "finished task is", "finished tasks are")} waiting to lay the first pieces.`
               : "A forge, a watchtower, a citadel… every task you finish lays its pieces on it."}
           </p>
+          {shown > 0 && (
+            <p className="qs-build__line">
+              <Today n={shown} onToday={onToday} lead="" words="done today" />
+            </p>
+          )}
           <Link to="/village?choose" className="btn btn--sm btn--accent qs-build__go">
             Choose a build
           </Link>
@@ -106,14 +133,8 @@ export default function FloatingBuild({ village, today, onAway }) {
         </div>
         <Bar done={done} laid={laid} need={need} />
         <p className="qs-build__line">
-          {stands ? (
-            "Every piece is laid."
-          ) : (
-            <>
-              {left} more and it stands
-              {laid > 0 && <span className="qs-build__today"> · {laid} today</span>}
-            </>
-          )}
+          {stands ? "Every piece is laid" : `${left} more and it stands`}
+          {shown > 0 ? <Today n={shown} onToday={onToday} /> : stands && "."}
         </p>
         {stands && (
           <Link to="/village?choose" className="btn btn--sm btn--accent qs-build__go">
