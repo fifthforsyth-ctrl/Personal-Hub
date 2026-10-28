@@ -14,6 +14,7 @@ import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
+import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2520,6 +2521,95 @@ function sectionOf({ x, y }) {
   ok("an open quest the village had nothing for yet is listed", added.length === 1 && added[0].key === "lq" && added[0].name === "Patience" && added[0].count === 2);
   const unlisted = allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T, { questId: "old", ...fresh });
   ok("…and one not along the top too, by its name", unlisted.length === 1 && unlisted[0].name === "Old quest" && unlisted[0].groups === fresh.groups);
+}
+
+// --- Today's board (0092) -------------------------------------------------------
+{
+  const T = "2026-10-28";
+  const camps = [
+    { id: "k2", title: "Multicam", position: 1 },
+    { id: "k1", title: "Sift", position: 0 },
+  ];
+  const sections = [
+    { id: "sec1", camp_id: "k1", title: "Search", position: 0, today_on: T, computer: 2, color: "blue" },
+    { id: "sec2", camp_id: "k1", title: "Tag", position: 1, today_on: null },
+  ];
+  const steps = [
+    { id: "a", camp_id: "k1", section_id: "sec1", text: "In the section", position: 0, urgency: "red" },
+    { id: "b", camp_id: "k1", section_id: "sec1", text: "Done before", position: 1, done_on: "2026-10-20" },
+    { id: "c", camp_id: "k1", section_id: "sec2", text: "Picked", position: 0, today_on: T, urgency: "yellow", color: "green", computer: 1 },
+    { id: "c1", camp_id: "k1", section_id: "sec2", parent_id: "c", text: "Under it", position: 0, done_on: T },
+    { id: "d", camp_id: "k1", section_id: null, text: "Loose", position: 0, today_on: T },
+    { id: "e", camp_id: "k2", section_id: null, text: "Done today", position: 0, today_on: T, done_on: T, computer: 1 },
+    { id: "f", camp_id: "k2", section_id: null, text: "Not on today", position: 1 },
+  ];
+  const own = [
+    { id: "o1", kind: "task", text: "Mine", computer: 1, urgency: "red", subs: [] },
+    { id: "o2", kind: "note", text: "A note", subs: [] },
+  ];
+  const picked = [{ id: "p1", kind: "task", text: "From the list", from: "ongoing", computer: 9, subs: [{ id: "p1a", kind: "task", done_on: T, color: "blue", urgency: "green" }] }];
+  const cards = todayCards({ camps, sections, steps, own, picked }, T);
+  const keys = (list) => list.map((c) => c.key).join();
+  ok(
+    "today's cards: each camp in order (loose steps, a whole section, steps), then the list's picks, then today's own",
+    keys(cards) === "step:d,sec:sec1,step:c,step:e,line:p1,line:o1,line:o2",
+    keys(cards)
+  );
+  const by = Object.fromEntries(cards.map((c) => [c.key, c]));
+  ok("a step card carries what's under it and where it sits", by["step:c"].done === 1 && by["step:c"].total === 2 && by["step:c"].item.from === "2. Tag" && by["step:c"].number === 1 && by["step:e"].number === 2);
+  ok("a section card: its steps still on (not the one done before), not finished", by["sec:sec1"].total === 1 && by["sec:sec1"].block.earlier === 1 && !by["sec:sec1"].finished && by["sec:sec1"].computer === 2);
+  ok("a step done today is finished; a note line can't be worked on", by["step:e"].finished && !by["line:o2"].actionable && !by["line:o2"].finished && by["line:o1"].actionable);
+  ok("a line counts its tasks", by["line:p1"].done === 1 && by["line:p1"].total === 2 && by["line:o2"].total === 0);
+  ok("nothing on today, no cards", todayCards({}, T).length === 0 && todayCards({ camps, sections: [], steps: [], own: [], picked: [] }, T).length === 0);
+
+  ok("his order first, then the rest as they came; keys no longer on today are skipped", keys(orderCards(cards, ["line:o1", "gone:1", "step:e"])) === "line:o1,step:e,step:d,sec:sec1,step:c,line:p1,line:o2");
+  ok("no order yet, the order Today has always had", keys(orderCards(cards, undefined)) === keys(cards) && keys(orderCards(cards, [])) === keys(cards));
+
+  const only = (f) => keys(cards.filter((c) => matchesFilter(c, f)));
+  ok("no filter shows everything", !filterOn(NO_FILTER) && only(NO_FILTER) === keys(cards));
+  ok("urgent: anything with an urgent row on it", filterOn({ urgency: ["red"], color: [] }) && only({ urgency: ["red"], color: [] }) === "sec:sec1,line:o1");
+  ok("a colour: a section in it, or a sub-task in it", only({ urgency: [], color: ["blue"] }) === "sec:sec1,line:p1");
+  ok("either of two urgencies", only({ urgency: ["red", "yellow"], color: [] }) === "sec:sec1,step:c,line:o1");
+  ok("urgency and colour must be on the same row", only({ urgency: ["green"], color: ["blue"] }) === "line:p1" && only({ urgency: ["red"], color: ["blue"] }) === "");
+  {
+    const noteCard = { key: "line:n", rows: [{ id: "n", kind: "note", urgency: "red", color: "blue" }] };
+    ok("a line of notes is never urgent, but keeps its colour", !matchesFilter(noteCard, { urgency: ["red"], color: [] }) && matchesFilter(noteCard, { urgency: [], color: ["blue"] }));
+  }
+
+  const cc = campColumns(cards);
+  ok(
+    "by camp: each camp's column in camp order, then the quest's list",
+    cc.map((c) => `${c.key}:${c.cards.map((x) => x.id).join("+")}:${c.done}/${c.total}`).join() === "camp:k1:d+sec1+c:1/4,camp:k2:e:1/1,list:p1+o1+o2:1/3",
+    cc.map((c) => `${c.key}:${c.cards.map((x) => x.id).join("+")}:${c.done}/${c.total}`).join()
+  );
+  ok("by camp, in his order within a column", campColumns(orderCards(cards, ["step:c", "step:d"]))[0].cards.map((x) => x.id).join() === "c,d,sec1");
+
+  const pcs = computerColumns(cards, DEFAULT_COMPUTERS);
+  const pcShape = (cols) => cols.map((c) => `${c.key}:${c.open.map((x) => x.id).join("+")}|${c.finished.map((x) => x.id).join("+")}:${c.working ?? "-"}/${c.deck ?? "-"}`).join(" ");
+  ok(
+    "by computer: no one's first (a gone computer's too), then each; done ones sink; top is working on, next on deck",
+    pcShape(pcs) === "none:d+p1+o2|:-/- pc:1:c+o1|e:step:c/line:o1 pc:2:sec1|:sec:sec1/-",
+    pcShape(pcs)
+  );
+  const withNote = cards.map((c) => (c.id === "o2" ? { ...c, computer: 2 } : c));
+  ok("a note line is never what a computer's working on, nor on deck", pcShape(computerColumns(withNote, DEFAULT_COMPUTERS)).endsWith("pc:2:sec1+o2|:sec:sec1/-"));
+  ok("no computers: everything is no one's", computerColumns(cards, []).length === 1 && computerColumns(cards, [])[0].cards.length === cards.length);
+
+  const order = ["a", "b", "c", "d", "e"];
+  ok("dragged among the ones shown, they swap places among themselves", reorderShown(order, ["b", "d", "e"], ["e", "b", "d"]).join() === "a,e,c,b,d");
+  ok("into another column, before a card", moveKey(order, "e", "b").join() === "a,e,b,c,d");
+  ok("into another column, after its last", moveKey(order, "a", null, ["c", "d"]).join() === "b,c,d,a,e");
+  ok("into an empty column, it keeps its place", moveKey(order, "c", null, []).join() === "a,b,c,d,e" && moveKey(order, "x", null, []).join() === "a,b,c,d,e,x");
+  ok("before itself or a key not there, after the column's last", moveKey(order, "a", "zz", ["b"]).join() === "b,a,c,d,e");
+
+  ok("no computers saved, the two it starts with", computersOf(null) === DEFAULT_COMPUTERS && computersOf(undefined).length === 2 && computersOf([]).length === 0);
+  ok(
+    "saved computers: trimmed, a blank name gets its number, repeats and junk skipped",
+    JSON.stringify(computersOf([{ n: 3, name: "  Mac  " }, { n: 3, name: "dup" }, { n: "x" }, { n: 0 }, { n: 1, name: "" }])) === JSON.stringify([{ n: 3, name: "Mac" }, { n: 1, name: "Computer 1" }])
+  );
+  ok("a new computer takes the lowest number free", JSON.stringify(nextComputer([{ n: 1 }, { n: 3 }])) === JSON.stringify({ n: 2, name: "Computer 2" }) && nextComputer([]).n === 1);
+  ok("nor one still handed out on a row (a removal that didn't clear it)", nextComputer([{ n: 1 }], [2, 1]).n === 3 && nextComputer([{ n: 1 }], []).n === 2);
+  ok("where a card's computer is written", rowOf(by["sec:sec1"]).table === "camp_sections" && rowOf(by["step:c"]).table === "camp_steps" && rowOf(by["line:o1"]).table === "quest_tasks" && rowOf(by["line:o1"]).id === "o1");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

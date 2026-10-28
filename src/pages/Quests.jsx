@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Castle, ChevronRight, Plus, Repeat } from "lucide-react";
+import { Castle, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   addCamps,
@@ -11,15 +11,20 @@ import {
   fetchCampsSteps,
   fetchQuestBoard,
   fetchQuestTasks,
+  fetchTodayOrder,
   reorder,
+  saveTodayOrder,
   updateQuest,
   updateQuestTask,
   updateQuestTasks,
   updateSection,
+  updateSections,
   updateStep,
+  updateSteps,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { pickDiff, questToday } from "../lib/camp";
+import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../lib/todayBoard";
 import { villageOf } from "../lib/village";
 import { allDoneToday, earlierOnToday, questDoneToday } from "../lib/doneToday";
 import { appendToNote } from "../lib/sketch";
@@ -36,7 +41,8 @@ import FloatingBuild, { BuildMini, buildNow } from "../components/quests/Floatin
 import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
 import DoneToday from "../components/quests/DoneToday";
-import { PickBar, TodayBlocks, usePick } from "../components/camp/Today";
+import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
+import { PickBar, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
 import "../styles/ascent.css";
 import "../styles/camp.css";
@@ -68,8 +74,28 @@ import "../styles/quests.css";
 //
 // The count on Today, and the build's "N today", open everything finished
 // today (Aaron, 2026-10-27): on this quest, or on every quest.
+//
+// Today is a board (0092, Aaron 2026-10-28): everything on it in the order
+// he drags it into, or in columns by camp or by the computer it's handed to
+// (he has more than one computer and chat working on a quest), filtered by
+// urgency or colour. See TodayBoard.jsx.
 
 const EARLIER_SHOWN = 10;
+
+// Wide enough for the list beside the build: Today's board in columns then
+// takes the whole width above them.
+const WIDE = "(min-width: 901px)";
+function useWide() {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && Boolean(window.matchMedia?.(WIDE).matches));
+  useEffect(() => {
+    const mql = window.matchMedia?.(WIDE);
+    if (!mql) return undefined;
+    const on = (e) => setWide(e.matches);
+    mql.addEventListener("change", on);
+    return () => mql.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
 
 export default function Quests() {
   const { key } = useParams();
@@ -132,6 +158,54 @@ export default function Quests() {
   } = useLoad(() => (userId && campKey ? fetchCampsSteps(userId, campKey.split(",")) : { sections: [], steps: [] }), [userId, campKey]);
   const campToday = useMemo(() => questToday(questCamps, campData?.sections, campData?.steps, today), [questCamps, campData, today]);
 
+  // Today's board (0092): the order he put today in, his computers on this
+  // quest, and everything on today as cards in that order.
+  // The order comes stamped with the quest and day it's for, so another
+  // quest's (or yesterday's) never stands in for this one's; until this
+  // one's is in, Today shows the order it always had and nothing saves
+  // over the one kept.
+  const {
+    data: todayOrder,
+    error: todayOrderError,
+    reload: reloadTodayKeys,
+    mutate: mutateTodayOrder,
+  } = useLoad(async () => ({ quest: questId, day: today, keys: userId && questId ? await fetchTodayOrder(userId, questId, today) : [] }), [userId, questId, today]);
+  const orderReady = todayOrder?.quest === questId && todayOrder?.day === today;
+  const todayKeys = orderReady ? todayOrder.keys : undefined;
+  const mutateTodayKeys = (keys) => mutateTodayOrder({ quest: questId, day: today, keys });
+  const computers = useMemo(() => computersOf(board?.quests.find((q) => q.id === questId)?.computers), [board, questId]);
+  // Numbers still handed out on any of this quest's rows, which a new
+  // computer mustn't take.
+  const usedComputers = useMemo(
+    () => [...new Set([...(lines ?? []).filter((x) => x.quest_id === questId), ...(campData?.steps ?? []), ...(campData?.sections ?? [])].map((x) => x.computer).filter((n) => n != null))],
+    [lines, campData, questId]
+  );
+  const ownToday = days[0]?.items;
+  const cards = useMemo(
+    () => orderCards(todayCards({ camps: questCamps, sections: campData?.sections, steps: campData?.steps, own: ownToday ?? [], picked: picked.items }, today), todayKeys),
+    [questCamps, campData, ownToday, picked, today, todayKeys]
+  );
+  // The order as it is now, for an Undo tapped after other changes, and
+  // the quest and day open now (and whether its cards and order are in),
+  // for one tapped after another was opened.
+  const cardKeys = useRef([]);
+  cardKeys.current = cards.map((c) => c.key);
+  const questNow = useRef(questId);
+  questNow.current = questId;
+  const dayNow = useRef(today);
+  dayNow.current = today;
+  const readyNow = useRef(false);
+  const [boardView, setBoardView] = useBoardView();
+  // A filter, and the cards on Today when it was set (`since`, with `at`
+  // the quest and day they were on): one added or picked since shows
+  // whatever it is, so it doesn't vanish as it's made. On another quest or
+  // day, or set before this one's cards were in, it's taken afresh once
+  // they are, and until then the filter holds for every card.
+  const [boardFilter, setBoardFilterOnly] = useState({ ...NO_FILTER, since: null, at: null });
+  const boardAt = `${questId}|${today}`;
+  const [filtering, setFiltering] = useState(false);
+  const roomy = useWide();
+
   // Everything finished today, which the count on Today ("quest") and the
   // build's "N today" ("all") open.
   const [doneView, setDoneView] = useState(null);
@@ -148,6 +222,13 @@ export default function Quests() {
     campData !== undefined &&
     lines.every((l) => l.quest_id === questId) &&
     (campData.steps ?? []).every((s) => questCamps.some((c) => c.id === s.camp_id));
+  const cardsIn = hereLoaded && orderReady;
+  readyNow.current = cardsIn;
+  const setBoardFilter = (f) => setBoardFilterOnly({ ...f, since: cardsIn ? new Set(cardKeys.current) : null, at: cardsIn ? boardAt : null });
+  useEffect(() => {
+    if (cardsIn) setBoardFilterOnly((f) => (f.at === boardAt ? f : { ...f, since: new Set(cardKeys.current), at: boardAt }));
+  }, [cardsIn, boardAt]);
+  const shownFilter = boardFilter.at === boardAt ? boardFilter : { ...boardFilter, since: null };
   const doneAll = useMemo(
     () =>
       board
@@ -201,7 +282,8 @@ export default function Quests() {
 
   // --- The list -------------------------------------------------------------
 
-  const setLine = (id, fields) => mutateLines((list) => (list ?? []).map((x) => (x.id === id ? { ...x, ...fields } : x)));
+  // (before they're in, there's nothing to change: what loads is the saved)
+  const setLine = (id, fields) => mutateLines((list) => list && list.map((x) => (x.id === id ? { ...x, ...fields } : x)));
   // The village counts finished tasks, so it hears about every tick.
   const tellVillage = (line) => mutateBoard((b) => b && { ...b, finished: { ...b.finished, tasks: withFinished(b.finished.tasks, line) } });
 
@@ -230,9 +312,10 @@ export default function Quests() {
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't save that."));
   }
 
-  // A task becomes a line of notes (it can't be ticked, so it lays no bricks), or back.
+  // A task becomes a line of notes (it can't be ticked, so it lays no bricks,
+  // and isn't urgent), or back.
   function switchKind(line) {
-    const fields = line.kind === "note" ? { kind: "task" } : { kind: "note", done_on: null, done_at: null };
+    const fields = line.kind === "note" ? { kind: "task" } : { kind: "note", done_on: null, done_at: null, urgency: null };
     setLine(line.id, fields);
     tellVillage({ ...line, ...fields });
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't change that."));
@@ -488,7 +571,7 @@ export default function Quests() {
   // its sub-tasks come along. A sub-task comes out from under its task.
   // Undo puts it back where it was, on its own day (an earlier day's line
   // otherwise has no way back there).
-  function moveLineTo(line, where, beforeId = null) {
+  function moveLineTo(line, where, beforeId = null, extra = {}) {
     const all = lines ?? [];
     const onList = where === "ongoing";
     const there = all.filter((x) => !x.parent_id && x.id !== line.id && (onList ? x.ongoing : !x.ongoing && x.day === today)).sort(byPos);
@@ -496,10 +579,10 @@ export default function Quests() {
     const next = [...there];
     next.splice(at < 0 ? next.length : at, 0, line);
     const pos = new Map(next.map((x, k) => [x.id, k]));
-    const same = !line.parent_id && Boolean(line.ongoing) === onList && (onList || line.day === today);
+    const same = !line.parent_id && Boolean(line.ongoing) === onList && (onList || line.day === today) && Object.keys(extra).every((k) => (line[k] ?? null) === extra[k]);
     if (same && next.every((x) => x.position === pos.get(x.id))) return;
     const rest = { ongoing: onList, ...(onList ? {} : { day: today }) };
-    const top = { parent_id: null, ...rest };
+    const top = { parent_id: null, ...rest, ...extra };
     const subs = all.filter((x) => x.parent_id === line.id).map((x) => x.id);
     mutateLines((list) =>
       (list ?? []).map((x) =>
@@ -521,7 +604,7 @@ export default function Quests() {
     // the lines it landed among closed up again, in their order as it is
     // when Undo is tapped (they may have been moved since; those saves are
     // in line before Undo's, so the positions here are the saved ones).
-    const was = { parent_id: line.parent_id ?? null, day: line.day, ongoing: Boolean(line.ongoing), position: line.position ?? 0 };
+    const was = { parent_id: line.parent_id ?? null, day: line.day, ongoing: Boolean(line.ongoing), position: line.position ?? 0, ...Object.fromEntries(Object.keys(extra).map((k) => [k, line[k] ?? null])) };
     const subsWas = all.filter((x) => x.parent_id === line.id).map((x) => ({ id: x.id, day: x.day, ongoing: Boolean(x.ongoing) }));
     const undo = () => {
       const left = (linesNow.current ?? [])
@@ -543,13 +626,26 @@ export default function Quests() {
 
   // A line carried out of its own list: today's list or the ongoing list
   // lights up under the finger, and letting go there drops it in, between
-  // the lines it landed on.
-  function lineDropTarget(x, y, line) {
-    const el = document
-      .elementsFromPoint(x, y)
-      .find((e) => !e.closest(`#line-${line.id}`) && e.closest("[data-drop]"))
-      ?.closest("[data-drop]");
+  // the lines it landed on. `skip` is what's being carried. On Today's
+  // board it lands between the cards, in the column under the finger
+  // (`col`, with its cards' keys) when it's in columns.
+  function lineDropTarget(x, y, line, skip = `#line-${line.id}`) {
+    const under = document.elementsFromPoint(x, y).filter((e) => !e.closest(skip));
+    const el = under.find((e) => e.closest("[data-drop]"))?.closest("[data-drop]");
     if (!el) return null;
+    const tb = el.dataset.drop === "today" ? el.querySelector(".tb") : null;
+    if (tb) {
+      const inCols = Boolean(tb.querySelector(".tb-cols"));
+      // only a computer's column takes it there (by camp it goes on today's list)
+      const col = inCols ? (under.find((e) => e.closest(".tb-col[data-col]"))?.closest(".tb-col[data-col]") ?? null) : null;
+      const cards = inCols ? (col ? [...col.querySelectorAll("[data-open] > [data-card]")] : []) : [...tb.querySelectorAll("[data-open] > [data-card]")];
+      const others = cards.filter((c) => c.dataset.card !== `line:${line.id}`);
+      const below = others.find((c) => {
+        const r = c.getBoundingClientRect();
+        return y < r.top + r.height / 2;
+      });
+      return { el, below, where: "today", board: true, beforeKey: below?.dataset.card ?? null, col: col?.dataset.col ?? null, colEl: col, colKeys: others.map((c) => c.dataset.card) };
+    }
     const below = [...el.querySelectorAll(":scope > ul.qs-lines:not(.qs-lines--done) > li.qs-line")].find((li) => {
       if (li.id === `line-${line.id}`) return false;
       const r = li.getBoundingClientRect();
@@ -560,8 +656,173 @@ export default function Quests() {
 
   function dragLineOut(phase, x, y, line) {
     const hit = phase === "move" || phase === "drop" ? lineDropTarget(x, y, line) : null;
-    markDrop(phase === "move" ? hit : null);
-    if (phase === "drop" && hit) moveLineTo(line, hit.where, hit.beforeId);
+    // over a column, the column lights up and room opens in it (not under
+    // the whole board)
+    const col = phase === "move" ? (hit?.colEl ?? null) : null;
+    markDrop(phase === "move" ? (col && !hit.below ? { ...hit, below: col } : hit) : null);
+    document.querySelectorAll(".tb-col.tb-drop").forEach((e) => e !== col && e.classList.remove("tb-drop", "tb-drop-end"));
+    col?.classList.add("tb-drop");
+    col?.classList.toggle("tb-drop-end", !hit.below);
+    if (phase !== "drop" || !hit) return;
+    if (hit.board) dropOnBoard(line, hit);
+    else moveLineTo(line, hit.where, hit.beforeId);
+  }
+
+  // A line let go on Today's board: on today's list among today's own
+  // lines (just before the first of them from where it landed on), in the
+  // board's order where it landed, and dropped in a computer's column,
+  // handed to that computer.
+  function dropOnBoard(line, hit) {
+    const key = `line:${line.id}`;
+    const order = cardKeys.current;
+    const own = new Set((days[0]?.items ?? []).map((x) => x.id));
+    const from = hit.beforeKey ? order.indexOf(hit.beforeKey) : -1;
+    const beforeId = from < 0 ? null : (order.slice(from).find((k) => k.startsWith("line:") && own.has(k.slice(5)) && k !== key)?.slice(5) ?? null);
+    const known = (v) => (computers.some((c) => c.n === v) ? v : null);
+    const n = hit.col == null || hit.col === "none" ? null : Number(hit.col.slice(3));
+    const extra = hit.col != null && known(n) === n && n !== known(line.computer) ? { computer: n } : {};
+    moveLineTo(line, "today", beforeId, extra);
+    if (!orderReady) return;
+    const keys = moveKey(order, key, hit.beforeKey, hit.colKeys);
+    if (keys.join() === order.join()) return;
+    mutateTodayKeys(keys);
+    inOrder(() => saveTodayOrder(userId, questId, today, keys)).catch((err) => boardFailed(err, "Couldn't save that order."));
+  }
+
+  // One of today's own lines carried off Today's board: only the ongoing
+  // list takes it, since today's list is where it is already.
+  function boardLineOut(phase, x, y, line) {
+    const hit = phase === "move" || phase === "drop" ? lineDropTarget(x, y, line, `[data-card="line:${line.id}"]`) : null;
+    const there = hit?.where === "ongoing" ? hit : null;
+    markDrop(phase === "move" ? there : null);
+    if (phase === "drop" && there) moveLineTo(line, "ongoing", there.beforeId);
+  }
+
+  // --- Today's board (0092) -------------------------------------------------------------
+
+  // A save that didn't land: what's on screen is reloaded once the saves
+  // before it are in.
+  const boardFailed = (err, what) => {
+    toast.error(err, what);
+    inOrder.reload(() => Promise.all([reloadLines(), reloadCamps(), reloadTodayKeys()]));
+  };
+
+  // Today's own lines keep the board's order among themselves too, so the
+  // day reads the same once it's an earlier day.
+  function ownInOrder(keys) {
+    const own = (linesNow.current ?? []).filter((x) => x.quest_id === questId && !x.parent_id && !x.ongoing && x.day === today).sort(byPos);
+    const at = new Map(keys.map((k, i) => [k, i]));
+    const next = [...own].sort((a, b) => (at.get(`line:${a.id}`) ?? 1e9) - (at.get(`line:${b.id}`) ?? 1e9));
+    if (next.every((x, i) => x.id === own[i].id)) return;
+    const pos = new Map(next.map((x, i) => [x.id, i]));
+    mutateLines((list) => (list ?? []).map((x) => (pos.has(x.id) ? { ...x, position: pos.get(x.id) } : x)));
+    inOrder(() => reorder("quest_tasks", next)).catch((err) => boardFailed(err, "Couldn't move that."));
+  }
+
+  // Until today's order is in, a drag can't be saved over it.
+  const orderLoading = () => {
+    if (orderReady) return false;
+    toast.show(todayOrderError ? "Today's order didn't load. Try again above." : "One moment, today's order is still loading.");
+    return true;
+  };
+
+  // Dragged into a new order (every card's key, in order).
+  function saveOrder(keys) {
+    if (orderLoading()) return;
+    mutateTodayKeys(keys);
+    ownInOrder(keys);
+    inOrder(() => saveTodayOrder(userId, questId, today, keys)).catch((err) => boardFailed(err, "Couldn't save that order."));
+  }
+
+  // A card handed to one of his computers (`n`; null, to no one), and with
+  // `keys` Today's new order. Undo puts both back: the card where it was
+  // among the others as they are when Undo is tapped (they may have been
+  // moved since), and on this quest's Today only if it's still the one open.
+  function assignCard(card, n, keysIn) {
+    const keys = orderReady ? keysIn : null;
+    const qid = questId;
+    const was = card.computer ?? null;
+    const wasKeys = cardKeys.current;
+    const put = (computer) => {
+      if (card.kind === "line") setLine(card.id, { computer });
+      else if (card.kind === "step") setCampSteps((list) => list.map((x) => (x.id === card.id ? { ...x, computer } : x)));
+      else mutateCamps((d) => d && { ...d, sections: d.sections.map((x) => (x.id === card.id ? { ...x, computer } : x)) });
+    };
+    const write = (computer) => (card.kind === "line" ? updateQuestTask : card.kind === "step" ? updateStep : updateSection)(card.id, { computer });
+    const save = (computer, order) => () => write(computer).then(() => order && saveTodayOrder(userId, qid, today, order));
+    put(n);
+    if (keys) {
+      mutateTodayKeys(keys);
+      ownInOrder(keys);
+    }
+    const undo = undoableSave(inOrder, save(n, keys), (err) => boardFailed(err, "Couldn't hand that over."));
+    haptic("tap");
+    const nameOf = (x) => computers.find((c) => c.n === x)?.name;
+    toast.show(n != null ? `Handed to ${nameOf(n)}` : nameOf(was) ? `Taken off ${nameOf(was)}` : "Not assigned", {
+      actionLabel: "Undo",
+      onAction: () => {
+        const here = questNow.current === qid;
+        // its cards and order on screen now, for the same quest and day
+        const live = here && dayNow.current === today && readyNow.current;
+        // otherwise the order it was handed over from is saved back for that
+        // quest and day, and nothing on screen is touched
+        let back = keys && !live ? wasKeys : null;
+        if (keys && live) {
+          // just before the first card that followed it then and is still here
+          const now = cardKeys.current.filter((k) => k !== card.key);
+          const after = wasKeys.slice(wasKeys.indexOf(card.key) + 1).find((k) => now.includes(k));
+          back = [...now];
+          back.splice(after ? now.indexOf(after) : now.length, 0, card.key);
+        }
+        if (here) put(was);
+        if (back && live) {
+          mutateTodayKeys(back);
+          ownInOrder(back);
+        }
+        undo(save(was, back), (err) => boardFailed(err, "Couldn't put that back."));
+        // still loading here, what comes back is from before Undo
+        if (here && !live) inOrder.reload(() => Promise.all([reloadLines(), reloadCamps(), reloadTodayKeys()]));
+      },
+    });
+  }
+
+  // His computers on this quest (quests.computers), renamed or added to.
+  // Saved in line with the rest (a computer taken off just before saves its
+  // shorter list first); if it doesn't save, what's saved is reloaded.
+  function saveComputers(next) {
+    const qid = questId;
+    mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === qid ? { ...q, computers: next } : q)) });
+    haptic("tap");
+    inOrder(() => updateQuest(qid, { computers: next })).catch((err) => computersFailed(err, "Couldn't save your computers."));
+  }
+
+  // A computer list that didn't save: the board and Today come back as saved.
+  const computersFailed = (err, what) => {
+    toast.error(err, what);
+    inOrder.reload(() => Promise.all([reload(), reloadLines(), reloadCamps(), reloadTodayKeys()]));
+  };
+
+  // One taken off: whatever was handed to it, any day, goes back to no one.
+  // That's saved first and the shorter list after, so if it can't all be
+  // let go of, the computer stays and nothing is left on a hidden number.
+  function removeComputer(n) {
+    const qid = questId;
+    const off = (x) => (x.computer === n ? { ...x, computer: null } : x);
+    const ids = (list) => (list ?? []).filter((x) => x.computer === n).map((x) => x.id);
+    const lineIds = ids(lines);
+    const stepIds = ids(campData?.steps);
+    const secIds = ids(campData?.sections);
+    const name = computers.find((c) => c.n === n)?.name ?? "That computer";
+    const next = computers.filter((c) => c.n !== n);
+    mutateLines((list) => (list ?? []).map(off));
+    mutateCamps((d) => d && { ...d, steps: d.steps.map(off), sections: d.sections.map(off) });
+    mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === qid ? { ...q, computers: next } : q)) });
+    haptic("tap");
+    toast.show(`${name} is off the board`);
+    inOrder(async () => {
+      await Promise.all([updateQuestTasks(lineIds, { computer: null }), updateSteps(stepIds, { computer: null }), updateSections(secIds, { computer: null })]);
+      await updateQuest(qid, { computers: next });
+    }).catch((err) => computersFailed(err, "Couldn't take everything off that computer."));
   }
 
   // A lesson's list lives on its own mountain, made the first time he writes on it.
@@ -765,61 +1026,73 @@ export default function Quests() {
   const kind = sel?.type === "Lesson" ? "lesson" : "quest";
   const homeOpen = openId && !String(openId).startsWith("t:") ? openId : null;
   const todayOpen = openId && String(openId).startsWith("t:") ? String(openId).slice(2) : null;
-  const pickedAll = campToday.length > 0 || picked.items.length > 0;
+  // Lines drag by their handles, but not while picking for today.
+  const drag = picker.on ? {} : { onReorder: reorderLines, onDragOut: dragLineOut, onInto: nestLine };
   const todayExtra = {
     done: picked.done + campToday.reduce((n, g) => n + g.done, 0),
     total: picked.total + campToday.reduce((n, g) => n + g.total, 0),
     count: picked.items.length + campToday.reduce((n, g) => n + g.items.length, 0),
   };
-  // While picking, today's list shows what to do instead of its copies, so
+  // While picking, today's list shows what to do instead of its board, so
   // nothing there can change what's being picked.
   const todayLead = picker.on ? (
     <div className="today-from">
       <p className="today-hint">Pick lines from the lists below. A camp's steps are picked on the camp's own page.</p>
       {todayList.items.length > 0 && <span className="today-group__label today-group__label--own">Written for today</span>}
     </div>
-  ) : pickedAll ? (
-    <div className="today-from">
-      {campToday.map((g) => (
-        <div key={g.camp.id} className="today-group">
-          <Link to={`/ascent/camp/${g.camp.id}`} state={{ from: "quests" }} className="today-group__label">
-            <span className="today-group__n" aria-hidden="true">
-              {g.number}
-            </span>
-            <span className="today-group__name">{g.camp.title}</span>
-            <small>{`${g.done} of ${g.total}`}</small>
-            <ChevronRight size={14} aria-hidden="true" />
-          </Link>
-          <SketchProvider kind="step" userId={userId} scopeId={g.camp.id} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
-            <TodayBlocks blocks={g.blocks} openStep={openStep} step={stepRow} onAddSubs={addStepSubs} idPrefix="qs-step" onSectionOff={sectionOff} />
-          </SketchProvider>
-        </div>
-      ))}
-      {picked.items.length > 0 && (
-        <div className="today-group">
-          <span className="today-group__label today-group__label--list">
-            <Repeat size={13} aria-hidden="true" />
-            <span className="today-group__name">From this {kind}'s list</span>
-          </span>
-          <LineTree
-            items={picked.items}
-            openId={todayOpen}
-            row={mirrorRow}
-            onAddSubs={addSubs}
-            mirror
-            idPrefix="today-line"
-            fromOf={(l) => (l.from === "ongoing" ? "Ongoing" : dayLabel(l.from, today))}
-          />
-        </div>
-      )}
-      {todayList.items.length > 0 && <span className="today-group__label today-group__label--own">Written for today</span>}
-    </div>
+  ) : cards.length ? (
+    <TodayBoard
+      view={boardView}
+      onView={setBoardView}
+      filter={shownFilter}
+      onFilter={setBoardFilter}
+      filtering={filtering}
+      onFiltering={setFiltering}
+      cards={cards}
+      computers={computers}
+      usedComputers={usedComputers}
+      today={today}
+      kind={kind}
+      openStep={openStep}
+      openOwn={homeOpen}
+      openPicked={todayOpen}
+      stepRow={stepRow}
+      ownRow={row}
+      pickedRow={mirrorRow}
+      onAddStepSubs={addStepSubs}
+      onAddLineSubs={addSubs}
+      ownDrag={drag}
+      onSectionOff={sectionOff}
+      onLineOut={boardLineOut}
+      onNest={nestLine}
+      onOrder={saveOrder}
+      onAssign={assignCard}
+      onComputers={saveComputers}
+      onRemoveComputer={removeComputer}
+      sketch={{ userId, about: (sid) => rawStep(sid)?.text, onAddToNote: addToStepNote }}
+    />
   ) : null;
   const earlier = earlierAll.filter((d) => d.items.length);
-  // Lines drag by their handles, but not while picking for today.
-  const drag = picker.on ? {} : { onReorder: reorderLines, onDragOut: dragLineOut, onInto: nestLine };
   const earlierShown = allEarlier ? earlier : earlier.slice(0, EARLIER_SHOWN);
+  // In columns, on a screen wide enough, Today spans the page above the rest.
+  const spread = Boolean(sel) && roomy && boardView !== "order" && !picker.on && cards.length > 0;
   const building = buildNow(village, today);
+  const todayCard = sel ? (
+    <>
+      {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
+      {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
+      {todayOrderError && !orderReady && <LoadError what="the order you put today in" error={todayOrderError} onRetry={reloadTodayKeys} />}
+      <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} ownInLead={!picker.on} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
+        {!todayList.items.length && !linesLoading && (
+          <p className="qs-hint">
+            {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
+            {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
+          </p>
+        )}
+        <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind)} />
+      </DayList>
+    </>
+  ) : null;
 
   return (
     <div className="page ascent qs">
@@ -846,7 +1119,7 @@ export default function Quests() {
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 
       <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => (lines ?? []).find((x) => x.id === id)?.text} onAddToNote={addToNote}>
-        <div className="qs-grid">
+        <div className={"qs-grid" + (spread ? " qs-grid--board" : "")}>
           <div className="qs-rail">
             <div className="qs-rail__build">
               <FloatingBuild village={village} today={today} onAway={onAway} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
@@ -888,60 +1161,55 @@ export default function Quests() {
               </section>
             ) : (
               <>
-                {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
-                {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
-                <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
-                  {!todayList.items.length && !linesLoading && (
-                    <p className="qs-hint">
-                      {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
-                      {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
-                    </p>
-                  )}
-                  <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind)} />
-                </DayList>
+                {/* Today stays where it is in the page whatever the layout
+                    (spread or not, it's CSS that moves it), so what's
+                    open or focused in it stays so as it moves. */}
+                <div className="qs-today">{todayCard}</div>
 
-                <OngoingList
-                  key={sel.key}
-                  list={ongoing}
-                  kind={kind}
-                  openId={homeOpen}
-                  row={row}
-                  onAddSubs={addSubs}
-                  {...drag}
-                  drop="ongoing"
-                  action={
-                    !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
-                      <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
-                        Pick for today
-                      </button>
-                    ) : null
-                  }
-                >
-                  {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
-                  <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
-                </OngoingList>
-
-                {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
-                {earlierShown.map((d) => (
-                  <DayList
-                    key={d.day}
-                    day={d}
-                    label={dayLabel(d.day, today)}
-                    today={today}
-                    folded={!unfolded[d.day]}
-                    onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+                <div className="qs-rest">
+                  <OngoingList
+                    key={sel.key}
+                    list={ongoing}
+                    kind={kind}
                     openId={homeOpen}
                     row={row}
                     onAddSubs={addSubs}
                     {...drag}
-                  />
-                ))}
-                {earlier.length > earlierShown.length && (
-                  <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
-                    Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
-                  </button>
-                )}
-                {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
+                    drop="ongoing"
+                    action={
+                      !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
+                        <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
+                          Pick for today
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
+                    <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
+                  </OngoingList>
+
+                  {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
+                  {earlierShown.map((d) => (
+                    <DayList
+                      key={d.day}
+                      day={d}
+                      label={dayLabel(d.day, today)}
+                      today={today}
+                      folded={!unfolded[d.day]}
+                      onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+                      openId={homeOpen}
+                      row={row}
+                      onAddSubs={addSubs}
+                      {...drag}
+                    />
+                  ))}
+                  {earlier.length > earlierShown.length && (
+                    <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
+                      Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
+                    </button>
+                  )}
+                  {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
+                </div>
               </>
             )}
           </div>

@@ -17,14 +17,34 @@ import "../../styles/sketch.css";
 // look at it with what it's on and sum up what he jotted down.
 //
 //   <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => text} onAddToNote={(id, text) => …}>
+//
+// `scopeId` can be a list (a quest's Today board holds steps from all its
+// camps). Where one provider's rows sit inside another's, `useSketchScope()`
+// reads the outer one and `<SketchScope value>` hands it back to them.
 
 const Ctx = createContext(null);
+
+export function useSketchScope() {
+  return useContext(Ctx);
+}
+
+export function SketchScope({ value, children }) {
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
 
 export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, children }) {
   const toast = useToast();
   const confirm = useConfirm();
   const key = kind === "step" ? "camp_step_id" : "quest_task_id";
-  const { data, mutate, reload } = useLoad(() => (userId && scopeId ? (kind === "step" ? fetchCampSketches(userId, scopeId) : fetchQuestSketches(userId, scopeId)) : []), [userId, scopeId, kind]);
+  const scopes = (Array.isArray(scopeId) ? scopeId : [scopeId]).filter(Boolean);
+  const scopeKey = scopes.join(",");
+  const { data, mutate, reload } = useLoad(
+    () =>
+      userId && scopes.length
+        ? Promise.all(scopes.map((id) => (kind === "step" ? fetchCampSketches(userId, id) : fetchQuestSketches(userId, id)))).then((all) => all.flat())
+        : [],
+    [userId, scopeKey, kind]
+  );
   const [pad, setPad] = useState(null); // { itemId, sketch }
   const [viewing, setViewing] = useState(null); // a sketch's id
   const [reading, setReading] = useState(() => new Set()); // ids being read

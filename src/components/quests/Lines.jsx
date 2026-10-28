@@ -5,7 +5,8 @@ import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
 import { ColorPick, tintOf } from "../camp/ColorPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
-import { DragHandle } from "../camp/Steps";
+import { DragHandle, UrgencyMark, UrgencyPick } from "../camp/Steps";
+import { CardBadge, ComputerPick } from "../camp/ComputerPick";
 import { useDragSort } from "../../lib/useDragSort";
 
 // The pieces of a quest's running list: one line (a task he can tick or a
@@ -36,8 +37,10 @@ function useGrow(value) {
 // While picking (`pick`), its box picks it instead of ticking it; a line
 // that can't be picked (`locked`) waits, greyed, until picking is done.
 // With `sort` (from useDragSort) it has a handle to drag it into a new
-// place, or onto another line to go under it as a sub-task.
-export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", sort, onRemove, children }) {
+// place, or onto another line to go under it as a sub-task. It can be
+// marked urgent the way a step can (0092), and on Today's board it can wear
+// a `badge` and, open, the choice of its `computer`.
+export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", sort, badge, computer, onRemove, children }) {
   const note = line.kind === "note";
   const done = Boolean(line.done_on);
   const [text, setText] = useState(line.text);
@@ -76,6 +79,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
         (mirror ? " mirror" : "") +
         (pick?.on ? " picked" : "") +
         (locked ? " locked" : "") +
+        (badge ? ` tb-row--${badge.kind}` : "") +
         tint.className
       }
     >
@@ -94,8 +98,10 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
           </button>
         )}
         <button type="button" className="camp-step__text" aria-expanded={pick || locked ? undefined : open} aria-pressed={pick ? pick.on : undefined} disabled={locked} onClick={pick ? pick.toggle : onOpen}>
+          <CardBadge badge={badge} />
           {mirror && from && <small className="camp-step__from">{from}</small>}
           <span className="camp-step__words">
+            {!note && <UrgencyMark value={line.urgency} />}
             <Rich text={line.text} />
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
@@ -130,7 +136,9 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
               autoFocus
             />
           </label>
+          {!note && <UrgencyPick value={line.urgency ?? null} onChange={(urgency) => onSave({ urgency })} />}
           <ColorPick value={line.color ?? null} onChange={(color) => onSave({ color })} />
+          {computer && <ComputerPick {...computer} />}
           <div className="camp-step__tools">
             <SketchButton itemId={line.id} />
             {done && <span className="ascent-mini">Done {fmtShortDate(line.done_on)}</span>}
@@ -249,7 +257,7 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
 // The lines a line can be dropped onto to go under: any top line where it
 // sits (ids "line-…"), not their copies in today's list. Lines go one deep,
 // so a sub-task isn't one.
-const INTO_LINES = "li.qs-line:not(.mirror):not(.qs-line--sub) > .camp-step__row";
+export const INTO_LINES = "li.qs-line:not(.mirror):not(.qs-line--sub) > .camp-step__row";
 
 // Drag for one list of lines (a day's, the ongoing list, or a task's
 // sub-tasks), by each line's handle: into a new place among its neighbours
@@ -277,8 +285,10 @@ function useLineSort(list, { onReorder, onDragOut, onInto, mirror }) {
 // sub-task under the line that's open. Each drags by its handle (see
 // useLineSort). In today's list (`mirror`) the rows' ids start with
 // `idPrefix`, so they don't clash with the same lines where they sit, each
-// top line says where it's from (`fromOf`), and nothing drags.
-export function LineTree({ items, openId, row, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, fromOf, className = "" }) {
+// top line says where it's from (`fromOf`), and nothing drags. On Today's
+// board (0092) each line is a card the board drags: `sortOf(id)` gives the
+// top line its `sort` from there.
+export function LineTree({ items, openId, row, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, fromOf, sortOf: boardSort, className = "" }) {
   const sortOf = useLineSort(items, { onReorder, onDragOut, onInto, mirror });
   return (
     <ul className={"camp-steps qs-lines" + className}>
@@ -286,7 +296,7 @@ export function LineTree({ items, openId, row, onAddSubs, onReorder, onDragOut, 
         const props = row(it, items);
         const open = !props.pick && openId === it.id;
         return (
-          <LineRow key={it.id} line={it} open={open} first={i === 0} last={i === items.length - 1} mirror={mirror} from={mirror ? fromOf?.(it) : null} idPrefix={idPrefix} sort={sortOf(it.id)} {...props}>
+          <LineRow key={it.id} line={it} open={open} first={i === 0} last={i === items.length - 1} mirror={mirror} from={mirror ? fromOf?.(it) : null} idPrefix={idPrefix} sort={boardSort ? boardSort(it.id) : sortOf(it.id)} {...props}>
             {(it.subs.length > 0 || open) && (
               <SubLines parent={it} open={open} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} mirror={mirror} idPrefix={idPrefix} />
             )}
@@ -321,8 +331,10 @@ function SubLines({ parent, open, openId, row, onAddSubs, onReorder, onDragOut, 
 // its name. Its count opens everything finished today (`onDoneToday`, with
 // `doneToday` how many that is, for a day with nothing on it to count).
 // Its lines drag (`onReorder`, `onDragOut`, `onInto`, see useLineSort); with
-// `drop` a line carried out of another list can be let go here.
-export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, lead, extra, action, doneToday = 0, onDoneToday, children }) {
+// `drop` a line carried out of another list can be let go here. Today's
+// board (0092) shows today's own lines among everything else on it, in
+// `lead`, so with `ownInLead` they aren't listed again.
+export function DayList({ day, label, sub, today, folded, onFold, openId, row, onAddSubs, onReorder, onDragOut, onInto, drop, lead, extra, action, doneToday = 0, onDoneToday, ownInLead = false, children }) {
   const isToday = day.day === today;
   const open = !folded;
   const done = day.done + (extra?.done ?? 0);
@@ -362,7 +374,7 @@ export function DayList({ day, label, sub, today, folded, onFold, openId, row, o
         {action}
       </div>
       {open && lead}
-      {open && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} />}
+      {open && !ownInLead && day.items.length > 0 && <LineTree items={day.items} openId={openId} row={row} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} />}
       {open && children}
     </section>
   );

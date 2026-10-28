@@ -30,7 +30,23 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // moves, so the row stays right where it is under the finger; and once
 // `into` is on, the room it makes among its neighbours follows the finger,
 // not its middle (a step with sub-steps under it would otherwise slide its
-// neighbours away before the finger got to them).
+// neighbours away before the finger got to them). `into` can also be a
+// function of the dragged item's id, giving that item's { rows, label, drop }
+// or nothing, when only some items in the list can go under a row.
+//
+// With `cross` ({ scroller }), the list is one column among others side by
+// side (Today's board, 2026-10-28): the item is out of its list once the
+// pointer leaves the column sideways too, it follows the pointer across, and
+// `scroller()` (the box the columns scroll sideways in) scrolls along at its
+// left and right edges (never past the last column, and only with the
+// pointer over them); once it has, `settle(x)` brings them to rest when the
+// drag ends, after the drop, given where it was let go. The columns' box
+// (and any box marked `data-drag-clip`) clips what's in it, so carried out
+// past its top or bottom (to a list below), a copy of the item follows the
+// pointer in its place.
+//
+// One drag at a time, across every list: a second finger pressing another
+// handle (or moving) while one is carried does nothing.
 
 const SPEED = 16; // px per frame at the very edge (faster past it)
 const NEST_X = 28; // how far in it tucks under a row it's going into
@@ -55,6 +71,38 @@ export function markDrop(hit) {
   hit.below?.classList.add("drop-before");
 }
 
+// The drag going on now, in any list.
+let active = null;
+
+// Out past the top or bottom of the box that clips it (`d.ghostAt`, where
+// on screen), the carried item is hidden where it is and a copy of it is
+// drawn there instead, over the page; back over the box, the item itself
+// shows again.
+function ghost(d) {
+  const at = d.ghostAt;
+  if (!at) {
+    if (d.ghost) d.ghost.style.display = "none";
+    d.self.style.visibility = "";
+    return;
+  }
+  if (!d.ghost) {
+    const g = d.self.cloneNode(true);
+    for (const e of [g, ...g.querySelectorAll("[id], [data-card], [data-drop]")]) {
+      e.removeAttribute("id");
+      e.removeAttribute("data-card");
+      e.removeAttribute("data-drop");
+    }
+    g.classList.add("drag-ghost");
+    g.setAttribute("aria-hidden", "true");
+    Object.assign(g.style, { position: "fixed", left: "0", top: "0", width: `${d.width}px`, margin: "0", zIndex: "60", pointerEvents: "none", transition: "none", visibility: "" });
+    d.clip.parentElement.appendChild(g);
+    d.ghost = g;
+  }
+  d.ghost.style.display = "";
+  d.ghost.style.transform = `translate(${at.x}px, ${at.y}px)`;
+  d.self.style.visibility = "hidden";
+}
+
 // The box that scrolls the list: its nearest scrolling ancestor, or the page.
 export function scrollerOf(el) {
   for (let n = el?.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
@@ -64,12 +112,12 @@ export function scrollerOf(el) {
   return null;
 }
 
-export function useDragSort(ids, onDrop, { onOut, into } = {}) {
+export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
   const els = useRef(new Map());
   const live = useRef(null);
   const [drag, setDrag] = useState(null); // { id, from, to, x, y, step, nest }
-  const latest = useRef({ ids, onDrop, onOut, into });
-  latest.current = { ids, onDrop, onOut, into };
+  const latest = useRef({ ids, onDrop, onOut, into, cross });
+  latest.current = { ids, onDrop, onOut, into, cross };
 
   const ref = useCallback(
     (id) => (el) => {
@@ -83,44 +131,53 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
     const d = live.current;
     if (!d) return;
     live.current = null;
+    if (active === d) active = null;
     cancelAnimationFrame(d.frame);
     window.removeEventListener("pointermove", d.onMove);
     window.removeEventListener("pointerup", d.onUp);
     window.removeEventListener("pointercancel", d.onCancel);
     document.documentElement.classList.remove("drag-sorting", "drag-into");
     setDrag(null);
+    d.ghost?.remove();
+    if (d.self) d.self.style.visibility = "";
     if (d.into) {
       d.into.li.classList.remove("drop-into");
       // whatever was lit on the way here goes dark
       if (d.wasOut) latest.current.onOut?.("cancel", d.x, d.y, d.id);
       if (commit) {
         haptic("tap");
-        latest.current.into?.drop(d.id, d.into.li);
+        d.nest?.drop(d.id, d.into.li);
       }
-      return;
-    }
-    if (d.out) {
+    } else if (d.out) {
       latest.current.onOut?.(commit ? "drop" : "cancel", d.x, d.y, d.id);
       if (commit) haptic("tap");
-      return;
-    }
-    if (commit && d.to !== d.from) {
+    } else if (commit && d.to !== d.from) {
       haptic("tap");
       latest.current.onDrop(moved(d.ids, d.from, d.to));
     }
+    // Columns carried sideways come to rest on the one under the pointer,
+    // after the drop: where it lands is read where it was let go.
+    if (d.xbox && d.xbox.scrollLeft !== d.scrollX0) latest.current.cross?.settle?.(d.x);
   }, []);
 
   useEffect(() => () => stop(false), [stop]);
 
   function begin(id, e) {
-    if (e.button !== undefined && e.button !== 0) return;
+    if (active || (e.button !== undefined && e.button !== 0)) return;
     const list = latest.current.ids;
     const from = list.indexOf(id);
-    if (from < 0 || (list.length < 2 && !latest.current.onOut && !latest.current.into)) return;
+    const into = typeof latest.current.into === "function" ? latest.current.into(id) : latest.current.into;
+    if (from < 0 || (list.length < 2 && !latest.current.onOut && !into)) return;
     e.preventDefault();
     e.stopPropagation();
     const box = scrollerOf(e.currentTarget);
     const scrolled = () => (box ? box.scrollTop : window.scrollY);
+    // The columns' box, and how far it has scrolled sideways since the drag began.
+    const xbox = latest.current.cross?.scroller?.() ?? null;
+    const scrollX0 = xbox ? xbox.scrollLeft : 0;
+    const shiftX = () => (xbox ? xbox.scrollLeft - scrollX0 : 0);
+    // as far as they go before the carried item, out past the last, adds to them
+    const maxX = xbox ? xbox.scrollWidth - xbox.clientWidth : 0;
     // The part of the page you can see: the scroller's box, or the window.
     const seen = () => {
       const r = box?.getBoundingClientRect();
@@ -137,6 +194,7 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       from,
       to: from,
       startY: e.clientY,
+      startX: e.clientX,
       x: e.clientX,
       y: e.clientY,
       out: false,
@@ -144,24 +202,40 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       mids: rects.map((r) => r.top + r.height / 2 + scrolled()),
       // The list's own stretch of the page; past it (by half a step) is out.
       span: [rects[0].top + scrolled(), rects[rects.length - 1].bottom + scrolled()],
+      // and its stretch across, where it stood when the drag began
+      spanX: [Math.min(...rects.map((r) => r.left)), Math.max(...rects.map((r) => r.right))],
       step: me.height + gap,
       // where on the item it was picked up, so it stays under the finger
       grab: e.clientY - me.top,
+      grabX: e.clientX - me.left,
+      width: me.width,
       targets: [],
       into: null,
+      // what going under a row does, for this item
+      nest: into ?? null,
       pushing: false,
       frame: 0,
+      xbox,
+      scrollX0,
+      ghost: null,
+      pointer: e.pointerId,
     };
     const self = els.current.get(id);
+    d.self = self;
+    // the box that clips it, past which a copy is carried instead
+    d.clip = xbox ?? self.parentElement?.closest("[data-drag-clip]") ?? null;
     // Where the item sits in the page right now, without its own lift: room
     // opening above it in another list moves it down.
     const placed = () => {
       const t = getComputedStyle(self).transform;
       return self.getBoundingClientRect().top - (t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0);
     };
+    const placedX = () => {
+      const t = getComputedStyle(self).transform;
+      return self.getBoundingClientRect().left - (t && t !== "none" ? new DOMMatrixReadOnly(t).m41 : 0);
+    };
     // The rows it could go under: not its own, nor ones under it, nor the
     // one it's already under.
-    const into = latest.current.into;
     if (into) {
       const above = self.parentElement?.closest("li");
       for (const row of document.querySelectorAll(into.rows)) {
@@ -200,7 +274,8 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       // Over a row everything else keeps still, the room it was making
       // included, so the row stays where it is under the finger.
       if (!d.into) {
-        d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack);
+        const aside = Boolean(xbox || latest.current.cross) && (d.x < d.spanX[0] - shiftX() || d.x > d.spanX[1] - shiftX());
+        d.out = Boolean(latest.current.onOut) && (at < d.span[0] - slack || at > d.span[1] + slack || aside);
         d.to = d.out ? d.from : dropIndex(d.mids, d.from, into ? at : d.mids[d.from] + dy);
         if (d.out || d.wasOut) latest.current.onOut?.(d.out ? "move" : "back", d.x, d.y, d.id);
         d.wasOut = d.out;
@@ -209,7 +284,18 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
       // little in from the edge.
       const top = placed();
       const y = d.into ? d.into.row.getBoundingClientRect().bottom - top : d.y - d.grab - top;
-      setDrag({ id: d.id, from: d.from, to: d.to, x: d.into ? NEST_X : 0, y, step: d.step, nest: d.into ? into.label : null });
+      // Across columns it follows the pointer sideways too (less the
+      // columns' own scroll, which carries it along with them), and tucks
+      // in under a row in another column there, not back in its own.
+      const cross = Boolean(latest.current.cross);
+      const x = d.into ? (cross ? d.into.row.getBoundingClientRect().left - placedX() + NEST_X : NEST_X) : cross && d.out ? d.x - d.startX + shiftX() : 0;
+      setDrag({ id: d.id, from: d.from, to: d.to, x, y, step: d.step, nest: d.into ? into.label : null });
+      if (d.clip) {
+        const r = d.clip.getBoundingClientRect();
+        const row = d.into?.row.getBoundingClientRect();
+        d.ghostAt = d.y < r.top || d.y > r.bottom ? (row ? { x: row.left + NEST_X, y: row.bottom } : { x: d.x - d.grabX, y: d.y - d.grab }) : null;
+        ghost(d);
+      }
     };
     const tick = () => {
       if (live.current !== d) return;
@@ -224,24 +310,44 @@ export function useDragSort(ids, onDrop, { onOut, into } = {}) {
         moving = scrolled() !== before;
       }
       // Once the page stops, the row under the finger can light up again.
+      // Sideways too, at the columns' own left and right edges.
+      if (xbox) {
+        const r = xbox.getBoundingClientRect();
+        const side = d.y >= r.top && d.y <= r.bottom ? towardEdge(edgePush(d.x, r.left, r.right, 48), d.startX, d.x) : 0;
+        if (side) {
+          const before = xbox.scrollLeft;
+          xbox.scrollLeft = Math.max(0, Math.min(maxX, before + Math.round(side * SPEED)));
+          if (xbox.scrollLeft !== before) moving = true;
+        }
+      }
+      // the copy, made again once the item shows it's tucked in (or out)
+      if (d.ghost && !d.self.querySelector(".nest-tag") !== !d.ghost.querySelector(".nest-tag")) {
+        d.ghost.remove();
+        d.ghost = null;
+        ghost(d);
+      }
       const was = d.pushing;
       d.pushing = moving;
       if (moving || was) update();
       d.frame = requestAnimationFrame(tick);
     };
+    // only the finger (or pointer) that picked it up carries it
+    const mine = (ev) => d.pointer === undefined || ev.pointerId === undefined || ev.pointerId === d.pointer;
     d.onMove = (ev) => {
+      if (!mine(ev)) return;
       ev.preventDefault();
       d.x = ev.clientX;
       d.y = ev.clientY;
       update();
     };
-    d.onUp = () => stop(true);
-    d.onCancel = () => stop(false);
+    d.onUp = (ev) => mine(ev) && stop(true);
+    d.onCancel = (ev) => mine(ev) && stop(false);
     window.addEventListener("pointermove", d.onMove, { passive: false });
     window.addEventListener("pointerup", d.onUp);
     window.addEventListener("pointercancel", d.onCancel);
     document.documentElement.classList.add("drag-sorting");
     live.current = d;
+    active = d;
     d.frame = requestAnimationFrame(tick);
     haptic("tap");
     setDrag({ id, from, to: from, x: 0, y: 0, step: d.step, nest: null });

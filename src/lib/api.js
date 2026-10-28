@@ -2735,7 +2735,7 @@ export async function deleteWidgetKey(userId) {
 // ---------------------------------------------------------------------------
 
 const ASCENT_FOCUS = "id, goal_id, name, why, categories, position, created_at";
-const ASCENT_QUEST = "id, title, note, goal_id, lesson_id, status, started_on, finished_on, position, created_at";
+const ASCENT_QUEST = "id, title, note, goal_id, lesson_id, status, started_on, finished_on, position, computers, created_at";
 const ASCENT_CAMP = "id, quest_id, title, note, position, reached_on, created_at";
 const ASCENT_LESSON = "id, title, question, goal_id, status, started_on, ended_on, position, created_at";
 
@@ -2902,8 +2902,8 @@ export async function deleteLesson(id) {
 // edge function and kept, so it can fill any number of camps.
 // ---------------------------------------------------------------------------
 
-const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, today_on, done_on, position, created_at";
+const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, computer, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, today_on, computer, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp, whether it's done and whether it's picked for a day,
@@ -3458,7 +3458,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, color, day, ongoing, today_on, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3624,6 +3624,21 @@ export async function updateQuestTasks(ids, fields) {
 // Its sub-tasks go with it.
 export async function deleteQuestTask(id) {
   const { error } = await supabase.from("quest_tasks").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// The order he put a quest's Today in (0092): the keys of what's on it
+// ("step:<id>", "sec:<id>", "line:<id>"), or [] when he hasn't ordered it.
+export async function fetchTodayOrder(userId, questId, day) {
+  const { data, error } = await supabase.from("quest_today").select("keys").eq("user_id", userId).eq("quest_id", questId).eq("day", day).maybeSingle();
+  if (error) throw error;
+  return data?.keys ?? [];
+}
+
+export async function saveTodayOrder(userId, questId, day, keys) {
+  const { error } = await supabase
+    .from("quest_today")
+    .upsert({ user_id: userId, quest_id: questId, day, keys, updated_at: new Date().toISOString() }, { onConflict: "quest_id,day" });
   if (error) throw error;
 }
 
