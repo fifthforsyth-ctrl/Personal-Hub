@@ -121,7 +121,7 @@ function colAt(x, y, key) {
     const r = c.getBoundingClientRect();
     return y < r.top + r.height / 2;
   });
-  return { el, below, n: el.dataset.col === "none" ? null : Number(el.dataset.col.slice(3)), beforeKey: below?.dataset.card ?? null };
+  return { el, below, col: el.dataset.col, beforeKey: below?.dataset.card ?? null };
 }
 
 export default function TodayBoard({
@@ -150,6 +150,7 @@ export default function TodayBoard({
   onNest,
   onOrder,
   onAssign,
+  onMoveCamp,
   onComputers,
   onRemoveComputer,
   sketch,
@@ -211,17 +212,47 @@ export default function TodayBoard({
     onAssign(card, hit.n, keys);
   }
 
-  // Carried out of its list: by computer, into another column; a line of
-  // today's own, out to the ongoing list.
+  // By camp: a step or a section let go over another camp's column moves
+  // to that camp, just before the card it landed on; over its own, just
+  // moved there. The quest's own list takes only its own lines.
+  const campCols = useMemo(() => campColumns(cards), [cards]);
+  const campKey = (card) => (card.camp ? `camp:${card.camp.id}` : "list");
+  function dropCamp(card, hit) {
+    const col = campCols.find((c) => c.key === hit.col);
+    if (!col?.camp) return;
+    const keys = moveKey(order, card.key, hit.beforeKey, col.cards.map((c) => c.key));
+    if (hit.col === campKey(card)) {
+      if (keys.some((k, i) => k !== order[i])) onOrder(keys);
+      return;
+    }
+    onMoveCamp(card, col.camp.id, keys);
+  }
+
+  // The column a card carried out of its list is over, where it can go:
+  // by computer, any; by camp, another camp's (steps and sections only).
+  function hitAt(x, y, card) {
+    if (view === "computer") {
+      const hit = colAt(x, y, card.key);
+      return hit && { ...hit, n: hit.col === "none" ? null : Number(hit.col.slice(3)) };
+    }
+    if (view === "camp" && card.kind !== "line") {
+      const hit = colAt(x, y, card.key);
+      return hit && hit.col !== "list" ? hit : null;
+    }
+    return null;
+  }
+
+  // Carried out of its list: by computer or by camp, into another column;
+  // a line of today's own, out to the ongoing list.
   function carried(phase, x, y, key) {
     const card = byKey.get(key);
     if (!card) return;
-    const hit = view === "computer" && (phase === "move" || phase === "drop") ? colAt(x, y, key) : null;
+    const hit = phase === "move" || phase === "drop" ? hitAt(x, y, card) : null;
     markCol(phase === "move" ? hit : null);
     const own = card.kind === "line" && card.own;
     if (hit) {
       if (own) onLineOut("cancel", x, y, card.item);
-      if (phase === "drop") dropIn(card, hit);
+      if (phase === "drop") (view === "computer" ? dropIn : dropCamp)(card, hit);
       return;
     }
     if (own) onLineOut(phase, x, y, card.item);
@@ -331,13 +362,16 @@ export default function TodayBoard({
   } else if (view === "order") {
     content = list(cards.filter(shows), null);
   } else if (view === "camp") {
+    const cross = { scroller: () => colsRef.current, settle: (x) => settleCols(colsRef.current, x) };
+    // A camp's column stays while a filter or Hide done empties it, so a
+    // step can still be carried into it.
     content = (
       <div className="tb-cols" ref={colsRef} data-drag-clip="">
-        {campColumns(cards)
+        {campCols
           .map((col) => ({ ...col, shown: col.cards.filter(shows) }))
-          .filter((col) => col.shown.length)
+          .filter((col) => col.shown.length || col.camp)
           .map((col) => (
-            <section key={col.key} className="tb-col" aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
+            <section key={col.key} className="tb-col" data-col={col.key} aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
               <div className="tb-col__head">
                 {col.camp ? (
                   <Link to={`/ascent/camp/${col.camp.id}`} state={{ from: "quests" }} className="today-group__label tb-col__name">
@@ -355,7 +389,8 @@ export default function TodayBoard({
                 )}
                 {col.total > 0 && <small className="tb-col__count">{`${col.done} of ${col.total}`}</small>}
               </div>
-              {list(col.shown, null)}
+              {list(col.shown, cross)}
+              {!col.shown.length && <p className="tb-col__empty">{col.cards.some(matches) ? "All done here." : "Nothing here matches."}</p>}
             </section>
           ))}
       </div>
