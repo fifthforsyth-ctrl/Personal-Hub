@@ -117,7 +117,8 @@ function ribbonOf(rv, H) {
     const n = b.s > lipS - 12 ? Math.max(1, Math.ceil((b.s - a.s) / 0.75)) : 1;
     for (let k = 1; k <= n; k++) {
       const t = k / n;
-      fine.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, s: a.s + (b.s - a.s) * t, level: a.level + (b.level - a.level) * t, w: a.w + (b.w - a.w) * t });
+      const at = (k) => a[k] + (b[k] - a[k]) * t;
+      fine.push({ x: at("x"), z: at("z"), s: at("s"), level: at("level"), w: at("w") });
     }
   }
   // the spring: the water a little past the first sample, where the bed's round end holds it
@@ -435,7 +436,8 @@ function sprayOf(ribbons, falls) {
   const list = [];
   for (const f of falls) {
     const [dx, dz] = f.dir;
-    list.push({ x: f.impact.x, y: 0.3, z: f.impact.z, n: 30, across: f.hwBottom * 1.25, out: f.hwBottom * 0.9, dx, dz, size: 2.2 + f.drop * 0.12, rise: f.drop * 0.45, drift: 2.5 });
+    const foot = { x: f.impact.x, y: 0.3, z: f.impact.z, n: 30, across: f.hwBottom * 1.25, out: f.hwBottom * 0.9, dx, dz };
+    list.push({ ...foot, size: 2.2 + f.drop * 0.12, rise: f.drop * 0.45, drift: 2.5 });
     // the splash itself: small, low, quick
     list.push({ x: f.impact.x, y: 0.2, z: f.impact.z, n: 14, across: f.hwBottom * 0.9, out: f.hwBottom * 0.5, dx, dz, size: 1.4, rise: 3.5, drift: 1.5 });
   }
@@ -444,7 +446,10 @@ function sprayOf(ribbons, falls) {
     const rows = r.rows;
     const lipS = rows[rows.length - 1].s;
     const picks = [];
-    const order = rows.map((row, i) => i).filter((i) => rows[i].grade > 0.16 && rows[i].s < lipS - 30).sort((a, b) => rows[b].grade - rows[a].grade);
+    const order = rows
+      .map((row, i) => i)
+      .filter((i) => rows[i].grade > 0.16 && rows[i].s < lipS - 30)
+      .sort((a, b) => rows[b].grade - rows[a].grade);
     for (const i of order) {
       if (picks.length >= 4) break;
       if (picks.some((j) => Math.abs(rows[j].s - rows[i].s) < 30)) continue;
@@ -538,11 +543,15 @@ const RIVER_MAIN = [
   "float tau = vA.x; float ac = vA.y; float fast = vA.w; float T = uFlowT;",
   "vec3 D = normalize(vec3(vB.x, 0.0, vB.y)); vec3 Sd = vec3(-D.z, 0.0, D.x);",
   // ripples: three sizes carried downstream (the along coordinate is the water's own time, so fast water draws them out)
-  "vec4 r1 = texture2D(uNoise, vec2(ac / 13.0 + 0.13, (tau - T) / 10.0));",
-  "vec4 r2 = texture2D(uNoise, vec2(ac / 4.5 + 0.61, (tau - T * 0.9) / 3.8));",
-  "vec4 r3 = texture2D(uNoise, vec2(ac / 1.7 + 0.29, (tau - T * 1.1) / 1.4));",
-  "vec2 sl = (r1.rg - 0.5) * 0.3 + (r2.ga - 0.5) * 0.32 * near + (r3.ag - 0.5) * 0.24 * near * near;",
+  "vec4 r1 = texture2D(uNoise, vec2(ac / 13.0 + 0.13, (tau - T) / 20.0));",
+  "vec4 r2 = texture2D(uNoise, vec2(ac / 4.5 + 0.61, (tau - T * 0.9) / 5.0));",
+  "vec4 r3 = texture2D(uNoise, vec2(ac / 1.7 + 0.29, (tau - T * 1.1) / 2.0));",
+  // the finer sizes only near enough to see them, else they shimmer into fine bands across the stream
+  "float n2 = 1.0 - smoothstep(70.0, 280.0, camD); float n3 = 1.0 - smoothstep(25.0, 120.0, camD);",
+  "vec2 sl = (r1.rg - 0.5) * 0.3 + (r2.ga - 0.5) * 0.32 * n2 + (r3.ag - 0.5) * 0.24 * n3;",
   "sl *= 0.7 + fast * 1.1;",
+  // far off, seen at a glancing angle, a tilt along the stream would show as fine bands of sky across it
+  "sl.y *= 1.0 - 0.7 * smoothstep(110.0, 380.0, camD);",
   "vec3 N = normalize(normalize(vNW) + Sd * sl.x + D * sl.y);",
   // what shows through: the bed, bent a little, with the sun's light dancing on it in the shallows
   "vec2 ruv = uv + sl * 0.008 * smoothstep(0.0, 0.5, depth) * near;",
@@ -569,12 +578,16 @@ const RIVER_MAIN = [
   "float rs = max(dot(R, uSunDir), 0.0);",
   "c += uSunCol * (pow(rs, 160.0) * 1.6 + pow(rs, 14.0) * 0.06) * sh;",
   // white water where it runs fast, in streaks drawn out along the flow; a broken lace of foam where it thins on the banks
-  "float fa = texture2D(uNoise, vec2(ac / 4.0 + 0.71, (tau - T * 1.15) / 8.0)).g;",
+  // (thickest down the middle, where it runs fastest), over water turned milky with the air churned into it
+  "float fa = texture2D(uNoise, vec2(ac / 2.6 + 0.71, (tau - T * 1.15) / 9.0)).g;",
   "float fb = texture2D(uNoise, vec2(ac / 3.2 + 0.17, (tau - T * 1.15) / 4.0)).a;",
-  "float fz = fa * 0.75 + fb * 0.4;",
-  "float white = smoothstep(0.9 - fast * 0.5, 1.1 - fast * 0.45, fz) * smoothstep(0.0, 0.25, fast);",
-  // far off, where the streaks would be smaller than a pixel and flicker, an even veil of white as much as they'd cover
-  "white = mix(white, smoothstep(0.15, 0.9, fast) * 0.6, smoothstep(140.0, 420.0, camD));",
+  "float mid = 1.0 - 0.45 * pow(clamp(abs(ac) / max(vA.z, 0.5), 0.0, 1.0), 2.0);",
+  "float fz = fa * 0.8 + fb * 0.25 + (r1.b - 0.5) * 0.3;",
+  "float fm = fast * mid;",
+  "float white = smoothstep(0.8 - fm * 0.45, 1.02 - fm * 0.38, fz) * smoothstep(0.0, 0.25, fast);",
+  "c = mix(c, uMilk * (0.72 + 0.3 * sh), smoothstep(0.2, 0.9, fm) * (0.3 + 0.35 * r1.b));",
+  // far off, where the streaks would be smaller than a pixel and flicker, a veil of white in broad drifting patches instead
+  "white = mix(white, smoothstep(0.1, 0.8, fast) * (0.35 + 0.65 * r1.b), smoothstep(140.0, 420.0, camD));",
   "float lb = texture2D(uNoise, vec2(ac / 7.0 + 0.9, (tau - T * 0.4) / 9.0)).g;",
   "float lace = (1.0 - smoothstep(0.02, 0.06 + fb * 0.1 + camD * 0.0003, depth)) * smoothstep(0.45, 0.65, lb * 0.8 + fb * 0.35);",
   "float foam = clamp(white + lace * 0.55, 0.0, 1.0);",
