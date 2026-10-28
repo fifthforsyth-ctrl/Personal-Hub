@@ -1,30 +1,44 @@
 // The coast's growing things and stones, laid over the land of ./terrain.js:
 // woods of spruce and pine (Berk's), broadleaf trees and birches by the town
-// and the rivers, bushes at the woods' edges and along the lanes, grass tufts
-// and wildflowers in the meadows round the town, boulders on the cliff tops,
-// tumbled in the surf, on the river banks and up the mountainsides, and on
-// the two headlands a patchwork of fields walled with dry stone or fenced
-// with rails, a hay stack or two standing in them.
+// and the rivers, little clusters of trees in the meadows, bushes at the
+// woods' edges and along the lanes, grass tufts and wildflowers in the
+// meadows round the town, boulders on the cliff tops, heaped in the surf at
+// the cliffs' feet, on the river banks and up the mountainsides, and on the
+// two headlands a patchwork of fields walled with dry stone or fenced with
+// rails, wheat standing at their edges, a hay stack or two in them.
+//
+// The town's own pads (coast.js sites()) are kept clear only as far as the
+// town will soon reach: the next FRONTIER_GAP pads past the highest one
+// levelled. The pads beyond that frontier are the countryside until the town
+// comes: hedged meadows, groves, orchards, copses of birch, hay meadows, or
+// the woods where the woods are. Each update() clears the pads the frontier
+// has reached, so a build never finds a tree in its way.
 //
 //   makeDressing(stage, ground, { lanes, detail })
-//     -> { group, update(ground, { lanes }, rects), dispose(), stats }
+//     -> { group, update(ground, { lanes }, rects), dispose(), stats, ready }
 //   ground: coast.js groundOf(active pads); lanes: [[[x, z], ...], ...] (routeOf of each built plot),
 //     or lane objects with their points ({ points: [[x, z], ...] }).
 //   detail (optional, 0.25 to 1, default 1): less of the small things (tufts, flowers, bushes, the far
 //     hills' trees and stones) for a weaker device; the trees and stones near the town stay as they are.
-//   update() works out again only the chunks a rect ({ x0, z0, x1, z1 }) or a new lane touches.
-//   stats: { ms, chunks, counts: { kind: instances }, triangles, trianglesBy, drawCalls, shadowCalls, updateMs, updated }
+//   The chunks round the town grow at once (the first picture); the rest grow in short slices after
+//   it, between the page's other work, and show when the last has grown. ready: a promise of that.
+//   update() works out again only the chunks a rect ({ x0, z0, x1, z1 }), a new lane or a pad the
+//   frontier reached touches.
+//   stats: { ms (to the first picture), msAll, msWork, chunks, counts: { kind: instances }, triangles,
+//            trianglesBy, drawCalls, shadowCalls, frontier, updateMs, updated }
 //
 // The land is cut into chunks CHUNK metres square aligned with terrain.js
 // CORE (and past CORE, out to the far hills, chunks FAR_CHUNK square that
 // only grow trees and stones). Each chunk grows from a seed of its own, so it
-// always grows the same. Each kind of thing is one InstancedMesh for the
-// whole coast, its instances gathered from every chunk: a draw call a kind,
-// and one more for the sun's shadow where it casts one. All of it stands in
-// the still layer. Every instance stands on the ground as it is drawn (the
-// terrain's own triangles), so nothing floats. The light is the land's: the
-// kit's sun (soft and wrapped round the leaves), its shadows, the sky and
-// ground fill with the shade lifted toward the sky's blue, and the same haze.
+// always grows the same. Each kind of thing is an InstancedMesh, its
+// instances gathered from every chunk; the heavier kinds are split by region
+// (the two headlands and the valley, north and south, and the far hills), so
+// what is out of sight, or outside the sun's shadow, is not drawn. All of it
+// stands in the still layer. Every instance stands on the ground as it is
+// drawn (the terrain's own triangles), so nothing floats. The light is the
+// land's: the kit's sun (soft and wrapped round the leaves), its shadows, the
+// sky and ground fill with the shade lifted toward the sky's blue, and the
+// same haze.
 
 import * as THREE from "three";
 import { CORE, PALETTE, groundLook } from "./terrain.js";
@@ -37,6 +51,10 @@ export const FAR_CHUNK = 128;
 const FAR_R = 1450;
 // tufts and flowers grow within this of the plaza
 const MEADOW_R = 360;
+// the chunks within this of the plaza grow before the first picture
+const FIRST_R = 340;
+// how many pads past the highest one levelled are kept clear for the town to come
+const FRONTIER_GAP = 6;
 // the ground's grid: the tiles' (terrain.js STEP) in CORE, the far grid's outside
 const STEP = 2;
 const FAR_STEP = 16;
@@ -76,17 +94,20 @@ function rngOf(seed) {
 
 const TONE = {
   spruce: lins(["#2e5440", "#36593e", "#2c4f45", "#3d5f3b", "#335648", "#44653c"]),
-  spruceWarm: lins(["#536f3b", "#5c7840", "#4c6a38"]),
+  spruceWarm: lins(["#4c6640", "#506a42", "#486240"]),
   pine: lins(["#466a3a", "#4f723c", "#41633a", "#56763f"]),
   broad: lins(["#64903d", "#729a45", "#5a873b", "#80a449", "#6a9246", "#87a142"]),
+  orchard: lins(["#6f9a45", "#7aa24a", "#679343", "#83a64c"]),
   autumn: lins(["#c98d3e", "#b9773a", "#cfa548", "#b0603a", "#c49a45"]),
   birch: lins(["#88a64e", "#93ab55", "#7f9f4c", "#9aae5a"]),
   birchGold: lins(["#d8b443", "#cfa338"]),
   bush: lins(["#557f3a", "#618a3e", "#4b7442", "#6c9044", "#527845", "#76923f"]),
+  hedge: lins(["#4f7a3a", "#5a823c", "#4a7140", "#62893f"]),
   rock: lins([PALETTE.rockA, PALETTE.rockB, "#9d978b", "#a8a193", "#8a857c"]),
-  wall: lins(["#a59f92", "#9a948a", "#aea797", "#938e85"]),
+  wall: lins(["#aca493", "#a39b8b", "#b3aa98", "#9d9586"]),
   wood: lins(["#7a6a58", "#6f604f", "#857461"]),
   hay: lins(["#cfae5c", "#c7a453", "#d6b766"]),
+  wheat: lins(["#d9b45a", "#d2a94f", "#e0bd66", "#c9a04a"]),
   flower: {
     white: lin("#f5f2e6"),
     cream: lin("#f1e7c4"),
@@ -102,14 +123,15 @@ const BARK = {
   pineLow: lin("#5a4838"),
   pineHigh: lin("#a9643c"),
   broad: lin("#5f5143"),
-  birch: lin("#e6e1d4"),
+  birch: lin("#d8d2c4"),
+  birchBase: lin("#6d6860"),
 };
 const pick = (r, list) => list[Math.floor(r() * list.length) % list.length];
 
-// A tint jittered a little in brightness and warmth.
-function jitter(c, r, k = 1) {
+// A tint jittered a little in brightness and warmth (warm: how much of the warmth's share).
+function jitter(c, r, k = 1, warm = 1) {
   const l = 1 + (r() - 0.5) * 0.22 * k;
-  const w = (r() - 0.5) * 0.12 * k;
+  const w = (r() - 0.5) * 0.12 * k * warm;
   return [c[0] * l * (1 + w), c[1] * l, c[2] * l * (1 - w)];
 }
 
@@ -199,6 +221,7 @@ function uvSphere(segs, rings) {
 }
 // the shapes a blob or a puff can start from
 const SHAPES = {
+  small: uvSphere(5, 3),
   pad: uvSphere(6, 3),
   bush: uvSphere(6, 4),
   low: uvSphere(7, 4),
@@ -354,25 +377,66 @@ function crown(geo, puffs, o) {
   }
 }
 
-// A tapering trunk of `sides` from (x0, 0, z0) to (x1, h, z1), its colour from c0 at the foot to c1 at the top.
-function trunk(geo, { sides = 5, r0, r1, h, x1 = 0, z1 = 0, c0, c1, y0 = -0.4, aoFoot = 0.45 }) {
+// A pole of `sides` through rings [{ x, y, z, r, c, ao }] (bottom to top): a trunk or a branch. part: its aPart.
+function pole(geo, sides, rings, part = 0) {
   const base = geo.count;
-  for (let ring = 0; ring < 2; ring++) {
-    const y = ring ? h : y0;
-    const rr = ring ? r1 : r0;
-    const ox = ring ? x1 : 0;
-    const oz = ring ? z1 : 0;
+  for (const g of rings)
     for (let s = 0; s < sides; s++) {
       const a = (s / sides) * Math.PI * 2;
-      geo.v(ox + Math.cos(a) * rr, y, oz + Math.sin(a) * rr, Math.cos(a), 0.15, Math.sin(a), ring ? c1 : c0, ring ? 0.85 : aoFoot, 0);
+      geo.v(g.x + Math.cos(a) * g.r, g.y, g.z + Math.sin(a) * g.r, Math.cos(a), 0.15, Math.sin(a), g.c, g.ao, part);
+    }
+  for (let k = 0; k < rings.length - 1; k++)
+    for (let s = 0; s < sides; s++) {
+      const a = base + k * sides + s;
+      const b = base + k * sides + ((s + 1) % sides);
+      geo.t(a, a + sides, b);
+      geo.t(b, a + sides, b + sides);
+    }
+}
+
+// A short branch of three sides from a point on the trunk out to (x1, y1, z1).
+function branch(geo, [x0, y0, z0], [x1, y1, z1], r, c, part = 0) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dz = z1 - z0;
+  const L = Math.hypot(dx, dy, dz) || 1;
+  // two directions square to the branch
+  let ax = -dz;
+  let az = dx;
+  const aL = Math.hypot(ax, az) || 1;
+  ax /= aL;
+  az /= aL;
+  const bx = (dy * az) / L;
+  const by = (dz * ax - dx * az) / L;
+  const bz = (-dy * ax) / L;
+  const base = geo.count;
+  for (let ring = 0; ring < 2; ring++) {
+    const [px, py, pz] = ring ? [x1, y1, z1] : [x0, y0, z0];
+    const rr = ring ? r * 0.45 : r;
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const nx = ax * ca + bx * sa;
+      const ny = by * sa;
+      const nz = az * ca + bz * sa;
+      geo.v(px + nx * rr, py + ny * rr, pz + nz * rr, nx, ny + 0.2, nz, c, ring ? 0.8 : 0.6, part);
     }
   }
-  for (let s = 0; s < sides; s++) {
+  for (let s = 0; s < 3; s++) {
     const a = base + s;
-    const b = base + ((s + 1) % sides);
-    geo.t(a, a + sides, b);
-    geo.t(b, a + sides, b + sides);
+    const b = base + ((s + 1) % 3);
+    geo.t(a, a + 3, b);
+    geo.t(b, a + 3, b + 3);
   }
+}
+
+// A tapering trunk of `sides` from (0, y0, 0) to (x1, h, z1), its colour from c0 at the foot to c1 at the top.
+function trunk(geo, { sides = 5, r0, r1, h, x1 = 0, z1 = 0, c0, c1, y0 = -0.4, aoFoot = 0.45 }) {
+  pole(geo, sides, [
+    { x: 0, y: y0, z: 0, r: r0, c: c0, ao: aoFoot },
+    { x: x1, y: h, z: z1, r: r1, c: c1, ao: 0.85 },
+  ]);
 }
 
 // A Norway spruce a metre tall (the instance scales it): tiers of drooping
@@ -390,7 +454,8 @@ function spruceGeo(lod) {
     const yr = 0.09 + f * 0.7 + (r() - 0.5) * 0.02;
     const ya = t === tiers - 1 ? 1.0 : yr + 0.22 - f * 0.04;
     const R = R0 * (1 - (yr - 0.06) / 0.96) * (1 + (r() - 0.5) * 0.08) + 0.012;
-    const k = lod ? 5 : t < 2 ? 7 : t < 5 ? 6 : 5;
+    // the tips round a tier: fewer up the tree and on the farther ones (the middle one keeps six low down, so it never reads as a paper arrow)
+    const k = lod === 2 ? 5 : lod === 1 ? (t < 2 ? 6 : 5) : t < 2 ? 7 : t < 5 ? 6 : 5;
     const rot = r() * Math.PI * 2;
     const shade = lerp(0.66, 1.0, f);
     const base = geo.count;
@@ -413,16 +478,27 @@ function spruceGeo(lod) {
   return geo.build();
 }
 
-// A Scots pine a metre tall: a long bare trunk, orange toward the top, a crown of flat clumps.
+// A Scots pine a metre tall: a long trunk, grey-brown below and the orange of its bark only in its top
+// part, a crown of small flattish clumps stepped down the top third, two short limbs reaching into them.
 function pineGeo() {
   const geo = new Geo();
-  trunk(geo, { sides: 5, r0: 0.026, r1: 0.014, h: 0.78, x1: 0.03, z1: -0.01, c0: BARK.pineLow, c1: BARK.pineHigh, y0: -0.05 });
+  const mid = lerp(BARK.pineLow[0], BARK.pineHigh[0], 0.25);
+  pole(geo, 5, [
+    { x: 0, y: -0.05, z: 0, r: 0.027, c: BARK.pineLow, ao: 0.45 },
+    { x: 0.012, y: 0.5, z: -0.004, r: 0.02, c: [mid, lerp(BARK.pineLow[1], BARK.pineHigh[1], 0.25), lerp(BARK.pineLow[2], BARK.pineHigh[2], 0.25)], ao: 0.8 },
+    { x: 0.03, y: 0.9, z: -0.01, r: 0.011, c: BARK.pineHigh, ao: 0.9 },
+  ]);
   const clumps = [
-    [0.02, 0.84, 0.0, 0.21, 0.09, 0.2],
-    [-0.14, 0.74, 0.07, 0.14, 0.07, 0.13],
-    [0.16, 0.72, -0.08, 0.13, 0.065, 0.12],
+    [0.03, 0.93, -0.01, 0.13],
+    [-0.11, 0.86, 0.06, 0.11],
+    [0.14, 0.84, -0.05, 0.115],
+    [0.02, 0.8, 0.13, 0.1],
+    [-0.08, 0.74, -0.1, 0.1],
+    [0.12, 0.7, 0.08, 0.085],
   ];
-  crown(geo, clumps.map(([x, y, z, rx]) => [x, y, z, rx]), { shape: "pad", seed: 71, squash: 0.45, flat: 0.5, aoLow: 0.4 });
+  branch(geo, [0.02, 0.72, 0], [-0.07, 0.75, -0.09], 0.01, BARK.pineHigh);
+  branch(geo, [0.025, 0.78, 0], [0.13, 0.83, -0.05], 0.01, BARK.pineHigh);
+  crown(geo, clumps, { shape: "small", seed: 71, squash: 0.6, flat: 0.45, aoLow: 0.42 });
   return geo.build();
 }
 
@@ -438,23 +514,30 @@ function broadGeo() {
     [-0.02, 0.6, -0.2, 0.19],
     [0.1, 0.86, 0.08, 0.15],
   ];
-  crown(geo, puffs, { shape: "mid", seed: 5, flat: 0.55, aoLow: 0.35 });
+  crown(geo, puffs, { shape: "bush", seed: 5, flat: 0.55, aoLow: 0.35 });
   return geo.build();
 }
 
-// A birch a metre tall: a slim white trunk and a light, narrow crown.
+// A birch a metre tall: a slim trunk, dark grey at its foot and pale above (its dark marks are painted by
+// the shader: aPart 0.25), two thin limbs, and a light, narrow crown.
 function birchGeo() {
   const geo = new Geo();
-  trunk(geo, { sides: 5, r0: 0.022, r1: 0.012, h: 0.86, x1: 0.02, c0: BARK.birch, c1: BARK.birch, y0: -0.05, aoFoot: 0.6 });
+  pole(geo, 5, [
+    { x: 0, y: -0.05, z: 0, r: 0.024, c: BARK.birchBase, ao: 0.6 },
+    { x: 0.005, y: 0.12, z: 0, r: 0.019, c: BARK.birch, ao: 0.8 },
+    { x: 0.02, y: 0.86, z: 0, r: 0.011, c: BARK.birch, ao: 0.9 },
+  ], 0.25);
+  branch(geo, [0.012, 0.5, 0], [-0.07, 0.6, 0.05], 0.008, BARK.birch, 0.25);
+  branch(geo, [0.015, 0.58, 0], [0.09, 0.66, -0.04], 0.007, BARK.birch, 0.25);
   const puffs = [[0.0, 0.76, 0.0, 0.17], [-0.09, 0.6, 0.06, 0.14], [0.1, 0.62, -0.05, 0.13], [0.03, 0.9, -0.03, 0.1]];
-  crown(geo, puffs, { shape: "low", seed: 31, squash: 1.05, aoLow: 0.45 });
+  crown(geo, puffs, { shape: "pad", seed: 31, squash: 1.05, aoLow: 0.45 });
   return geo.build();
 }
 
 // A bush a metre across: a low soft mound of clumps.
 function bushGeo() {
   const geo = new Geo();
-  crown(geo, [[0.0, 0.36, 0.0, 0.34], [-0.26, 0.24, 0.1, 0.26], [0.24, 0.22, -0.1, 0.26]], { shape: "bush", seed: 11, squash: 0.85, flat: 0.6, aoLow: 0.4 });
+  crown(geo, [[0.0, 0.36, 0.0, 0.34], [-0.26, 0.24, 0.1, 0.27], [0.24, 0.22, -0.1, 0.27]], { shape: "small", seed: 11, squash: 0.85, flat: 0.6, aoLow: 0.4 });
   return geo.build();
 }
 
@@ -498,24 +581,24 @@ function rockGeo(kind) {
   return geo.build();
 }
 
-// A tuft of meadow grass about a metre across: five cards of painted blades (grassTexture()) round a
+// A tuft of meadow grass about a metre across: three cards of painted blades (grassTexture()) round a
 // small root, each leaning outward like a fountain, so it is a rosette seen from above and a bush from
 // the side. aPart is how far up a card a point is.
 function tuftGeo() {
   const geo = new Geo();
   const r = rngOf(808);
-  const n = 5;
+  const n = 3;
   for (let c = 0; c < n; c++) {
-    const a = (c / n) * Math.PI * 2 + (r() - 0.5) * 0.5;
+    const a = (c / n) * Math.PI * 2 + (r() - 0.5) * 0.4;
     // the card's own across (tx, tz) and out (ox, oz)
     const ox = Math.cos(a);
     const oz = Math.sin(a);
     const tx = -oz;
     const tz = ox;
-    const w = 0.34 + r() * 0.1;
-    const h = 0.5 + r() * 0.22;
-    const r0 = 0.06;
-    const lean = 0.26 + r() * 0.12;
+    const w = 0.42 + r() * 0.08;
+    const h = 0.56 + r() * 0.18;
+    const r0 = 0.05;
+    const lean = 0.22 + r() * 0.1;
     const base = geo.count;
     // the light of the cards is the ground's (straight up), so a tuft sits in the meadow's own light
     geo.v(ox * r0 - tx * w, -0.04, oz * r0 - tz * w, 0, 1, 0, [1, 1, 1], 1, 0);
@@ -574,26 +657,37 @@ function grassTexture() {
   return t;
 }
 
-// A patch of wildflowers a metre across: a few blossoms on the grass, each a small star facing the sky.
-// aPart: 1 a petal's tip, 0.5 its heart.
+// A patch of wildflowers a metre and a bit across: blossoms held up among the grass on thin stems, each a
+// small four-petalled cross facing the sky. aPart: 1 a petal's tip, 0.5 its heart, 0.1 the stem.
 function flowerGeo() {
   const geo = new Geo();
   const r = rngOf(91);
-  const n = 7;
+  const n = 8;
   for (let b = 0; b < n; b++) {
     const a = r() * Math.PI * 2;
-    const d = Math.sqrt(r()) * 0.5;
+    const d = Math.sqrt(r()) * 0.62;
     const x = Math.cos(a) * d;
     const z = Math.sin(a) * d;
-    const y = 0.16 + r() * 0.24;
-    const s = 0.12 + r() * 0.08;
-    const tx = (r() - 0.5) * 0.6;
-    const tz = (r() - 0.5) * 0.6;
-    const c = geo.v(x, y + 0.01, z, tx, 1, tz, [1, 1, 1], 1, 0.5);
-    const petals = 5;
+    const y = 0.34 + r() * 0.3;
+    const s = 0.075 + r() * 0.04;
+    const tx = (r() - 0.5) * 0.5;
+    const tz = (r() - 0.5) * 0.5;
+    // the stem: one thin blade from the ground to the blossom, leaning a little
+    const sa = r() * Math.PI;
+    const sx = Math.cos(sa) * 0.012;
+    const sz = Math.sin(sa) * 0.012;
+    const lx = (r() - 0.5) * 0.08;
+    const lz = (r() - 0.5) * 0.08;
+    const s0 = geo.v(x - lx - sx, -0.02, z - lz - sz, -sz, 0.3, sx, [1, 1, 1], 0.7, 0.1);
+    const s1 = geo.v(x - lx + sx, -0.02, z - lz + sz, -sz, 0.3, sx, [1, 1, 1], 0.7, 0.1);
+    const s2 = geo.v(x, y, z, -sz, 0.3, sx, [1, 1, 1], 1, 0.1);
+    geo.t(s0, s1, s2);
+    const c = geo.v(x, y + 0.012, z, tx, 1, tz, [1, 1, 1], 1, 0.5);
+    const petals = 4;
     const rim = [];
+    const turn = r() * Math.PI;
     for (let p = 0; p < petals; p++) {
-      const pa = (p / petals) * Math.PI * 2 + r();
+      const pa = (p / petals) * Math.PI * 2 + turn;
       const px = Math.cos(pa) * s;
       const pz = Math.sin(pa) * s;
       rim.push(geo.v(x + px, y + px * tx + pz * tz, z + pz, tx, 1, tz, [1, 1, 1], 1, 1));
@@ -612,8 +706,9 @@ function wallGeo() {
   const base = geo.count;
   for (let k = 0; k < rings; k++) {
     const x = -1 + (2 * k) / (rings - 1);
-    const lump = k === 0 || k === rings - 1 ? 0 : (r() - 0.5) * 0.12;
-    prof.forEach(([z, y], j) => {
+    // the top a little lumpy between the ends, the ends level so the overlapping pieces join without a notch
+    const lump = k === 0 || k === rings - 1 ? 0 : (r() - 0.5) * 0.08;
+    prof.forEach(([z, y]) => {
       const yy = y > 0.5 ? y + lump : y;
       const ny = y > 0.7 ? 1 : y > 0.5 ? 0.6 : 0.1;
       geo.v(x, yy, z, 0, ny, Math.sign(z) || 0, [1, 1, 1], y > 0.5 ? 1 : lerp(0.55, 0.9, (y + 0.3) / 0.8), 3);
@@ -775,12 +870,13 @@ const FRAG_MAIN = [
   "float thin = 0.0;",
   "float shK = 1.0;",
   "float lift = 0.5;",
+  "float bounce = 0.0;",
   // ------------------------------------------------ leaves and bark
   "#ifdef FOLIAGE",
   "  float leaf = step(0.5, vPart);",
   "  alb *= mix(vec3(1.0), vTint.rgb, leaf);",
   "  vec4 st = paintTri(vPW * 0.16 + vTint.w * 7.0, N);",
-  "  vec4 st2 = paintTri(vPW * 0.05 + vTint.w * 3.0, N);",
+  "  vec4 st2 = texture2D(uStroke, vPW.xz * 0.05 + vTint.w * 3.0);",
   "  vec4 cl = noiseTri(vPW / 5.5 + vTint.w * 9.0, N);",
   "  float sS = st.r - 0.5, sB = st.b - 0.5, sM = st2.g - 0.5;",
   // leaf clumps: lit tops and dark gaps a metre or so across
@@ -788,6 +884,19 @@ const FRAG_MAIN = [
   "  alb *= 1.0 + (sS * 0.3 + sB * 0.15) * leaf + (sS * 0.25 + sB * 0.3) * (1.0 - leaf);",
   "  alb = mix(alb, alb * vec3(1.12, 1.06, 0.8), clamp(sM * 2.4, 0.0, 1.0) * 0.55 * leaf);",
   "  alb = mix(alb, alb * vec3(0.86, 0.96, 1.08), clamp(-sM * 2.4, 0.0, 1.0) * 0.5 * leaf);",
+  // a birch's bark: short dark marks across it in broken bands, fewer at the dark foot
+  "  if (vPart > 0.2 && vPart < 0.3) {",
+  "    float bandY = vLoc.y * 26.0 + st.g * 1.4;",
+  "    float gapK = texture2D(uNoise, vec2(atan(vLoc.z, vLoc.x) * 0.45 + vTint.w, floor(bandY) * 0.137)).r;",
+  "    float band = smoothstep(0.74, 0.86, fract(bandY)) * step(0.42, gapK);",
+  "    alb *= 1.0 - band * 0.66 * smoothstep(0.1, 0.18, vLoc.y);",
+  "  }",
+  // a fruit tree (its tint's fourth part past 1.5): apples among the leaves on the sunny side
+  "  if (vTint.w > 1.5) {",
+  "    vec4 fr = noiseTri(vPW * 1.9, N);",
+  "    float apple = smoothstep(0.8, 0.85, fr.a) * leaf * smoothstep(0.0, 0.5, dot(N, uSunDir) + 0.3);",
+  "    alb = mix(alb, mix(vec3(0.62, 0.06, 0.03), vec3(0.75, 0.48, 0.05), step(0.5, fract(vTint.w * 3.7))), apple);",
+  "  }",
   // the foot of a tree stands in its own shade
   "  float above = vPW.y - vRoot.y;",
   "  ao *= mix(0.55, 1.0, smoothstep(0.0, 2.2, above));",
@@ -813,17 +922,22 @@ const FRAG_MAIN = [
   "  float moss = smoothstep(0.4, 0.85, N.y + (nr.g - 0.5) * 0.8 + (nf.r - 0.5) * 0.3) * clamp(vTint.w, 0.0, 1.0);",
   "  vec3 mc = uMoss * (0.8 + nf.b * 0.4) * (1.0 + (st.r - 0.5) * 0.4);",
   "  alb = mix(alb, mc, moss);",
-  // wet and dark where the sea washes, a weedy green at the water line
-  "  float wet = 1.0 - smoothstep(-0.2, 1.6 + (nr.r - 0.5) * 0.8, vPW.y);",
-  "  alb = mix(alb, uWet * (0.8 + nf.g * 0.4), wet * 0.8);",
-  "  alb = mix(alb, alb * vec3(0.7, 0.85, 0.55), wet * (1.0 - smoothstep(-0.6, 0.4, vPW.y)) * 0.6);",
+  // wet and dark only in the splash, from the water to a metre or so up, a weedy green at the water line
+  "  float wet = (1.0 - smoothstep(0.0, 1.2 + (nr.r - 0.5) * 0.6, vPW.y)) * smoothstep(-0.7, -0.2, vPW.y);",
+  "  alb = mix(alb, uWet * (0.85 + nf.g * 0.4), wet * 0.7);",
+  "  alb = mix(alb, alb * vec3(0.75, 0.88, 0.6), wet * (1.0 - smoothstep(0.0, 0.5, vPW.y)) * 0.5);",
+  // under the water pale sand and weed, so a stone just under the surface reads as a light shoal, not a hole
+  "  float sub = 1.0 - smoothstep(-0.8, -0.3, vPW.y);",
+  "  alb = mix(alb, vec3(0.52, 0.54, 0.38) * (0.85 + nf.b * 0.3), sub * 0.9);",
   "  ao *= mix(0.5, 1.0, smoothstep(-0.1, 0.9, vLoc.y + 0.25));",
+  "  ao = mix(ao, 1.0, sub * 0.6);",
   "  wrap = 0.12;",
   "  lift = 0.6;",
+  "  bounce = 0.18;",
   "#endif",
   "#ifdef WALL",
   "  alb *= vTint.rgb;",
-  // the stones: rows of blocks along the wall (its own x), each block its own shade, dark gaps between
+  // the stones: rows of blocks along the wall (its own x), each block its own shade, soft gaps between
   "  float along = vLoc.x + vTint.w * 17.0;",
   "  float topF = step(0.75, N.y);",
   "  float ry = mix(vLoc.y, vLoc.z + 0.4, topF);",
@@ -833,14 +947,17 @@ const FRAG_MAIN = [
   "  float h = fract(sin(floor(sx) * 78.233 + row * 37.719) * 43758.5453);",
   "  float gx = abs(fract(sx) - 0.5) * 2.0;",
   "  float gy = abs(fract(ry / 0.22) - 0.5) * 2.0;",
-  "  float gap = max(smoothstep(0.74, 0.97, gx), smoothstep(0.68, 0.95, gy));",
-  "  alb *= (0.8 + h * 0.38) * (1.0 - gap * 0.5);",
-  "  ao *= 1.0 - gap * 0.3;",
+  "  float gap = max(smoothstep(0.76, 0.97, gx), smoothstep(0.7, 0.95, gy));",
+  "  alb *= (0.88 + h * 0.26) * (1.0 - gap * 0.32);",
+  "  ao *= 1.0 - gap * 0.2;",
   "  vec4 nf = noiseTri(vPW / 1.5, N);",
-  "  float moss = smoothstep(0.55, 0.9, N.y + (nf.r - 0.5) * 0.9) * 0.75;",
+  "  float moss = smoothstep(0.55, 0.9, N.y + (nf.r - 0.5) * 0.9) * 0.7;",
   "  alb = mix(alb, uMoss * (0.85 + nf.b * 0.3), moss);",
-  "  alb = mix(alb, vec3(0.62, 0.58, 0.42), smoothstep(0.72, 0.88, nf.g) * 0.35);",
-  "  wrap = 0.1;",
+  // lichen: a paler, warmer freckle on the stone, never white
+  "  alb = mix(alb, alb * vec3(1.16, 1.12, 0.92), smoothstep(0.72, 0.88, nf.g) * 0.5);",
+  "  wrap = 0.18;",
+  "  lift = 0.75;",
+  "  bounce = 0.38;",
   "#endif",
   // ------------------------------------------------ wood and straw
   "#ifdef SOLID",
@@ -863,15 +980,23 @@ const FRAG_MAIN = [
   "  if (diffuseColor.a * (1.0 + mip * 0.32) < 0.45) discard;",
   "  float up = vPart;",
   "  vec3 base = vGround;",
+  // (its tint's fourth part: under 1.5 meadow grass, 2 to 3 a fern, 3 and up standing wheat)
+  "  float wheat = step(2.95, vTint.w);",
   "  if (vTint.w > 1.5) base = vTint.rgb;",
-  "  vec3 tipC = base * vec3(1.22, 1.25, 0.9);",
+  // each tuft its own: some drier and golden, some a cooler blue-green
+  "  float hv = (fract(vTint.w * 7.31) - 0.5) * (1.0 - wheat);",
+  "  base = mix(base, base * vec3(1.18, 1.06, 0.62), max(hv, 0.0) * 1.1);",
+  "  base = mix(base, base * vec3(0.82, 1.0, 1.12), max(-hv, 0.0) * 0.9);",
+  // dark at the roots, the tips bright where the sun catches them
+  "  vec3 tipC = base * mix(vec3(1.38, 1.38, 0.95), vec3(1.2, 1.15, 1.02), wheat) + uSunCol * 0.025;",
   // the blades' shade, unmixed from the clear gaps between them (black in the texture) that the mipmaps blend in afar
   "  float bladeK = clamp(diffuseColor.r / max(diffuseColor.a, 0.05), 0.0, 1.0);",
-  "  alb = mix(base, tipC, smoothstep(0.25, 1.0, up)) * (0.6 + 0.42 * bladeK);",
-  "  alb *= 1.0 + (fract(vTint.w * 13.7) - 0.5) * 0.18;",
+  "  alb = mix(base * 0.78, tipC, smoothstep(0.08, 1.0, up)) * (0.62 + 0.42 * bladeK);",
+  "  alb *= 1.0 + (fract(vTint.w * 13.7) - 0.5) * 0.16;",
   // seen from afar a tuft is a soft lighter fleck in the meadow, not a dark mark
-  "  alb = mix(alb, base * 1.07, smoothstep(50.0, 220.0, camD) * 0.6);",
-  "  ao = mix(0.92, 1.08, up);",
+  "  alb = mix(alb, base * 1.07, smoothstep(60.0, 240.0, camD) * 0.6);",
+  "  ao = mix(0.62, 1.1, smoothstep(0.0, 0.85, up));",
+  "  ao = mix(ao, 1.0, smoothstep(60.0, 240.0, camD) * 0.6);",
   "  wrap = 0.3;",
   "  thin = up * 0.7;",
   "  shK = 0.9;",
@@ -881,6 +1006,8 @@ const FRAG_MAIN = [
   "  float heart = 1.0 - smoothstep(0.5, 0.9, vPart);",
   "  vec3 eye = vTint.w > 0.5 ? vec3(0.95, 0.62, 0.08) : vTint.rgb * 0.45;",
   "  alb = mix(vTint.rgb, eye, heart * 0.9);",
+  // the stem
+  "  if (vPart < 0.3) { alb = vec3(0.17, 0.27, 0.08); ao = 0.8; }",
   "  wrap = 0.4;",
   "  thin = 0.5;",
   "  lift = 0.7;",
@@ -899,6 +1026,8 @@ const FRAG_MAIN = [
   "vec3 c = alb * (direct + amb);",
   // the shade takes the sky's blue
   "c += alb * uSkyCol * mix(smoothstep(0.55, 0.95, N.y), 1.0, lift - 0.5) * (1.0 - lit) * uShadeLift * 0.5 * ao;",
+  // stone's shade warmed by the light the sunny ground throws back into it, so it stays a warm grey
+  "c += alb * uGndCol * bounce * (1.0 - lit) * ao;",
   // the sun through the leaves when it is behind them
   "c += uSunCol * alb * pow(max(dot(-V, uSunDir), 0.0), 4.0) * 0.45 * thin * sh;",
   // a warm rim on edges turned away, as the builds have
@@ -913,6 +1042,8 @@ const FRAG_MAIN = [
 function dressMaterial(kind, defines, opts = {}) {
   const G = window.KIT.G;
   const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: opts.side ?? THREE.FrontSide, map: opts.map ?? null, alphaTest: opts.alphaTest ?? 0 });
+  // (a spruce's tiers are open skirts: both their faces go into the sun's shadow map, or most of the tree casts none)
+  if (opts.shadowSide !== undefined) m.shadowSide = opts.shadowSide;
   m.defines = defines;
   if (opts.derivatives) m.extensions = { derivatives: true };
   const U = {
@@ -1014,26 +1145,29 @@ const FIELD_MAIN = [
   "float u = vField.x, v = vField.y, kind = vField.z;",
   "vec4 nU = texture2D(uNoise, vec2(u, v) / 9.0 + 0.13);",
   "vec3 crop;",
+  // (the rows wander a little, so no line is ruled)
+  "float vw = v + (nC.r - 0.5) * 0.45 + (nB.g - 0.5) * 1.2;",
   "if (kind < 0.5) {",
-  // wheat: gold, a sheen where the wind combs it, fine rows
-  "  crop = uWheat * (0.92 + (nU.r - 0.5) * 0.3 + (nD.g - 0.5) * 0.14 + brush * 0.12);",
+  // wheat: gold, a sheen where the wind combs it, soft fine rows
+  "  crop = uWheat * (0.92 + (nU.r - 0.5) * 0.3 + (nD.g - 0.5) * 0.14 + brush * 0.12 + (nB.b - 0.5) * 0.12);",
   "  crop = mix(crop, crop * vec3(1.1, 1.06, 0.86), smoothstep(0.55, 0.8, nC.r) * 0.6);",
-  "  crop *= mix(0.84, 1.05, rows(v, 0.75, 0.3));",
+  "  crop *= mix(0.93, 1.03, rows(vw, 0.75, 0.3));",
   "} else if (kind < 1.5) {",
-  // green rows on brown earth
-  "  float r = rows(v, 1.5, 0.22);",
+  // green rows on brown earth, thicker in some patches than others
+  "  float r = rows(vw, 1.5, 0.22);",
   "  vec3 leaves = uCrop * (0.85 + (nD.r - 0.5) * 0.4 + brush * 0.2);",
-  "  crop = mix(uSoil * (0.9 + (nD.b - 0.5) * 0.2), leaves, r * (0.75 + (nU.g - 0.5) * 0.5));",
+  "  float thick = clamp(0.62 + (nB.r - 0.5) * 0.5 + (nU.g - 0.5) * 0.3, 0.2, 1.0);",
+  "  crop = mix(uSoil * (0.9 + (nD.b - 0.5) * 0.2), leaves, thick * mix(0.55, 1.0, r));",
   "} else if (kind < 2.5) {",
   // fallow: ploughed furrows, a few weeds coming back
-  "  crop = uFallow * (0.92 + (nU.b - 0.5) * 0.25 + (nD.r - 0.5) * 0.15) * mix(0.8, 1.06, rows(v, 0.8, 0.35));",
+  "  crop = uFallow * (0.92 + (nU.b - 0.5) * 0.25 + (nD.r - 0.5) * 0.15) * mix(0.9, 1.03, rows(vw, 0.8, 0.35));",
   "  crop = mix(crop, g * 0.9, smoothstep(0.62, 0.82, nC.a + (nD.g - 0.5) * 0.3) * 0.7);",
   "} else {",
-  // a hay meadow, mown in broad stripes, the cut hay drying in lines
-  "  crop = mix(g, uHay, 0.45) * mix(0.93, 1.07, rows(u, 6.0, 0.05));",
-  "  float wr = 0.5 + 0.5 * cos(v / 4.5 * 6.2831853) + (nD.g - 0.5) * 0.12;",
-  "  float windrow = smoothstep(0.86, 0.98, wr) * (1.0 - smoothstep(0.2, 0.5, fwidth(v / 4.5)));",
-  "  crop = mix(crop, uWheat * (0.85 + nD.r * 0.25), windrow * 0.55);",
+  // a hay meadow, mown in bands, the cut hay drying in lines along them
+  "  crop = mix(g, uHay, 0.42) * mix(0.96, 1.04, rows(vw, 4.5, 0.05));",
+  "  float wr = 0.5 + 0.5 * cos((vw + 1.1) / 9.0 * 6.2831853) + (nD.g - 0.5) * 0.14;",
+  "  float windrow = smoothstep(0.84, 0.97, wr) * (1.0 - smoothstep(0.2, 0.5, fwidth(v / 9.0)));",
+  "  crop = mix(crop, uWheat * (0.85 + nD.r * 0.25), windrow * 0.5);",
   "}",
   "float edge = vField.w + (nD.r - 0.5) * 1.1 + (nC.g - 0.5) * 0.8;",
   "float inK = smoothstep(0.2, 1.6, edge);",
@@ -1195,6 +1329,25 @@ function polyIn(poly, x, z) {
   return d;
 }
 
+// How far inside a field's crop a point is: the field's own edges with their corners rounded off (a soft
+// minimum of the edges' distances, which cuts a corner by about 2.4 m), drawn in from the wall by a
+// margin of grass that wanders between about half a metre and three, so no crop edge is ruled straight.
+function cropIn(f, x, z) {
+  const K = 3.5;
+  let s = 0;
+  const poly = f.poly;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, az] = poly[i];
+    const [bx, bz] = poly[(i + 1) % poly.length];
+    const ex = bx - ax;
+    const ez = bz - az;
+    const L = Math.hypot(ex, ez) || 1;
+    s += Math.exp(-clamp(((x - ax) * -ez + (z - az) * ex) / L, -60, 60) / K);
+  }
+  const d = -K * Math.log(s);
+  return d - (1.6 + 1.1 * noise2(x / 11 + f.i * 3.1, z / 11 + f.j * 1.7) + 0.45 * noise2(x / 4.1 + 7.7, z / 4.1));
+}
+
 // The headlands' fields, worked out once: each field a quad on a turned,
 // jittered grid where the ground is gentle, open, dry and away from the
 // cliffs, the rivers and every build site. { fields: [{ poly, kind, ux, uz, ox, oz }], walls: [...], hay: [...] }
@@ -1253,7 +1406,7 @@ function farmland() {
         if (polyIn(poly, cx, cz) < 0) poly = [...q].reverse();
         const kindR = r();
         const kind = kindR < 0.34 ? 0 : kindR < 0.56 ? 1 : kindR < 0.7 ? 2 : kindR < 0.88 ? 3 : 4;
-        const f = { poly, kind, ux: ca, uz: sa, ox: cx, oz: cz, side: side.id, i, j };
+        const f = { poly, kind, ux: ca, uz: sa, ox: cx, oz: cz, hc, side: side.id, i, j, n: fields.length };
         fields.push(f);
         taken.set(`${i},${j}`, f);
       }
@@ -1348,30 +1501,79 @@ function laneIndex(lanes) {
   };
 }
 
-// Rectangles (pads, sites) in a grid: the least distance outside any near a point.
-function rectIndex(list) {
+// Rectangles (pads, sites) in a grid: the least distance outside any near a point, good out to `reach`
+// metres from a rectangle (further is 99). fn.at(x, z, m): the rectangle a point is on (or within m of), or null.
+function rectIndex(list, reach = 24) {
   const CELL = 48;
   const grid = new Map();
   for (const p of list) {
-    const reach = Math.hypot(p.hw, p.hd) + 24;
-    for (let cx = Math.floor((p.x - reach) / CELL); cx <= Math.floor((p.x + reach) / CELL); cx++)
-      for (let cz = Math.floor((p.z - reach) / CELL); cz <= Math.floor((p.z + reach) / CELL); cz++) {
+    const R = Math.hypot(p.hw, p.hd) + reach;
+    for (let cx = Math.floor((p.x - R) / CELL); cx <= Math.floor((p.x + R) / CELL); cx++)
+      for (let cz = Math.floor((p.z - R) / CELL); cz <= Math.floor((p.z + R) / CELL); cz++) {
         const k = cx * 100003 + cz;
         let l = grid.get(k);
         if (!l) grid.set(k, (l = []));
         l.push(p);
       }
   }
-  return (x, z) => {
-    const l = grid.get(Math.floor(x / CELL) * 100003 + Math.floor(z / CELL));
+  const cell = (x, z) => grid.get(Math.floor(x / CELL) * 100003 + Math.floor(z / CELL));
+  const fn = (x, z) => {
+    const l = cell(x, z);
     if (!l) return 99;
     let d = 99;
     for (const p of l) d = Math.min(d, rectOut(p, x, z));
     return d;
   };
+  fn.at = (x, z, m = 0) => {
+    const l = cell(x, z);
+    if (l) for (const p of l) if (rectOut(p, x, z) <= m) return p;
+    return null;
+  };
+  return fn;
 }
 
-// Everything the chunks are grown against: the ground, its pads, the sites, the lanes, the fields.
+// How far the town will soon reach: the pads up to this one (the highest levelled, and FRONTIER_GAP more)
+// are kept clear; past it the pads are the countryside till the town comes. (The town takes its pads in order.)
+function frontierOf(ground) {
+  let top = -1;
+  for (const p of ground.pads) if (!p.plaza && Number.isFinite(p.plot)) top = Math.max(top, p.plot);
+  return top + FRONTIER_GAP;
+}
+
+// What a pad past the frontier is till the town comes (the same every time):
+// { use: woods | grove | orchard | meadow | copse | hay, hedges: [front, right, back, left], seed }.
+const USES = new Map();
+function siteUse(s) {
+  let u = USES.get(s.plot);
+  if (u) return u;
+  const r = rngOf(hash3(s.plot, 41, 7));
+  const t = r();
+  const fo = forestAt(s.x, s.z);
+  const use = fo > 0.42 ? "woods" : t < 0.3 ? "grove" : t < 0.5 ? "orchard" : t < 0.7 ? "meadow" : t < 0.85 ? "copse" : "hay";
+  const hedged = use === "orchard" || use === "hay" ? 0.7 : 0.5;
+  u = { use, hedges: [r() < hedged, r() < hedged, r() < hedged, r() < hedged], seed: hash3(s.plot, 43, 11) };
+  USES.set(s.plot, u);
+  return u;
+}
+
+// The box round every pad, and how far a point is from it (for the far hills: is the town near?).
+let SITE_BOX = null;
+function siteBoxOut(x, z) {
+  if (!SITE_BOX) {
+    SITE_BOX = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const s of sites()) {
+      SITE_BOX[0] = Math.min(SITE_BOX[0], s.x - 24);
+      SITE_BOX[1] = Math.min(SITE_BOX[1], s.z - 24);
+      SITE_BOX[2] = Math.max(SITE_BOX[2], s.x + 24);
+      SITE_BOX[3] = Math.max(SITE_BOX[3], s.z + 24);
+    }
+  }
+  return Math.hypot(Math.max(0, SITE_BOX[0] - x, x - SITE_BOX[2]), Math.max(0, SITE_BOX[1] - z, z - SITE_BOX[3]));
+}
+
+const pierOut = (x, z) => Math.max(Math.abs(x - PIER.x) - PIER.w, z < PIER.z0 - 6 ? PIER.z0 - 6 - z : 0, z > PIER.z1 ? z - PIER.z1 : 0);
+
+// Everything the chunks are grown against: the ground, its pads, the sites (kept clear or not), the lanes, the fields.
 function makeEnv(ground, lanes, detail) {
   const farm = farmland();
   if (!farm.near) {
@@ -1380,8 +1582,9 @@ function makeEnv(ground, lanes, detail) {
     for (const f of farm.fields) {
       const xs = f.poly.map((p) => p[0]);
       const zs = f.poly.map((p) => p[1]);
-      for (let cx = Math.floor((Math.min(...xs) - 8) / CELL); cx <= Math.floor((Math.max(...xs) + 8) / CELL); cx++)
-        for (let cz = Math.floor((Math.min(...zs) - 8) / CELL); cz <= Math.floor((Math.max(...zs) + 8) / CELL); cz++) {
+      f.box = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
+      for (let cx = Math.floor((f.box[0] - 8) / CELL); cx <= Math.floor((f.box[2] + 8) / CELL); cx++)
+        for (let cz = Math.floor((f.box[1] - 8) / CELL); cz <= Math.floor((f.box[3] + 8) / CELL); cz++) {
           const k = cx * 100003 + cz;
           let l = grid.get(k);
           if (!l) grid.set(k, (l = []));
@@ -1411,14 +1614,26 @@ function makeEnv(ground, lanes, detail) {
     near: grid(CORE.x0 - 2 * STEP, CORE.z0 - 2 * STEP, CORE.x1 + 2 * STEP, CORE.z1 + 2 * STEP, STEP),
     far: grid(-WORLD_R - 2 * FAR_STEP, -WORLD_R - 2 * FAR_STEP, WORLD_R + 2 * FAR_STEP, CORE.z1 + FAR_CHUNK + 2 * FAR_STEP, FAR_STEP),
   };
+  const frontier = frontierOf(ground);
+  const all = sites();
+  const kept = all.filter((s) => s.plot <= frontier);
+  const open = all.filter((s) => s.plot > frontier);
   return {
     ground,
     farm,
     plaza,
     grids,
     detail,
+    frontier,
+    kept,
+    open,
     padOut: rectIndex(ground.pads.filter((p) => !p.plaza)),
-    siteOut: rectIndex(sites()),
+    // the pads kept clear for the town to come
+    siteOut: rectIndex(kept),
+    // the pads past the frontier
+    openAt: rectIndex(open, 4).at,
+    // how far from any pad at all (up to 100 m)
+    siteNear: rectIndex(all, 100),
     lane: laneIndex(lanes),
   };
 }
@@ -1426,7 +1641,8 @@ function makeEnv(ground, lanes, detail) {
 // ------------------------------------------------------------------ growing a chunk
 
 // What a chunk grows, kind by kind: instance matrices and tints. A chunk grows into scratch lists
-// kept from one chunk to the next (one chunk grows at a time), then keeps copies cut to length.
+// kept from one chunk to the next (one chunk grows at a time), then keeps copies cut to length,
+// with the box its instances stand in and their largest stretch (for the batches' bounds).
 const SCRATCH = new Map();
 class Out {
   constructor() {
@@ -1455,6 +1671,21 @@ class Out {
       o.m = o.m.slice(0, o.n * 16);
       o.t = o.t.slice(0, o.n * 4);
       o.sc = null;
+      const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      let big = 0;
+      const m = o.m;
+      for (let i = 0; i < o.n; i++) {
+        const q = i * 16;
+        b[0] = Math.min(b[0], m[q + 12]);
+        b[1] = Math.min(b[1], m[q + 13]);
+        b[2] = Math.min(b[2], m[q + 14]);
+        b[3] = Math.max(b[3], m[q + 12]);
+        b[4] = Math.max(b[4], m[q + 13]);
+        b[5] = Math.max(b[5], m[q + 14]);
+        big = Math.max(big, Math.hypot(m[q], m[q + 1], m[q + 2]), Math.hypot(m[q + 4], m[q + 5], m[q + 6]), Math.hypot(m[q + 8], m[q + 9], m[q + 10]));
+      }
+      o.box = b;
+      o.big = big;
     }
     return this;
   }
@@ -1486,7 +1717,7 @@ function put(out, kind, x, y, z, yaw, sx, sy, sz, tx, tz, c, w, order = "XZY") {
   o.n++;
 }
 
-// One instance laid on the ground's slope (nx, ny, nz the ground's normal) and turned yaw in it.
+// One instance laid on the ground's slope (gx, gz its gradient, k how much of it) and turned yaw in it.
 function putOnSlope(out, kind, x, y, z, yaw, sx, sy, sz, gx, gz, c, w, k = 1) {
   const o = out.list(kind);
   _nrm.set(-gx * k, 1, -gz * k).normalize();
@@ -1506,23 +1737,25 @@ function putOnSlope(out, kind, x, y, z, yaw, sx, sy, sz, gx, gz, c, w, k = 1) {
 
 const SHADE_C = [0, 0, 0];
 
-// A contact shade under something of radius rad.
-function shade(out, S, x, z, rad, k) {
+// A contact shade under something of radius rad (stretched along yaw by sk).
+function shade(out, S, x, z, rad, k, yaw = 0, sk = 1) {
   S.at(x, z);
-  putOnSlope(out, "decal", x, S.h + 0.05, z, 0, rad * 2, 1, rad * 2, S.gx, S.gz, SHADE_C, k);
+  putOnSlope(out, "decal", x, S.h + 0.05, z, yaw, rad * 2 * sk, 1, rad * 2, S.gx, S.gz, SHADE_C, k);
 }
 
 // The colours trees of each kind take here: neighbours alike (a broad noise picks from the list), each a little its own.
+// (The conifers' warmth varies half as much as the broadleaf trees', so none turns lime.)
 function treeTint(kind, x, z, r) {
   const n = clamp(fbm2(x / 95 + 13.1, z / 95 - 4.4, 2) * 0.5 + 0.5 + (r() - 0.5) * 0.35, 0, 0.999);
   if (kind === "spruce") {
-    const warm = r() < 0.12;
+    const warm = r() < 0.05;
     const list = warm ? TONE.spruceWarm : TONE.spruce;
-    return jitter(list[Math.floor(n * list.length)], r);
+    return jitter(list[Math.floor(n * list.length)], r, 1, 0.5);
   }
-  if (kind === "pine") return jitter(TONE.pine[Math.floor(n * TONE.pine.length)], r);
+  if (kind === "pine") return jitter(TONE.pine[Math.floor(n * TONE.pine.length)], r, 1, 0.5);
   if (kind === "birch") return jitter(r() < 0.07 ? pick(r, TONE.birchGold) : TONE.birch[Math.floor(n * TONE.birch.length)], r);
   if (kind === "broad") return jitter(r() < 0.06 ? pick(r, TONE.autumn) : TONE.broad[Math.floor(n * TONE.broad.length)], r);
+  if (kind === "hedge") return jitter(TONE.hedge[Math.floor(n * TONE.hedge.length)], r, 0.8);
   return jitter(TONE.bush[Math.floor(n * TONE.bush.length)], r);
 }
 
@@ -1536,14 +1769,10 @@ const TREES = {
 
 // The chunk at (x0, z0), size across: everything it grows.
 function growChunk(env, ch) {
-  const { ground } = env;
   const out = new Out();
   const far = ch.far;
-  const S = new Surface(ground, ch.x0, ch.z0, ch.size, far ? FAR_STEP : STEP, far ? env.grids.far : env.grids.near);
-  const x0 = ch.x0;
-  const z0 = ch.z0;
-  const size = ch.size;
-  const inCore = (x, z) => x >= CORE.x0 && x < CORE.x1 && z >= CORE.z0 && z < CORE.z1;
+  const S = new Surface(env.ground, ch.x0, ch.z0, ch.size, far ? FAR_STEP : STEP, far ? env.grids.far : env.grids.near);
+  const { x0, z0, size } = ch;
   // a quick look at the chunk: all sea, or all far beyond the shore?
   let land = false;
   let coast = false;
@@ -1574,16 +1803,202 @@ function growChunk(env, ch) {
     const k = j * FN + i;
     return (FO[k] * (1 - u) + FO[k + 1] * u) * (1 - v) + (FO[k + FN] * (1 - u) + FO[k + FN + 1] * u) * v;
   };
-  // a stream of numbers for each thing the chunk grows, so one never shifts another's
-  const r = rngOf(hash3(ch.i, ch.j, far ? 7 : 3));
-  const plaza = env.plaza;
-  const pierOut = (x, z) => Math.max(Math.abs(x - PIER.x) - PIER.w, z < PIER.z0 - 6 ? PIER.z0 - 6 - z : 0, z > PIER.z1 ? z - PIER.z1 : 0);
+  // what every part of the growing shares
+  const K = {
+    env,
+    out,
+    S,
+    ch,
+    far,
+    forest,
+    look: null,
+    inside: (x, z) => x >= x0 && x < x0 + size && z >= z0 && z < z0 + size,
+  };
+  // the ground's colour, for the grass near the town
+  if (!far && Math.hypot(x0 + size / 2, z0 + size / 2) < MEADOW_R + size) K.look = lookGrid(K);
+  // a stream of numbers for each part, so one never shifts another's
+  treesIn(K, rngOf(hash3(ch.i, ch.j, far ? 7 : 3)));
+  if (!far) {
+    clustersIn(K);
+    sitesIn(K);
+    lanesIn(K);
+  }
+  rocksIn(K, rngOf(hash3(ch.i, ch.j, far ? 17 : 13)));
+  if (!far) {
+    farmIn(K);
+    if (K.look) {
+      padsIn(K);
+      meadowIn(K, rngOf(hash3(ch.i, ch.j, 23)));
+    }
+  }
+  ch.fields = !far ? fieldSkin(env, S, ch) : null;
+  return out.trim();
+}
 
-  // ---------------------------------------------------------------- trees and bushes
-  // spruces near the town (where the camera comes close) are the finer ones
-  const close = !far && nearSite(x0 + size / 2, z0 + size / 2);
-  const cellT = far ? 15 : 5;
-  const nT = size / cellT;
+// The ground's colour on a coarse grid over the chunk (as terrain.js paints it), and a reader between its points.
+function lookGrid(K) {
+  const { S } = K;
+  const { x0, z0, size } = K.ch;
+  const LS = 8;
+  const LN = size / LS + 1;
+  const LOOK = new Float32Array(LN * LN * 3);
+  for (let j = 0; j < LN; j++)
+    for (let i = 0; i < LN; i++) {
+      const x = x0 + i * LS;
+      const z = z0 + j * LS;
+      const h = S.at(x, z);
+      LOOK.set(groundLook(x, z, h, 0)[0], (j * LN + i) * 3);
+    }
+  return (x, z) => {
+    const fx = clamp((x - x0) / LS, 0, LN - 1.001);
+    const fz = clamp((z - z0) / LS, 0, LN - 1.001);
+    const i = Math.floor(fx);
+    const j = Math.floor(fz);
+    const u = fx - i;
+    const v = fz - j;
+    const k = (j * LN + i) * 3;
+    const o = [0, 0, 0];
+    const k2 = k + LN * 3;
+    for (let c = 0; c < 3; c++) o[c] = (LOOK[k + c] * (1 - u) + LOOK[k + 3 + c] * u) * (1 - v) + (LOOK[k2 + c] * (1 - u) + LOOK[k2 + 3 + c] * u) * v;
+    return o;
+  };
+}
+
+// Whether a tree with a crown this wide has room at (x, z): off the pads, the pads kept clear, the lanes,
+// the plaza, the pier, the rivers, the shore and the fields.
+function roomFor(K, x, z, crown) {
+  const { env } = K;
+  if (env.padOut(x, z) < 4 + crown * 0.6) return false;
+  if (env.siteOut(x, z) < 3 + crown * 0.5) return false;
+  if (env.lane.dist(x, z) < 3 + crown * 0.55) return false;
+  if (rectOut(env.plaza, x, z) < 14 + crown) return false;
+  if (pierOut(x, z) < 10) return false;
+  const rv = riverAt(x, z);
+  if (rv && !rv.past && rv.d - rv.w / 2 < 2 + crown * 0.35) return false;
+  if (shoreDist(x, z) < 4 + crown * 0.4) return false;
+  if (fieldAt(env.farm, x, z, 4 + crown)) return false;
+  return true;
+}
+
+// Which spruce: the finer one near the town (where the camera comes close), the plainer one further off,
+// and on the far hills the plainest, unless the town is near enough to see it close.
+function spruceBatch(K, x, z) {
+  if (K.far) return siteBoxOut(x, z) < 300 ? "spruceLo" : "spruceDist";
+  return Math.hypot(x, z) < 200 || K.env.siteNear(x, z) < 90 ? "spruce" : "spruceLo";
+}
+
+// A tree of a kind, h tall, at (x, z), if the ground there is not too steep (the room is the caller's to find).
+// o: { tint, w (its tint's fourth part), lean, windward (a lean away from the sea), wk (how wide), lone (a
+// contact shade and grass round its foot) }
+function plantTree(K, r, kind, x, z, h, o = {}) {
+  const { S, out } = K;
+  S.at(x, z);
+  if (S.slope > 0.78) return false;
+  const lean = o.lean ?? 0.035;
+  const tx = (r() - 0.5) * lean * 2 - (o.windward ?? 0);
+  const tz = (r() - 0.5) * lean * 2;
+  const sink = 0.3 + S.slope * 0.6 + (K.far ? 1 : 0);
+  const wk = (o.wk ?? 1) * (0.85 + r() * 0.3);
+  const tint = o.tint ?? treeTint(kind, x, z, r);
+  const batch = kind === "spruce" ? spruceBatch(K, x, z) : kind;
+  put(out, batch, x, S.h - sink, z, r() * Math.PI * 2, h * wk, h, h * wk * (0.9 + r() * 0.2), tx, tz, tint, o.w ?? r());
+  if (o.lone && !K.far) {
+    const crown = h * TREES[kind].r;
+    shade(out, S, x, z, crown * 1.05, 0.5);
+    if (K.look) tuftRing(K, r, x, z, Math.max(0.6, h * 0.035), 2 + Math.floor(r() * 3));
+  }
+  return true;
+}
+
+// A bush at (x, z), if there is room for it, with grass round it in the meadow.
+// o: { onSite (may stand on a pad kept clear: a thicket), yaw, stretch (along yaw, for a hedge), tint, grass }
+function bushAt(K, r, x, z, k, o = {}) {
+  const { env, S, out } = K;
+  const s = (1.4 + r() * 1.6) * k;
+  const tint = o.tint ?? treeTint("bush", x, z, r);
+  const yaw = o.yaw ?? r() * 6.28;
+  const sx = s * (0.9 + r() * 0.3) * (o.stretch ?? 1);
+  const sy = s * (0.7 + r() * 0.4);
+  const w = r();
+  if (shoreDist(x, z) < 5) return false;
+  if (env.padOut(x, z) < 4) return false;
+  if (!o.onSite && env.siteOut(x, z) < 2) return false;
+  if (env.lane.dist(x, z) < 3) return false;
+  if (rectOut(env.plaza, x, z) < 6) return false;
+  const rv = riverAt(x, z);
+  if (rv && !rv.past && rv.d < rv.w / 2 + 1.6) return false;
+  if (fieldAt(env.farm, x, z, 2)) return false;
+  S.at(x, z);
+  if (S.slope > 0.7) return false;
+  putOnSlope(out, "bush", x, S.h - 0.1, z, yaw, sx, sy, s, S.gx, S.gz, tint, w, 0.5);
+  shade(out, S, x, z, s * 0.75, 0.45, yaw, o.stretch ?? 1);
+  if (K.look && o.grass !== false) tuftRing(K, r, x, z, s * 0.45, 1 + Math.floor(r() * 3));
+  return true;
+}
+
+// A mound of n bushes about (x, z) that reads as one thicket, k their size.
+function bushClump(K, r, x, z, n, k, o = {}) {
+  const tint = o.tint ?? treeTint("bush", x, z, r);
+  for (let i = 0; i < n; i++) {
+    const a = r() * Math.PI * 2;
+    const d = i ? (0.9 + r() * 1.3) * k : 0;
+    const t2 = jitter(tint, r, 0.5);
+    bushAt(K, r, x + Math.cos(a) * d, z + Math.sin(a) * d, k * (i ? 0.75 + r() * 0.3 : 1.05), { ...o, tint: t2, grass: i === 0 });
+  }
+}
+
+// Whether grass may grow at (x, z): not on the shore, the sand, a pad, the plaza, a lane, a river, a crop or a steep bank.
+function grassOk(K, x, z) {
+  const { env, S } = K;
+  const sd = shoreDist(x, z);
+  if (sd < 6) return false;
+  if (env.padOut(x, z) < 0.6) return false;
+  if (rectOut(env.plaza, x, z) < 1.5) return false;
+  if (env.lane.dist(x, z) < 1.9) return false;
+  const rv = riverAt(x, z);
+  if (rv && !rv.past && rv.d < rv.w / 2 + 1.6) return false;
+  const fd = fieldAt(env.farm, x, z, 0.5);
+  if (fd && fd.f.kind !== 4 && cropIn(fd.f, x, z) > -0.3) return false;
+  S.at(x, z);
+  if (S.slope > 0.45) return false;
+  if (S.h < 2.6 && sd < 32) return false;
+  return true;
+}
+
+// A tuft of grass (or a fern) at (x, z) on the ground S has just read. look: the ground's colour there.
+// Each its own height (a third of a metre to a metre) and, in the shader, its own shade of green.
+function tuftAt(K, r, x, z, look, k = 1, fern = false) {
+  const { S, out } = K;
+  const s = (0.8 + r() * 0.6) * k;
+  // a fern is the ground's own colour, greener: never a bright fleck on the dark floor of the woods
+  const j = 0.92 + r() * 0.16;
+  const c = fern ? [look[0] * 0.9 * j, look[1] * 1.12 * j, look[2] * 0.75 * j] : look || TONE.bush[0];
+  const tall = 0.55 + r() * r() * 1.0;
+  putOnSlope(out, "tuft", x, S.h, z, r() * 6.28, s * (0.9 + r() * 0.4), s * tall, s * (0.9 + r() * 0.4), S.gx, S.gz, c, fern ? 2 + r() * 0.9 : r(), 0.8);
+}
+
+// A few tufts round a thing's foot (a tree, a bush, a stone), rad out from its middle.
+function tuftRing(K, r, x, z, rad, n) {
+  for (let i = 0; i < n; i++) {
+    const a = r() * Math.PI * 2;
+    const d = rad + r() * 1.1;
+    const tx = x + Math.cos(a) * d;
+    const tz = z + Math.sin(a) * d;
+    const k = 0.75 + r() * 0.45;
+    if (!K.inside(tx, tz) || Math.hypot(tx, tz) > MEADOW_R || r() > K.env.detail) continue;
+    if (!grassOk(K, tx, tz)) continue;
+    if (K.forest(tx, tz) > 0.4) continue;
+    tuftAt(K, r, tx, tz, K.look(tx, tz), k);
+  }
+}
+
+// The trees on a jittered grid: the woods, the old groves, the rivers' trees, the cliff tops' pines.
+function treesIn(K, r) {
+  const { env, ch, far, forest, S } = K;
+  const { x0, z0, size } = ch;
+  const inCore = (x, z) => x >= CORE.x0 && x < CORE.x1 && z >= CORE.z0 && z < CORE.z1;
+  const nT = far ? 8 : 11;
+  const cellT = size / nT;
   for (let cj = 0; cj < nT; cj++)
     for (let ci = 0; ci < nT; ci++) {
       const x = x0 + (ci + 0.15 + r() * 0.7) * cellT;
@@ -1596,10 +2011,10 @@ function growChunk(env, ch) {
       if (sd < 6) continue;
       const fo = forest(x, z);
       const rad = Math.hypot(x, z);
-      // how likely a tree is here: the woods, a grove, a lone tree in the meadow, the river's trees
-      let p = smooth(0.06, 0.55, fo) * 0.9;
+      // how likely a tree is here: the woods, a grove, the river's trees
+      let p = smooth(0.06, 0.55, fo) * 0.92;
       const grove = smooth(0.12, 0.42, fbm2(x / 64 + 5.3, z / 64 - 3.1, 2)) * smooth(40, 90, rad) * smooth(14, 30, sd);
-      p = Math.max(p, grove * 0.42, 0.03 * smooth(40, 80, rad) * smooth(14, 30, sd));
+      p = Math.max(p, grove * 0.42);
       let rv = null;
       let byRiver = 0;
       if (!far) {
@@ -1614,200 +2029,293 @@ function growChunk(env, ch) {
       // the cliff tops' pines
       const lip = !far && Math.abs(x) > 70 && sd < 45 && cliffTop(x) > 6 ? smooth(6, 14, sd) * (1 - smooth(28, 45, sd)) : 0;
       p = Math.max(p, lip * 0.35 * smooth(-0.3, 0.3, noise2(x / 30 + 4.1, z / 30)));
+      // a pad past the frontier grows its own (sitesIn), unless the woods stand there
+      if (!far) {
+        const open = env.openAt(x, z, 2);
+        if (open && siteUse(open).use !== "woods") p = 0;
+      }
       if (roll > p * (far ? env.detail : 1)) {
-        // no tree: perhaps a bush at the woods' edge or by the water
+        // no tree: perhaps a few bushes together at the woods' edge or by the water
         if (far) continue;
-        const edgeB = smooth(0.02, 0.15, fo) * (1 - smooth(0.3, 0.6, fo));
-        const pb = Math.max(edgeB * 0.5, byRiver * 0.22, grove * 0.12);
-        if (roll2 < pb * env.detail) bushAt(env, out, S, r, x, z, sd, 1);
+        const edgeB = smooth(0.04, 0.16, fo) * (1 - smooth(0.3, 0.6, fo));
+        const pb = Math.max(edgeB * 0.3, byRiver * 0.2);
+        if (roll2 < pb * env.detail) bushClump(K, r, x, z, 2 + Math.floor(r() * 2), 0.9);
         continue;
       }
-      // what grows here
+      // what grows here (few pines deep in the woods: the woods are spruce)
       let kind = "spruce";
       const t = r();
       const town = 1 - smooth(140, 300, rad);
       if (byRiver > 0.3 && fo < 0.5) kind = t < 0.45 ? "birch" : t < 0.8 ? "broad" : "spruce";
       else if (lip > 0.3) kind = t < 0.55 ? "pine" : "spruce";
       else if (fo < 0.3 && rad < 320) kind = t < 0.5 * town + 0.15 ? "broad" : t < 0.62 ? "spruce" : t < 0.8 ? "pine" : "birch";
-      else kind = t < 0.8 ? "spruce" : t < 0.93 ? "pine" : t < 0.97 && rad < 400 ? "broad" : "birch";
+      else kind = t < 0.87 ? "spruce" : t < 0.92 ? "pine" : t < 0.96 && rad < 400 ? "broad" : "birch";
       if (far) kind = "spruce";
       const T = TREES[kind];
       // smaller at the woods' edge and high up, bigger deep in them
       const deep = smooth(0.3, 0.9, fo);
       let h = lerp(T.h[0], T.h[1], clamp(r() * 0.75 + deep * 0.35, 0, 1));
       S.at(x, z);
-      const gy = S.h;
-      h *= 1 - smooth(70, 125, gy) * 0.35;
+      h *= 1 - smooth(70, 125, S.h) * 0.35;
       if (far) h *= 1.2;
       const crown = h * T.r;
-      // room: off the pads, the sites, the lanes, the plaza, the rivers, the shore, the fields
+      // room: off the pads, the pads kept clear (their edges a little ragged), the lanes, the plaza, the rivers, the shore, the fields
       if (!far) {
         if (env.padOut(x, z) < 4 + crown * 0.6) continue;
-        const siteM = 3 + crown * 0.5 + 3 * noise2(x / 9 + 1.7, z / 9 - 3.3);
-        if (env.siteOut(x, z) < siteM) {
-          // a site in the woods keeps some of the woods' undergrowth till a build comes: thickets, not a scatter
-          const thicket = smooth(0.1, 0.5, noise2(x / 15 + 3.7, z / 15 - 1.9));
-          if (fo > 0.25 && roll2 < 0.8 * thicket * env.detail) bushAt(env, out, S, r, x, z, sd, 0.9, true);
-          continue;
-        }
+        if (env.siteOut(x, z) < 3 + crown * 0.5 + 3 * noise2(x / 9 + 1.7, z / 9 - 3.3)) continue;
         if (env.lane.dist(x, z) < 3 + crown * 0.55) continue;
-        if (rectOut(plaza, x, z) < 14 + crown) continue;
+        if (rectOut(env.plaza, x, z) < 14 + crown) continue;
         if (pierOut(x, z) < 10) continue;
         if (rv && !rv.past && rv.d - rv.w / 2 < 2 + crown * 0.35) continue;
         if (sd < 4 + crown * 0.4) continue;
-        const fd = fieldAt(env.farm, x, z, 4 + crown);
-        if (fd) {
+        if (fieldAt(env.farm, x, z, 4 + crown)) {
           // the woods' edge round a field cut in them: a hedge of bushes
-          if (fo > 0.3 && roll2 < 0.45 * env.detail) bushAt(env, out, S, r, x, z, sd, 1);
+          if (fo > 0.3 && roll2 < 0.4 * env.detail) bushAt(K, r, x, z, 1, { grass: false });
           continue;
         }
       }
-      if (S.slope > 0.78) continue;
-      // a lean (on the cliff tops, away from the sea's wind)
-      const lean = 0.035 + lip * 0.07;
-      const tx = (r() - 0.5) * lean * 2 - lip * 0.06;
-      const tz = (r() - 0.5) * lean * 2;
-      const sink = 0.3 + S.slope * 0.6 + (far ? 1 : 0);
-      const wk = 0.85 + r() * 0.3;
-      const tint = treeTint(kind, x, z, r);
-      const batch = kind !== "spruce" ? kind : far ? "spruceDist" : close ? "spruce" : "spruceLo";
-      put(out, batch, x, gy - sink, z, r() * Math.PI * 2, h * wk, h, h * wk * (0.9 + r() * 0.2), tx, tz, tint, r());
-      // contact shade under the lone trees
-      if (!far && fo < 0.45) shade(out, S, x, z, crown * 1.05, 0.5);
-      // bushes at the foot of some
-      if (!far && fo < 0.5 && r() < 0.25 * env.detail) bushAt(env, out, S, r, x + (r() - 0.5) * crown * 1.6, z + (r() - 0.5) * crown * 1.6, sd, 0.8);
+      // in the woods the trees stand a little wider, so fewer fill the canopy
+      const ok = plantTree(K, r, kind, x, z, h, { lean: 0.035 + lip * 0.07, windward: lip * 0.06, wk: 1 + deep * 0.12, lone: !far && fo < 0.45 });
+      // a bush at the foot of some lone ones
+      if (ok && !far && fo < 0.5 && r() < 0.22 * env.detail) bushAt(K, r, x + (r() - 0.5) * crown * 1.6, z + (r() - 0.5) * crown * 1.6, 0.8);
     }
+}
 
-  // ---------------------------------------------------------------- bushes along the lanes (each lane's own seed)
-  if (!far && env.lane.segs.length) {
-    for (const [ax, az, bx, bz] of env.lane.segs) {
-      if (Math.max(ax, bx) < x0 - 10 || Math.min(ax, bx) > x0 + size + 10 || Math.max(az, bz) < z0 - 10 || Math.min(az, bz) > z0 + size + 10) continue;
-      const r = rngOf(hash3(Math.round(ax * 10), Math.round(az * 10), Math.round(bx * 10 + bz * 7)));
-      const L = Math.hypot(bx - ax, bz - az);
-      const n = Math.floor(L / 7);
-      for (let s = 0; s < n; s++) {
-        const t = (s + r()) / n;
-        const side = r() < 0.5 ? -1 : 1;
-        const off = 4 + r() * 3.5;
-        const x = lerp(ax, bx, t) + (-(bz - az) / L) * off * side;
-        const z = lerp(az, bz, t) + ((bx - ax) / L) * off * side;
-        if (x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
-        const roll = r();
-        if (roll < 0.3) {
-          if (roll < 0.3 * env.detail) bushAt(env, out, S, r, x, z, shoreDist(x, z), 0.9);
-        } else if (roll < 0.4) laneTree(env, out, S, r, x + (-(bz - az) / L) * side * 3, z + ((bx - ax) / L) * side * 3);
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------- rocks
-  rocksIn(env, out, S, rngOf(hash3(ch.i, ch.j, far ? 17 : 13)), ch, forest);
-
-  // ---------------------------------------------------------------- the farmland's walls, fences and hay stacks
-  if (!far) {
-    const fe = env.farm.byChunk.get(`${ch.i},${ch.j}`);
-    if (fe) {
-      for (const w of fe.walls) {
-        const rr = rngOf(w.seed);
-        const ha = S.at(w.x0, w.z0);
-        const hb = S.at(w.x1, w.z1);
-        const mx = (w.x0 + w.x1) / 2;
-        const mz = (w.z0 + w.z1) / 2;
-        const hm = S.at(mx, mz);
-        const L = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
-        const yaw = Math.atan2(-(w.z1 - w.z0), w.x1 - w.x0);
-        const pitch = Math.atan2(hb - ha, L);
-        const y = Math.min(hm, (ha + hb) / 2) - 0.05;
-        if (w.stone) put(out, "wall", mx, y, mz, yaw, (L / 2) * 1.06, 0.95 + rr() * 0.25, 1 + rr() * 0.15, 0, pitch, pick(rr, TONE.wall), rr(), "YZX");
-        else put(out, "fence", mx, y, mz, yaw, L / 2.6, 1, 1, 0, pitch * 0.9, jitter(pick(rr, TONE.wood), rr, 0.6), rr(), "YZX");
-        // tufts grown up against the wall's foot
-        for (let k = 0; k < 2; k++) {
-          if (rr() > 0.45 * env.detail) continue;
-          const t = rr();
-          const side = rr() < 0.5 ? -1 : 1;
-          const sx = lerp(w.x0, w.x1, t) + (-(w.z1 - w.z0) / L) * side * 0.55;
-          const sz = lerp(w.z0, w.z1, t) + ((w.x1 - w.x0) / L) * side * 0.55;
-          S.at(sx, sz);
-          tuftAt(out, S, rr, sx, sz, null, 1.2);
+// Lone trees in the meadows come in little clusters (where a broad noise allows): a big parent tree, three
+// to six smaller ones round it, a bush or two at their feet. Each cluster is worked out whole, from its own
+// cell's seed, and each chunk keeps the trees that stand in it.
+function clustersIn(K) {
+  const { ch, env } = K;
+  const CL = 46;
+  const { x0, z0, size } = ch;
+  for (let cj = Math.floor((z0 - 14) / CL); cj <= Math.floor((z0 + size + 14) / CL); cj++)
+    for (let ci = Math.floor((x0 - 14) / CL); ci <= Math.floor((x0 + size + 14) / CL); ci++) {
+      const r = rngOf(hash3(ci, cj, 515));
+      const cx = (ci + 0.2 + r() * 0.6) * CL;
+      const cz = (cj + 0.2 + r() * 0.6) * CL;
+      const roll = r();
+      const rad = Math.hypot(cx, cz);
+      if (rad < 75 || rad > 720) continue;
+      if (shoreDist(cx, cz) < 18) continue;
+      if (forestAt(cx, cz) > 0.35) continue;
+      const p = smooth(-0.15, 0.3, fbm2(cx / 150 + 2.7, cz / 150 - 8.1, 2)) * 0.75 + 0.08;
+      if (roll > p) continue;
+      // a pad past the frontier grows its own; the kept ones turn the trees away one by one
+      if (env.openAt(cx, cz, 3)) continue;
+      const n = 3 + Math.floor(r() * 5);
+      const tp = r();
+      const parent = tp < 0.62 ? "broad" : tp < 0.86 ? "spruce" : "birch";
+      for (let k = 0; k < n; k++) {
+        const a = r() * Math.PI * 2;
+        const d = k ? 3.6 + r() * 5.5 : r() * 1.2;
+        const tk = r();
+        const hk = r();
+        const x = cx + Math.cos(a) * d;
+        const z = cz + Math.sin(a) * d;
+        if (!K.inside(x, z)) continue;
+        const kind = k === 0 ? parent : tk < 0.5 ? parent : tk < 0.78 ? "broad" : tk < 0.92 ? "birch" : "spruce";
+        const T = TREES[kind];
+        const h = k === 0 ? lerp(T.h[1] * 0.85, T.h[1] * 1.08, hk) : lerp(T.h[0] * 0.7, T.h[1] * 0.8, hk);
+        const crown = h * T.r;
+        if (!roomFor(K, x, z, crown)) continue;
+        const rt = rngOf(hash3(ci * 977 + k, cj, 517));
+        if (plantTree(K, rt, kind, x, z, h, { lone: true }) && rt() < 0.45 * env.detail) {
+          const ba = rt() * Math.PI * 2;
+          bushClump(K, rt, x + Math.cos(ba) * crown * 0.8, z + Math.sin(ba) * crown * 0.8, 1 + Math.floor(rt() * 2), 0.8);
         }
       }
-      for (const hk of fe.hay) {
-        const rr = rngOf(hk.seed);
-        S.at(hk.x, hk.z);
-        const sy = hk.s * (0.9 + rr() * 0.2);
-        put(out, "hay", hk.x, S.h - 0.1, hk.z, hk.yaw, hk.s, sy, hk.s, (rr() - 0.5) * 0.05, (rr() - 0.5) * 0.05, jitter(pick(rr, TONE.hay), rr, 0.7), rr());
-        shade(out, S, hk.x, hk.z, 2.2 * hk.s, 0.55);
+    }
+}
+
+// The pads: those kept clear in the woods keep a mound or two of the woods' undergrowth till a build comes;
+// those past the frontier are the countryside till the town comes.
+function sitesIn(K) {
+  const { env, ch } = K;
+  const { x0, z0, size } = ch;
+  const near = (s) => s.x > x0 - 30 && s.x < x0 + size + 30 && s.z > z0 - 30 && s.z < z0 + size + 30;
+  for (const s of env.kept) {
+    if (!near(s) || forestAt(s.x, s.z) < 0.5) continue;
+    const r = rngOf(hash3(s.plot, 29, 3));
+    const mounds = 1 + Math.floor(r() * 2.5);
+    const c = Math.cos(s.ry);
+    const sn = Math.sin(s.ry);
+    for (let m = 0; m < mounds; m++) {
+      const u = (r() - 0.5) * (s.hw * 2 - 10);
+      const v = (r() - 0.5) * (s.hd * 2 - 10);
+      const x = s.x + u * c + v * sn;
+      const z = s.z - u * sn + v * c;
+      const rm = rngOf(hash3(s.plot, m, 31));
+      if (K.inside(x, z) && r() < K.env.detail + 0.2) bushClump(K, rm, x, z, 4 + Math.floor(rm() * 5), 1.05, { onSite: true });
+    }
+  }
+  for (const s of env.open) {
+    if (!near(s)) continue;
+    const U = siteUse(s);
+    if (U.use !== "woods") growSite(K, s, U);
+  }
+}
+
+// A pad past the frontier, grown as what it is till the town comes: hedges along some of its edges (a gap
+// for a gate in each), and in it a grove, an orchard in rows, a meadow with one big tree, a copse of birches
+// or a hay meadow. Its plan comes from its own seed, whatever chunk asks, and each chunk keeps what stands
+// in it. The pads just past the frontier are only hedged meadows, so the town's edge opens gently.
+function growSite(K, s, U) {
+  const { env } = K;
+  const r = rngOf(U.seed);
+  const c = Math.cos(s.ry);
+  const sn = Math.sin(s.ry);
+  const W = (u, v) => [s.x + u * c + v * sn, s.z - u * sn + v * c];
+  const use = s.plot <= env.frontier + 3 ? "meadow" : U.use;
+  // the hedges: edge 0 the front (v = hd), 1 the right (u = hw), 2 the back, 3 the left
+  for (let e = 0; e < 4; e++) {
+    if (!U.hedges[e]) continue;
+    const re = rngOf(hash3(s.plot, e, 61));
+    const half = e % 2 ? s.hd : s.hw;
+    const L = 2 * half - 3;
+    const n = Math.floor(L / 2.5);
+    const gate = Math.floor(re() * (n - 1));
+    const inset = 1.7;
+    const yaw = s.ry + (e % 2 ? Math.PI / 2 : 0);
+    const tint = treeTint("hedge", s.x, s.z, re);
+    for (let k = 0; k < n; k++) {
+      const t = -L / 2 + (k + 0.5) * (L / n) + (re() - 0.5) * 0.5;
+      const roll = re();
+      if (k === gate || k === gate + 1) continue;
+      const [u, v] = e === 0 ? [t, s.hd - inset] : e === 1 ? [s.hw - inset, t] : e === 2 ? [t, -s.hd + inset] : [-s.hw + inset, t];
+      const [x, z] = W(u, v);
+      if (!K.inside(x, z)) continue;
+      const rb = rngOf(hash3(s.plot * 7 + e, k, 63));
+      if (roll < 0.09) {
+        // now and then a tree grown up out of the hedge
+        const kind = rb() < 0.7 ? "broad" : "birch";
+        const h = lerp(TREES[kind].h[0] * 0.8, TREES[kind].h[1] * 0.85, rb());
+        if (roomFor(K, x, z, h * TREES[kind].r)) plantTree(K, rb, kind, x, z, h, { lone: true });
+      } else if (rb() < env.detail + 0.15) bushAt(K, rb, x, z, 0.95, { yaw, stretch: 1.45, tint: jitter(tint, rb, 0.4) });
+    }
+  }
+  // what stands inside
+  const items = [];
+  const tree = (kind, u, v, h, o = {}) => items.push({ kind, u, v, h, o });
+  if (use === "grove") {
+    const gu = (r() - 0.5) * (s.hw * 2 - 18);
+    const gv = (r() - 0.5) * (s.hd * 2 - 18);
+    const pk = r() < 0.7 ? "broad" : "spruce";
+    tree(pk, gu, gv, pk === "broad" ? 9.5 + r() * 2.5 : 14 + r() * 4);
+    const n = 5 + Math.floor(r() * 6);
+    for (let k = 0; k < n; k++) {
+      const a = r() * Math.PI * 2;
+      const d = 3.8 + r() * 6.5;
+      const t = r();
+      const kind = t < 0.55 ? "broad" : t < 0.8 ? "birch" : "spruce";
+      tree(kind, gu + Math.cos(a) * d, gv + Math.sin(a) * d, lerp(TREES[kind].h[0] * 0.75, TREES[kind].h[1] * 0.85, r()));
+    }
+    for (let k = 0; k < 3; k++) {
+      const a = r() * Math.PI * 2;
+      items.push({ kind: "bush", u: gu + Math.cos(a) * (2 + r() * 6), v: gv + Math.sin(a) * (2 + r() * 6), n: 2 + Math.floor(r() * 3) });
+    }
+  } else if (use === "orchard") {
+    // fruit trees in rows of four, a few gaps where one has died
+    const tone = pick(r, TONE.orchard);
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j < 4; j++) {
+        const gap = r() < 0.12;
+        const ju = (r() - 0.5) * 0.8;
+        const jv = (r() - 0.5) * 0.8;
+        const h = 4.2 + r() * 1.5;
+        if (!gap) tree("broad", (i - 1.5) * 7 + ju, (j - 1.5) * 7 + jv, h, { tint: tone, w: 2 + r() * 0.98, fruit: true });
+      }
+  } else if (use === "meadow") {
+    if (r() < 0.65) {
+      const t = r();
+      const kind = t < 0.7 ? "broad" : t < 0.85 ? "spruce" : "birch";
+      tree(kind, (r() < 0.5 ? -1 : 1) * (s.hw - 8 - r() * 4), (r() < 0.5 ? -1 : 1) * (s.hd - 8 - r() * 4), lerp(TREES[kind].h[1] * 0.9, TREES[kind].h[1] * 1.1, r()));
+    }
+    if (r() < 0.5) items.push({ kind: "bush", u: (r() - 0.5) * 20, v: (r() - 0.5) * 20, n: 2 + Math.floor(r() * 3) });
+  } else if (use === "copse") {
+    const gu = (r() - 0.5) * (s.hw * 2 - 16);
+    const gv = (r() - 0.5) * (s.hd * 2 - 16);
+    const n = 4 + Math.floor(r() * 4);
+    for (let k = 0; k < n; k++) {
+      const a = r() * Math.PI * 2;
+      const d = k ? 2.5 + r() * 5 : 0;
+      const kind = r() < 0.82 ? "birch" : "spruce";
+      tree(kind, gu + Math.cos(a) * d, gv + Math.sin(a) * d, lerp(TREES[kind].h[0], TREES[kind].h[1] * 0.9, r()));
+    }
+    items.push({ kind: "bush", u: gu + 4, v: gv - 3, n: 2 });
+  } else if (use === "hay") {
+    const n = 1 + Math.floor(r() * 2);
+    for (let k = 0; k < n; k++) items.push({ kind: "hay", u: (r() - 0.5) * 16, v: (r() - 0.5) * 16, s: 0.75 + r() * 0.3, yaw: r() * 6.28 });
+  }
+  items.forEach((it, k) => {
+    const [x, z] = W(it.u, it.v);
+    if (!K.inside(x, z)) return;
+    const ri = rngOf(hash3(s.plot, k, 71));
+    if (it.kind === "bush") {
+      if (ri() < env.detail + 0.1) bushClump(K, ri, x, z, it.n, 0.9);
+      return;
+    }
+    if (it.kind === "hay") {
+      if (!roomFor(K, x, z, 2)) return;
+      K.S.at(x, z);
+      put(K.out, "hay", x, K.S.h - 0.1, z, it.yaw, it.s, it.s * (0.9 + ri() * 0.2), it.s, (ri() - 0.5) * 0.05, (ri() - 0.5) * 0.05, jitter(pick(ri, TONE.hay), ri, 0.7), ri());
+      shade(K.out, K.S, x, z, 2.2 * it.s, 0.55);
+      if (K.look) tuftRing(K, ri, x, z, 1.8 * it.s, 4);
+      return;
+    }
+    const crown = it.h * TREES[it.kind].r;
+    if (!roomFor(K, x, z, crown)) return;
+    plantTree(K, ri, it.kind, x, z, it.h, { tint: it.o.tint ? jitter(it.o.tint, ri, 0.7) : undefined, w: it.o.w, lone: true });
+  });
+}
+
+// Bushes along the lanes, and now and then a tree (each lane's own seed).
+function lanesIn(K) {
+  const { env, ch } = K;
+  const { x0, z0, size } = ch;
+  for (const [ax, az, bx, bz] of env.lane.segs) {
+    if (Math.max(ax, bx) < x0 - 10 || Math.min(ax, bx) > x0 + size + 10 || Math.max(az, bz) < z0 - 10 || Math.min(az, bz) > z0 + size + 10) continue;
+    const r = rngOf(hash3(Math.round(ax * 10), Math.round(az * 10), Math.round(bx * 10 + bz * 7)));
+    const L = Math.hypot(bx - ax, bz - az);
+    const n = Math.floor(L / 7);
+    for (let s = 0; s < n; s++) {
+      const t = (s + r()) / n;
+      const side = r() < 0.5 ? -1 : 1;
+      const off = 4 + r() * 3.5;
+      const x = lerp(ax, bx, t) + (-(bz - az) / L) * off * side;
+      const z = lerp(az, bz, t) + ((bx - ax) / L) * off * side;
+      if (!K.inside(x, z)) continue;
+      const roll = r();
+      if (roll < 0.3) {
+        if (roll < 0.3 * env.detail) bushClump(K, r, x, z, 1 + Math.floor(r() * 2), 0.85);
+      } else if (roll < 0.4) {
+        const tx = x + (-(bz - az) / L) * side * 3;
+        const tz = z + ((bx - ax) / L) * side * 3;
+        const kind = r() < 0.7 ? "broad" : "birch";
+        const h = lerp(TREES[kind].h[0], TREES[kind].h[1], r());
+        if (shoreDist(tx, tz) > 12 && roomFor(K, tx, tz, h * TREES[kind].r)) plantTree(K, r, kind, tx, tz, h, { lone: true });
       }
     }
   }
-
-  // ---------------------------------------------------------------- tufts, ferns and wildflowers near the town
-  const cx = x0 + size / 2;
-  const cz = z0 + size / 2;
-  if (!far && Math.hypot(cx, cz) < MEADOW_R + size) meadowIn(env, out, S, rngOf(hash3(ch.i, ch.j, 23)), ch, forest);
-
-  ch.fields = !far ? fieldSkin(env, S, ch) : null;
-  return out.trim();
 }
 
-// A broadleaf tree or a birch beside a lane, if there is room for it.
-function laneTree(env, out, S, r, x, z) {
-  const kind = r() < 0.7 ? "broad" : "birch";
-  const T = TREES[kind];
-  const h = lerp(T.h[0], T.h[1], r());
-  const crown = h * T.r;
-  if (env.padOut(x, z) < 4 + crown * 0.6 || env.siteOut(x, z) < 3 + crown * 0.5 || env.lane.dist(x, z) < 3 + crown * 0.55) return;
-  if (rectOut(env.plaza, x, z) < 14 + crown || shoreDist(x, z) < 12) return;
-  const rv = riverAt(x, z);
-  if (rv && !rv.past && rv.d - rv.w / 2 < 2 + crown * 0.35) return;
-  S.at(x, z);
-  if (S.slope > 0.6) return;
-  const wk = 0.85 + r() * 0.3;
-  put(out, kind, x, S.h - 0.3 - S.slope * 0.6, z, r() * 6.28, h * wk, h, h * wk, (r() - 0.5) * 0.06, (r() - 0.5) * 0.06, treeTint(kind, x, z, r), r());
-  shade(out, S, x, z, crown * 1.05, 0.5);
+// How high a stone's top stands over its foot, as a share of its height: [rounded, blocky].
+const ROCK_TOP = [0.6, 0.52];
+
+// A stone into the batches: the rounded or the blocky kind, those over a metre and a half among the
+// boulders that cast the sun's shadow, the smaller ones not (their contact shade is enough).
+function putRock(out, blocky, x, y, z, yaw, sx, sy, sz, gx, gz, tint, moss, tilt) {
+  const big = Math.max(sx, sy, sz) >= 1.5;
+  const kind = big ? (blocky ? "boulderB" : "boulderA") : blocky ? "rockB" : "rockA";
+  putOnSlope(out, kind, x, y, z, yaw, sx, sy, sz, gx, gz, tint, moss, tilt);
 }
 
-// Whether a point is near enough the town (a site, the plaza) that the camera comes close.
-function nearSite(x, z) {
-  if (Math.hypot(x, z) < 230) return true;
-  for (const s of sites()) if (Math.abs(s.x - x) < 125 && Math.abs(s.z - z) < 125) return true;
-  return false;
-}
-
-// A bush (or two) at (x, z), if there is room for it.
-function bushAt(env, out, S, r, x, z, sd, k, onSite = false) {
-  if (sd < 5) return;
-  if (env.padOut(x, z) < 4) return;
-  if (!onSite && env.siteOut(x, z) < 2) return;
-  if (env.lane.dist(x, z) < 3) return;
-  if (rectOut(env.plaza, x, z) < 6) return;
-  const rv = riverAt(x, z);
-  if (rv && !rv.past && rv.d < rv.w / 2 + 1.6) return;
-  if (fieldAt(env.farm, x, z, 2)) return;
-  S.at(x, z);
-  if (S.slope > 0.7) return;
-  const s = (1.4 + r() * 1.6) * k;
-  const tint = treeTint("bush", x, z, r);
-  putOnSlope(out, "bush", x, S.h - 0.1, z, r() * 6.28, s * (0.9 + r() * 0.3), s * (0.7 + r() * 0.4), s, S.gx, S.gz, tint, r(), 0.5);
-  shade(out, S, x, z, s * 0.75, 0.45);
-}
-
-// A tuft of grass (or a fern) at (x, z) on the ground S has just read. look: the ground's colour there.
-function tuftAt(out, S, r, x, z, look, k = 1, fern = false) {
-  const s = (0.85 + r() * 0.7) * k;
-  // a fern is the ground's own colour, greener: never a bright fleck on the dark floor of the woods
-  const j = 0.92 + r() * 0.16;
-  const c = fern ? [look[0] * 0.9 * j, look[1] * 1.12 * j, look[2] * 0.75 * j] : look || TONE.bush[0];
-  putOnSlope(out, "tuft", x, S.h, z, r() * 6.28, s * (0.9 + r() * 0.5), s * (0.7 + r() * 0.5), s * (0.9 + r() * 0.5), S.gx, S.gz, c, fern ? 2 + r() : r(), 0.8);
-}
-
-// The stones a chunk has: on the cliff tops and their feet in the surf, by the rivers, up the mountains, round the stacks.
-function rocksIn(env, out, S, r, ch, forest) {
-  const { x0, z0, size, far } = ch;
-  const rockTint = (rr) => {
-    const c = pick(rr, TONE.rock);
-    return jitter(c, rr, 0.8);
-  };
+// The stones a chunk has: on the cliff tops and heaped at their feet in the surf, by the rivers and under
+// the falls, up the mountains, round the stacks. Nothing in the sea is left with its top under the water.
+function rocksIn(K, r) {
+  const { env, out, S, ch, far, forest } = K;
+  const { x0, z0, size } = ch;
+  const rockTint = (rr) => jitter(pick(rr, TONE.rock), rr, 0.8);
+  // a stone of size s at (x, z), if there is room; its top kept clear of the sea
   const place = (x, z, s, opts = {}) => {
     S.at(x, z);
     // nothing stuck to a cliff's face
@@ -1819,45 +2327,71 @@ function rocksIn(env, out, S, r, ch, forest) {
       if (rectOut(env.plaza, x, z) < 8) return false;
       if (fieldAt(env.farm, x, z, 1 + s)) return false;
     }
-    const kind = r() < 0.45 ? "rockB" : "rockA";
+    const blocky = r() < 0.45;
     const sy = s * (0.55 + r() * 0.5) * (opts.flat ?? 1);
     const y = S.h - sy * (opts.sink ?? 0.18);
+    if (y + sy * ROCK_TOP[blocky ? 1 : 0] < 0.35) return false;
     const moss = opts.moss ?? clamp(0.25 + forest(x, z) * 0.8 + r() * 0.3, 0, 1);
-    putOnSlope(out, kind, x, y, z, r() * 6.28, s * (0.8 + r() * 0.5), sy, s * (0.8 + r() * 0.4), S.gx, S.gz, rockTint(r), moss, opts.tilt ?? 0.6);
+    putRock(out, blocky, x, y, z, r() * 6.28, s * (0.8 + r() * 0.5), sy, s * (0.8 + r() * 0.4), S.gx, S.gz, rockTint(r), moss, opts.tilt ?? 0.6);
     if (!far && opts.shade !== false && y > 0.5) shade(out, S, x, z, s * 0.8, 0.5);
     return true;
   };
-  // the foot of the cliffs: boulders tumbled into the surf, walked along the shore, each big enough to break the water
+  // a stone in the sea or the surf, made tall enough that its top stands at least `top` out of the water
+  const surf = (rr, x, z, s, sink, top = 0.6) => {
+    S.at(x, z);
+    if (S.h > 3.4 || S.h < -4.5 || S.slope > 1.6) return 0;
+    const blocky = rr() < 0.5;
+    const tk = ROCK_TOP[blocky ? 1 : 0];
+    const sy = Math.max(s * (0.6 + rr() * 0.3), (top - S.h) / (tk - sink));
+    const y = S.h - sy * sink;
+    if (y + sy * tk < 0.35 || sy > s * 2.4) return 0;
+    putRock(out, blocky, x, y, z, rr() * 6.28, sy * (1.05 + rr() * 0.5), sy, sy * (0.95 + rr() * 0.4), S.gx, S.gz, rockTint(rr), 0, 0.25);
+    return sy;
+  };
   if (!far) {
-    for (let x = x0 + r() * 2; x < x0 + size; x += 1.6 + r() * 2.6) {
+    // the feet of the cliffs: big boulders tumbled into the surf, each heaped round with smaller ones, more
+    // at the headlands' points, the cove's horns and under the falls
+    for (let x = x0 + r() * 3; x < x0 + size; x += 3 + r() * 4.5) {
       const ct = cliffTop(x);
       const roll = r();
-      const d = -1.2 + r() * r() * 8;
-      const sz = 1.3 + r() * r() * 4.2;
+      const d = -1.5 + r() * r() * 9;
+      const sz = 3 + r() * r() * 5.5;
+      const heap = 3 + Math.floor(r() * 4);
+      const rh = rngOf(hash3(Math.round(x * 10), 7, 41));
       if (ct < 4 || Math.abs(x) < 36) continue;
-      // thicker round the cove, where the camera comes close
-      const cove = 1 - smooth(110, 220, Math.abs(x));
-      const gaps = 0.35 + 0.25 * cove + (0.65 - 0.25 * cove) * smooth(-0.3, 0.3, noise2(x / 17 + 3.3, 0.5));
-      if (roll > (0.75 + 0.2 * cove) * smooth(4, 9, ct) * gaps) continue;
+      const point = smooth(2, 12, coastZ(x) - (coastZ(x - 40) + coastZ(x + 40)) / 2);
+      const horn = smooth(0, 1, 1 - Math.abs(Math.abs(x) - 70) / 30);
+      let fall = 0;
+      for (const rv of RIVERS) fall = Math.max(fall, 1 - smooth(10, 40, Math.abs(x - rv.fall.x)));
+      const gaps = 0.45 + 0.55 * smooth(-0.3, 0.3, noise2(x / 17 + 3.3, 0.5));
+      const p = (0.42 + 0.35 * point + 0.35 * horn + 0.6 * fall) * smooth(4, 9, ct) * gaps;
+      if (roll > p) continue;
       const sl = (coastZ(x + 1) - coastZ(x - 1)) / 2;
       const L = Math.hypot(sl, 1);
       const bx = x - (sl / L) * d;
       const bz = coastZ(x) + d / L;
-      if (bz < z0 || bz >= z0 + size || bx < x0 || bx >= x0 + size) continue;
-      S.at(bx, bz);
-      if (S.h > 3.2 || S.h < -3.2) continue;
-      const sy = Math.max(sz * 0.8, (0.6 - S.h) / 0.42);
-      const kind = r() < 0.5 ? "rockA" : "rockB";
-      putOnSlope(out, kind, bx, S.h - sy * 0.22, bz, r() * 6.28, sy * (1 + r() * 0.5), sy, sy * (0.9 + r() * 0.4), S.gx, S.gz, rockTint(r), 0, 0.25);
-      // and smaller ones heaped round it
-      const m = r() < 0.6 ? 1 + Math.floor(r() * 2.2) : 0;
-      for (let k = 0; k < m; k++) {
-        const ox = bx + (r() - 0.5) * sy * 2.4;
-        const oz = bz + (r() - 0.5) * sy * 2.4;
-        S.at(ox, oz);
-        const ss = sy * (0.4 + r() * 0.3);
-        if (S.h < 2.5 && S.h > -ss * 0.6) putOnSlope(out, "rockA", ox, S.h - ss * 0.2, oz, r() * 6.28, ss * 1.2, ss, ss * 1.1, S.gx, S.gz, rockTint(r), 0, 0.25);
+      if (!K.inside(bx, bz)) continue;
+      const sy = surf(rh, bx, bz, sz, 0.24, 0.9);
+      if (!sy) continue;
+      for (let k = 0; k < heap; k++) {
+        const a = rh() * Math.PI * 2;
+        const dd = sy * (0.7 + rh() * 0.9);
+        surf(rh, bx + Math.cos(a) * dd, bz + Math.sin(a) * dd, sy * (0.3 + rh() * 0.35), 0.28, 0.4);
       }
+    }
+    // scree under the highest cliffs: half-buried stones along their foot
+    for (let x = x0 + r() * 2; x < x0 + size; x += 2.2 + r() * 2.8) {
+      const ct = cliffTop(x);
+      const roll = r();
+      const d = -2.5 + r() * 5;
+      const s = 0.9 + r() * r() * 2.2;
+      const rh = rngOf(hash3(Math.round(x * 10), 9, 43));
+      if (roll > smooth(18, 30, ct) * 0.7) continue;
+      const sl = (coastZ(x + 1) - coastZ(x - 1)) / 2;
+      const L = Math.hypot(sl, 1);
+      const bx = x - (sl / L) * d;
+      const bz = coastZ(x) + d / L;
+      if (K.inside(bx, bz)) surf(rh, bx, bz, s, 0.4, 0.45);
     }
   }
   // a jittered grid over the chunk, each point tried for what it suits
@@ -1871,9 +2405,8 @@ function rocksIn(env, out, S, r, ch, forest) {
       if (far && x >= CORE.x0 && x < CORE.x1 && z >= CORE.z0 && z < CORE.z1) continue;
       if (Math.hypot(x, z) > FAR_R) continue;
       const sd = shoreDist(x, z);
-      if (sd < -14) continue;
-      const ct = cliffTop(x);
       if (sd < 4) continue;
+      const ct = cliffTop(x);
       S.at(x, z);
       const slope = S.slope;
       const h = S.h;
@@ -1891,10 +2424,11 @@ function rocksIn(env, out, S, r, ch, forest) {
       const big = smooth(60, 120, h) + smooth(0.5, 1.0, slope) * 0.6;
       const s = (0.8 + r() * r() * 2.6) * (1 + big * 1.4) * (far ? 1.9 : 1);
       if (!place(x, z, s, { sink: 0.22 + slope * 0.2 })) continue;
-      // a few smaller ones round it, and sometimes a bush
+      // a few smaller ones round it, grass at its foot, and sometimes a bush
       const m = Math.floor(r() * 3);
       for (let k = 0; k < m; k++) place(x + (r() - 0.5) * s * 2.6, z + (r() - 0.5) * s * 2.6, s * (0.3 + r() * 0.35), { sink: 0.25 });
-      if (!far && r() < 0.35 * env.detail && h < 90) bushAt(env, out, S, r, x + (r() - 0.5) * s * 2.2, z + (r() - 0.5) * s * 2.2, sd, 0.8);
+      if (K.look) tuftRing(K, r, x, z, s * 0.55, 2 + Math.floor(r() * 3));
+      if (!far && r() < 0.35 * env.detail && h < 90) bushAt(K, r, x + (r() - 0.5) * s * 2.2, z + (r() - 0.5) * s * 2.2, 0.8);
     }
   if (far) return;
   // the river banks: stones at the water's edge, some in it
@@ -1911,30 +2445,28 @@ function rocksIn(env, out, S, r, ch, forest) {
         const off = sp.w / 2 + (r() - 0.35) * 2.2;
         const x = sp.x + (-nz / L) * off * side;
         const z = sp.z + (nx / L) * off * side;
-        if (x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
+        if (!K.inside(x, z)) continue;
         const s = 0.5 + r() * r() * 1.6;
         place(x, z, s, { sink: 0.3, moss: 0.35 + r() * 0.4, tilt: 0.5, shade: false });
       }
     }
-    // boulders round the foot of the fall, in the sea, and flanking its lip
+    // boulders heaped round the foot of the fall, in the surf, and flanking its lip
     const f = rv.fall;
-    if (f.x > x0 - 20 && f.x < x0 + size + 20 && f.z > z0 - 40 && f.z < z0 + size + 40) {
-      const rr = rngOf(hash3(ch.i, ch.j, 99));
-      for (let k = 0; k < 14; k++) {
-        const along = 3 + rr() * 16;
-        const across = (rr() < 0.5 ? -1 : 1) * (f.w / 2 + 1.5 + rr() * 9);
+    if (f.x > x0 - 30 && f.x < x0 + size + 30 && f.z > z0 - 50 && f.z < z0 + size + 50) {
+      const rr = rngOf(hash3(Math.round(f.x), Math.round(f.z), 99));
+      for (let k = 0; k < 26; k++) {
+        const along = 2 + rr() * 22;
+        const across = (rr() < 0.5 ? -1 : 1) * (f.w / 2 + 1 + rr() * 12);
+        const s = 1.6 + rr() * rr() * 4.2;
+        const rk = rngOf(hash3(Math.round(f.x), k, 101));
         const x = f.x + f.dx * along - f.dz * across;
         const z = f.z + f.dz * along + f.dx * across;
-        if (x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
-        S.at(x, z);
-        if (S.h > 4) continue;
-        place(x, z, 1.4 + rr() * 2.8, { sink: 0.3, moss: 0, tilt: 0.3, shade: false });
+        if (K.inside(x, z)) surf(rk, x, z, s, 0.26, 0.5 + rk() * 0.8);
       }
       for (const side of [-1, 1]) {
         const x = f.x - f.dx * 3 - f.dz * side * (f.w / 2 + 2.2);
         const z = f.z - f.dz * 3 + f.dx * side * (f.w / 2 + 2.2);
-        if (x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
-        place(x, z, 2.2 + rr() * 1.2, { sink: 0.35, moss: 0.6, tilt: 0.4 });
+        if (K.inside(x, z)) place(x, z, 2.2 + rr() * 1.2, { sink: 0.35, moss: 0.6, tilt: 0.4 });
       }
     }
   }
@@ -1946,104 +2478,69 @@ function rocksIn(env, out, S, r, ch, forest) {
     for (let k = 0; k < n; k++) {
       const a = rr() * Math.PI * 2;
       const d = st.r * (0.95 + rr() * 0.6);
+      const s = 1.4 + rr() * 2.4;
+      const rk = rngOf(hash3(Math.round(st.x), k, 7));
       const x = st.x + Math.cos(a) * d;
       const z = st.z + Math.sin(a) * d;
-      if (x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
-      S.at(x, z);
-      if (S.h > 2 || S.h < -3) continue;
-      const sy = Math.max(1.2 + rr() * 2.4, (0.5 - S.h) / 0.42);
-      putOnSlope(out, rr() < 0.5 ? "rockA" : "rockB", x, S.h - sy * 0.22, z, rr() * 6.28, sy * (1 + rr() * 0.4), sy, sy, S.gx, S.gz, rockTint(rr), 0, 0.25);
+      if (K.inside(x, z)) surf(rk, x, z, s, 0.24, 0.5 + rk() * 0.6);
     }
   }
 }
 
-// The meadows: tufts of grass thick near the town and thinning out, ferns in the woods, drifts of wildflowers.
-function meadowIn(env, out, S, r, ch, forest) {
+// The meadows: tufts of grass in clumps, thick near the town and thinning out, ferns in the woods, drifts of wildflowers.
+function meadowIn(K, r) {
+  const { env, ch, forest, look } = K;
   const { x0, z0, size } = ch;
-  // the ground's colour on a coarse grid (as terrain.js paints it), read between its points
-  const LS = 8;
-  const LN = size / LS + 1;
-  const LOOK = new Float32Array(LN * LN * 3);
-  for (let j = 0; j < LN; j++)
-    for (let i = 0; i < LN; i++) {
-      const x = x0 + i * LS;
-      const z = z0 + j * LS;
-      const h = S.at(x, z);
-      const c = groundLook(x, z, h, 0)[0];
-      LOOK.set(c, (j * LN + i) * 3);
-    }
-  const look = (x, z) => {
-    const fx = clamp((x - x0) / LS, 0, LN - 1.001);
-    const fz = clamp((z - z0) / LS, 0, LN - 1.001);
-    const i = Math.floor(fx);
-    const j = Math.floor(fz);
-    const u = fx - i;
-    const v = fz - j;
-    const k = (j * LN + i) * 3;
-    const o = [0, 0, 0];
-    const k2 = k + LN * 3;
-    for (let c = 0; c < 3; c++) o[c] = (LOOK[k + c] * (1 - u) + LOOK[k + 3 + c] * u) * (1 - v) + (LOOK[k2 + c] * (1 - u) + LOOK[k2 + 3 + c] * u) * v;
-    return o;
-  };
-  const free = (x, z, sd) => {
-    if (sd < 6) return false;
-    if (env.padOut(x, z) < 0.6) return false;
-    if (rectOut(env.plaza, x, z) < 1.5) return false;
-    if (env.lane.dist(x, z) < 1.9) return false;
-    return true;
-  };
-  const cell = 1.75;
+  const cell = 1.8;
   const n = Math.round(size / cell);
   for (let j = 0; j < n; j++)
     for (let i = 0; i < n; i++) {
       const x = x0 + (i + r()) * cell;
       const z = z0 + (j + r()) * cell;
       const roll = r();
+      const many = r();
       const rad = Math.hypot(x, z);
       if (rad > MEADOW_R) continue;
-      const sd = shoreDist(x, z);
-      if (sd < 6) continue;
-      // beach and sand
       const fo = forest(x, z);
       const clumps = smooth(-0.35, 0.45, fbm2(x / 13 + 2.2, z / 13 - 7.1, 2));
-      let p = lerp(0.9, 0.16, smooth(90, MEADOW_R, rad)) * (0.5 + 0.5 * clumps);
-      // ferns in clumps under the trees; a site cleared in the woods keeps only a little grass
+      let p = lerp(0.85, 0.14, smooth(90, MEADOW_R, rad)) * (0.35 + 0.65 * clumps);
+      // ferns in clumps under the trees; a pad cleared in the woods keeps only a little grass
       const wood = fo > 0.4;
       const fern = wood && env.siteOut(x, z) > 6;
       if (wood) p = fern ? 0.45 * smooth(0.4, 0.7, fo) * clumps * clumps : 0.3 * clumps;
       if (roll > p * env.detail) continue;
-      if (!free(x, z, sd)) continue;
-      const rv = riverAt(x, z);
-      if (rv && !rv.past && rv.d < rv.w / 2 + 1.6) continue;
-      const fd = fieldAt(env.farm, x, z, 0.5);
-      if (fd && fd.f.kind !== 4) continue;
-      S.at(x, z);
-      if (S.slope > 0.42) continue;
-      if (S.h < 2.6 && sd < 32) continue;
-      tuftAt(out, S, r, x, z, look(x, z), fern ? 1.5 : 1, fern);
+      if (!grassOk(K, x, z)) continue;
+      const c = look(x, z);
+      tuftAt(K, r, x, z, c, fern ? 1.5 : 1, fern);
+      // most come two or three together
+      const more = fern ? 0 : many < 0.45 ? 0 : many < 0.85 ? 1 : 2;
+      for (let k = 0; k < more; k++) {
+        const a = r() * Math.PI * 2;
+        const d = 0.45 + r() * 0.5;
+        const tx = x + Math.cos(a) * d;
+        const tz = z + Math.sin(a) * d;
+        if (K.inside(tx, tz) && grassOk(K, tx, tz)) tuftAt(K, r, tx, tz, c, 0.8 + r() * 0.3);
+      }
     }
   // a fringe of tufts along the lanes' edges, where the grass meets the worn earth
   for (const [ax, az, bx, bz] of env.lane.segs) {
     if (Math.max(ax, bx) < x0 - 4 || Math.min(ax, bx) > x0 + size + 4 || Math.max(az, bz) < z0 - 4 || Math.min(az, bz) > z0 + size + 4) continue;
     const L = Math.hypot(bx - ax, bz - az);
     const rr = rngOf(hash3(Math.round(ax * 10), Math.round(bz * 10), 61));
-    const m = Math.floor(L / 1.1);
+    const m = Math.floor(L / 1.0);
     for (let k = 0; k < m; k++) {
       const t = (k + rr()) / m;
       const side = rr() < 0.5 ? -1 : 1;
-      const off = 2.1 + rr() * 1.1;
+      const off = 2.0 + rr() * 1.2;
       const x = lerp(ax, bx, t) + (-(bz - az) / L) * off * side;
       const z = lerp(az, bz, t) + ((bx - ax) / L) * off * side;
-      if (rr() > 0.7 * env.detail || x < x0 || x >= x0 + size || z < z0 || z >= z0 + size) continue;
-      const sd = shoreDist(x, z);
-      if (!free(x, z, sd)) continue;
-      S.at(x, z);
-      if (S.slope > 0.5) continue;
-      tuftAt(out, S, rr, x, z, look(x, z), 1.0);
+      if (rr() > 0.75 * env.detail || !K.inside(x, z)) continue;
+      if (!grassOk(K, x, z)) continue;
+      tuftAt(K, rr, x, z, look(x, z), 0.9 + rr() * 0.3);
     }
   }
-  // wildflowers in drifts, each drift mostly one colour
-  const fc = 2.6;
+  // wildflowers in drifts, each drift mostly one colour (more in the meadows past the frontier)
+  const fc = 2.9;
   const fnn = Math.round(size / fc);
   const F = TONE.flower;
   for (let j = 0; j < fnn; j++)
@@ -2054,31 +2551,136 @@ function meadowIn(env, out, S, r, ch, forest) {
       const rad = Math.hypot(x, z);
       if (rad > MEADOW_R) continue;
       const drift = smooth(0.12, 0.42, fbm2(x / 26 - 9.2, z / 26 + 4.4, 2));
-      const p = drift * lerp(0.6, 0.2, smooth(80, MEADOW_R, rad)) + 0.04;
+      const open = env.openAt(x, z, 0);
+      const boost = open && siteUse(open).use === "meadow" ? 1.6 : 1;
+      const p = (drift * lerp(0.6, 0.2, smooth(80, MEADOW_R, rad)) + 0.04) * boost;
       if (roll > p * env.detail) continue;
-      const sd = shoreDist(x, z);
-      if (!free(x, z, sd)) continue;
       if (forest(x, z) > 0.3) continue;
-      const rv = riverAt(x, z);
-      if (rv && !rv.past && rv.d < rv.w / 2 + 1.5) continue;
-      const fd = fieldAt(env.farm, x, z, 0.5);
-      if (fd && fd.f.kind !== 4 && fd.f.kind !== 3) continue;
-      S.at(x, z);
-      if (S.slope > 0.4 || (S.h < 2.6 && sd < 32)) continue;
+      if (!grassOk(K, x, z)) continue;
       const hue = fbm2(x / 40 + 3.3, z / 40 + 8.8, 2) + (r() - 0.5) * 0.35;
       let c;
       let eye = 1;
-      if (hue < -0.2) c = F.yellow;
-      else if (hue < 0.12) c = r() < 0.85 ? F.white : F.cream;
-      else if (hue < 0.24) c = r() < 0.6 ? F.purple : F.blue;
-      else if (hue < 0.32) c = F.pink;
+      if (hue < -0.18) c = F.yellow;
+      else if (hue < 0.14) c = r() < 0.85 ? F.white : F.cream;
+      else if (hue < 0.26) c = r() < 0.6 ? F.purple : F.blue;
+      else if (hue < 0.34) c = F.pink;
+      else if (r() < 0.5) c = F.white;
       else {
         c = F.red;
         eye = 0;
       }
       if (c === F.purple || c === F.blue || c === F.pink) eye = r() < 0.5 ? 1 : 0;
-      const s = 0.8 + r() * 0.7;
-      putOnSlope(out, "flower", x, S.h, z, r() * 6.28, s, s * (0.8 + r() * 0.5), s, S.gx, S.gz, jitter(c, r, 0.4), eye, 0.7);
+      const s = 0.85 + r() * 0.5;
+      putOnSlope(K.out, "flower", x, K.S.h, z, r() * 6.28, s, s * (0.85 + r() * 0.35), s, K.S.gx, K.S.gz, jitter(c, r, 0.4), eye, 0.7);
+    }
+}
+
+// Grass grown up round the levelled pads' edges, so each build sits wrapped in it.
+function padsIn(K) {
+  const { env, ch } = K;
+  const { x0, z0, size } = ch;
+  for (const p of env.ground.pads) {
+    if (p.plaza || p.x < x0 - 30 || p.x > x0 + size + 30 || p.z < z0 - 30 || p.z > z0 + size + 30) continue;
+    const r = rngOf(hash3(Math.round(p.x * 10), Math.round(p.z * 10), 81));
+    const c = Math.cos(p.ry);
+    const sn = Math.sin(p.ry);
+    for (let e = 0; e < 4; e++) {
+      const half = e % 2 ? p.hd : p.hw;
+      const n = Math.floor((2 * half) / 1.15);
+      for (let k = 0; k < n; k++) {
+        const t = -half + (k + r()) * ((2 * half) / n);
+        const out = 0.7 + r() * r() * 2.6;
+        const roll = r();
+        const [u, v] = e === 0 ? [t, p.hd + out] : e === 1 ? [p.hw + out, t] : e === 2 ? [t, -p.hd - out] : [-p.hw - out, t];
+        const x = p.x + u * c + v * sn;
+        const z = p.z - u * sn + v * c;
+        if (roll > 0.8 * env.detail || !K.inside(x, z)) continue;
+        if (!grassOk(K, x, z) || K.forest(x, z) > 0.4) continue;
+        tuftAt(K, r, x, z, K.look(x, z), 0.85 + r() * 0.35);
+      }
+    }
+  }
+}
+
+// The farmland in a chunk: its dry-stone walls and fences (the pieces overlapping, so a wall runs on
+// unbroken), a fringe of grass and weeds along them, the hay stacks, and standing wheat at the edges
+// of the wheat fields (and all through those near the town).
+function farmIn(K) {
+  const { env, out, S, ch } = K;
+  const fe = env.farm.byChunk.get(`${ch.i},${ch.j}`);
+  if (fe) {
+    for (const w of fe.walls) {
+      const rr = rngOf(w.seed);
+      const ha = S.at(w.x0, w.z0);
+      const hb = S.at(w.x1, w.z1);
+      const mx = (w.x0 + w.x1) / 2;
+      const mz = (w.z0 + w.z1) / 2;
+      const hm = S.at(mx, mz);
+      const L = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
+      const yaw = Math.atan2(-(w.z1 - w.z0), w.x1 - w.x0);
+      const pitch = Math.atan2(hb - ha, L);
+      const y = Math.min(hm, (ha + hb) / 2) - 0.05;
+      // the wall's height wanders slowly along it, so neighbouring pieces agree
+      const hk = 1 + 0.1 * noise2(mx / 6 + 3.1, mz / 6 - 1.4);
+      if (w.stone) put(out, "wall", mx, y, mz, yaw, (L / 2) * 1.18, 0.98 * hk, 1 + 0.06 * noise2(mx / 5, mz / 5), 0, pitch, pick(rr, TONE.wall), rr(), "YZX");
+      else put(out, "fence", mx, y, mz, yaw, L / 2.6, 1, 1, 0, pitch * 0.9, jitter(pick(rr, TONE.wood), rr, 0.6), rr(), "YZX");
+      // tufts and weeds grown up against the wall's foot on both sides
+      if (!K.look) continue;
+      for (let k = 0; k < 5; k++) {
+        const t = rr();
+        const side = rr() < 0.5 ? -1 : 1;
+        const off = (w.stone ? 0.45 : 0.15) + rr() * 1.1;
+        const roll = rr();
+        const sx = lerp(w.x0, w.x1, t) + (-(w.z1 - w.z0) / L) * side * off;
+        const sz = lerp(w.z0, w.z1, t) + ((w.x1 - w.x0) / L) * side * off;
+        if (roll > 0.8 * env.detail || !K.inside(sx, sz)) continue;
+        S.at(sx, sz);
+        if (S.slope > 0.6) continue;
+        if (roll < 0.06) {
+          putOnSlope(out, "flower", sx, S.h, sz, rr() * 6.28, 0.7, 0.9, 0.7, S.gx, S.gz, jitter(rr() < 0.6 ? TONE.flower.white : TONE.flower.yellow, rr, 0.4), 1, 0.7);
+          continue;
+        }
+        tuftAt(K, rr, sx, sz, K.look(sx, sz), 1.0 + rr() * 0.3);
+      }
+    }
+    for (const hk of fe.hay) {
+      const rr = rngOf(hk.seed);
+      S.at(hk.x, hk.z);
+      const sy = hk.s * (0.9 + rr() * 0.2);
+      put(out, "hay", hk.x, S.h - 0.1, hk.z, hk.yaw, hk.s, sy, hk.s, (rr() - 0.5) * 0.05, (rr() - 0.5) * 0.05, jitter(pick(rr, TONE.hay), rr, 0.7), rr());
+      shade(out, S, hk.x, hk.z, 2.2 * hk.s, 0.55);
+    }
+  }
+  // standing wheat: a band along the edge of every wheat field, and the whole field near the town,
+  // each a gold tuft on a world grid (so a field split by chunks grows the same)
+  const { x0, z0, size } = ch;
+  const seen = new Set();
+  for (const [px, pz] of [[x0, z0], [x0 + size, z0], [x0, z0 + size], [x0 + size, z0 + size], [x0 + size / 2, z0 + size / 2]])
+    for (const f of env.farm.near(px, pz)) {
+      if (f.kind !== 0 || seen.has(f)) continue;
+      seen.add(f);
+      const near = Math.hypot(f.ox, f.oz) < 250;
+      const C = 1.15;
+      const i0 = Math.floor(Math.max(f.box[0], x0) / C);
+      const i1 = Math.floor(Math.min(f.box[2], x0 + size - 0.001) / C);
+      const j0 = Math.floor(Math.max(f.box[1], z0) / C);
+      const j1 = Math.floor(Math.min(f.box[3], z0 + size - 0.001) / C);
+      for (let j = j0; j <= j1; j++)
+        for (let i = i0; i <= i1; i++) {
+          const rr = rngOf(hash3(i, j, 900 + f.n));
+          const x = (i + rr()) * C;
+          const z = (j + rr()) * C;
+          const roll = rr();
+          if (!K.inside(x, z)) continue;
+          const d = cropIn(f, x, z);
+          if (d < 0.15) continue;
+          const p = d < 3.2 ? 0.9 : near ? 0.32 : 0;
+          if (roll > p * env.detail) continue;
+          S.at(x, z);
+          const s = 0.8 + rr() * 0.35;
+          const tint = jitter(pick(rr, TONE.wheat), rr, 0.5);
+          putOnSlope(out, "tuft", x, S.h, z, rr() * 6.28, s, s * (1.05 + rr() * 0.3), s, S.gx, S.gz, tint, 3 + rr() * 0.98, 0.8);
+        }
     }
 }
 
@@ -2110,16 +2712,18 @@ function fieldSkin(env, S, ch) {
     const gx = (S.node(i + 1, j) - S.node(i - 1, j)) / (2 * STEP);
     const gz = (S.node(i, j + 1) - S.node(i, j - 1)) / (2 * STEP);
     const L = Math.hypot(gx, 1, gz);
-    const d = polyIn(f.poly, x, z);
+    const d = cropIn(f, x, z);
     pos.push(x, h, z);
     nor.push(-gx / L, 1 / L, -gz / L);
     const fine = (S.node(i + 2, j) + S.node(i - 2, j) + S.node(i, j + 2) + S.node(i, j - 2)) / 4 - h;
     const c = d < 2.4 ? groundLook(x, z, h, fine)[0] : [0.2, 0.25, 0.1];
     col.push(c[0], c[1], c[2]);
-    // the field's own frame: along its rows (u) and across them (v)
+    // the field's own frame: along its rows (u) and across them (v), the rows bent a little with the ground's contours
     const dx = x - f.ox;
     const dz = z - f.oz;
-    fld.push(dx * f.ux + dz * f.uz, -dx * f.uz + dz * f.ux, f.kind, d);
+    const u = dx * f.ux + dz * f.uz;
+    const vv = -dx * f.uz + dz * f.ux + (h - f.hc) * 1.8 + 2.4 * noise2(u / 42 + f.i * 1.7, f.j * 2.3 + 0.5);
+    fld.push(u, vv, f.kind, d);
     ao.push(clamp(1 - fine * 0.09, 0.5, 1.12));
     v = pos.length / 3 - 1;
     verts.set(key, v);
@@ -2157,64 +2761,114 @@ function fieldSkin(env, S, ch) {
 
 // ------------------------------------------------------------------ the batches
 
-// One kind of thing for the whole coast: an InstancedMesh its chunks' instances are gathered into.
+// The region a chunk's things are drawn with, for the kinds split by region: the west headland, the valley
+// and the east headland (split near the rivers), each north and south of z = -256; then the far hills west,
+// east and north. What is out of the camera's sight, or outside the sun's shadow, is then not drawn.
+function regionOf(ch) {
+  const x = ch.x0 + ch.size / 2;
+  const z = ch.z0 + ch.size / 2;
+  if (ch.far) return x < CORE.x0 ? 6 : x >= CORE.x1 ? 7 : 8;
+  return (z < -256 ? 0 : 3) + (x < -128 ? 0 : x < 192 ? 1 : 2);
+}
+
+// One kind of thing: an InstancedMesh its chunks' instances are gathered into, or for a kind split by
+// region one for each region that has enough of them (the rest share one), each with true bounds so the
+// camera and the sun's shadow pass it by when it is out of their sight.
 class Batch {
-  constructor(group, name, geo, material, { cast = false, receive = true } = {}) {
+  constructor(group, name, geo, material, { cast = false, receive = true, split = false } = {}) {
     this.group = group;
     this.name = name;
     this.geo = geo;
     this.material = material;
     this.cast = cast;
     this.receive = receive;
-    this.mesh = null;
-    this.cap = 0;
+    this.split = split;
+    this.parts = new Map();
     this.count = 0;
+    geo.computeBoundingSphere();
+    this.reach = geo.boundingSphere.radius + geo.boundingSphere.center.length();
   }
-  alloc(cap) {
-    if (this.mesh) {
-      this.group.remove(this.mesh);
-      this.mesh.geometry.dispose();
-    }
+  make(cap) {
     const g = this.geo.clone();
     g.setAttribute("aTint", new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4));
     const m = new THREE.InstancedMesh(g, this.material, cap);
     m.name = "dress-" + this.name;
-    m.frustumCulled = false;
+    // (an InstancedMesh is drawn whatever the camera sees unless told otherwise; its bounds are set in fill())
+    m.frustumCulled = true;
     m.castShadow = this.cast;
     m.receiveShadow = this.receive;
     m.matrixAutoUpdate = false;
-    this.mesh = m;
-    this.cap = cap;
     this.group.add(m);
+    return { mesh: m, cap, o: 0, box: null };
+  }
+  drop(p) {
+    this.group.remove(p.mesh);
+    p.mesh.geometry.dispose();
   }
   fill(chunks) {
-    let n = 0;
-    for (const c of chunks) n += c.out.k[this.name]?.n || 0;
-    if (!this.mesh || n > this.cap) this.alloc(Math.max(16, Math.ceil(n * 1.12)));
-    const M = this.mesh.instanceMatrix.array;
-    const T = this.mesh.geometry.attributes.aTint.array;
-    let o = 0;
+    // how many each region has
+    const per = new Map();
+    let total = 0;
     for (const c of chunks) {
-      const e = c.out.k[this.name];
-      if (!e || !e.n) continue;
-      M.set(e.m.subarray(0, e.n * 16), o * 16);
-      T.set(e.t.subarray(0, e.n * 4), o * 4);
-      o += e.n;
+      const n = c.out?.k[this.name]?.n || 0;
+      if (!n) continue;
+      const reg = this.split ? c.region : 0;
+      per.set(reg, (per.get(reg) || 0) + n);
+      total += n;
     }
-    this.mesh.count = n;
-    this.mesh.visible = n > 0;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.geometry.attributes.aTint.needsUpdate = true;
-    this.count = n;
+    // a region with few of them shares a mesh with the others like it
+    const minN = Math.max(300, total * 0.08);
+    const keyOf = (reg) => (!this.split ? "all" : per.get(reg) >= minN ? "r" + reg : "rest");
+    const want = new Map();
+    for (const [reg, n] of per) want.set(keyOf(reg), (want.get(keyOf(reg)) || 0) + n);
+    for (const [k, p] of this.parts)
+      if (!want.has(k)) {
+        this.drop(p);
+        this.parts.delete(k);
+      }
+    for (const [k, n] of want) {
+      let p = this.parts.get(k);
+      if (!p || n > p.cap) {
+        if (p) this.drop(p);
+        p = this.make(Math.max(16, Math.ceil(n * 1.12)));
+        this.parts.set(k, p);
+      }
+      p.o = 0;
+      p.box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    }
+    for (const c of chunks) {
+      const e = c.out?.k[this.name];
+      if (!e || !e.n) continue;
+      const p = this.parts.get(keyOf(this.split ? c.region : 0));
+      p.mesh.instanceMatrix.array.set(e.m.subarray(0, e.n * 16), p.o * 16);
+      p.mesh.geometry.attributes.aTint.array.set(e.t.subarray(0, e.n * 4), p.o * 4);
+      p.o += e.n;
+      const R = e.big * this.reach;
+      for (let i = 0; i < 3; i++) {
+        p.box[i] = Math.min(p.box[i], e.box[i] - R);
+        p.box[i + 3] = Math.max(p.box[i + 3], e.box[i + 3] + R);
+      }
+    }
+    for (const p of this.parts.values()) {
+      const m = p.mesh;
+      const b = p.box;
+      m.count = p.o;
+      m.visible = p.o > 0;
+      m.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2), Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) / 2);
+      m.instanceMatrix.needsUpdate = true;
+      m.geometry.attributes.aTint.needsUpdate = true;
+    }
+    this.count = total;
   }
   get triangles() {
     return (this.geo.index ? this.geo.index.count / 3 : this.geo.attributes.position.count / 3) * this.count;
   }
+  get meshes() {
+    return [...this.parts.values()].filter((p) => p.o > 0).length;
+  }
   dispose() {
-    if (this.mesh) {
-      this.group.remove(this.mesh);
-      this.mesh.geometry.dispose();
-    }
+    for (const p of this.parts.values()) this.drop(p);
+    this.parts.clear();
     this.geo.dispose();
   }
 }
@@ -2223,6 +2877,9 @@ class Batch {
 
 // A lane as its points: [[x, z], ...] as given, or a lane object's own points ({ points }).
 const lanePoints = (list) => list.map((l) => (Array.isArray(l) ? l : l?.points)).filter((l) => Array.isArray(l) && l.length > 1);
+
+// How long one slice of the growing after the first picture may run before the page gets a turn, in ms.
+const SLICE_MS = 12;
 
 export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail0 = 1 } = {}) {
   const t0 = performance.now();
@@ -2233,6 +2890,7 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
   const DOUBLE = THREE.DoubleSide;
   const mats = {
     foliage: dressMaterial("foliage", { FOLIAGE: 1 }),
+    conifer: dressMaterial("foliage", { FOLIAGE: 1 }, { shadowSide: DOUBLE }),
     rock: dressMaterial("rock", { ROCK: 1 }, { derivatives: true }),
     wall: dressMaterial("wall", { WALL: 1 }),
     solid: dressMaterial("solid", { SOLID: 1 }),
@@ -2241,24 +2899,29 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
     decal: decalMaterial(),
     fields: fieldMaterial(),
   };
+  const SPLIT = { split: true };
+  const CAST = { cast: true, split: true };
   const batches = [
-    new Batch(group, "spruce", spruceGeo(0), mats.foliage, { cast: true }),
-    new Batch(group, "spruceLo", spruceGeo(1), mats.foliage, { cast: true }),
-    new Batch(group, "spruceDist", spruceGeo(2), mats.foliage, { cast: false }),
-    new Batch(group, "pine", pineGeo(), mats.foliage, { cast: true }),
-    new Batch(group, "broad", broadGeo(), mats.foliage, { cast: true }),
-    new Batch(group, "birch", birchGeo(), mats.foliage, { cast: true }),
-    new Batch(group, "bush", bushGeo(), mats.foliage, { cast: true }),
-    new Batch(group, "rockA", rockGeo(0), mats.rock, { cast: true }),
-    new Batch(group, "rockB", rockGeo(1), mats.rock, { cast: true }),
-    new Batch(group, "wall", wallGeo(), mats.wall, { cast: true }),
-    new Batch(group, "fence", fenceGeo(), mats.solid, { cast: true }),
+    new Batch(group, "spruce", spruceGeo(0), mats.conifer, CAST),
+    new Batch(group, "spruceLo", spruceGeo(1), mats.conifer, CAST),
+    new Batch(group, "spruceDist", spruceGeo(2), mats.foliage, SPLIT),
+    new Batch(group, "pine", pineGeo(), mats.foliage, CAST),
+    new Batch(group, "broad", broadGeo(), mats.foliage, CAST),
+    new Batch(group, "birch", birchGeo(), mats.foliage, CAST),
+    new Batch(group, "bush", bushGeo(), mats.foliage, SPLIT),
+    new Batch(group, "boulderA", rockGeo(0), mats.rock, CAST),
+    new Batch(group, "boulderB", rockGeo(1), mats.rock, CAST),
+    new Batch(group, "rockA", rockGeo(0), mats.rock),
+    new Batch(group, "rockB", rockGeo(1), mats.rock),
+    new Batch(group, "wall", wallGeo(), mats.wall),
+    new Batch(group, "fence", fenceGeo(), mats.solid),
     new Batch(group, "hay", hayGeo(), mats.solid, { cast: true }),
-    new Batch(group, "tuft", tuftGeo(), mats.grass),
+    new Batch(group, "tuft", tuftGeo(), mats.grass, SPLIT),
     new Batch(group, "flower", flowerGeo(), mats.blossom),
     new Batch(group, "decal", decalGeo(), mats.decal, { receive: false }),
   ];
   // the chunks: CORE's, then the far ones round it
+  const EMPTY = { k: {} };
   const chunks = [];
   const NX = (CORE.x1 - CORE.x0) / CHUNK;
   const NZ = (CORE.z1 - CORE.z0) / CHUNK;
@@ -2273,6 +2936,12 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
       if (Math.hypot(nx, nz) > FAR_R) continue;
       chunks.push({ i: Math.round(x / FAR_CHUNK) + 1000, j: Math.round(z / FAR_CHUNK) + 1000, x0: x, z0: z, size: FAR_CHUNK, far: true });
     }
+  for (const c of chunks) {
+    c.region = regionOf(c);
+    c.out = EMPTY;
+    c.grown = false;
+    c.d = Math.hypot(c.x0 + c.size / 2, c.z0 + c.size / 2);
+  }
   // the fields' skin: one mesh, made again from its chunks' pieces
   let fieldMesh = null;
   const buildFields = () => {
@@ -2322,28 +2991,69 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
     fieldMesh.matrixAutoUpdate = false;
     group.add(fieldMesh);
   };
-  let env = makeEnv(ground, lanes, detail);
-  for (const c of chunks) c.out = growChunk(env, c);
-  env.grids = null;
-  for (const b of batches) b.fill(chunks);
-  buildFields();
   const stats = {};
   const count = () => {
     stats.chunks = chunks.length;
+    stats.grown = chunks.filter((c) => c.grown).length;
     stats.counts = Object.fromEntries(batches.map((b) => [b.name, b.count]));
     stats.trianglesBy = Object.fromEntries(batches.map((b) => [b.name, Math.round(b.triangles)]));
     stats.triangles = Math.round(batches.reduce((s, b) => s + b.triangles, 0) + (fieldMesh ? fieldMesh.geometry.index.count / 3 : 0));
-    stats.drawCalls = batches.filter((b) => b.count).length + (fieldMesh ? 1 : 0);
-    stats.shadowCalls = batches.filter((b) => b.count && b.cast).length;
+    stats.drawCalls = batches.reduce((s, b) => s + b.meshes, 0) + (fieldMesh ? 1 : 0);
+    stats.shadowCalls = batches.reduce((s, b) => s + (b.cast ? b.meshes : 0), 0);
     stats.fields = env.farm.fields.length;
+    stats.frontier = env.frontier;
   };
+  const fillAll = () => {
+    for (const b of batches) b.fill(chunks);
+    buildFields();
+    count();
+  };
+  let env = makeEnv(ground, lanes, detail);
+  const grow = (c) => {
+    c.out = growChunk(env, c);
+    c.grown = true;
+  };
+  // the first picture: the chunks round the town, nearest first
+  const first = chunks.filter((c) => !c.far && c.d < FIRST_R);
+  for (const c of first) grow(c);
+  fillAll();
   stats.ms = Math.round(performance.now() - t0);
-  count();
+  // the rest in slices, between the page's other work; shown together when the last has grown
+  let dead = false;
+  let work = stats.ms;
+  const pending = chunks.filter((c) => !c.grown).sort((a, b) => b.d - a.d);
+  let done = null;
+  const ready = new Promise((res) => (done = res));
+  const finish = () => {
+    env.grids = null;
+    fillAll();
+    stats.msAll = Math.round(performance.now() - t0);
+    stats.msWork = Math.round(work);
+    if (stage) {
+      stage.still = true;
+      stage.shadowDirty = true;
+    }
+    done(stats);
+  };
+  const slice = () => {
+    if (dead) return;
+    const ts = performance.now();
+    while (pending.length && performance.now() - ts < SLICE_MS) {
+      const c = pending.pop();
+      if (!c.grown) grow(c);
+    }
+    work += performance.now() - ts;
+    if (pending.length) setTimeout(slice, 0);
+    else finish();
+  };
+  if (pending.length) setTimeout(slice, 0);
+  else finish();
   let laneKeys = new Set(lanes.map((l) => JSON.stringify(l)));
   return {
     group,
     stats,
-    // Grows again the chunks any of rects (or a lane that came or went) touches, on the new ground.
+    ready,
+    // Grows again the chunks any of rects (a lane that came or went, a pad the frontier reached) touches, on the new ground.
     update(next, { lanes: nextLanes0 = [] } = {}, rects = []) {
       const t1 = performance.now();
       const nextLanes = lanePoints(nextLanes0);
@@ -2359,28 +3069,38 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
             z1: Math.max(l[i][1], l[i + 1][1]) + 10,
           });
       laneKeys = keys;
+      // the pads the frontier has reached (or left), cleared (or grown) again
+      const was = env.frontier;
       env = makeEnv(next, nextLanes, detail);
+      if (env.frontier !== was)
+        for (const s of sites()) {
+          if (s.plot <= Math.min(was, env.frontier) || s.plot > Math.max(was, env.frontier)) continue;
+          const R = Math.hypot(s.hw, s.hd) + 12;
+          all.push({ x0: s.x - R, z0: s.z - R, x1: s.x + R, z1: s.z + R });
+        }
       const M = 14;
       let n = 0;
       for (const c of chunks) {
+        if (!c.grown) continue;
         if (!all.some((q) => q.x1 >= c.x0 - M && q.x0 <= c.x0 + c.size + M && q.z1 >= c.z0 - M && q.z0 <= c.z0 + c.size + M)) continue;
-        c.out = growChunk(env, c);
+        grow(c);
         n++;
       }
-      env.grids = null;
-      if (n) {
-        for (const b of batches) b.fill(chunks);
-        buildFields();
-      }
-      count();
+      if (!pending.length) env.grids = null;
+      if (n) fillAll();
+      else count();
       stats.updateMs = Math.round(performance.now() - t1);
       stats.updated = n;
       if (stage) stage.still = true;
       return n;
     },
     dispose() {
+      dead = true;
       for (const b of batches) b.dispose();
-      if (fieldMesh) fieldMesh.geometry.dispose();
+      if (fieldMesh) {
+        group.remove(fieldMesh);
+        fieldMesh.geometry.dispose();
+      }
       for (const m of Object.values(mats)) m.dispose();
     },
   };
