@@ -5,7 +5,7 @@ import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
 import { ColorPick, tintOf } from "../camp/ColorPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
-import { DragHandle, UrgencyMark, UrgencyPick } from "../camp/Steps";
+import { DragHandle, UrgencyMark, UrgencyPick, WorkingBadge, WorkingButton } from "../camp/Steps";
 import { CardBadge, ComputerPick } from "../camp/ComputerPick";
 import { useDragSort } from "../../lib/useDragSort";
 
@@ -43,6 +43,7 @@ function useGrow(value) {
 export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKind, onMove, onShift, onToday, isToday, mirror, from, pick, locked = false, idPrefix = "line", sort, badge, computer, onRemove, children }) {
   const note = line.kind === "note";
   const done = Boolean(line.done_on);
+  const working = !note && !done && Boolean(line.working_since);
   const [text, setText] = useState(line.text);
   const [notes, setNotes] = useState(line.note ?? "");
   useEffect(() => {
@@ -73,6 +74,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
         (done ? " done" : "") +
         (open ? " open" : "") +
         (note ? " qs-line--note" : "") +
+        (working ? " working" : "") +
         (line.parent_id ? " qs-line--sub" : "") +
         (sort?.lifted ? " lifted" : "") +
         (sort?.nesting ? " nesting" : "") +
@@ -84,6 +86,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
       }
     >
       <div className="camp-step__row">
+        <div className="camp-check-col">
         {pick ? (
           <button type="button" className="camp-pick" role="checkbox" aria-checked={pick.on} aria-label={pick.on ? "Picked for today. Tap to take it off" : "Pick for today"} onClick={pick.toggle}>
             <Check size={13} strokeWidth={3} aria-hidden="true" />
@@ -97,6 +100,8 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         )}
+        {!pick && !note && !done && !locked && onSave && <WorkingButton on={working} onToggle={() => onSave({ working_since: working ? null : new Date().toISOString() })} />}
+        </div>
         <button type="button" className="camp-step__text" aria-expanded={pick || locked ? undefined : open} aria-pressed={pick ? pick.on : undefined} disabled={locked} onClick={pick ? pick.toggle : onOpen}>
           <CardBadge badge={badge} />
           {mirror && from && <small className="camp-step__from">{from}</small>}
@@ -105,6 +110,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
             <Rich text={line.text} />
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
+          {working && <WorkingBadge />}
           {line.note && !open && (
             <small className="camp-step__note">
               <StickyNote size={11} aria-hidden="true" />

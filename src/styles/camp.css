@@ -193,9 +193,9 @@
   border-radius: 12px; margin: 3px -8px; padding: 0 8px;
 }
 .camp-step.tinted.done > .camp-step__row { background: color-mix(in srgb, var(--tint) 6%, var(--card)); }
-.camp-step.tinted > .camp-step__row > .camp-check { box-shadow: inset 0 0 0 1.5px var(--tint); }
-.camp-step.tinted > .camp-step__row > .camp-check[aria-checked="true"] { background: var(--tint); box-shadow: none; }
-.camp-step.tinted > .camp-step__row > .qs-pen { color: var(--tint); }
+.camp-step.tinted > .camp-step__row > .camp-check-col > .camp-check { box-shadow: inset 0 0 0 1.5px var(--tint); }
+.camp-step.tinted > .camp-step__row > .camp-check-col > .camp-check[aria-checked="true"] { background: var(--tint); box-shadow: none; }
+.camp-step.tinted > .camp-step__row > .camp-check-col > .qs-pen { color: var(--tint); }
 .camp-step.tinted + .camp-step, .camp-step.tinted + .camp-step.tinted { border-top-color: transparent; }
 
 /* A section in a colour (0089): the whole card takes a lighter wash of it,
@@ -441,6 +441,20 @@
 }
 @keyframes camp-working-glow { 50% { opacity: 0.35; } }
 .camp-step.working > .camp-step__row .camp-check { box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* The tick and, under it, the small "working on it" button. */
+.camp-check-col { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 8px; }
+.camp-work-btn {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  background: var(--card); box-shadow: inset 0 0 0 1.5px var(--line); touch-action: manipulation;
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+}
+.camp-work-btn:active { transform: scale(0.9); }
+.camp-work-btn .camp-working__pulse { width: 7px; height: 7px; background: var(--text-2); }
+.camp-work-btn:not(.on) .camp-working__pulse::after { animation: none; opacity: 0; }
+.camp-work-btn.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.camp-work-btn.on .camp-working__pulse { background: var(--accent); }
+@media (hover: hover) { .camp-work-btn:not(.on):hover { box-shadow: inset 0 0 0 1.5px var(--accent); } }
+.camp-subs .camp-work-btn { width: 18px; height: 18px; }
 .camp-working-toggle {
   display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
   padding: 8px 14px; border-radius: var(--r-pill); border: 1px solid var(--line);
