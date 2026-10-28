@@ -3642,6 +3642,46 @@ export async function deleteQuestTask(id) {
   if (error) throw error;
 }
 
+// A task (and its sub-tasks) turned into a step in a camp (and sub-steps),
+// from Today's board: `steps` are the new rows, the step first, each with
+// its id and the task it was (`from`). Sketches go with them, then the task
+// goes (its sub-tasks with it). `notes` are note lines under it, whose
+// sketches go to the step.
+export async function lineToStep(userId, steps, notes = []) {
+  const [top, ...subs] = steps;
+  const row = ({ from, ...r }) => ({ user_id: userId, ...r });
+  const one = await supabase.from("camp_steps").insert(row(top));
+  if (one.error) throw one.error;
+  if (subs.length) {
+    const rest = await supabase.from("camp_steps").insert(subs.map(row));
+    if (rest.error) throw rest.error;
+  }
+  for (const st of [...steps, ...notes.map((from) => ({ id: top.id, from }))]) {
+    const { error } = await supabase.from("sketches").update({ quest_task_id: null, camp_step_id: st.id }).eq("quest_task_id", st.from);
+    if (error) throw error;
+  }
+  await deleteQuestTask(top.from);
+}
+
+// And back (Undo): the task and its sub-tasks as they were (`tasks`, the
+// task first, with their ids), their sketches, and the step goes.
+export async function stepToLine(userId, tasks, steps) {
+  const [top, ...subs] = tasks;
+  const row = (r) => ({ ...r, user_id: userId });
+  const one = await supabase.from("quest_tasks").insert(row(top));
+  if (one.error) throw one.error;
+  if (subs.length) {
+    const rest = await supabase.from("quest_tasks").insert(subs.map(row));
+    if (rest.error) throw rest.error;
+  }
+  for (const st of steps) {
+    const { error } = await supabase.from("sketches").update({ camp_step_id: null, quest_task_id: st.from }).eq("camp_step_id", st.id);
+    if (error) throw error;
+  }
+  const { error } = await supabase.from("camp_steps").delete().eq("id", steps[0].id);
+  if (error) throw error;
+}
+
 // The order he put a quest's Today in (0092): the keys of what's on it
 // ("step:<id>", "sec:<id>", "line:<id>"), or [] when he hasn't ordered it.
 export async function fetchTodayOrder(userId, questId, day) {

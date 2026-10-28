@@ -214,7 +214,8 @@ export default function TodayBoard({
 
   // By camp: a step or a section let go over another camp's column moves
   // to that camp, just before the card it landed on; over its own, just
-  // moved there. The quest's own list takes only its own lines.
+  // moved there. A task from the quest's list becomes a step in that camp.
+  // The quest's own list takes only its own lines.
   const campCols = useMemo(() => campColumns(cards), [cards]);
   const campKey = (card) => (card.camp ? `camp:${card.camp.id}` : "list");
   function dropCamp(card, hit) {
@@ -229,13 +230,13 @@ export default function TodayBoard({
   }
 
   // The column a card carried out of its list is over, where it can go:
-  // by computer, any; by camp, another camp's (steps and sections only).
+  // by computer, any; by camp, a camp's (not a note line).
   function hitAt(x, y, card) {
     if (view === "computer") {
       const hit = colAt(x, y, card.key);
       return hit && { ...hit, n: hit.col === "none" ? null : Number(hit.col.slice(3)) };
     }
-    if (view === "camp" && card.kind !== "line") {
+    if (view === "camp" && card.actionable) {
       const hit = colAt(x, y, card.key);
       return hit && hit.col !== "list" ? hit : null;
     }
