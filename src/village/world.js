@@ -45,7 +45,7 @@ import { Glade, LENS } from "./glade.js";
 import { makeTerrain } from "./terrain.js";
 import { makeSea } from "./water.js";
 import { makeRivers } from "./rivers.js";
-import { makeDressing } from "./dressing.js";
+import { farmland, makeDressing } from "./dressing.js";
 import { makeLife } from "./life.js";
 import { makeHarbour } from "./harbour.js";
 
@@ -435,13 +435,19 @@ class World {
       return;
     }
     if (job.what === "dressing") {
-      c.dressing = makeDressing(st, this.ground, { lanes: c.lanes });
+      // a phone (a finger for a pointer) gets fewer of the small things: tufts, flowers, bushes, far trees
+      let coarse = false;
+      try {
+        coarse = window.matchMedia("(pointer: coarse)").matches;
+      } catch {}
+      c.dressing = makeDressing(st, this.ground, { lanes: c.lanes, detail: coarse ? 0.5 : 1 });
       st.scene.add(c.dressing.group);
       took("dressing");
       return;
     }
     if (job.what === "life") {
-      c.life = makeLife(st, this.ground, { pads: this.ground.pads });
+      // the herds graze inside the headlands' walled fields
+      c.life = makeLife(st, this.ground, { pads: this.ground.pads, fields: farmland().fields });
       st.scene.add(c.life.group);
       took("life");
       return;

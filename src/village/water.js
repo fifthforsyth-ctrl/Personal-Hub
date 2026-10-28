@@ -55,6 +55,10 @@ const SEA_FS = [
   "  vec3 bed = cameraPosition + ray * (dS / max(dot(ray, fwd), 1e-3));",
   "  float depth = max(0.0, vPW.y - bed.y);",
   "  if (depth < 0.02) discard;",
+  // where the bed is a steep face (a pile, a boulder's side) the water is as deep as it looks, not shallow
+  "  vec3 bN = cross(dFdx(bed), dFdy(bed));",
+  "  float flatK = smoothstep(0.45, 0.85, abs(bN.y) / max(length(bN), 1e-6));",
+  "  float tDepth = max(depth, (1.0 - flatK) * 8.0);",
   // small waves: two layers of the noise drifting different ways, finer near, calmer far
   "  vec2 p = vPW.xz;",
   "  float near = 1.0 - smoothstep(300.0, 1600.0, camD);",
@@ -68,8 +72,8 @@ const SEA_FS = [
   "  float rdS = lin(texture2D(tStillDepth, ruv).r);",
   "  if (rdS < camD) ruv = uv;",
   "  vec3 under = texture2D(tStill, ruv).rgb;",
-  "  vec3 tint = mix(uShallow, uMid, smoothstep(0.5, 5.0, depth));",
-  "  tint = mix(tint, uDeep, smoothstep(5.0, 22.0, depth));",
+  "  vec3 tint = mix(uShallow, uMid, smoothstep(0.5, 5.0, tDepth));",
+  "  tint = mix(tint, uDeep, smoothstep(5.0, 22.0, tDepth));",
   "  float clear = exp(-depth * 0.32);",
   "  vec3 water = mix(tint * 0.92, under * mix(vec3(1.0), uShallow * 1.6, 0.55), clear);",
   // the sky in the water at a glancing angle, and the sun's glints
@@ -81,9 +85,9 @@ const SEA_FS = [
   "  c += uSunCol * (sp * 1.6 + pow(max(dot(R, uSunDir), 0.0), 18.0) * 0.06);",
   // foam: a ruffled edge where the water thins on the sand and round the rocks, and bands that run in to the shore
   "  float fn = texture2D(uNoise, p / 6.0 + vec2(uTime * 0.02, 0.0)).a;",
-  "  float edge = 1.0 - smoothstep(0.0, 0.35 + fn * 0.5, depth);",
+  "  float edge = 1.0 - smoothstep(0.0, mix(0.12, 0.35 + fn * 0.5, flatK), depth);",
   "  float bands = smoothstep(0.62, 0.9, sin(depth * 5.5 - uTime * 1.3 + fn * 3.0) * 0.5 + 0.5) * (1.0 - smoothstep(0.3, 1.3, depth));",
-  "  float foam = clamp(edge + bands * 0.6, 0.0, 1.0) * smoothstep(0.35, 0.6, fn + 0.25);",
+  "  float foam = clamp(edge + bands * 0.6 * flatK, 0.0, 1.0) * smoothstep(0.35, 0.6, fn + 0.25) * mix(0.4, 1.0, flatK);",
   "  c = mix(c, uFoam * (uSunCol * 0.45 + 0.55), foam * 0.85);",
   // the haze, as the land takes it
   "  float f = smoothstep(uFog.x, uFog.y, camD) * 0.94;",
@@ -116,6 +120,7 @@ export function makeSea(stage) {
     uSkyHigh: { value: v3(SEA_LOOK.skyHigh) },
   };
   const material = new THREE.ShaderMaterial({ vertexShader: SEA_VS, fragmentShader: SEA_FS, uniforms, transparent: true, depthWrite: true });
+  material.extensions = { derivatives: true };
   // the sea: from just inland of the shore (the land hides it there) out to the horizon, south of the mountains
   const geo = new THREE.PlaneGeometry(14000, 7700, 1, 1);
   geo.rotateX(-Math.PI / 2);

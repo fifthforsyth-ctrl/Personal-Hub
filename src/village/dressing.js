@@ -26,6 +26,10 @@
 //   frontier reached touches.
 //   stats: { ms (to the first picture), msAll, msWork, chunks, counts: { kind: instances }, triangles,
 //            trianglesBy, drawCalls, shadowCalls, frontier, updateMs, updated }
+//   Nothing grows where harbour.js harbourCovers() says the harbour stands.
+//
+//   farmland() -> { fields, walls, hay }: the walled fields on the two headlands (worked out once), so
+//   life.js can graze its herds and flocks inside them: fields [{ poly: [[x, z] x4], kind, ... }].
 //
 // The land is cut into chunks CHUNK metres square aligned with terrain.js
 // CORE (and past CORE, out to the far hills, chunks FAR_CHUNK square that
@@ -45,6 +49,7 @@
 import * as THREE from "three";
 import { CORE, PALETTE, groundLook } from "./terrain.js";
 import { noiseTexture } from "./glade.js";
+import { harbourCovers } from "./harbour.js";
 import { PIER, RIVERS, STACKS, WORLD_R, cliffTop, coastZ, fbm2, forestAt, naturalAt, noise2, rectOut, riverAt, shoreDist, sites, smooth } from "./coast.js";
 
 export const CHUNK = 64;
@@ -1366,7 +1371,7 @@ function cropIn(f, x, z) {
 // The headlands' fields, worked out once: each field a quad on a turned,
 // jittered grid where the ground is gentle, open, dry and away from the
 // cliffs, the rivers and every build site. { fields: [{ poly, kind, ux, uz, ox, oz }], walls: [...], hay: [...] }
-function farmland() {
+export function farmland() {
   if (FARM) return FARM;
   const fields = [];
   const walls = [];
@@ -1955,6 +1960,8 @@ function plantTree(K, r, kind, x, z, h, o = {}) {
 // o: { onSite (may stand on a pad kept clear: a thicket), yaw, stretch (along yaw, for a hedge), tint, grass }
 function bushAt(K, r, x, z, k, o = {}) {
   const { env, S, out } = K;
+  // nothing grows through the harbour's paving, boards and stores
+  if (harbourCovers(x, z, 0.6)) return;
   const s = (1.4 + r() * 1.6) * k;
   const tint = o.tint ?? treeTint("bush", x, z, r);
   const yaw = o.yaw ?? r() * 6.28;
@@ -1994,6 +2001,7 @@ function grassOk(K, x, z) {
   const sd = shoreDist(x, z);
   if (sd < 6) return false;
   if (env.padOut(x, z) < 0.6) return false;
+  if (harbourCovers(x, z, 0.3)) return false;
   if (rectOut(env.plaza, x, z) < 1.5) return false;
   if (env.lane.dist(x, z) < 1.9) return false;
   const rv = riverAt(x, z);
@@ -2354,6 +2362,7 @@ const ROCK_MID = [0.18, 0.12];
 // A stone into the batches: the rounded or the blocky kind, those over a metre and a half among the
 // boulders that cast the sun's shadow, the smaller ones not (their contact shade is enough).
 function putRock(out, blocky, x, y, z, yaw, sx, sy, sz, gx, gz, tint, moss, tilt) {
+  if (harbourCovers(x, z, 0.5 + Math.max(sx, sz) * 0.5)) return;
   const big = Math.max(sx, sy, sz) >= 1.5;
   const kind = big ? (blocky ? "boulderB" : "boulderA") : blocky ? "rockB" : "rockA";
   putOnSlope(out, kind, x, y, z, yaw, sx, sy, sz, gx, gz, tint, moss, tilt);
