@@ -17,9 +17,11 @@ import { Rich } from "../camp/Rich";
 // tick Today's count counts is here, and only today's are counted.
 export default function DoneToday({ view, quest, all, onView, onClose }) {
   const allCount = all.reduce((n, q) => n + q.count, 0);
-  // "All quests" only says something when another quest has had work done today.
+  // "All quests" only says something when another quest has had work done
+  // today (or, before the open quest's own lines are in, when it counts
+  // differently), so the view it was opened on is kept then.
   const others = all.some((q) => q.questId !== quest?.questId);
-  const showAll = !quest || (view === "all" && others);
+  const showAll = !quest || (view === "all" && (others || quest.count !== allCount));
   const count = showAll ? allCount : quest.count;
   const earlier = showAll || !quest.earlier?.length ? null : { key: "earlier", earlier: true, items: quest.earlier, count: quest.earlier.length };
   return (

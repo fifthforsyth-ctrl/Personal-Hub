@@ -2505,6 +2505,21 @@ function sectionOf({ x, y }) {
   );
   ok("each quest's groups count themselves", all[0].groups.map((g) => g.count).join() === "2,1,2" && all.every((q) => q.count === q.groups.reduce((n, g) => n + g.count, 0)));
   ok("nothing done anywhere, no quests", allDoneToday({}, T).length === 0 && allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T).length === 0);
+
+  // The open quest's own day stands in for what the village knows of it.
+  const fresh = { groups: [{ key: "list", items: [{ id: "n", text: "New", note: null, from: null, subs: [{ id: "n1", text: "Sub", note: null, from: null, subs: [] }] }], count: 2 }], count: 2 };
+  const over = allDoneToday({ items, quests, lessons, camps, tasks, steps: fsteps }, T, { questId: "q", ...fresh });
+  ok(
+    "the open quest's own day replaces the village's, in its place",
+    over.map((q) => `${q.key}:${q.count}`).join() === "q:2,lq:1,other:1,lz:1,old:1" && over[0].groups === fresh.groups && over[0].name === "Plugin",
+    over.map((q) => `${q.key}:${q.count}`).join()
+  );
+  const gone = allDoneToday({ items, quests, lessons, camps, tasks, steps: fsteps }, T, { questId: "q", groups: [], count: 0 });
+  ok("an open quest with nothing done today isn't listed, whatever the village had", gone.map((q) => q.key).join() === "lq,other,lz,old");
+  const added = allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T, { questId: "lq", ...fresh });
+  ok("an open quest the village had nothing for yet is listed", added.length === 1 && added[0].key === "lq" && added[0].name === "Patience" && added[0].count === 2);
+  const unlisted = allDoneToday({ items, quests, lessons, camps, tasks: [], steps: [] }, T, { questId: "old", ...fresh });
+  ok("…and one not along the top too, by its name", unlisted.length === 1 && unlisted[0].name === "Old quest" && unlisted[0].groups === fresh.groups);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

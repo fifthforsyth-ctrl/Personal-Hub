@@ -139,9 +139,25 @@ export default function Quests() {
     () => questDoneToday({ camps: questCamps, sections: campData?.sections, steps: campData?.steps, lines: (lines ?? []).filter((l) => l.quest_id === questId) }, today),
     [questCamps, campData, lines, questId, today]
   );
+  // Once the open quest's own lines and steps are in (and not the last
+  // quest's, for the render before they reload), "All quests" and the
+  // build's count take its day from them, as "This quest" does.
+  const hereLoaded =
+    Boolean(questId) &&
+    lines !== undefined &&
+    campData !== undefined &&
+    lines.every((l) => l.quest_id === questId) &&
+    (campData.steps ?? []).every((s) => questCamps.some((c) => c.id === s.camp_id));
   const doneAll = useMemo(
-    () => (board ? allDoneToday({ items, quests: board.quests, lessons: board.lessons, camps: board.camps, tasks: board.finished.tasks, steps: board.finished.steps }, today) : []),
-    [board, items, today]
+    () =>
+      board
+        ? allDoneToday(
+            { items, quests: board.quests, lessons: board.lessons, camps: board.camps, tasks: board.finished.tasks, steps: board.finished.steps },
+            today,
+            hereLoaded ? { questId, groups: doneHere.groups, count: doneHere.count } : null
+          )
+        : [],
+    [board, items, today, hereLoaded, questId, doneHere]
   );
   const doneAllCount = doneAll.reduce((n, q) => n + q.count, 0);
 

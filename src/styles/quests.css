@@ -260,7 +260,7 @@
 }
 @media (hover: hover) { .qs-done-btn:hover { text-decoration-style: solid; } }
 /* A bigger target for a thumb, in the same room. */
-@media (max-width: 900px) { .qs-done-btn { padding: 10px 4px; margin: -10px -4px; } }
+@media (max-width: 900px), (pointer: coarse) { .qs-done-btn { padding: 10px 4px; margin: -10px -4px; } }
 
 .done-sum { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 14px; }
 .done-sum b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; color: var(--accent-text); font-variant-numeric: tabular-nums; }

@@ -116,7 +116,12 @@ function linesDone(lines, today) {
 // finished (done_at); a step keeps no time it was finished, so steps come
 // in the order they were last changed (updated_at, which every save of a
 // step stamps). Groups are shaped as questDoneToday's.
-export function allDoneToday({ items = [], quests = [], lessons = [], camps = [], tasks = [], steps = [] } = {}, today) {
+//
+// `open` is { questId, groups, count } for the quest that's open, from
+// questDoneToday over what that quest loaded fresh: it stands in for what
+// the village knows of it (which loads once and misses sub-tasks), so the
+// open quest says the same in both views and on the counts that open them.
+export function allDoneToday({ items = [], quests = [], lessons = [], camps = [], tasks = [], steps = [] } = {}, today, open = null) {
   const campOf = new Map((camps ?? []).map((c) => [c.id, c]));
   const byQuest = new Map();
   const add = (questId, kind, row) => {
@@ -133,6 +138,10 @@ export function allDoneToday({ items = [], quests = [], lessons = [], camps = []
   for (const s of steps ?? []) {
     const c = s.done_on === today ? campOf.get(s.camp_id) : null;
     if (c) add(c.quest_id, c.id, s);
+  }
+  if (open?.questId) {
+    if (open.count) byQuest.set(open.questId, byQuest.get(open.questId) ?? { camps: new Map(), list: [] });
+    else byQuest.delete(open.questId);
   }
 
   const lessonName = new Map((lessons ?? []).map((l) => [l.id, l.title]));
@@ -152,6 +161,7 @@ export function allDoneToday({ items = [], quests = [], lessons = [], camps = []
   const when = (at) => (a, b) => String(at(a) ?? "").localeCompare(String(at(b) ?? "")) || String(a.id).localeCompare(String(b.id));
 
   return order.map((q) => {
+    if (q.questId === open?.questId) return { ...q, count: open.count, groups: open.groups };
     const mine = byQuest.get(q.questId);
     const groups = (camps ?? [])
       .filter((c) => c.quest_id === q.questId)
