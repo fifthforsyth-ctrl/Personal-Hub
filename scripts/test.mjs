@@ -56,7 +56,7 @@ import {
   plainReason,
   fanSlots,
 } from "../src/lib/temple.js";
-import { familySearchSync, syncBookmarklet } from "../src/lib/templeSync.js";
+import { familySearchSync, syncBookmarklet, SYNC_VERSION } from "../src/lib/templeSync.js";
 import {
   zoneOf,
   stepIndex,
@@ -1748,6 +1748,7 @@ console.log("\nthe mark");
       baptism: { status: "Completed" },
       initiatory: { status: "InProgressNotPrinted", owner: "M9MG-YS4", ownerName: "Forsyth, Aaron Michael" },
       endowment: { status: "InProgressNotPrinted", owner: "MM6T-QBH", ownerName: "Kiona Rainey" },
+      confirmation: { status: "InProgressNotPrinted", owner: "ZZZZ-999", ownerName: "Forsyth, Aaron Michael", canUnreserve: true },
       sealingsToSpouses: [{ status: "SharedInProgressPrinted", owner: "M9MG-YS4", alternateReservationDetails: { ownerId: "M957-32M", ownerName: "Ashton, Paige" }, relationships: { spouseName: "Grandma" } }],
       sealingsToParents: [{ status: "NotAvailable" }],
     },
@@ -1760,7 +1761,7 @@ console.log("\nthe mark");
     asked.push([opts.method ?? "GET", url]);
     const u = new URL(url, "https://www.familysearch.org");
     const okJ = (j) => ({ ok: true, status: 200, json: async () => j });
-    if (u.pathname === "/platform/users/current") return okJ({ users: [{ id: "M9MG-YS4", personId: "KWBN-5QK" }] });
+    if (u.pathname === "/platform/users/current") return okJ({ users: [{ id: "cis.user.MMMM-ABCD", treeUserId: "M9MG-YS4", personId: "KWBN-5QK" }] });
     if (u.pathname === "/platform/tree/ancestry") return okJ(fsAnc);
     let m;
     if ((m = u.pathname.match(/person\/(.+)\/summary/))) return okJ({ templeRollupStatus: m[1] === "BBBB-222" ? "COMPLETED" : "READY" });
@@ -1774,11 +1775,14 @@ console.log("\nthe mark");
   const fsHeld = (kind) => fsSnap.ordinances.find((o) => o.kind === kind);
   ok("the bookmark only reads", asked.every(([m]) => m === "GET"));
   ok("it reads the pedigree with each person's place in it", fsSnap.people.length === 3 && fsSnap.people[1].generation === 3 && fsSnap.people[2].rollup_status === "COMPLETED");
-  ok("only open ordinances come back, and sealings that can't be done don't", fsSnap.ordinances.map((o) => o.kind).join() === "ini,end,sts");
+  ok("only open ordinances come back, and sealings that can't be done don't", fsSnap.ordinances.map((o) => o.kind).join() === "con,ini,end,sts");
+  ok("it reads you as your tree user id, not your account id", asked.some(([, u]) => u.includes("owner=M9MG-YS4")) && !asked.some(([, u]) => u.includes("cis.user")));
+  ok("a reservation you can give back is yours", fsHeld("con").mine === true);
   ok(
     "each says who holds it",
     fsHeld("ini").mine === true && fsHeld("end").mine === false && fsHeld("end").reserved_by === "Kiona Rainey" && fsHeld("sts").reserved_by === "Ashton, Paige"
   );
+  ok("the snapshot says which bookmark made it", fsSnap.version === SYNC_VERSION && parseSnapshot(JSON.stringify(fsSnap)).version === SYNC_VERSION);
   ok("a completed list it can't read is left out, not emptied", !("done" in fsSnap) && parseSnapshot(JSON.stringify(fsSnap)).done === null);
   const bm = syncBookmarklet({ key: "ts_abc", endpoint: "https://x.supabase.co/functions/v1/temple-sync", hub: "https://hub" });
   let parses = true;

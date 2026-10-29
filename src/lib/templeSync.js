@@ -13,6 +13,10 @@
 // `cfg` carries everything it needs; `cfg.quiet` skips the on-page panel and
 // `cfg.send === false` returns the snapshot without sending it (for tests).
 
+// Bumped whenever the bookmark's code changes, so the Hub can tell you to
+// make a new one (a bookmark keeps the code it was made with).
+export const SYNC_VERSION = 3;
+
 export async function familySearchSync(cfg) {
   const ROOT_FALLBACK = cfg.root || "KWBN-5QK";
   const OWNER_FALLBACK = cfg.owner || "M9MG-YS4";
@@ -80,8 +84,10 @@ export async function familySearchSync(cfg) {
     try {
       const me = await get("/platform/users/current", "application/x-fs-v1+json");
       const u = me && me.users && me.users[0];
-      if (u && u.personId) root = u.personId;
-      if (u && u.id) owner = u.id;
+      if (u && PID.test(u.personId || "")) root = u.personId;
+      // Reservations name you by your tree user id (like M9MG-YS4), not the
+      // account id (cis.user.…).
+      if (u && PID.test(u.treeUserId || "")) owner = u.treeUserId;
     } catch (e) {
       // The ids from the Hub still work.
     }
@@ -111,8 +117,10 @@ export async function familySearchSync(cfg) {
     const holder = (x) => {
       const alt = x.alternateReservationDetails;
       if (alt && alt.ownerId && alt.ownerId !== owner) return { mine: false, reserved_by: alt.ownerName || null };
+      // Only whoever holds a reservation can give it back, so canUnreserve
+      // marks yours even if your id was read differently.
+      if (x.owner === owner || x.canUnreserve === true) return { mine: true, reserved_by: null };
       if (!x.owner) return { mine: null, reserved_by: null };
-      if (x.owner === owner) return { mine: true, reserved_by: null };
       if (x.owner === "MMMM-MMS") return { mine: false, reserved_by: "the temple" };
       return { mine: false, reserved_by: x.ownerName || null };
     };
@@ -311,7 +319,7 @@ export async function familySearchSync(cfg) {
 
     const snap = {
       kind: "hub-temple-snapshot",
-      version: 2,
+      version: cfg.version || 3,
       synced_at: new Date().toISOString(),
       root,
       note: "Read from FamilySearch by the Sync to Hub bookmark.",
@@ -359,6 +367,6 @@ export async function familySearchSync(cfg) {
 
 // The bookmark itself: the function above with this person's key baked in.
 export function syncBookmarklet({ key, endpoint, hub, root, owner }) {
-  const cfg = JSON.stringify({ key, endpoint, hub, root, owner });
+  const cfg = JSON.stringify({ key, endpoint, hub, root, owner, version: SYNC_VERSION });
   return "javascript:" + encodeURIComponent(`void((${familySearchSync.toString()})(${cfg}))`);
 }

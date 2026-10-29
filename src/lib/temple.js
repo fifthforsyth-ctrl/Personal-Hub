@@ -465,6 +465,7 @@ export function parseSnapshot(text) {
   if (!people.length) throw new Error("The snapshot has nobody in it.");
   return {
     syncedAt: synced.toISOString(),
+    version: Number.isInteger(snap.version) ? snap.version : 1,
     people: people.map((p) => ({
       pid: p.pid,
       name: p.name,
