@@ -22,25 +22,32 @@ export const DONE_KIND = { B: "Baptism", C: "Confirmation", I: "Initiatory", E: 
 export const STAGES = [
   { id: "research", name: "Needs research", note: "FamilySearch needs more information first." },
   { id: "permission", name: "Needs permission", note: "Born within 110 years. Log permission to free these." },
-  { id: "ready", name: "Ready", note: "Free to reserve." },
+  { id: "ready", name: "Ready", note: "Free to reserve, or to request from the temple." },
   { id: "mine", name: "Reserved by you", note: "Already yours. These fill trips first." },
-  { id: "shared", name: "With family", note: "Shared with a family group, so someone else is taking them." },
+  { id: "others", name: "Reserved by someone else", note: "Someone else holds these, so they can't go on your trips." },
 ];
 
-const STAGE_OF = {
-  Ready: "ready",
-  InProgressNotPrinted: "mine",
-  InProgressPrinted: "mine",
-  ReservedSharedReady: "mine",
-  SharedInProgressNotPrinted: "shared",
-  SharedInProgressPrinted: "shared",
-  NeedsMoreInformation: "research",
-  NeedsPermission: "permission",
-};
+const RESERVED = new Set(["InProgressNotPrinted", "InProgressPrinted", "SharedInProgressNotPrinted", "SharedInProgressPrinted"]);
 
-// null for anything that isn't open work (Completed, NotAvailable).
-export function stageOf(fsStatus) {
-  return STAGE_OF[fsStatus] ?? null;
+// The stage of one open ordinance, from FamilySearch's status and who holds
+// it. null for anything that isn't open work (Completed, NotAvailable).
+//
+// A reserved ordinance is yours only when FamilySearch says you own it
+// (`mine`, read from its owner when synced). Snapshots from before that
+// was read have no owner, so their own statuses decide as they used to.
+// ReservedSharedReady is held by the temple and can be requested: ready.
+export function stageOf(o) {
+  const s = typeof o === "string" ? o : o?.fs_status;
+  const mine = typeof o === "string" ? null : o?.mine ?? null;
+  if (s === "Ready" || s === "ReservedSharedReady") return "ready";
+  if (s === "NeedsMoreInformation") return "research";
+  if (s === "NeedsPermission") return "permission";
+  if (RESERVED.has(s)) {
+    if (mine === true) return "mine";
+    if (mine === false) return "others";
+    return s.startsWith("Shared") ? "others" : "mine";
+  }
+  return null;
 }
 
 export function genOf(ahnentafel) {
@@ -84,8 +91,12 @@ export function buildTemple({ people = [], ordinances = [], done = [], trips = [
   const byPid = new Map();
   for (const p of people) byPid.set(p.pid, { ...p, gen: p.generation ?? genOf(p.ahnentafel) });
   const open = [];
+  // Every ordinance not yet completed, open or not (NotAvailable too), so an
+  // endowment never goes ahead of an initiatory that isn't done.
+  const pending = [];
   for (const o of ordinances) {
-    const stage = stageOf(o.fs_status);
+    if (o.fs_status !== "Completed") pending.push(o);
+    const stage = stageOf(o);
     if (!stage) continue;
     const person = byPid.get(o.pid) ?? { pid: o.pid, name: o.pid, gender: "U", lifespan: "", gen: null };
     open.push({ ...o, key: ordKey(o), stage, person });
@@ -98,6 +109,7 @@ export function buildTemple({ people = [], ordinances = [], done = [], trips = [
     people,
     byPid,
     open,
+    pending,
     openByPid,
     done,
     trips,
@@ -111,6 +123,7 @@ export function buildTemple({ people = [], ordinances = [], done = [], trips = [
       ready: open.filter((o) => o.stage === "ready").length,
       mine: open.filter((o) => o.stage === "mine").length,
       research: open.filter((o) => o.stage === "research").length,
+      others: open.filter((o) => o.stage === "others").length,
     },
   };
 }
@@ -126,15 +139,21 @@ export const TRIP_TYPES = {
 
 const INDIVIDUAL = ["bap", "con", "ini", "end"];
 
-// An initiatory goes after that person's baptism and confirmation, and an
-// endowment after the initiatory. That's batching, not eligibility.
-export function waitsOn(o, open) {
-  const theirs = open.filter((x) => x.pid === o.pid);
-  if (o.kind === "ini" && theirs.some((x) => x.kind === "bap" || x.kind === "con")) return "baptism";
-  if (o.kind === "end") {
-    if (theirs.some((x) => x.kind === "ini")) return "initiatory";
-    if (theirs.some((x) => x.kind === "bap" || x.kind === "con")) return "baptism";
-  }
+// You can only do an ordinance once the ones before it are completed in
+// FamilySearch: baptism and confirmation before the initiatory, all three
+// before the endowment, and the endowment before a sealing. Anything still
+// open blocks it, whoever holds it and whatever trip it's planned for.
+// `pending` is every ordinance that isn't completed (a list of open ones
+// works too). NotAvailable never blocks: a child who died young has no
+// individual ordinances and can still be sealed.
+export function waitsOn(o, pending) {
+  const theirs = pending.filter((x) => x.pid === o.pid && x.fs_status !== "Completed" && x.fs_status !== "NotAvailable");
+  const has = (...kinds) => theirs.some((x) => kinds.includes(x.kind));
+  if (o.kind === "con") return has("bap") ? "baptism" : null;
+  if (o.kind === "ini") return has("bap", "con") ? "baptism" : null;
+  if (has("bap", "con")) return o.kind === "end" || o.kind === "stp" || o.kind === "sts" ? "baptism" : null;
+  if (o.kind === "end") return has("ini") ? "initiatory" : null;
+  if (o.kind === "stp" || o.kind === "sts") return has("ini") ? "initiatory" : has("end") ? "endowment" : null;
   return null;
 }
 
@@ -156,9 +175,9 @@ export function candidates(view, type, { taken = new Set() } = {}) {
       if (seen.has(couple)) continue;
       seen.add(couple);
     }
-    const waits = type === "seal" ? null : waitsOn(o, view.open);
+    const waits = waitsOn(o, view.pending ?? view.open);
     const lastOne = view.openByPid.get(o.pid) === 1;
-    const why = [o.stage === "mine" ? "Reserved by you" : "Ready"];
+    const why = [o.stage === "mine" ? "Reserved by you" : o.fs_status === "ReservedSharedReady" ? "Request from the temple" : "Ready"];
     if (lastOne) why.push(o.person.gender === "F" ? "Last one for her" : "Last one for him");
     if (o.person.gen) why.push(o.person.gen <= 5 ? relLabel(o.person.gen) : `Gen ${o.person.gen}`);
     out.push({ o, why, waits, lastOne });
@@ -190,7 +209,9 @@ export function fillTrip(view, type, limit) {
   const n = limit ?? T.limit;
   const all = candidates(view, type, { taken: takenKeys(view.trips) });
   const free = all.filter((c) => !c.waits);
-  return { type, limit: n, items: free.slice(0, n), more: Math.max(0, free.length - n), waiting: all.filter((c) => c.waits) };
+  const waiting = [];
+  for (const c of all) if (c.waits && !waiting.some((w) => w.o.pid === c.o.pid)) waiting.push(c);
+  return { type, limit: n, items: free.slice(0, n), more: Math.max(0, free.length - n), waiting };
 }
 
 export function tripItem(o) {
@@ -200,9 +221,21 @@ export function tripItem(o) {
 // A trip is finished when none of its names are still open in FamilySearch.
 // Ticking it here never makes it done.
 export function tripProgress(trip, view) {
-  const openKeys = new Set(view.open.map((o) => o.key));
-  const items = (trip.items ?? []).map((it) => ({ ...it, open: openKeys.has(ordKey({ pid: it.pid, kind: it.kind, spouse_name: it.spouse })) }));
+  const byKey = new Map(view.open.map((o) => [o.key, o]));
+  const items = (trip.items ?? []).map((it) => {
+    const o = byKey.get(ordKey({ pid: it.pid, kind: it.kind, spouse_name: it.spouse }));
+    return { ...it, open: Boolean(o), blocked: o ? blockedReason(o, view) : null };
+  });
   return { items, left: items.filter((i) => i.open).length, finished: items.length > 0 && items.every((i) => !i.open) };
+}
+
+// Why a name on a planned trip can't be done now, from the latest snapshot:
+// someone else holds it, or an earlier ordinance isn't completed yet.
+export function blockedReason(o, view) {
+  if (o.stage === "others") return o.reserved_by ? `Reserved by ${o.reserved_by}` : "Reserved by someone else";
+  if (o.stage !== "mine" && o.stage !== "ready") return STAGES.find((s) => s.id === o.stage)?.name ?? "Not ready";
+  const waits = waitsOn(o, view.pending ?? view.open);
+  return waits ? `Waits on the ${waits}` : null;
 }
 
 export function nextTrip(trips, today) {
@@ -216,7 +249,7 @@ export function nextTrip(trips, today) {
 export function helperNames(view) {
   const by = new Map();
   for (const o of view.open) {
-    if (o.person.gender !== "F" || !INDIVIDUAL.includes(o.kind) || o.stage === "shared") continue;
+    if (o.person.gender !== "F" || !INDIVIDUAL.includes(o.kind) || o.stage === "others") continue;
     if (!by.has(o.pid)) by.set(o.pid, { person: o.person, ords: [], ready: false });
     const g = by.get(o.pid);
     g.ords.push(o);
@@ -421,6 +454,9 @@ export function parseSnapshot(text) {
     (snap.ordinances ?? []).filter((o) => o && o.pid && KIND[o.kind] && o.fs_status),
     (o) => ordKey(o)
   );
+  // A sync that couldn't read the completed list leaves `done` out, and the
+  // list from before stays.
+  const hasDone = Array.isArray(snap.done);
   const done = uniqueBy((snap.done ?? []).filter((d) => d && d.pid && d.name), (d) => d.pid);
   if (!people.length) throw new Error("The snapshot has nobody in it.");
   return {
@@ -442,8 +478,10 @@ export function parseSnapshot(text) {
       spouse_name: o.spouse_name ?? "",
       fs_status: o.fs_status,
       reasons: Array.isArray(o.reasons) ? o.reasons.map(String) : [],
+      reserved_by: typeof o.reserved_by === "string" && o.reserved_by ? o.reserved_by : null,
+      mine: typeof o.mine === "boolean" ? o.mine : null,
     })),
-    done: done.map((d) => ({
+    done: !hasDone ? null : done.map((d) => ({
       pid: d.pid,
       name: d.name,
       gender: ["M", "F"].includes(d.gender) ? d.gender : "U",

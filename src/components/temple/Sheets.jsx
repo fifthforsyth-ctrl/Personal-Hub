@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import Sheet from "../ascent/Sheet";
 import { KIND, STAGES, TRIP_TYPES, fillTrip, fsUrl, plainReason, relLabel, tripItem } from "../../lib/temple";
 import { todayStr, addDays } from "../../lib/planDates";
+import { fmtShortDate } from "./format";
 
 // --- Plan a trip ------------------------------------------------------------------
 
@@ -195,6 +196,7 @@ export function PersonSheet({ view, pid, onClose }) {
                   <div className="t-item__sub">
                     {stageName(o.stage)}
                     {o.stage === "research" && o.reasons?.[0] ? ` · ${plainReason(o.reasons[0])}` : ""}
+                    {o.stage === "others" && o.reserved_by ? ` · ${o.reserved_by}` : ""}
                   </div>
                 </div>
               </div>
@@ -311,6 +313,90 @@ export function HelperSheet({ onClose, onSave }) {
           {saving ? "Saving…" : "Add"}
         </button>
       </form>
+    </Sheet>
+  );
+}
+
+// --- Sync from FamilySearch ----------------------------------------------------------
+
+// The "Sync to Hub" bookmark. It's made here with its own key, dragged to
+// the bookmarks bar once, and tapped on FamilySearch after any family
+// history. A new one retires the old.
+export function SyncSheet({ info, makeBookmark, onLoadFile, onClose }) {
+  const [href, setHref] = useState(null);
+  const [making, setMaking] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const link = useRef(null);
+
+  // React warns about javascript: links, so the bookmark's address is set
+  // on the element directly.
+  useEffect(() => {
+    if (href && link.current) link.current.setAttribute("href", href);
+  }, [href]);
+
+  return (
+    <Sheet title="Sync from FamilySearch" onClose={onClose}>
+      <p className="muted" style={{ margin: "-8px 0 12px", fontSize: 13.5 }}>
+        A bookmark that reads your tree and ordinances from FamilySearch, signed in as you, and sends them here. It only reads; nothing in
+        FamilySearch changes. Temple loads the newest sync whenever you open it.
+      </p>
+      {info && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Your bookmark was made {fmtShortDate(info.created_at.slice(0, 10), true)}
+          {info.last_used_at ? ` and last synced ${fmtShortDate(info.last_used_at.slice(0, 10), true)}` : " and hasn't synced yet"}.
+        </p>
+      )}
+      {!href ? (
+        <button
+          type="button"
+          className="btn btn--accent btn--lg"
+          disabled={making}
+          onClick={async () => {
+            setMaking(true);
+            const h = await makeBookmark();
+            setMaking(false);
+            if (h) setHref(h);
+          }}
+        >
+          {making ? "Making…" : info ? "Make a new bookmark" : "Make my sync bookmark"}
+        </button>
+      ) : (
+        <>
+          <ol className="t-steps">
+            <li>
+              On your computer, drag this button to your bookmarks bar:
+              <div style={{ margin: "10px 0" }}>
+                <a ref={link} className="btn btn--accent t-bookmark" onClick={(e) => e.preventDefault()} draggable="true">
+                  Sync to Hub
+                </a>
+              </div>
+            </li>
+            <li>After you do family history, open familysearch.org (signed in) and tap Sync to Hub. It takes a minute or two and shows its progress in the corner.</li>
+            <li>Open Temple here. It picks up the new sync on its own.</li>
+          </ol>
+          <button
+            type="button"
+            className="btn-link"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(href);
+                setCopied(true);
+              } catch {
+                setCopied(false);
+              }
+            }}
+          >
+            {copied ? "Copied. Paste it as a bookmark's address." : "Can't drag? Copy it instead"}
+          </button>
+          {info && <p className="t-note">Your old bookmark stops working now; delete it from your bookmarks bar.</p>}
+        </>
+      )}
+      <p className="t-note" style={{ marginTop: 16 }}>
+        If the bookmark can't reach the Hub, it saves a file instead.{" "}
+        <button type="button" className="btn-link" onClick={onLoadFile}>
+          Load a snapshot file
+        </button>
+      </p>
     </Sheet>
   );
 }
