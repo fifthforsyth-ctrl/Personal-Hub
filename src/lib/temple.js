@@ -22,25 +22,32 @@ export const DONE_KIND = { B: "Baptism", C: "Confirmation", I: "Initiatory", E: 
 export const STAGES = [
   { id: "research", name: "Needs research", note: "FamilySearch needs more information first." },
   { id: "permission", name: "Needs permission", note: "Born within 110 years. Log permission to free these." },
-  { id: "ready", name: "Ready", note: "Free to reserve." },
+  { id: "ready", name: "Ready", note: "Free to reserve, or to request from the temple." },
   { id: "mine", name: "Reserved by you", note: "Already yours. These fill trips first." },
-  { id: "shared", name: "With family", note: "Shared with a family group, so someone else is taking them." },
+  { id: "others", name: "Reserved by someone else", note: "Someone else holds these, so they can't go on your trips." },
 ];
 
-const STAGE_OF = {
-  Ready: "ready",
-  InProgressNotPrinted: "mine",
-  InProgressPrinted: "mine",
-  ReservedSharedReady: "mine",
-  SharedInProgressNotPrinted: "shared",
-  SharedInProgressPrinted: "shared",
-  NeedsMoreInformation: "research",
-  NeedsPermission: "permission",
-};
+const RESERVED = new Set(["InProgressNotPrinted", "InProgressPrinted", "SharedInProgressNotPrinted", "SharedInProgressPrinted"]);
 
-// null for anything that isn't open work (Completed, NotAvailable).
-export function stageOf(fsStatus) {
-  return STAGE_OF[fsStatus] ?? null;
+// The stage of one open ordinance, from FamilySearch's status and who holds
+// it. null for anything that isn't open work (Completed, NotAvailable).
+//
+// A reserved ordinance is yours only when FamilySearch says you own it
+// (`mine`, read from its owner when synced). Snapshots from before that
+// was read have no owner, so their own statuses decide as they used to.
+// ReservedSharedReady is held by the temple and can be requested: ready.
+export function stageOf(o) {
+  const s = typeof o === "string" ? o : o?.fs_status;
+  const mine = typeof o === "string" ? null : o?.mine ?? null;
+  if (s === "Ready" || s === "ReservedSharedReady") return "ready";
+  if (s === "NeedsMoreInformation") return "research";
+  if (s === "NeedsPermission") return "permission";
+  if (RESERVED.has(s)) {
+    if (mine === true) return "mine";
+    if (mine === false) return "others";
+    return s.startsWith("Shared") ? "others" : "mine";
+  }
+  return null;
 }
 
 export function genOf(ahnentafel) {
@@ -84,20 +91,28 @@ export function buildTemple({ people = [], ordinances = [], done = [], trips = [
   const byPid = new Map();
   for (const p of people) byPid.set(p.pid, { ...p, gen: p.generation ?? genOf(p.ahnentafel) });
   const open = [];
+  // Every ordinance not yet completed, open or not (NotAvailable too), so an
+  // endowment never goes ahead of an initiatory that isn't done.
+  const pending = [];
   for (const o of ordinances) {
-    const stage = stageOf(o.fs_status);
+    if (o.fs_status !== "Completed") pending.push(o);
+    const stage = stageOf(o);
     if (!stage) continue;
     const person = byPid.get(o.pid) ?? { pid: o.pid, name: o.pid, gender: "U", lifespan: "", gen: null };
     open.push({ ...o, key: ordKey(o), stage, person });
   }
   const openByPid = new Map();
   for (const o of open) openByPid.set(o.pid, (openByPid.get(o.pid) ?? 0) + 1);
-  const deceased = people.filter((p) => p.rollup_status !== "LIVING");
-  const completed = people.filter((p) => p.rollup_status === "COMPLETED");
+  // `people` is the pedigree; people you've reserved from outside it are
+  // in byPid only, so the fan, the facts and the totals stay about your tree.
+  const tree = people.filter((p) => p.ahnentafel != null);
+  const deceased = tree.filter((p) => p.rollup_status !== "LIVING");
+  const completed = tree.filter((p) => p.rollup_status === "COMPLETED");
   return {
-    people,
+    people: tree,
     byPid,
     open,
+    pending,
     openByPid,
     done,
     trips,
@@ -105,12 +120,13 @@ export function buildTemple({ people = [], ordinances = [], done = [], trips = [
     helpers,
     lastSync: syncs[0] ?? null,
     counts: {
-      people: people.length,
+      people: tree.length,
       deceased: deceased.length,
       completed: completed.length,
       ready: open.filter((o) => o.stage === "ready").length,
       mine: open.filter((o) => o.stage === "mine").length,
       research: open.filter((o) => o.stage === "research").length,
+      others: open.filter((o) => o.stage === "others").length,
     },
   };
 }
@@ -126,15 +142,21 @@ export const TRIP_TYPES = {
 
 const INDIVIDUAL = ["bap", "con", "ini", "end"];
 
-// An initiatory goes after that person's baptism and confirmation, and an
-// endowment after the initiatory. That's batching, not eligibility.
-export function waitsOn(o, open) {
-  const theirs = open.filter((x) => x.pid === o.pid);
-  if (o.kind === "ini" && theirs.some((x) => x.kind === "bap" || x.kind === "con")) return "baptism";
-  if (o.kind === "end") {
-    if (theirs.some((x) => x.kind === "ini")) return "initiatory";
-    if (theirs.some((x) => x.kind === "bap" || x.kind === "con")) return "baptism";
-  }
+// You can only do an ordinance once the ones before it are completed in
+// FamilySearch: baptism and confirmation before the initiatory, all three
+// before the endowment, and the endowment before a sealing. Anything still
+// open blocks it, whoever holds it and whatever trip it's planned for.
+// `pending` is every ordinance that isn't completed (a list of open ones
+// works too). NotAvailable never blocks: a child who died young has no
+// individual ordinances and can still be sealed.
+export function waitsOn(o, pending) {
+  const theirs = pending.filter((x) => x.pid === o.pid && x.fs_status !== "Completed" && x.fs_status !== "NotAvailable");
+  const has = (...kinds) => theirs.some((x) => kinds.includes(x.kind));
+  if (o.kind === "con") return has("bap") ? "baptism" : null;
+  if (o.kind === "ini") return has("bap", "con") ? "baptism" : null;
+  if (has("bap", "con")) return o.kind === "end" || o.kind === "stp" || o.kind === "sts" ? "baptism" : null;
+  if (o.kind === "end") return has("ini") ? "initiatory" : null;
+  if (o.kind === "stp" || o.kind === "sts") return has("ini") ? "initiatory" : has("end") ? "endowment" : null;
   return null;
 }
 
@@ -148,7 +170,8 @@ export function candidates(view, type, { taken = new Set() } = {}) {
   const out = [];
   for (const o of view.open) {
     if (!T.kinds.includes(o.kind)) continue;
-    if (o.stage !== "ready" && o.stage !== "mine") continue;
+    // You reserve the names; the Hub only plans what you already hold.
+    if (o.stage !== "mine") continue;
     if (taken.has(o.key)) continue;
     if (type !== "seal" && o.person.gender !== "M") continue;
     if (o.kind === "sts") {
@@ -156,9 +179,9 @@ export function candidates(view, type, { taken = new Set() } = {}) {
       if (seen.has(couple)) continue;
       seen.add(couple);
     }
-    const waits = type === "seal" ? null : waitsOn(o, view.open);
+    const waits = waitsOn(o, view.pending ?? view.open);
     const lastOne = view.openByPid.get(o.pid) === 1;
-    const why = [o.stage === "mine" ? "Reserved by you" : "Ready"];
+    const why = [o.stage === "mine" ? "Reserved by you" : o.fs_status === "ReservedSharedReady" ? "Request from the temple" : "Ready"];
     if (lastOne) why.push(o.person.gender === "F" ? "Last one for her" : "Last one for him");
     if (o.person.gen) why.push(o.person.gen <= 5 ? relLabel(o.person.gen) : `Gen ${o.person.gen}`);
     out.push({ o, why, waits, lastOne });
@@ -190,7 +213,9 @@ export function fillTrip(view, type, limit) {
   const n = limit ?? T.limit;
   const all = candidates(view, type, { taken: takenKeys(view.trips) });
   const free = all.filter((c) => !c.waits);
-  return { type, limit: n, items: free.slice(0, n), more: Math.max(0, free.length - n), waiting: all.filter((c) => c.waits) };
+  const waiting = [];
+  for (const c of all) if (c.waits && !waiting.some((w) => w.o.pid === c.o.pid)) waiting.push(c);
+  return { type, limit: n, items: free.slice(0, n), more: Math.max(0, free.length - n), waiting };
 }
 
 export function tripItem(o) {
@@ -200,9 +225,21 @@ export function tripItem(o) {
 // A trip is finished when none of its names are still open in FamilySearch.
 // Ticking it here never makes it done.
 export function tripProgress(trip, view) {
-  const openKeys = new Set(view.open.map((o) => o.key));
-  const items = (trip.items ?? []).map((it) => ({ ...it, open: openKeys.has(ordKey({ pid: it.pid, kind: it.kind, spouse_name: it.spouse })) }));
+  const byKey = new Map(view.open.map((o) => [o.key, o]));
+  const items = (trip.items ?? []).map((it) => {
+    const o = byKey.get(ordKey({ pid: it.pid, kind: it.kind, spouse_name: it.spouse }));
+    return { ...it, open: Boolean(o), blocked: o ? blockedReason(o, view) : null };
+  });
   return { items, left: items.filter((i) => i.open).length, finished: items.length > 0 && items.every((i) => !i.open) };
+}
+
+// Why a name on a planned trip can't be done now, from the latest snapshot:
+// someone else holds it, or an earlier ordinance isn't completed yet.
+export function blockedReason(o, view) {
+  if (o.stage === "others") return o.reserved_by ? `Reserved by ${o.reserved_by}` : "Reserved by someone else";
+  if (o.stage !== "mine" && o.stage !== "ready") return STAGES.find((s) => s.id === o.stage)?.name ?? "Not ready";
+  const waits = waitsOn(o, view.pending ?? view.open);
+  return waits ? `Waits on the ${waits}` : null;
 }
 
 export function nextTrip(trips, today) {
@@ -216,7 +253,7 @@ export function nextTrip(trips, today) {
 export function helperNames(view) {
   const by = new Map();
   for (const o of view.open) {
-    if (o.person.gender !== "F" || !INDIVIDUAL.includes(o.kind) || o.stage === "shared") continue;
+    if (o.person.gender !== "F" || !INDIVIDUAL.includes(o.kind) || o.stage === "others") continue;
     if (!by.has(o.pid)) by.set(o.pid, { person: o.person, ords: [], ready: false });
     const g = by.get(o.pid);
     g.ords.push(o);
@@ -421,10 +458,14 @@ export function parseSnapshot(text) {
     (snap.ordinances ?? []).filter((o) => o && o.pid && KIND[o.kind] && o.fs_status),
     (o) => ordKey(o)
   );
+  // A sync that couldn't read the completed list leaves `done` out, and the
+  // list from before stays.
+  const hasDone = Array.isArray(snap.done);
   const done = uniqueBy((snap.done ?? []).filter((d) => d && d.pid && d.name), (d) => d.pid);
   if (!people.length) throw new Error("The snapshot has nobody in it.");
   return {
     syncedAt: synced.toISOString(),
+    version: Number.isInteger(snap.version) ? snap.version : 1,
     people: people.map((p) => ({
       pid: p.pid,
       name: p.name,
@@ -442,8 +483,10 @@ export function parseSnapshot(text) {
       spouse_name: o.spouse_name ?? "",
       fs_status: o.fs_status,
       reasons: Array.isArray(o.reasons) ? o.reasons.map(String) : [],
+      reserved_by: typeof o.reserved_by === "string" && o.reserved_by ? o.reserved_by : null,
+      mine: typeof o.mine === "boolean" ? o.mine : null,
     })),
-    done: done.map((d) => ({
+    done: !hasDone ? null : done.map((d) => ({
       pid: d.pid,
       name: d.name,
       gender: ["M", "F"].includes(d.gender) ? d.gender : "U",
@@ -461,5 +504,253 @@ function uniqueBy(rows, keyOf) {
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
+  });
+}
+
+// --- Your reservations, in order ---------------------------------------------------
+//
+// You find and reserve names in FamilySearch; the Hub takes every name you
+// hold and works out what each person needs next and when you can do it.
+//
+// Each person goes step by step: baptism (with confirmation), then the
+// initiatory, then the endowment, then their sealings. A step is yours to
+// do when you hold it. Women's baptisms, confirmations, initiatories and
+// endowments go to a helper. Anything before your step that someone else
+// holds, or that isn't reserved yet, holds the person up.
+
+export const STEPS = [
+  { id: "bap", name: "Baptism", kinds: ["bap", "con"] },
+  { id: "ini", name: "Initiatory", kinds: ["ini"] },
+  { id: "end", name: "Endowment", kinds: ["end"] },
+  { id: "seal", name: "Sealing", kinds: ["stp", "sts"] },
+];
+
+const STEP_OF = { bap: "bap", con: "bap", ini: "ini", end: "end", stp: "seal", sts: "seal" };
+
+// A couple's sealing needs both of them endowed, and it's one sealing
+// however many of their records list it. So each couple's sealing is kept
+// once, on whichever of the two still has steps of yours ahead of it; when
+// the other spouse still needs work you don't hold, it waits.
+function sealCouples(out, view, pending) {
+  const byName = new Map();
+  for (const p of view.byPid.values()) if (!byName.has(p.name)) byName.set(p.name, p);
+  const entryOf = new Map(out.map((e) => [e.person.pid, e]));
+  const behind = (pid) => pending.some((x) => x.pid === pid && INDIVIDUAL.includes(x.kind) && x.fs_status !== "Completed" && x.fs_status !== "NotAvailable");
+  const groups = new Map();
+  for (const e of out) {
+    const st = e.steps.find((x) => x.step === "seal");
+    if (!st) continue;
+    for (const o of st.ords) {
+      if (o.kind !== "sts") continue;
+      const k = [e.person.name, o.spouse_name].sort().join("|");
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push({ e, o });
+    }
+  }
+  for (const list of groups.values()) {
+    for (const { e, o } of list) {
+      const st = e.steps.find((x) => x.step === "seal");
+      st.ords = st.ords.filter((x) => x !== o);
+    }
+    const first = list[0];
+    const spouse = byName.get(first.o.spouse_name);
+    const sides = [first.e.person, spouse].filter(Boolean);
+    const late = sides.filter((p) => behind(p.pid));
+    let home = first;
+    let held = null;
+    for (const p of late) {
+      const e = entryOf.get(p.pid);
+      if (e && e.lane !== "helper" && e.lane !== "waiting" && e.steps.some((x) => x.step !== "seal")) {
+        home = list.find((x) => x.e === e) ?? { e, o: first.o };
+      } else {
+        held = `Sealing waits on ${p.name}'s ordinances`;
+      }
+    }
+    if (held) {
+      first.e.held = [...(first.e.held ?? []), held];
+      continue;
+    }
+    let st = home.e.steps.find((x) => x.step === "seal");
+    if (!st) home.e.steps.push((st = { step: "seal", ords: [] }));
+    st.ords.push(home.o);
+  }
+  for (let i = out.length - 1; i >= 0; i--) {
+    const e = out[i];
+    e.steps = e.steps.filter((x) => x.ords.length);
+    if (!e.steps.length) {
+      if (e.held?.length) {
+        e.lane = "waiting";
+        e.why = e.why ?? e.held[0];
+      } else if (e.lane !== "waiting") out.splice(i, 1);
+    } else if (e.lane === "seal" && e.steps[0].step !== "seal") e.lane = e.steps[0].step;
+  }
+}
+
+// Everyone you hold a name for, with the step they're on.
+//   lane: "bap" | "ini" | "end" | "seal"  (yours to do next)
+//         "helper"                          (a woman's step, for a helper)
+//         "waiting"                         (held up; `why` says by what)
+//   steps: the steps still yours, in order, with the ordinances in each
+export function myNames(view) {
+  const pending = view.pending ?? view.open;
+  const openByKey = new Map(view.open.map((o) => [o.key, o]));
+  const byPid = new Map();
+  for (const o of view.open) {
+    if (o.stage !== "mine") continue;
+    if (!byPid.has(o.pid)) byPid.set(o.pid, []);
+    byPid.get(o.pid).push(o);
+  }
+  const out = [];
+  for (const [pid, mine] of byPid) {
+    const person = mine[0].person;
+    const left = pending.filter((x) => x.pid === pid && x.fs_status !== "Completed" && x.fs_status !== "NotAvailable");
+    const steps = [];
+    // Steps of yours behind one you can't do yet: shown, never planned.
+    const later = [];
+    let lane = null;
+    let why = null;
+    let blocked = false;
+    for (const st of STEPS) {
+      const here = left.filter((x) => st.kinds.includes(x.kind));
+      if (!here.length) continue;
+      const theirs = here.map((x) => openByKey.get(ordKey(x)) ?? { ...x, key: ordKey(x), stage: stageOf(x), person });
+      const yours = theirs.filter((x) => x.stage === "mine");
+      const notYours = theirs.filter((x) => x.stage !== "mine");
+      if (!blocked && (!yours.length || (st.id !== "seal" && notYours.length))) {
+        // A step you don't hold: everything of yours after it waits.
+        const x = notYours[0];
+        why =
+          x.stage === "others"
+            ? `${st.name} held by ${x.reserved_by || "someone else"}`
+            : x.stage === "ready"
+              ? `Reserve the ${st.name.toLowerCase()} too`
+              : x.stage === "research"
+                ? `${st.name} needs research`
+                : x.stage === "permission"
+                  ? `${st.name} needs permission`
+                  : `${st.name} isn't ready`;
+        if (st.id !== "seal") blocked = true;
+        if (!lane && st.id !== "seal") lane = "waiting";
+        if (yours.length) (blocked ? later : steps).push({ step: st.id, ords: yours });
+        continue;
+      }
+      if (!yours.length) continue;
+      (blocked ? later : steps).push({ step: st.id, ords: yours });
+      if (!lane) lane = person.gender === "F" && st.id !== "seal" ? "helper" : st.id;
+    }
+    if (!steps.length && !later.length) continue;
+    if (!lane) lane = "waiting";
+    out.push({ person, lane, why: blocked || lane === "waiting" ? why : null, steps: lane === "waiting" ? [] : steps, later: lane === "waiting" ? [...steps, ...later] : later });
+  }
+  sealCouples(out, view, pending);
+  out.sort((a, b) => (a.person.gen ?? 99) - (b.person.gen ?? 99) || (bornYear(a.person.lifespan) ?? 9999) - (bornYear(b.person.lifespan) ?? 9999) || a.person.name.localeCompare(b.person.name));
+  return out;
+}
+
+// The days you go, for 1, 2 or 3 trips a week, from the day after `from`.
+const WEEKDAYS = { 1: [6], 2: [3, 6], 3: [1, 3, 6] };
+
+export function tripDates(from, perWeek, count) {
+  const days = WEEKDAYS[perWeek] ?? WEEKDAYS[1];
+  const [y, m, d] = from.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  const out = [];
+  for (let i = 0; out.length < count && i < count * 8 + 7; i++) {
+    t.setUTCDate(t.getUTCDate() + 1);
+    if (days.includes(t.getUTCDay())) out.push(t.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+// Your next trips, in order, from the names you hold.
+//
+// One kind of work per trip, at the trip limits (5 baptisms, 5
+// initiatories, 1 endowment, up to 5 sealings). A person's next step can
+// only go on a later trip than the one before it. Each trip takes the kind
+// with the fullest batch, earlier steps first on a tie; sealings wait for
+// at least 3 unless nothing else is ready. Trips you've already planned go
+// first, as you planned them.
+export function planTrips(view, { from, perWeek = 1, max = 80 } = {}) {
+  const names = myNames(view).filter((n) => n.lane !== "helper" && n.lane !== "waiting");
+  // A queue of steps per person; `after` is the trip index their last step was on.
+  const state = names.map((n) => ({ person: n.person, steps: n.steps.map((s) => ({ ...s, ords: [...s.ords] })), after: -1 }));
+  const trips = [];
+  const planned = (view.trips ?? []).filter((t) => t.status === "planned" && t.planned_on >= from).sort((a, b) => a.planned_on.localeCompare(b.planned_on));
+  const keyOf = (it) => ordKey({ pid: it.pid, kind: it.kind, spouse_name: it.spouse });
+
+  for (const t of planned) {
+    const idx = trips.length;
+    const keys = new Set((t.items ?? []).map(keyOf));
+    for (const s of state) {
+      const st = s.steps[0];
+      if (!st) continue;
+      const hit = st.ords.filter((o) => keys.has(o.key) || (st.step === "bap" && o.kind === "con" && keys.has(ordKey({ pid: o.pid, kind: "bap", spouse_name: "" }))));
+      if (!hit.length) continue;
+      st.ords = st.ords.filter((o) => !hit.includes(o));
+      if (!st.ords.length) {
+        s.steps.shift();
+        s.after = idx;
+      }
+    }
+    trips.push({ date: t.planned_on, kind: t.kind, items: t.items ?? [], planned: t });
+  }
+
+  const start = trips.length ? trips[trips.length - 1].date : from;
+  const dates = tripDates(start, perWeek, max);
+  for (let i = 0; i < dates.length; i++) {
+    const idx = trips.length;
+    const ready = { bap: [], ini: [], end: [], seal: [] };
+    for (const s of state) {
+      const st = s.steps[0];
+      if (st && s.after < idx) ready[st.step].push(s);
+    }
+    const sealCount = ready.seal.reduce((n, s) => n + s.steps[0].ords.length, 0);
+    if (!ready.bap.length && !ready.ini.length && !ready.end.length && !sealCount) break;
+    const others = ready.bap.length + ready.ini.length + ready.end.length;
+    const fullness = {
+      bap: Math.min(1, ready.bap.length / TRIP_TYPES.bap.limit),
+      ini: Math.min(1, ready.ini.length / TRIP_TYPES.ini.limit),
+      end: ready.end.length ? 1 : 0,
+      seal: sealCount >= 3 || !others ? Math.min(1, sealCount / TRIP_TYPES.seal.limit) : 0,
+    };
+    const kind = ["bap", "ini", "end", "seal"].reduce((best, k) => (fullness[k] > fullness[best] ? k : best), "bap");
+    const items = [];
+    if (kind === "seal") {
+      for (const s of ready.seal) {
+        const st = s.steps[0];
+        while (st.ords.length && items.length < TRIP_TYPES.seal.limit) items.push(tripItem(st.ords.shift()));
+        if (!st.ords.length) {
+          s.steps.shift();
+          s.after = idx;
+        }
+        if (items.length >= TRIP_TYPES.seal.limit) break;
+      }
+    } else {
+      for (const s of ready[kind].slice(0, TRIP_TYPES[kind].limit)) {
+        const st = s.steps.shift();
+        s.after = idx;
+        items.push(...st.ords.filter((o) => o.kind !== "con").map(tripItem));
+      }
+    }
+    trips.push({ date: dates[i], kind, items });
+  }
+
+  const left = state.filter((s) => s.steps.length);
+  const ordinances = trips.reduce((n, t) => n + t.items.reduce((m, it) => m + (it.kind === "bap" ? 2 : 1), 0), 0);
+  return { trips, left: left.map((s) => s.person), finished: left.length === 0, ordinances };
+}
+
+// How far each pace gets you: when everything you hold would be done, and
+// how many ordinances in the first 4 and 12 weeks.
+export function paceTimeline(view, from) {
+  return [1, 2, 3].map((perWeek) => {
+    const plan = planTrips(view, { from, perWeek, max: 400 });
+    const by = (weeks) => {
+      const [y, m, d] = from.split("-").map(Number);
+      const end = new Date(Date.UTC(y, m - 1, d + weeks * 7)).toISOString().slice(0, 10);
+      return plan.trips.filter((t) => t.date <= end).reduce((n, t) => n + t.items.reduce((k, it) => k + (it.kind === "bap" ? 2 : 1), 0), 0);
+    };
+    const last = plan.trips[plan.trips.length - 1];
+    return { perWeek, trips: plan.trips.length, doneOn: plan.finished && last ? last.date : null, ordinances: plan.ordinances, in4: by(4), in12: by(12) };
   });
 }

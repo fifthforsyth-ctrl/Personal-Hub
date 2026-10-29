@@ -21,6 +21,9 @@ import {
   updateSections,
   updateStep,
   updateSteps,
+  moveToCamp,
+  lineToStep,
+  stepToLine,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { pickDiff, questToday } from "../lib/camp";
@@ -81,6 +84,8 @@ import "../styles/quests.css";
 // urgency or colour. See TodayBoard.jsx.
 
 const EARLIER_SHOWN = 10;
+// A quest task's own columns, for putting one back as it was.
+const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "working_since", "done_on", "done_at", "position", "created_at", "updated_at"];
 
 // Wide enough for the list beside the build: Today's board in columns then
 // takes the whole width above them.
@@ -300,10 +305,12 @@ export default function Quests() {
     const done_on = line.done_on ? null : today;
     const done_at = done_on ? new Date().toISOString() : null;
     const before = buildNow(village, today);
-    setLine(line.id, { done_on, done_at });
+    // Finishing it means you're no longer working on it.
+    const fields = done_on && line.working_since ? { done_on, done_at, working_since: null } : { done_on, done_at };
+    setLine(line.id, fields);
     tellVillage({ ...line, done_on, done_at });
     if (done_on) cheer(before);
-    updateQuestTask(line.id, { done_on, done_at }).catch((err) => failed(err, "Couldn't save that."));
+    updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't save that."));
   }
 
   function saveLine(line, fields) {
@@ -786,6 +793,140 @@ export default function Quests() {
     });
   }
 
+  // A step or a section dragged into another camp's column (By camp): it
+  // moves to that camp, at the end of its loose steps (a step) or its
+  // sections, and what's under it comes along. `keys` is Today's new order.
+  // Undo puts every row back as it was.
+  function moveCardToCamp(card, campId, keysIn) {
+    if (!campData) return;
+    const keys = orderReady ? keysIn : null;
+    const steps = campData.steps ?? [];
+    const sections = campData.sections ?? [];
+    const end = (list) => list.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    let table;
+    let to;
+    let back;
+    if (card.kind === "step") {
+      const under = [];
+      const walk = (id) => steps.filter((x) => x.parent_id === id).forEach((x) => (under.push(x), walk(x.id)));
+      walk(card.id);
+      const st = rawStep(card.id);
+      if (!st) return;
+      const position = end(steps.filter((x) => x.camp_id === campId && !x.section_id && !x.parent_id));
+      table = "camp_steps";
+      to = [{ id: st.id, camp_id: campId, section_id: null, parent_id: null, position }, ...under.map((x) => ({ id: x.id, camp_id: campId, section_id: null }))];
+      back = [st, ...under].map((x) => ({ id: x.id, camp_id: x.camp_id, section_id: x.section_id ?? null, parent_id: x.parent_id ?? null, position: x.position }));
+    } else {
+      const sec = sections.find((x) => x.id === card.id);
+      if (!sec) return;
+      const position = end(sections.filter((x) => x.camp_id === campId));
+      table = "camp_sections";
+      to = [{ id: sec.id, camp_id: campId, position }];
+      back = [{ id: sec.id, camp_id: sec.camp_id, position: sec.position }];
+    }
+    // a section's steps go with it, in their own table, each after the step
+    // it's under (a sub-step can only be in the same camp as its step)
+    const inSec = card.kind === "section" ? steps.filter((x) => x.section_id === card.id) : [];
+    // (one under a step outside the section goes with the section, on its own)
+    const inIds = new Set(inSec.map((x) => x.id));
+    const roots = inSec.filter((x) => !x.parent_id || !inIds.has(x.parent_id));
+    const loose = new Set(roots.filter((x) => x.parent_id).map((x) => x.id));
+    const secSteps = [];
+    const add = (x) => (secSteps.push(x), inSec.filter((y) => y.parent_id === x.id).forEach(add));
+    roots.forEach(add);
+    const put = (rows, stepRows) => {
+      const by = new Map(rows.map((r) => [r.id, r]));
+      const st = new Map(stepRows.map((r) => [r.id, r]));
+      mutateCamps(
+        (d) =>
+          d &&
+          (table === "camp_steps"
+            ? { ...d, steps: d.steps.map((x) => (by.has(x.id) ? { ...x, ...by.get(x.id) } : x)) }
+            : { ...d, sections: d.sections.map((x) => (by.has(x.id) ? { ...x, ...by.get(x.id) } : x)), steps: d.steps.map((x) => (st.has(x.id) ? { ...x, ...st.get(x.id) } : x)) })
+      );
+    };
+    const stepsTo = secSteps.map((x) => ({ id: x.id, camp_id: campId, ...(loose.has(x.id) ? { parent_id: null } : {}) }));
+    const stepsBack = secSteps.map((x) => ({ id: x.id, camp_id: x.camp_id, ...(loose.has(x.id) ? { parent_id: x.parent_id } : {}) }));
+    const save = (rows, stepRows, order) => () =>
+      moveToCamp(table, rows)
+        .then(() => stepRows.length && moveToCamp("camp_steps", stepRows))
+        .then(() => order && saveTodayOrder(userId, questId, today, order));
+    const qid = questId;
+    put(to, stepsTo);
+    if (keys) mutateTodayKeys(keys);
+    const undo = undoableSave(inOrder, save(to, stepsTo, keys), (err) => boardFailed(err, "Couldn't move that."));
+    haptic("tap");
+    const name = questCamps.find((c) => c.id === campId)?.title ?? "that camp";
+    toast.show(`Moved to ${name}`, {
+      actionLabel: "Undo",
+      onAction: () => {
+        const live = questNow.current === qid && dayNow.current === today && readyNow.current;
+        // back in its own camp's column; its place in Today's order stays
+        if (live) put(back, stepsBack);
+        undo(save(back, stepsBack, null), (err) => boardFailed(err, "Couldn't put that back."));
+        if (!live) inOrder.reload(() => Promise.all([reloadLines(), reloadCamps(), reloadTodayKeys()]));
+      },
+    });
+  }
+
+  // A task from the quest's list dragged into a camp's column (By camp): it
+  // becomes a step there, loose at the end, still on today, its sub-tasks
+  // sub-steps (a note under it goes into the step's note). Same text, note,
+  // urgency, colour, computer and tick; its sketches come along. `keys` is
+  // Today's new order, with the line's key. Undo makes it the task again.
+  function lineToCamp(card, campId, keysIn) {
+    if (!campData) return;
+    const raw = (linesNow.current ?? []).filter((x) => x.quest_id === questId);
+    const task = raw.find((x) => x.id === card.id);
+    if (!task || (task.kind ?? "task") !== "task") return;
+    const subs = raw.filter((x) => x.parent_id === task.id).sort(byPos);
+    const subTasks = subs.filter((x) => (x.kind ?? "task") === "task");
+    const notes = subs.filter((x) => x.kind === "note").map((x) => x.text);
+    const note = [task.note, ...notes].filter(Boolean).join("\n\n") || null;
+    if ([task, ...subTasks].some((x) => x.text.length > 1000) || (note?.length ?? 0) > 4000 || subTasks.some((x) => (x.note?.length ?? 0) > 4000)) {
+      toast.show("That task is too long to be a step.");
+      return;
+    }
+    const position = (campData.steps ?? []).filter((x) => x.camp_id === campId && !x.section_id && !x.parent_id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    const id = crypto.randomUUID();
+    const base = (x) => ({ camp_id: campId, section_id: null, text: x.text, urgency: x.urgency ?? null, color: x.color ?? null, done_on: x.done_on ?? null, working_since: x.working_since ?? null, from: x.id });
+    const steps = [
+      { ...base(task), id, parent_id: null, note, today_on: today, computer: task.computer ?? null, position },
+      ...subTasks.map((x, i) => ({ ...base(x), id: crypto.randomUUID(), parent_id: id, note: x.note ?? null, position: i })),
+    ];
+    const local = steps.map(({ from, ...r }) => ({ ...r, created_at: new Date().toISOString() }));
+    const tasks = [task, ...subs].map((x) => Object.fromEntries(Object.entries(x).filter(([k]) => QUEST_TASK_COLS.includes(k))));
+    const was = `line:${task.id}`;
+    const now = `step:${id}`;
+    const keys = orderReady && keysIn ? keysIn.map((k) => (k === was ? now : k)) : null;
+    const gone = new Set([task.id, ...subs.map((x) => x.id)]);
+    const qid = questId;
+    mutateLines((list) => (list ?? []).filter((x) => !gone.has(x.id)));
+    setCampSteps((list) => [...list, ...local]);
+    if (keys) mutateTodayKeys(keys);
+    const save = () => lineToStep(userId, steps, subs.filter((x) => x.kind === "note").map((x) => x.id)).then(() => keys && saveTodayOrder(userId, qid, today, keys));
+    const undo = undoableSave(inOrder, save, (err) => boardFailed(err, "Couldn't move that."));
+    haptic("tap");
+    const name = questCamps.find((c) => c.id === campId)?.title ?? "that camp";
+    toast.show(`Now a step in ${name}`, {
+      actionLabel: "Undo",
+      onAction: () => {
+        const live = questNow.current === qid && dayNow.current === today && readyNow.current;
+        const back = keys ? (live ? cardKeys.current : keys).map((k) => (k === now ? was : k)) : null;
+        if (live) {
+          mutateLines((list) => [...(list ?? []), ...tasks]);
+          setCampSteps((list) => list.filter((x) => !steps.some((st) => st.id === x.id)));
+          if (back) mutateTodayKeys(back);
+        }
+        undo(
+          () => stepToLine(userId, tasks, steps).then(() => back && saveTodayOrder(userId, qid, today, back)),
+          (err) => boardFailed(err, "Couldn't put that back.")
+        );
+        if (!live) inOrder.reload(() => Promise.all([reloadLines(), reloadCamps(), reloadTodayKeys()]));
+      },
+    });
+  }
+
   // His computers on this quest (quests.computers), renamed or added to.
   // Saved in line with the rest (a computer taken off just before saves its
   // shorter list first); if it doesn't save, what's saved is reloaded.
@@ -1067,6 +1208,7 @@ export default function Quests() {
       onNest={nestLine}
       onOrder={saveOrder}
       onAssign={assignCard}
+      onMoveCamp={(card, campId, keys) => (card.kind === "line" ? lineToCamp : moveCardToCamp)(card, campId, keys)}
       onComputers={saveComputers}
       onRemoveComputer={removeComputer}
       sketch={{ userId, about: (sid) => rawStep(sid)?.text, onAddToNote: addToStepNote }}

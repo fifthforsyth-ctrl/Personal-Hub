@@ -3019,6 +3019,21 @@ export async function moveStepToSection(id, underIds, sectionId, position) {
   if (e2) throw e2;
 }
 
+// Steps, or a section, into another camp of the quest (Today's board, By
+// camp). `rows` are each { id, camp_id, section_id?, parent_id?, position? }:
+// written one by one, so Undo can put each back as it was.
+export async function moveToCamp(table, rows) {
+  if (table !== "camp_steps" && table !== "camp_sections") throw new Error(`Can't move ${table}.`);
+  const at = new Date().toISOString();
+  for (const { id, ...fields } of rows) {
+    const { error } = await supabase
+      .from(table)
+      .update(table === "camp_steps" ? { ...fields, updated_at: at } : fields)
+      .eq("id", id);
+    if (error) throw error;
+  }
+}
+
 export async function deleteStep(id) {
   const { error } = await supabase.from("camp_steps").delete().eq("id", id);
   if (error) throw error;
@@ -3287,7 +3302,7 @@ export async function readMarkLine({ target, reasons, line, answers }) {
 // ---------------------------------------------------------------------------
 
 const TEMPLE_PERSON = "pid, name, gender, lifespan, ahnentafel, generation, birth_place, death_place, rollup_status";
-const TEMPLE_ORD = "id, pid, kind, spouse_name, fs_status, reasons";
+const TEMPLE_ORD = "id, pid, kind, spouse_name, fs_status, reasons, reserved_by, mine";
 const TEMPLE_DONE = "pid, name, gender, lifespan, in_pedigree, ordinances";
 const TEMPLE_TRIP = "id, kind, planned_on, items, rechecked_on, printed, status, created_at";
 
@@ -3336,20 +3351,67 @@ export async function loadTempleSnapshot(userId, snap) {
     const { error } = await supabase.from("temple_ordinances").upsert(part, { onConflict: "user_id,pid,kind,spouse_name" });
     if (error) throw error;
   }
-  for (const part of chunks(snap.done.map((d) => ({ ...d, user_id: userId, synced_at: stamp })))) {
-    const { error } = await supabase.from("temple_done").upsert(part, { onConflict: "user_id,pid" });
-    if (error) throw error;
+  // The completed list only ever grows: FamilySearch forgets work after two
+  // years, the Hub doesn't. Each person's ordinances are merged with what's
+  // already here.
+  if (snap.done?.length) {
+    const have = await selectAllPages(() => supabase.from("temple_done").select("pid, ordinances").eq("user_id", userId).order("pid"));
+    const before = new Map(have.map((d) => [d.pid, d.ordinances ?? []]));
+    const rows = snap.done.map((d) => ({ ...d, ordinances: mergeDoneOrdinances(before.get(d.pid), d.ordinances), user_id: userId, synced_at: stamp }));
+    for (const part of chunks(rows)) {
+      const { error } = await supabase.from("temple_done").upsert(part, { onConflict: "user_id,pid" });
+      if (error) throw error;
+    }
   }
   // Whatever this snapshot didn't mention is gone from FamilySearch's view:
   // finished, or no longer in the tree.
-  for (const table of ["temple_people", "temple_ordinances", "temple_done"]) {
+  for (const table of ["temple_people", "temple_ordinances"]) {
     const { error } = await supabase.from(table).delete().eq("user_id", userId).neq("synced_at", stamp);
     if (error) throw error;
   }
-  const counts = { people: snap.people.length, open: snap.ordinances.length, done: snap.done.length };
+  const counts = { people: snap.people.length, open: snap.ordinances.length, done: snap.done?.length ?? null, version: snap.version ?? null };
   const { error } = await supabase.from("temple_syncs").insert({ user_id: userId, synced_at: stamp, counts });
   if (error) throw error;
   return counts;
+}
+
+// The newest snapshot the sync button sent (temple-sync edge function), if
+// it's newer than what's loaded. null when there's nothing new.
+export async function fetchTempleInbox(userId, after) {
+  let q = supabase.from("temple_inbox").select("id, synced_at, snapshot").eq("user_id", userId).is("applied_at", null);
+  if (after) q = q.gt("synced_at", after);
+  const { data, error } = await q.order("synced_at", { ascending: false }).limit(1);
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+export async function markTempleInboxApplied(userId) {
+  const { error } = await supabase.from("temple_inbox").update({ applied_at: new Date().toISOString() }).eq("user_id", userId).is("applied_at", null);
+  if (error) throw error;
+}
+
+// A new key for the sync bookmark (shown once; only its hash is kept).
+// Making one retires the last, so an old bookmark stops working.
+export async function makeTempleSyncKey() {
+  const { data, error } = await supabase.rpc("new_temple_sync_key");
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchTempleSyncKeyInfo(userId) {
+  const { data, error } = await supabase.from("temple_sync_keys").select("created_at, last_used_at").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function mergeDoneOrdinances(a = [], b = []) {
+  const seen = new Set();
+  return [...b, ...a].filter((o) => {
+    const k = `${o.type}|${o.date ?? ""}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 export async function addTempleTrip(userId, { kind, planned_on, items }) {
@@ -3458,7 +3520,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, working_since, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3624,6 +3686,46 @@ export async function updateQuestTasks(ids, fields) {
 // Its sub-tasks go with it.
 export async function deleteQuestTask(id) {
   const { error } = await supabase.from("quest_tasks").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// A task (and its sub-tasks) turned into a step in a camp (and sub-steps),
+// from Today's board: `steps` are the new rows, the step first, each with
+// its id and the task it was (`from`). Sketches go with them, then the task
+// goes (its sub-tasks with it). `notes` are note lines under it, whose
+// sketches go to the step.
+export async function lineToStep(userId, steps, notes = []) {
+  const [top, ...subs] = steps;
+  const row = ({ from, ...r }) => ({ user_id: userId, ...r });
+  const one = await supabase.from("camp_steps").insert(row(top));
+  if (one.error) throw one.error;
+  if (subs.length) {
+    const rest = await supabase.from("camp_steps").insert(subs.map(row));
+    if (rest.error) throw rest.error;
+  }
+  for (const st of [...steps, ...notes.map((from) => ({ id: top.id, from }))]) {
+    const { error } = await supabase.from("sketches").update({ quest_task_id: null, camp_step_id: st.id }).eq("quest_task_id", st.from);
+    if (error) throw error;
+  }
+  await deleteQuestTask(top.from);
+}
+
+// And back (Undo): the task and its sub-tasks as they were (`tasks`, the
+// task first, with their ids), their sketches, and the step goes.
+export async function stepToLine(userId, tasks, steps) {
+  const [top, ...subs] = tasks;
+  const row = (r) => ({ ...r, user_id: userId });
+  const one = await supabase.from("quest_tasks").insert(row(top));
+  if (one.error) throw one.error;
+  if (subs.length) {
+    const rest = await supabase.from("quest_tasks").insert(subs.map(row));
+    if (rest.error) throw rest.error;
+  }
+  for (const st of steps) {
+    const { error } = await supabase.from("sketches").update({ camp_step_id: null, quest_task_id: st.from }).eq("camp_step_id", st.id);
+    if (error) throw error;
+  }
+  const { error } = await supabase.from("camp_steps").delete().eq("id", steps[0].id);
   if (error) throw error;
 }
 

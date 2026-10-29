@@ -61,7 +61,7 @@ export function UrgencyPick({ value, onChange }) {
 }
 
 // "Working on it…": a badge with a live pulse and dots that keep going.
-function WorkingBadge() {
+export function WorkingBadge() {
   return (
     <span className="camp-working" title="Working on it">
       <i className="camp-working__pulse" aria-hidden="true" />
@@ -72,6 +72,24 @@ function WorkingBadge() {
         <i>.</i>
       </span>
     </span>
+  );
+}
+
+// The small button under a tick (Aaron, 2026-10-28): tap it when you start
+// on something, and it says so (and Today's board lifts it into "Working
+// on"); tap again to stop. Ticking it done stops it too.
+export function WorkingButton({ on, onToggle }) {
+  return (
+    <button
+      type="button"
+      className={"camp-work-btn" + (on ? " on" : "")}
+      aria-pressed={on}
+      aria-label={on ? "Working on it. Tap to stop" : "I'm working on this"}
+      title={on ? "Working on it. Tap to stop" : "I'm working on this"}
+      onClick={onToggle}
+    >
+      <i className="camp-working__pulse" aria-hidden="true" />
+    </button>
   );
 }
 
@@ -133,6 +151,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
       }
     >
       <div className="camp-step__row">
+        <div className="camp-check-col">
         {pick ? (
           <button
             type="button"
@@ -157,6 +176,8 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <Check size={13} strokeWidth={3} aria-hidden="true" />
           </button>
         )}
+        {!pick && !done && onSave && <WorkingButton on={working} onToggle={() => onSave({ working_since: working ? null : new Date().toISOString() })} />}
+        </div>
         <button
           type="button"
           className="camp-step__text"
@@ -190,17 +211,6 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onMov
             <span>{step.parent_id ? "Sub-step" : "Step"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
           </label>
-          {!done && (
-            <button
-              type="button"
-              className={"camp-working-toggle" + (working ? " on" : "")}
-              aria-pressed={working}
-              onClick={() => onSave({ working_since: working ? null : new Date().toISOString() })}
-            >
-              <i className="camp-working__pulse" aria-hidden="true" />
-              {working ? "Working on it. Tap to stop" : "I'm working on this"}
-            </button>
-          )}
           <UrgencyPick value={step.urgency ?? null} onChange={(urgency) => onSave({ urgency })} />
           <ColorPick value={step.color ?? null} onChange={(color) => onSave({ color })} />
           {computer && <ComputerPick {...computer} />}

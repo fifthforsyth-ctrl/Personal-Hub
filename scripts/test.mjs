@@ -40,6 +40,10 @@ import {
   buildTemple,
   candidates,
   fillTrip,
+  myNames,
+  planTrips,
+  paceTimeline,
+  tripDates,
   waitsOn,
   tripProgress,
   nextTrip,
@@ -52,6 +56,7 @@ import {
   plainReason,
   fanSlots,
 } from "../src/lib/temple.js";
+import { familySearchSync, syncBookmarklet, SYNC_VERSION } from "../src/lib/templeSync.js";
 import {
   zoneOf,
   stepIndex,
@@ -1569,20 +1574,59 @@ console.log("\nthe mark");
   ];
   const v = buildTemple({ people, ordinances, done: [], trips: [] });
 
-  ok("FamilySearch's statuses sort into stages", stageOf("ReservedSharedReady") === "mine" && stageOf("SharedInProgressPrinted") === "shared" && stageOf("Completed") === null);
+  ok(
+    "FamilySearch's statuses sort into stages",
+    stageOf("ReservedSharedReady") === "ready" && stageOf("SharedInProgressPrinted") === "others" && stageOf("InProgressNotPrinted") === "mine" && stageOf("Completed") === null
+  );
+  ok(
+    "a reservation is yours only when FamilySearch says you hold it",
+    stageOf({ fs_status: "InProgressNotPrinted", mine: false }) === "others" &&
+      stageOf({ fs_status: "SharedInProgressNotPrinted", mine: true }) === "mine" &&
+      stageOf({ fs_status: "InProgressNotPrinted", mine: true }) === "mine"
+  );
   ok("completed ordinances aren't open work", v.open.length === 7 && !v.open.some((o) => o.fs_status === "Completed"));
-  ok("counts come from the snapshot", v.counts.deceased === 5 && v.counts.completed === 1 && v.counts.ready === 4 && v.counts.mine === 2);
+  ok("counts come from the snapshot", v.counts.deceased === 5 && v.counts.completed === 1 && v.counts.ready === 5 && v.counts.mine === 1);
 
   const bap = candidates(v, "bap");
   ok("names you hold go first", bap[0].o.pid === "BUD" && bap[0].why[0] === "Reserved by you");
   ok("women's individual ordinances aren't on your trips", !candidates(v, "bap").some((c) => c.o.pid === "HER"));
   ok("an initiatory waits for that person's baptism", waitsOn(v.open.find((o) => o.pid === "OLD" && o.kind === "ini"), v.open) === "baptism");
-  const ini = fillTrip(v, "ini");
+  ok("only names you've reserved go on your trips", !candidates(v, "bap").some((c) => c.o.stage === "ready"));
+  // The same tree once you've reserved everything that was ready.
+  const held2 = ordinances.map((o) => (o.fs_status === "Ready" || o.fs_status === "ReservedSharedReady" ? { ...o, fs_status: "InProgressNotPrinted", mine: true } : o));
+  const v2h = buildTemple({ people, ordinances: held2, done: [], trips: [] });
+  const ini = fillTrip(v2h, "ini");
   ok("so it isn't on the initiatory trip yet", ini.items.length === 0 && ini.waiting.length === 1);
 
-  const seal = fillTrip(v, "seal");
-  ok("a sealing trip takes reserved names first, then the closest", seal.items.map((c) => c.o.pid).join() === "OLD,GP");
-  ok("the last open ordinance a person has is called out", candidates(v, "seal").find((c) => c.o.pid === "GP").why.includes("Last one for him"));
+  const seal = fillTrip(v2h, "seal");
+  ok("a sealing waits until that person's own ordinances are done", seal.items.map((c) => c.o.pid).join() === "GP" && seal.waiting[0].waits === "baptism");
+
+  // Someone else holds Bendicht's endowment; Peter's initiatory is held by
+  // someone else, so his endowment can't go ahead even though it's free.
+  const held = [
+    { pid: "BEN", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "Gretamay" },
+    { pid: "PET", kind: "ini", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "lisa" },
+    { pid: "PET", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
+    { pid: "PET", kind: "stp", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
+    { pid: "KID", kind: "bap", spouse_name: "", fs_status: "NotAvailable", reasons: [] },
+    { pid: "KID", kind: "stp", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
+    { pid: "MINE", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
+  ];
+  const hp = ["BEN", "PET", "KID", "MINE"].map((pid, i) => ({ pid, name: pid, gender: "M", lifespan: "1800-1850", ahnentafel: 300 + i, rollup_status: "READY" }));
+  const hv = buildTemple({ people: hp, ordinances: held, done: [], trips: [] });
+  const hEnd = fillTrip(hv, "end", 5);
+  ok("someone else's reservation is never on your trip", !candidates(hv, "end").some((c) => c.o.pid === "BEN") && hv.counts.others === 2);
+  ok("an endowment waits on an initiatory someone else holds", hEnd.waiting.some((c) => c.o.pid === "PET" && c.waits === "initiatory"));
+  ok("so only the endowment you hold with nothing before it goes", hEnd.items.map((c) => c.o.pid).join() === "MINE");
+  ok("a sealing waits for the endowment", waitsOn(held[3], hv.pending) === "initiatory");
+  ok("a child with no individual ordinances can still be sealed", fillTrip(hv, "seal").items.some((c) => c.o.pid === "KID"));
+  const heldTrip = { id: "t9", kind: "end", planned_on: "2026-11-01", status: "planned", items: [{ pid: "BEN", name: "BEN", kind: "end", spouse: "" }, { pid: "PET", name: "PET", kind: "end", spouse: "" }] };
+  const hp2 = tripProgress(heldTrip, hv);
+  ok(
+    "a planned name that's no longer doable says why",
+    hp2.items[0].blocked === "Reserved by Gretamay" && hp2.items[1].blocked === "Waits on the initiatory" && !hp2.finished
+  );
+  ok("the last open ordinance a person has is called out", candidates(v2h, "seal").find((c) => c.o.pid === "GP").why.includes("Last one for him"));
 
   const trip = { id: "t1", kind: "seal", planned_on: "2026-10-24", status: "planned", items: [{ pid: "GP", name: "Grandpa", kind: "stp", spouse: "" }] };
   const withTrip = buildTemple({ people, ordinances, done: [], trips: [trip] });
@@ -1624,6 +1668,11 @@ console.log("\nthe mark");
   const twice = parseSnapshot(JSON.stringify({ kind: "hub-temple-snapshot", synced_at: "2026-10-20T14:55:00Z", people: [{ ...people[3], ahnentafel: 300 }, people[3]], ordinances: [], done: [] }));
   ok("someone in the pedigree twice is kept once, at the closer place", twice.people.length === 1 && twice.people[0].ahnentafel === 200);
   ok("a snapshot keeps only rows it understands", snap.people.length === 1 && snap.ordinances.length === 1 && snap.ordinances[0].spouse_name === "");
+  const v2 = parseSnapshot(
+    JSON.stringify({ kind: "hub-temple-snapshot", synced_at: "2026-10-28T14:55:00Z", people: [people[2]], ordinances: [{ ...ordinances[0], fs_status: "InProgressNotPrinted", mine: false, reserved_by: "Kiona" }] })
+  );
+  ok("who holds a reservation comes through", v2.ordinances[0].mine === false && v2.ordinances[0].reserved_by === "Kiona");
+  ok("a sync without the completed list keeps the one already here", v2.done === null && snap.done.length === 0);
 
   const tm = readFileSync(new URL("../supabase/migrations/0077_temple.sql", import.meta.url), "utf8")
     .split("\n")
@@ -1633,6 +1682,116 @@ console.log("\nthe mark");
   ok("every Temple table has row-level security", tt.every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(tm)));
   ok("and is yours alone, closed to signed-out visitors", /using \(\(select auth\.uid\(\)\) = user_id\) with check/.test(tm) && /from anon, public;/.test(tm) && !/\bto anon\b/i.test(tm));
   ok("the Temple migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(tm) && !/current_date/.test(tm));
+
+  const ts = readFileSync(new URL("../supabase/migrations/0094_temple_sync.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok(
+    "the sync tables are yours alone and closed to signed-out visitors",
+    ["temple_sync_keys", "temple_inbox"].every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(ts)) &&
+      /revoke all on public\.temple_inbox from anon, public/.test(ts) &&
+      !/\bto anon\b/i.test(ts)
+  );
+  ok("the sync migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(ts));
+
+  // Your reservations, in order.
+  {
+    const M = (pid, kind, extra = {}) => ({ pid, kind, spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true, ...extra });
+    const rp = [
+      ["A", "M", 5], ["ANN", "F", 5], ["B", "M", 6], ["C", "M", 6], ["D", "F", 6], ["E", "M", 7], ["F", "M", 7], ["G", "F", 7],
+    ].map(([pid, gender, generation], i) => ({ pid, name: pid, gender, lifespan: `${1800 + i}-1870`, ahnentafel: 2 ** (generation - 1) + i, generation, rollup_status: "READY" }));
+    const ro = [
+      M("A", "bap"), M("A", "con"), M("A", "ini"), M("A", "end"), M("A", "sts", { spouse_name: "ANN" }),
+      M("B", "end"),
+      M("C", "ini", { mine: false, reserved_by: "lisa" }), M("C", "end"),
+      M("D", "bap"), M("D", "con"),
+      M("E", "stp"),
+      M("F", "stp"), M("F", "sts", { spouse_name: "G" }), M("G", "sts", { spouse_name: "F" }),
+    ];
+    const rv = buildTemple({ people: rp, ordinances: ro, done: [], trips: [] });
+    const lanes = Object.fromEntries(myNames(rv).map((n) => [n.person.pid, n.lane]));
+    ok("each name sits at the next ordinance it needs", lanes.A === "bap" && lanes.B === "end" && lanes.E === "seal" && lanes.F === "seal");
+    ok("an endowment behind someone else's initiatory waits, and says why", lanes.C === "waiting" && myNames(rv).find((n) => n.person.pid === "C").why === "Initiatory held by lisa");
+    ok("a woman's baptism goes to a helper", lanes.D === "helper");
+    const cut = buildTemple({ people: rp, ordinances: [M("B", "bap"), M("B", "con"), M("B", "ini", { mine: false, reserved_by: "lisa" }), M("B", "end")], done: [], trips: [] });
+    const cutB = myNames(cut)[0];
+    ok("steps of yours behind one you don't hold are never planned", cutB.lane === "bap" && cutB.steps.length === 1 && cutB.later[0].step === "end" && planTrips(cut, { from: "2026-10-28" }).trips.length === 1);
+    ok("a couple's sealing counts once", lanes.G === undefined && myNames(rv).find((n) => n.person.pid === "F").steps[0].ords.length === 2);
+    ok("and waits for the spouse who's still behind", myNames(rv).find((n) => n.person.pid === "A").steps.map((x) => x.step).join() === "bap,ini,end,seal");
+    const held = buildTemple({ people: rp, ordinances: [...ro, { pid: "ANN", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "Gretamay" }], done: [], trips: [] });
+    ok("a sealing waits on a spouse whose work you don't hold", !myNames(held).find((n) => n.person.pid === "A").steps.some((x) => x.step === "seal"));
+
+    ok("trip days for once, twice and three times a week", tripDates("2026-10-28", 1, 2).join() === "2026-10-31,2026-11-07" && tripDates("2026-10-28", 2, 3).join() === "2026-10-31,2026-11-04,2026-11-07" && tripDates("2026-10-28", 3, 3).join() === "2026-10-31,2026-11-02,2026-11-04");
+    const plan = planTrips(rv, { from: "2026-10-28", perWeek: 1 });
+    ok("one kind of work per trip, the fullest batch first", plan.trips.map((t) => t.kind).join() === "end,seal,bap,ini,end,seal");
+    ok("a person's next step goes on a later trip", plan.trips[2].items[0].pid === "A" && plan.trips[3].items[0].pid === "A" && plan.trips[4].items[0].pid === "A");
+    ok("a baptism trip lists the baptism once (the confirmation goes with it)", plan.trips[2].items.length === 1 && plan.trips[2].items[0].kind === "bap");
+    ok("everything you can do is done, on the sixth Saturday", plan.finished && plan.trips[5].date === "2026-12-05" && plan.ordinances === 9);
+    const pace = paceTimeline(rv, "2026-10-28");
+    ok("going more often finishes sooner", pace[0].doneOn === "2026-12-05" && pace[1].doneOn < pace[0].doneOn && pace[2].doneOn <= pace[1].doneOn && pace[0].in4 < pace[2].in4);
+    const withPlan = buildTemple({ people: rp, ordinances: ro, done: [], trips: [{ id: "p", kind: "bap", planned_on: "2026-10-29", status: "planned", items: [{ pid: "A", name: "A", kind: "bap", spouse: "" }] }] });
+    const p2 = planTrips(withPlan, { from: "2026-10-28", perWeek: 1 });
+    ok("a trip you planned comes first, and its names aren't planned again", p2.trips[0].planned && p2.trips[1].date === "2026-10-31" && !p2.trips.slice(1).some((t) => t.kind === "bap"));
+  }
+
+  // The bookmark, run against a pretend FamilySearch.
+  const fsAnc = {
+    persons: [
+      { id: "KWBN-5QK", living: true, display: { ascendancyNumber: "1", name: "Aaron", gender: "Male", lifespan: "2005-Living" } },
+      { id: "AAAA-111", living: false, display: { ascendancyNumber: "4", name: "Grandpa", gender: "Male", lifespan: "1900-1970", birthPlace: "Provo" } },
+      { id: "BBBB-222", living: false, display: { ascendancyNumber: "5", name: "Grandma", gender: "Female", lifespan: "1902-1980" } },
+    ],
+  };
+  const fsOrd = {
+    "AAAA-111": {
+      baptism: { status: "Completed" },
+      initiatory: { status: "InProgressNotPrinted", owner: "M9MG-YS4", ownerName: "Forsyth, Aaron Michael" },
+      endowment: { status: "InProgressNotPrinted", owner: "MM6T-QBH", ownerName: "Kiona Rainey" },
+      confirmation: { status: "InProgressNotPrinted", owner: "ZZZZ-999", ownerName: "Forsyth, Aaron Michael", canUnreserve: true },
+      sealingsToSpouses: [{ status: "SharedInProgressPrinted", owner: "M9MG-YS4", alternateReservationDetails: { ownerId: "M957-32M", ownerName: "Ashton, Paige" }, relationships: { spouseName: "Grandma" } }],
+      sealingsToParents: [{ status: "NotAvailable" }],
+    },
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.location = { hostname: "www.familysearch.org" };
+  globalThis.document = { cookie: "a=1; fssessionid=tok" };
+  const asked = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    asked.push([opts.method ?? "GET", url]);
+    const u = new URL(url, "https://www.familysearch.org");
+    const okJ = (j) => ({ ok: true, status: 200, json: async () => j });
+    if (u.pathname === "/platform/users/current") return okJ({ users: [{ id: "cis.user.MMMM-ABCD", treeUserId: "M9MG-YS4", personId: "KWBN-5QK" }] });
+    if (u.pathname === "/platform/tree/ancestry") return okJ(fsAnc);
+    let m;
+    if ((m = u.pathname.match(/person\/(.+)\/summary/))) return okJ({ templeRollupStatus: m[1] === "BBBB-222" ? "COMPLETED" : "READY" });
+    if ((m = u.pathname.match(/reservations\/person\/(.+)\/ordinances/))) return okJ({ data: fsOrd[m[1]] });
+    return { ok: false, status: 500, json: async () => ({}) };
+  };
+  const fsSnap = await familySearchSync({ quiet: true, send: false });
+  globalThis.fetch = realFetch;
+  delete globalThis.location;
+  delete globalThis.document;
+  const fsHeld = (kind) => fsSnap.ordinances.find((o) => o.kind === kind);
+  ok("the bookmark only reads", asked.every(([m]) => m === "GET"));
+  ok("it reads the pedigree with each person's place in it", fsSnap.people.length === 3 && fsSnap.people[1].generation === 3 && fsSnap.people[2].rollup_status === "COMPLETED");
+  ok("only open ordinances come back, and sealings that can't be done don't", fsSnap.ordinances.map((o) => o.kind).join() === "con,ini,end,sts");
+  ok("it reads you as your tree user id, not your account id", asked.some(([, u]) => u.includes("owner=M9MG-YS4")) && !asked.some(([, u]) => u.includes("cis.user")));
+  ok("a reservation you can give back is yours", fsHeld("con").mine === true);
+  ok(
+    "each says who holds it",
+    fsHeld("ini").mine === true && fsHeld("end").mine === false && fsHeld("end").reserved_by === "Kiona Rainey" && fsHeld("sts").reserved_by === "Ashton, Paige"
+  );
+  ok("the snapshot says which bookmark made it", fsSnap.version === SYNC_VERSION && parseSnapshot(JSON.stringify(fsSnap)).version === SYNC_VERSION);
+  ok("a completed list it can't read is left out, not emptied", !("done" in fsSnap) && parseSnapshot(JSON.stringify(fsSnap)).done === null);
+  const bm = syncBookmarklet({ key: "ts_abc", endpoint: "https://x.supabase.co/functions/v1/temple-sync", hub: "https://hub" });
+  let parses = true;
+  try {
+    new Function(decodeURIComponent(bm.slice("javascript:".length)));
+  } catch {
+    parses = false;
+  }
+  ok("the bookmark is one piece of code with its key inside", bm.startsWith("javascript:") && parses && decodeURIComponent(bm).includes('"key":"ts_abc"'));
 }
 
 // --- Wake watch ---------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronRight, Monitor, Pencil, Plus, Repeat, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronRight, Eye, EyeOff, Monitor, Pencil, Plus, Repeat, SlidersHorizontal } from "lucide-react";
 import { useDragSort } from "../../lib/useDragSort";
 import { moved } from "../../lib/dragOrder";
 import { campColumns, computerColumns, filterOn, matchesFilter, MAX_COMPUTERS, moveKey, nextComputer, NO_FILTER, reorderShown } from "../../lib/todayBoard";
@@ -59,6 +59,30 @@ export function useBoardView() {
   return [view, pick];
 }
 
+const HIDE_KEY = "hub:today-hide-done";
+
+// Whether what's done is hidden from Today (Aaron, 2026-10-28: "hide the
+// completed tasks from my today list"), kept on this device. The count on
+// Today still opens all that's done.
+function useHideDone() {
+  const [hide, setHide] = useState(() => {
+    try {
+      return localStorage.getItem(HIDE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const flip = () => {
+    setHide(!hide);
+    try {
+      localStorage.setItem(HIDE_KEY, hide ? "0" : "1");
+    } catch {
+      // a private window keeps it for this visit only
+    }
+  };
+  return [hide, flip];
+}
+
 // A card carried over another computer's column lights it up, and room
 // opens where it will land (`below`, the card it goes before; none: the end).
 function markCol(hit) {
@@ -97,7 +121,7 @@ function colAt(x, y, key) {
     const r = c.getBoundingClientRect();
     return y < r.top + r.height / 2;
   });
-  return { el, below, n: el.dataset.col === "none" ? null : Number(el.dataset.col.slice(3)), beforeKey: below?.dataset.card ?? null };
+  return { el, below, col: el.dataset.col, beforeKey: below?.dataset.card ?? null };
 }
 
 export default function TodayBoard({
@@ -126,11 +150,13 @@ export default function TodayBoard({
   onNest,
   onOrder,
   onAssign,
+  onMoveCamp,
   onComputers,
   onRemoveComputer,
   sketch,
 }) {
   const [sheet, setSheet] = useState(null); // { card } or { pc }
+  const [hideDone, flipHideDone] = useHideDone();
   const colsRef = useRef(null);
   const taskScope = useSketchScope();
 
@@ -147,8 +173,62 @@ export default function TodayBoard({
   const filtered = filterOn(filter);
   // What the filter asks for, and anything put on today since it was set,
   // so what's just added doesn't vanish as it's made.
-  const shows = (c) => matchesFilter(c, filter) || Boolean(filter.since && !filter.since.has(c.key));
-  const hidden = filtered ? cards.filter((c) => !shows(c)).length : 0;
+  // With done hidden, a finished card is out of sight whatever the filter.
+  const matches = (c) => matchesFilter(c, filter) || Boolean(filter.since && !filter.since.has(c.key));
+  const shows = (c) => !(hideDone && c.finished) && matches(c);
+  const hidden = filtered ? cards.filter((c) => !(hideDone && c.finished) && !matches(c)).length : 0;
+  const doneHidden = hideDone ? cards.filter((c) => c.finished).length : 0;
+  // What he's marked he's working on (a step or a task) is lifted out of
+  // the views into "Working on" at the top.
+  const isWorking = (c) => !c.finished && (c.kind === "step" || (c.kind === "line" && c.actionable)) && Boolean(c.item.working_since);
+  const working = cards.filter((c) => isWorking(c) && shows(c));
+  const inView = (c) => shows(c) && !isWorking(c);
+  // A step he's working on inside a section picked whole goes up there too,
+  // as a card of its own: still the section's, so it has no place in the
+  // order to drag, but it ticks, opens and stops the same.
+  const secWorking = cards
+    .filter((c) => c.kind === "section" && shows(c))
+    .flatMap((c) =>
+      c.block.items
+        .filter((st) => !st.done_on && st.working_since)
+        .map((st) => ({
+          key: `wsec:${st.id}`,
+          kind: "step",
+          id: st.id,
+          camp: c.camp,
+          number: c.number,
+          item: { ...st, from: [c.block.section.title, st.from].filter(Boolean).join(" · ") },
+          computer: st.computer ?? null,
+          finished: false,
+          actionable: true,
+          done: 0,
+          total: 0,
+          rows: [st],
+          inSection: true,
+        }))
+    );
+  // "Working on": the cards that drag, then the steps from sections.
+  const workBox = (moving, still) =>
+    moving.length + still.length > 0 && (
+      <section className="tb-working" aria-label="Working on">
+        <p className="tb-working__label">
+          <i className="camp-working__pulse" aria-hidden="true" />
+          Working on
+        </p>
+        {moving.length > 0 && list(moving, null)}
+        {still.length > 0 && (
+          <div className="tb-list">
+            {still.map((c) => (
+              <div key={c.key} className="tb-card" data-card={c.key}>
+                {body(c, null, [])}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  const emptyHint = (list) => (list.some((c) => isWorking(c) && shows(c)) ? "In Working on, above." : list.some(matches) ? "All done here." : "Nothing here matches.");
+  const campKey = (card) => (card.camp ? `camp:${card.camp.id}` : "list");
   const campIds = [...new Set(cards.filter((c) => c.camp).map((c) => c.camp.id))].sort();
 
   // What a card wears at its top: in a computer's column, "Working on" or
@@ -169,6 +249,7 @@ export default function TodayBoard({
   function hand(card, n) {
     const to = known(n);
     if (to === known(card.computer)) return;
+    if (card.inSection) return onAssign(card, to, null);
     onAssign(card, to, view === "computer" ? moveKey(order, card.key, null, colKeys(to)) : null);
   }
 
@@ -183,17 +264,47 @@ export default function TodayBoard({
     onAssign(card, hit.n, keys);
   }
 
-  // Carried out of its list: by computer, into another column; a line of
-  // today's own, out to the ongoing list.
+  // By camp: a step or a section let go over another camp's column moves
+  // to that camp, just before the card it landed on; over its own, just
+  // moved there. A task from the quest's list becomes a step in that camp.
+  // The quest's own list takes only its own lines.
+  const campCols = useMemo(() => campColumns(cards), [cards]);
+  function dropCamp(card, hit) {
+    const col = campCols.find((c) => c.key === hit.col);
+    if (!col?.camp) return;
+    const keys = moveKey(order, card.key, hit.beforeKey, col.cards.map((c) => c.key));
+    if (hit.col === campKey(card)) {
+      if (keys.some((k, i) => k !== order[i])) onOrder(keys);
+      return;
+    }
+    onMoveCamp(card, col.camp.id, keys);
+  }
+
+  // The column a card carried out of its list is over, where it can go:
+  // by computer, any; by camp, a camp's (not a note line).
+  function hitAt(x, y, card) {
+    if (view === "computer") {
+      const hit = colAt(x, y, card.key);
+      return hit && { ...hit, n: hit.col === "none" ? null : Number(hit.col.slice(3)) };
+    }
+    if (view === "camp" && card.actionable) {
+      const hit = colAt(x, y, card.key);
+      return hit && hit.col !== "list" ? hit : null;
+    }
+    return null;
+  }
+
+  // Carried out of its list: by computer or by camp, into another column;
+  // a line of today's own, out to the ongoing list.
   function carried(phase, x, y, key) {
     const card = byKey.get(key);
     if (!card) return;
-    const hit = view === "computer" && (phase === "move" || phase === "drop") ? colAt(x, y, key) : null;
+    const hit = phase === "move" || phase === "drop" ? hitAt(x, y, card) : null;
     markCol(phase === "move" ? hit : null);
     const own = card.kind === "line" && card.own;
     if (hit) {
       if (own) onLineOut("cancel", x, y, card.item);
-      if (phase === "drop") dropIn(card, hit);
+      if (phase === "drop") (view === "computer" ? dropIn : dropCamp)(card, hit);
       return;
     }
     if (own) onLineOut(phase, x, y, card.item);
@@ -231,6 +342,7 @@ export default function TodayBoard({
           badge={badge}
           from={view === "camp" ? null : card.camp.title}
           computerName={pcName.get(known(card.computer)) ?? null}
+          hideDone={hideDone}
           onComputer={() => setSheet({ card })}
           onOff={() => onSectionOff(card.block.section)}
           openStep={openStep}
@@ -245,7 +357,7 @@ export default function TodayBoard({
         <StepList
           list={[it]}
           openStep={openStep}
-          hideDone={false}
+          hideDone={hideDone}
           step={(st) => (st.id === card.id ? { ...stepRow(st), ...move, badge, computer } : stepRow(st))}
           onAddSubs={onAddStepSubs}
           mirror
@@ -278,9 +390,19 @@ export default function TodayBoard({
 
   const list = (shownCards, cross) => <CardColumn cards={shownCards} body={body} onReorder={reorder} onOut={carried} into={into} cross={cross} />;
   const nothing = filtered && !cards.some(shows);
+  const allDone = !nothing && doneHidden > 0 && !cards.some(shows);
 
   let content;
-  if (nothing) {
+  if (allDone) {
+    content = (
+      <div className="tb-none">
+        <p className="today-hint">Everything on today is done.</p>
+        <button type="button" className="btn btn--sm" onClick={flipHideDone}>
+          Show done
+        </button>
+      </div>
+    );
+  } else if (nothing) {
     content = (
       <div className="tb-none">
         <p className="today-hint">Nothing on today matches that filter.</p>
@@ -290,15 +412,18 @@ export default function TodayBoard({
       </div>
     );
   } else if (view === "order") {
-    content = list(cards.filter(shows), null);
+    content = list(cards.filter(inView), null);
   } else if (view === "camp") {
+    const cross = { scroller: () => colsRef.current, settle: (x) => settleCols(colsRef.current, x) };
+    // A camp's column stays while a filter or Hide done empties it, so a
+    // step can still be carried into it.
     content = (
       <div className="tb-cols" ref={colsRef} data-drag-clip="">
-        {campColumns(cards)
-          .map((col) => ({ ...col, shown: col.cards.filter(shows) }))
-          .filter((col) => col.shown.length)
+        {campCols
+          .map((col) => ({ ...col, shown: col.cards.filter(inView), working: working.filter((c) => campKey(c) === col.key), still: secWorking.filter((c) => campKey(c) === col.key) }))
+          .filter((col) => col.shown.length || col.camp || col.working.length)
           .map((col) => (
-            <section key={col.key} className="tb-col" aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
+            <section key={col.key} className="tb-col" data-col={col.key} aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
               <div className="tb-col__head">
                 {col.camp ? (
                   <Link to={`/ascent/camp/${col.camp.id}`} state={{ from: "quests" }} className="today-group__label tb-col__name">
@@ -316,7 +441,9 @@ export default function TodayBoard({
                 )}
                 {col.total > 0 && <small className="tb-col__count">{`${col.done} of ${col.total}`}</small>}
               </div>
-              {list(col.shown, null)}
+              {workBox(col.working, col.still)}
+              {list(col.shown, cross)}
+              {!col.shown.length && !col.working.length && !col.still.length && <p className="tb-col__empty">{emptyHint(col.cards)}</p>}
             </section>
           ))}
       </div>
@@ -326,8 +453,8 @@ export default function TodayBoard({
     content = (
       <div className="tb-cols" ref={colsRef} data-drag-clip="">
         {pcCols.map((col) => {
-          const open = col.open.filter(shows);
-          const sunk = col.finished.filter(shows);
+          const open = col.open.filter(inView);
+          const sunk = col.finished.filter(inView);
           const done = col.cards.reduce((n, c) => n + c.done, 0);
           const total = col.cards.reduce((n, c) => n + c.total, 0);
           const pc = col.n == null ? null : computers.find((c) => c.n === col.n);
@@ -347,7 +474,7 @@ export default function TodayBoard({
               </div>
               {list(open, cross)}
               {!col.cards.length && <p className="tb-col__empty">{pc ? `Drag a step, a section or a task here to hand it to ${pc.name}.` : "Everything on today is handed out."}</p>}
-              {col.cards.length > 0 && !open.length && !sunk.length && <p className="tb-col__empty">Nothing here matches.</p>}
+              {col.cards.length > 0 && !open.length && !sunk.length && <p className="tb-col__empty">{emptyHint(col.cards)}</p>}
               {sunk.length > 0 && (
                 <>
                   <p className="tb-col__done">Done</p>
@@ -386,11 +513,17 @@ export default function TodayBoard({
             </button>
           ))}
         </div>
+        <div className="tb-bar__tools">
+        <button type="button" className={"btn btn--sm tb-done-btn" + (hideDone ? " on" : "")} aria-pressed={hideDone} aria-label={hideDone ? "Done is hidden. Show done" : "Hide done"} onClick={flipHideDone}>
+          {hideDone ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
+          <span>{hideDone ? "Show done" : "Hide done"}</span>
+        </button>
         <button type="button" className={"btn btn--sm tb-filter-btn" + (count ? " on" : "")} aria-expanded={filtering} aria-label={count ? `Filter, ${count} on` : "Filter"} onClick={() => onFiltering(!filtering)}>
           <SlidersHorizontal size={14} aria-hidden="true" />
           <span className="tb-filter-btn__word">Filter</span>
           {count > 0 && <b className="tb-filter-btn__n">{count}</b>}
         </button>
+        </div>
       </div>
       {filtering && (
         <div className="tb-filters">
@@ -423,8 +556,17 @@ export default function TodayBoard({
       )}
 
       <SketchProvider kind="step" userId={sketch.userId} scopeId={campIds} about={sketch.about} onAddToNote={sketch.onAddToNote}>
+        {view !== "camp" && !nothing && !allDone && workBox(working, secWorking)}
         {content}
       </SketchProvider>
+      {doneHidden > 0 && !allDone && (
+        <p className="tb-hidden">
+          {doneHidden === 1 ? "1 done, hidden." : `${doneHidden} done, hidden.`}{" "}
+          <button type="button" className="btn-link" onClick={flipHideDone}>
+            Show done
+          </button>
+        </p>
+      )}
       {hidden > 0 && !nothing && (
         <p className="tb-hidden">
           {hidden === 1 ? "1 more on today, hidden by the filter." : `${hidden} more on today, hidden by the filter.`}{" "}
@@ -482,7 +624,7 @@ function CardColumn({ cards, body, onReorder, onOut, into, cross }) {
 // A section picked whole, as a card: its number and name (and its camp,
 // where the view doesn't say), how far along, the computer it's handed to,
 // "Off today", and its steps, which tick and open where they are.
-function BoardSection({ card, sort, badge, from, computerName, onComputer, onOff, openStep, stepRow, onAddSubs }) {
+function BoardSection({ card, sort, badge, from, computerName, hideDone, onComputer, onOff, openStep, stepRow, onAddSubs }) {
   const b = card.block;
   const s = b.section;
   const tint = tintOf(s.color);
@@ -514,7 +656,10 @@ function BoardSection({ card, sort, badge, from, computerName, onComputer, onOff
         {sort && <DragHandle {...sort.handle} label={`Drag to move ${s.title}`} />}
       </div>
       {b.items.length > 0 ? (
-        <StepList list={b.items} openStep={openStep} hideDone={false} step={stepRow} onAddSubs={onAddSubs} mirror idPrefix="qs-step" />
+        <>
+          <StepList list={b.items.filter((st) => !(hideDone && st.done_on) && !(st.working_since && !st.done_on))} openStep={openStep} hideDone={hideDone} step={stepRow} onAddSubs={onAddSubs} mirror idPrefix="qs-step" />
+          {b.items.some((st) => st.working_since && !st.done_on) && <p className="ascent-mini today-sec__earlier">Working on one here, in Working on above.</p>}
+        </>
       ) : (
         <p className="today-hint">{b.earlier ? "Every step here was done before today." : "No steps in this section yet."}</p>
       )}

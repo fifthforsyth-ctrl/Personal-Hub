@@ -209,6 +209,7 @@
 .qs-pen { flex: 0 0 auto; width: 28px; height: 28px; margin: 7px 0 0; display: grid; place-items: center; color: var(--text-3); }
 .qs-line--note .camp-step__words { color: var(--text-2); }
 .qs-subs .qs-pen { width: 22px; height: 22px; margin-top: 6px; }
+.qs-subs .camp-work-btn { width: 18px; height: 18px; }
 
 /* The box: its button switches between adding a task and a note line. */
 .qs-kind {
@@ -315,8 +316,9 @@
 .tb-seg { flex: 0 1 auto; min-width: 0; background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .tb-seg .seg-btn { padding: 7px 14px; }
 .tb-seg .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
-.btn.tb-filter-btn { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; background: var(--card); }
-.btn.tb-filter-btn.on { border-color: var(--ink); }
+.tb-bar__tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+.btn.tb-filter-btn, .btn.tb-done-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; background: var(--card); }
+.btn.tb-filter-btn.on, .btn.tb-done-btn.on { border-color: var(--ink); }
 .tb-filter-btn__n {
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent);
   font: 700 10.5px/18px var(--font-mono); text-align: center; font-variant-numeric: tabular-nums;
@@ -335,6 +337,16 @@
 .tb-chip.on { background: var(--ink); color: var(--on-ink); }
 .camp-swatch.tb-swatch { width: 30px; flex: none; }
 .btn-link.tb-filters__clear { align-self: flex-start; min-height: 32px; padding: 0 2px; }
+/* "Working on": what he's marked he's on, lifted to the top of Today. */
+.tb-working {
+  margin: 0 0 12px; padding: 6px 12px 4px 14px; border-radius: 14px;
+  border: 1.5px solid var(--accent); background: var(--accent-soft);
+}
+.tb-working__label {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0 2px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-text);
+}
+.tb-working .tb-card { border-top-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .tb-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 4px 0; }
 .tb-hidden { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .tb-hidden .btn-link { padding: 0; min-height: 0; font-size: inherit; }
@@ -438,7 +450,7 @@
 @media (max-width: 420px) {
   .tb-filter-btn__word { display: none; }
   .tb-seg .seg-btn { padding: 7px 8px; }
-  .btn.tb-filter-btn { padding-left: 10px; padding-right: 10px; }
+  .btn.tb-filter-btn, .btn.tb-done-btn { padding-left: 10px; padding-right: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
