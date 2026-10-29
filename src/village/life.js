@@ -229,7 +229,9 @@ function loft(g, rings, o = {}) {
     const r = rings[i];
     const a = rings[Math.max(0, i - 1)].c;
     const b = rings[Math.min(R - 1, i + 1)].c;
-    const t = norm(sub(b, a));
+    let t = norm(sub(b, a));
+    // a single ring has no neighbour to aim by, so it faces its exact cap point (along z if neither is a point)
+    if (R === 1) t = Array.isArray(o.cap1) ? norm(sub(o.cap1, r.c)) : Array.isArray(o.cap0) ? norm(sub(r.c, o.cap0)) : [0, 0, 1];
     let ax = sub(ref, scl(t, dot(ref, t)));
     if (Math.hypot(...ax) < 1e-4) ax = Math.abs(t[1]) < 0.9 ? cross(t, [0, 1, 0]) : cross(t, [1, 0, 0]);
     ax = norm(ax);
@@ -2547,7 +2549,9 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     }
     for (let m = 0; m < def.n; m++) {
       const young = m >= def.n - def.foals;
-      const lag = (r() - 0.5) * (def.kind === "horse" ? 14 : 10);
+      // lane neighbours alternate in front and behind, so narrow lanes never put two side by side
+      const rank = lanes.filter((l) => l < lanes[m]).length;
+      const lag = (rank % 2 ? 1 : -1) * (1.5 + r() * 3.5) * (def.kind === "horse" ? 1.4 : 1);
       const mem = {
         lane: lanes[m] + (r() - 0.5) * 0.5,
         lag,
@@ -2863,7 +2867,8 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     const dist = pr2[0];
     const v = pr2[1];
     along(herd.line, m.lag + dist, o4);
-    const lane = (m.lane + 0.7 * Math.sin(dist / 23 + m.seed)) * herd.laneK;
+    // one wobble phase for the whole herd, so the lanes sway together and keep their spacing
+    const lane = (m.lane + 0.7 * Math.sin(dist / 23 + herd.id * 2.39)) * herd.laneK;
     out[0] = o4[0] - o4[3] * lane;
     out[1] = o4[1] + o4[2] * lane;
     const still = 1 - smooth(0.05, 0.4, v);
