@@ -26,8 +26,8 @@
 // at CSS pixels; 150 ms after it lifts, one full still at device pixels (up
 // to 2x) with the sun's shadow fitted to the view. What moves runs at 30
 // frames a second, and not at all when the page is hidden or motion is
-// reduced. Builds are made one per task so the page keeps answering, and
-// their arrays let go once they are on the GPU.
+// reduced. Builds are made one per task, and the land in short slices, so
+// the page keeps answering, and their arrays let go once they are on the GPU.
 //
 // Checked under Mesa (chromium --use-gl=angle --use-angle=gl in Xvfb) with
 // zero GL errors; half-float targets only when the GPU can draw into them;
@@ -152,6 +152,8 @@ class World {
     this.insets = { top: 0, bottom: 0, left: 0, right: 0 };
     this.made = new Map();
     this.coast = null;
+    // the land while it grows (the coast once it is whole)
+    this.growing = null;
     this.ground = null;
     this.stake = null;
     this.soldiers = null;
@@ -406,9 +408,17 @@ class World {
     }
     if (job.what === "land") {
       const ground = groundOf(job.pads);
-      const terrain = makeTerrain(ground);
+      // the tiles grow in short slices, nearest where the camera looks first, the page answering between them;
+      // the rest of the coast stands on the whole land, so it waits (teardown lets go of what has grown, if it comes first)
+      const terrain = makeTerrain(ground, { near: [this.view.tx, this.view.tz] });
       st.scene.add(terrain.group);
+      this.growing = terrain;
+      await terrain.ready;
+      this.growing = null;
+      if (this.dead || this.lost) return;
+      // (it showed only now, so nothing of it is on the GPU yet; a still drawn while it grew cast no shadows of it)
       letGoOnUpload(terrain.group);
+      st.shadowDirty = true;
       const sea = makeSea(st);
       st.scene.add(sea.mesh);
       this.ground = ground;
@@ -1364,8 +1374,10 @@ class World {
       for (const x of [...all, this.shown?.mk, this.spare?.mk, this.stake, this.soldiers, this.folk]) if (x) KIT.village.dispose(x);
       const c = this.coast;
       if (c) for (const part of [c.terrain, c.sea, c.rivers, c.harbour, c.dressing, c.life]) part?.dispose();
+      // (the land still growing stops, and what has grown is let go)
+      this.growing?.dispose();
       this.made.clear();
-      this.coast = this.ground = this.stake = this.soldiers = this.folk = this.shown = this.spare = null;
+      this.coast = this.ground = this.growing = this.stake = this.soldiers = this.folk = this.shown = this.spare = null;
       if (this.stage) {
         this.stage.dispose();
         this.stage.renderer.dispose();

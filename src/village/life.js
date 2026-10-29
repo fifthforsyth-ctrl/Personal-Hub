@@ -362,6 +362,10 @@ function sheet(g, P, o, out) {
 
 // ------------------------------------------------------------------ the light (the land's, as terrain.js)
 
+// three r128 never gives a MeshLambertMaterial its cameraPosition (it stays at the origin, the plaza), so the eye
+// is found from the view matrix
+const EYE_FN = "vec3 eyeW() { vec3 t = viewMatrix[3].xyz; return -vec3(dot(viewMatrix[0].xyz, t), dot(viewMatrix[1].xyz, t), dot(viewMatrix[2].xyz, t)); }";
+
 const VERT_PARS = [
   "attribute vec3 aCol; attribute vec2 aZA; attribute vec4 aBone; attribute vec2 aUV;",
   "#define aZone aZA.x",
@@ -374,6 +378,7 @@ const VERT_PARS = [
   "float bitOf(float m, float k) { return mod(floor(m / exp2(k) + 0.001), 2.0); }",
   "float partOf() { return floor(aBone.x + 0.01); }",
   "float weightOf() { return clamp((aBone.x - floor(aBone.x + 0.01)) / 0.45, 0.0, 1.0); }",
+  EYE_FN,
 ].join("\n");
 
 // world position and normal (the instance's matrix too), and what the fragment needs
@@ -391,6 +396,7 @@ const FRAG_PARS = [
   "uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyCol; uniform vec3 uGndCol; uniform vec3 uRimCol; uniform vec3 uFogCol; uniform vec3 uFog;",
   "uniform float uShadeLift; uniform sampler2D uNoise;",
   "varying vec3 vPW; varying vec3 vNW; varying vec3 vAlb; varying vec4 vMisc; varying vec3 vLP; varying vec3 vPaint;",
+  EYE_FN,
 ].join("\n");
 
 // The light: the sun wrapped a little round the form (wrap), its shadow, the sky above and the ground below
@@ -398,7 +404,7 @@ const FRAG_PARS = [
 const fragMain = (wrap, rim, surface = "") =>
   [
     "vec3 N = normalize(vNW);",
-    "vec3 toC = cameraPosition - vPW; float camD = length(toC); vec3 V = toC / camD;",
+    "vec3 toC = eyeW() - vPW; float camD = length(toC); vec3 V = toC / camD;",
     "vec3 alb = vAlb; float glow = 0.0; float ao = vMisc.x;",
     surface,
     "float ndl = dot(N, uSunDir);",
@@ -952,7 +958,7 @@ const BIRD_FAR = `
 float birdFar() {
   #ifdef USE_INSTANCING
     vec3 o = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
-    return clamp(distance(cameraPosition, o) / ${FAR_D.toFixed(1)}, 1.0, ${FAR_MOST.toFixed(2)});
+    return clamp(distance(eyeW(), o) / ${FAR_D.toFixed(1)}, 1.0, ${FAR_MOST.toFixed(2)});
   #else
     return 1.0;
   #endif

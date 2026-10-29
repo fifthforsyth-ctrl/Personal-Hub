@@ -58,6 +58,10 @@ export const FAR_CHUNK = 128;
 const FAR_R = 1450;
 // tufts and flowers grow within this of the plaza
 const MEADOW_R = 360;
+// how far from the eye the tufts and the flowers shrink away into the ground, [from, gone] (and past gone a part of
+// them is not drawn at all): far enough that the whole town in view (some 400 to 700 m off) keeps them as flecks
+const TUFT_FADE = [520, 760];
+const FLOWER_FADE = [560, 800];
 // the chunks within this of the plaza grow before the first picture
 const FIRST_R = 340;
 // how many pads past the highest one levelled are kept clear for the town to come
@@ -806,10 +810,15 @@ function decalGeo() {
 
 // ------------------------------------------------------------------ materials
 
+// three r128 never gives a MeshLambertMaterial its cameraPosition (it stays at the origin, the plaza), so the eye
+// is found from the view matrix
+const EYE_FN = "vec3 eyeW() { vec3 t = viewMatrix[3].xyz; return -vec3(dot(viewMatrix[0].xyz, t), dot(viewMatrix[1].xyz, t), dot(viewMatrix[2].xyz, t)); }";
+
 const VERT_PARS = [
   "attribute vec4 aTint; attribute float aAO; attribute float aPart;",
   "uniform vec2 uFade; uniform sampler2D uNoise; uniform sampler2D uStroke;",
   "varying vec3 vPW; varying vec3 vNW; varying vec4 vTint; varying float vAO; varying float vPart; varying vec3 vLoc; varying vec3 vRoot; varying vec3 vGround;",
+  EYE_FN,
 ].join("\n");
 
 // before the vertex is placed: tufts and flowers shrink away into the ground far from the eye
@@ -828,7 +837,7 @@ const VERT_BEGIN = [
   "  transformed.z *= 0.94 + 0.12 * wn.g;",
   "#endif",
   "#ifdef FADE_FAR",
-  "  float fadeK = 1.0 - smoothstep(uFade.x, uFade.y, length(rootW - cameraPosition));",
+  "  float fadeK = 1.0 - smoothstep(uFade.x, uFade.y, length(rootW - eyeW()));",
   "  transformed *= fadeK;",
   "#endif",
 ].join("\n");
@@ -846,7 +855,7 @@ const VERT_PROJECT = [
   "#ifdef GRASS",
   "  if (aTint.w < 1.5) {",
   "    vec2 gp = rootW.xz;",
-  "    float camR = length(rootW - cameraPosition);",
+  "    float camR = length(rootW - eyeW());",
   "    vec4 gA = texture2D(uNoise, gp / 310.0);",
   "    vec4 gB = texture2D(uNoise, gp / 73.0 + 0.31);",
   "    vec4 gC = texture2D(uNoise, gp / 15.0 + 0.57);",
@@ -871,6 +880,7 @@ const FRAG_PARS = [
   "uniform vec3 uFogCol; uniform vec3 uFog; uniform float uShadeLift;",
   "uniform sampler2D uStroke; uniform sampler2D uNoise; uniform vec3 uMoss; uniform vec3 uWet;",
   "varying vec3 vPW; varying vec3 vNW; varying vec4 vTint; varying float vAO; varying float vPart; varying vec3 vLoc; varying vec3 vRoot; varying vec3 vGround;",
+  EYE_FN,
   // the kit's brush, laid on from the three sides a surface faces
   "vec4 paintTri(vec3 p, vec3 n) { vec3 b = abs(n); b = b * b; b = b * b; b /= (b.x + b.y + b.z + 1e-5);",
   "  return texture2D(uStroke, p.zy) * b.x + texture2D(uStroke, p.xz + 0.37) * b.y + texture2D(uStroke, p.xy + 0.71) * b.z; }",
@@ -880,7 +890,7 @@ const FRAG_PARS = [
 
 const FRAG_MAIN = [
   "vec3 N = normalize(vNW);",
-  "vec3 toCam = cameraPosition - vPW;",
+  "vec3 toCam = eyeW() - vPW;",
   "float camD = length(toCam);",
   "vec3 V = toCam / camD;",
   "vec3 alb = diffuseColor.rgb;",
@@ -1013,10 +1023,12 @@ const FRAG_MAIN = [
   "  vec3 rootC = base * mix(vec3(0.62, 0.74, 0.5), vec3(0.8), wheat);",
   "  alb = mix(rootC, tipC, smoothstep(0.05, 1.0, up)) * (0.62 + 0.42 * bladeK);",
   "  alb *= 1.0 + (fract(vTint.w * 13.7) - 0.5) * 0.16;",
-  // seen from afar a tuft is a soft lighter fleck in the meadow, not a dark mark
-  "  alb = mix(alb, base * 1.07, smoothstep(60.0, 240.0, camD) * 0.6);",
+  // seen from afar a tuft is a soft lighter fleck in the meadow, not a dark mark (though from the whole town's
+  // view, some 400 m off, it keeps a little of its bright tip, so the meadow there is still flecked)
+  "  float farK = smoothstep(120.0, 600.0, camD) * 0.6;",
+  "  alb = mix(alb, base * 1.07, farK);",
   "  ao = mix(0.62, 1.1, smoothstep(0.0, 0.85, up));",
-  "  ao = mix(ao, 1.0, smoothstep(60.0, 240.0, camD) * 0.6);",
+  "  ao = mix(ao, 1.0, farK);",
   "  wrap = 0.3;",
   "  thin = up * 0.7;",
   "  shK = 0.9;",
@@ -1141,6 +1153,7 @@ const FIELD_FRAG = [
   "uniform sampler2D uStroke; uniform sampler2D uNoise;",
   "uniform vec3 uWheat; uniform vec3 uSoil; uniform vec3 uCrop; uniform vec3 uFallow; uniform vec3 uHay;",
   "varying vec3 vPW; varying vec3 vNW; varying vec4 vField; varying float vAOg;",
+  EYE_FN,
   // stripes of a period that fade out where they get finer than the pixels
   "float rows(float v, float period, float sharp) { float x = v / period; float w = fwidth(x); float s = 0.5 + 0.5 * cos(x * 6.2831853);",
   "  s = smoothstep(0.5 - sharp, 0.5 + sharp, s); return mix(s, 0.5, smoothstep(0.18, 0.5, w)); }",
@@ -1148,7 +1161,7 @@ const FIELD_FRAG = [
 const FIELD_MAIN = [
   "vec3 N = normalize(vNW);",
   "vec2 p = vPW.xz;",
-  "float camD = length(vPW - cameraPosition);",
+  "float camD = length(vPW - eyeW());",
   "vec4 nA = texture2D(uNoise, p / 310.0);",
   "vec4 nB = texture2D(uNoise, p / 73.0 + 0.31);",
   "vec4 nC = texture2D(uNoise, p / 15.0 + 0.57);",
@@ -2991,8 +3004,8 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
     rock: dressMaterial("rock", { ROCK: 1 }, { derivatives: true }),
     wall: dressMaterial("wall", { WALL: 1 }),
     solid: dressMaterial("solid", { SOLID: 1 }),
-    grass: dressMaterial("grass", { GRASS: 1, FADE_FAR: 1 }, { side: DOUBLE, fade: [330, 520], map: grassTexture(), derivatives: true }),
-    blossom: dressMaterial("blossom", { BLOSSOM: 1, FADE_FAR: 1 }, { side: DOUBLE, fade: [380, 600] }),
+    grass: dressMaterial("grass", { GRASS: 1, FADE_FAR: 1 }, { side: DOUBLE, fade: TUFT_FADE, map: grassTexture(), derivatives: true }),
+    blossom: dressMaterial("blossom", { BLOSSOM: 1, FADE_FAR: 1 }, { side: DOUBLE, fade: FLOWER_FADE }),
     decal: decalMaterial(),
     fields: fieldMaterial(),
   };
@@ -3013,8 +3026,8 @@ export function makeDressing(stage, ground, { lanes: lanes0 = [], detail: detail
     new Batch(group, "wall", wallGeo(), mats.wall),
     new Batch(group, "fence", fenceGeo(), mats.solid),
     new Batch(group, "hay", hayGeo(), mats.solid, { cast: true }),
-    new Batch(group, "tuft", tuftGeo(), mats.grass, { split: true, fade: 520, thin: [120, 400, 0.25] }),
-    new Batch(group, "flower", flowerGeo(), mats.blossom, { split: true, fade: 600, thin: [120, 400, 0.25] }),
+    new Batch(group, "tuft", tuftGeo(), mats.grass, { split: true, fade: TUFT_FADE[1], thin: [120, 400, 0.25] }),
+    new Batch(group, "flower", flowerGeo(), mats.blossom, { split: true, fade: FLOWER_FADE[1], thin: [120, 400, 0.25] }),
     new Batch(group, "decal", decalGeo(), mats.decal, { receive: false }),
   ];
   // the chunks: CORE's, then the far ones round it

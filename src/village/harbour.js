@@ -667,12 +667,15 @@ const FLAG_FRAG = [
   "uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyCol; uniform vec3 uGndCol; uniform vec3 uRimCol; uniform vec3 uFogCol; uniform vec3 uFog;",
   "uniform float uShadeLift; uniform sampler2D uStroke; uniform float uFlagW; uniform float uFlagH; uniform vec3 uMark;",
   "varying vec3 vPW; varying vec3 vNW; varying float vU; varying float vV;",
+  // three r128 never gives a MeshLambertMaterial its cameraPosition (it stays at the origin, under the flag's own
+  // pole), so the eye is found from the view matrix
+  "vec3 eyeW() { vec3 t = viewMatrix[3].xyz; return -vec3(dot(viewMatrix[0].xyz, t), dot(viewMatrix[1].xyz, t), dot(viewMatrix[2].xyz, t)); }",
 ].join("\n");
 const FLAG_MAIN = [
   // the swallowtail: a V cut back into the fly
   "if (abs(vV - 0.5) < (vU - 0.76) / 0.24 * 0.34) discard;",
   "vec3 N = normalize(vNW);",
-  "vec3 V = normalize(cameraPosition - vPW);",
+  "vec3 V = normalize(eyeW() - vPW);",
   // the side of the cloth turned to the camera
   "if (dot(N, V) < 0.0) N = -N;",
   "vec4 st = texture2D(uStroke, vPW.xy * 0.32 + vPW.z * 0.21);",
@@ -698,7 +701,7 @@ const FLAG_MAIN = [
   "c += alb * uSkyCol * (1.0 - lit) * uShadeLift * 0.35;",
   "float fr = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);",
   "c += uRimCol * alb * fr * (0.25 + 0.75 * lit);",
-  "float dist = length(vPW - cameraPosition);",
+  "float dist = length(vPW - eyeW());",
   "c = mix(c, uFogCol, smoothstep(uFog.x, uFog.y, dist) * 0.92);",
   "gl_FragColor = vec4(c, clamp(lit, 0.0, 1.0));",
 ].join("\n");

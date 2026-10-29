@@ -4,8 +4,12 @@
 // layers wherever the ground is steep, sand, river banks, forest floor, the
 // snow on the peaks, and the lanes worn into the grass.
 //
-//   makeTerrain(ground)   ground: coast.js groundOf(active pads)
-//     -> { group, tiles, material, rebuild(ground, rects), setPaths(lanes), dispose() }
+//   makeTerrain(ground, { near })   ground: coast.js groundOf(active pads)
+//     -> { group, tiles, material, ready, rebuild(ground, rects), setPaths(lanes), dispose() }
+//   The tiles grow into the group in short slices between the page's other work, those nearest near
+//   ([x, z], default the plaza) first, the far grid last; the group shows once the land is whole (a
+//   patch of it afloat in the haze would look broken). ready: a promise of that (true), or of dispose()
+//   coming first (false: the growing stops there); it fails with the error if a piece throws.
 //   rebuild() makes again only the tiles a changed pad touches (rects: [{ x0, z0, x1, z1 }]).
 //   setPaths([[[x, z], ...], ...]) wears those lanes into the grass.
 //
@@ -273,8 +277,9 @@ function deepTile(ground, x0, z0, size) {
   return true;
 }
 
-// The far land and sea floor out to the horizon, coarse, with a hole where the tiles are.
-function farGeo(ground) {
+// The far land and sea floor out to the horizon, coarse, with a hole where the tiles are, grown a band of
+// rows at a time: step(ms) grows rows for about ms (true once every row has grown), geo() the geometry.
+function farGrid(ground) {
   const R = WORLD_R;
   const n = Math.round((2 * R) / FAR_STEP);
   const idxOf = new Int32Array((n + 1) * (n + 1)).fill(-1);
@@ -317,20 +322,30 @@ function farGeo(ground) {
     return idxOf[k];
   };
   const idx = [];
-  for (let j = 0; j < n; j++)
-    for (let i = 0; i < n; i++) {
-      const x = -R + i * FAR_STEP;
-      const z = -R + j * FAR_STEP;
-      if (Math.hypot(x + FAR_STEP / 2, z + FAR_STEP / 2) > R) continue;
-      // under the tiles: left out (the bounds are on this grid, so a cell is all in or all out)
-      if (inCore(x, z) && inCore(x + FAR_STEP, z + FAR_STEP)) continue;
-      const a = vert(i, j);
-      const b = vert(i + 1, j);
-      const c = vert(i, j + 1);
-      const d = vert(i + 1, j + 1);
-      if (Math.abs(pos[a * 3 + 1] - pos[d * 3 + 1]) < Math.abs(pos[b * 3 + 1] - pos[c * 3 + 1])) idx.push(a, c, d, a, d, b);
-      else idx.push(a, c, b, b, c, d);
-    }
+  let j = 0;
+  const step = (ms) => {
+    const ts = performance.now();
+    for (; j < n && performance.now() - ts < ms; j++)
+      for (let i = 0; i < n; i++) {
+        const x = -R + i * FAR_STEP;
+        const z = -R + j * FAR_STEP;
+        if (Math.hypot(x + FAR_STEP / 2, z + FAR_STEP / 2) > R) continue;
+        // under the tiles: left out (the bounds are on this grid, so a cell is all in or all out)
+        if (inCore(x, z) && inCore(x + FAR_STEP, z + FAR_STEP)) continue;
+        const a = vert(i, j);
+        const b = vert(i + 1, j);
+        const c = vert(i, j + 1);
+        const d = vert(i + 1, j + 1);
+        if (Math.abs(pos[a * 3 + 1] - pos[d * 3 + 1]) < Math.abs(pos[b * 3 + 1] - pos[c * 3 + 1])) idx.push(a, c, d, a, d, b);
+        else idx.push(a, c, b, b, c, d);
+      }
+    return j >= n;
+  };
+  return { step, geo: () => gridGeo(pos, nor, col, soil, ao, idx) };
+}
+
+// The far grid's arrays as a geometry.
+function gridGeo(pos, nor, col, soil, ao, idx) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
@@ -354,11 +369,14 @@ const TERRAIN_FRAG = [
   "uniform sampler2D uStroke; uniform sampler2D uNoise; uniform sampler2D uPaths; uniform vec4 uPathBox;",
   "uniform vec3 uRockA; uniform vec3 uRockB; uniform vec3 uDirt; uniform vec3 uDirtDark; uniform vec3 uMoss; uniform vec4 uFalls[2]; uniform vec4 uFallDir;",
   "varying vec3 vPW; varying vec3 vNW; varying vec4 vSoil; varying float vAO;",
+  // three r128 never gives a MeshLambertMaterial its cameraPosition (it stays at the origin, the plaza), so the eye
+  // is found from the view matrix
+  "vec3 eyeW() { vec3 t = viewMatrix[3].xyz; return -vec3(dot(viewMatrix[0].xyz, t), dot(viewMatrix[1].xyz, t), dot(viewMatrix[2].xyz, t)); }",
 ].join("\n");
 const TERRAIN_MAIN = [
   "vec3 N = normalize(vNW);",
   "vec2 p = vPW.xz;",
-  "float camD = length(vPW - cameraPosition);",
+  "float camD = length(vPW - eyeW());",
   "vec4 nA = texture2D(uNoise, p / 310.0);",
   "vec4 nB = texture2D(uNoise, p / 73.0 + 0.31);",
   "vec4 nC = texture2D(uNoise, p / 15.0 + 0.57);",
@@ -414,7 +432,8 @@ const TERRAIN_MAIN = [
   "vec3 rock = mix(uRockA, uRockB, clamp(lk * 0.45 + bk * 0.4 + (nB.g - 0.5) * 0.6 + (nD.r - 0.5) * 0.2, 0.0, 1.0));",
   "rock *= mix(vec3(1.0), vec3(1.05, 1.0, 0.92), smoothstep(0.5, 0.95, bk));",
   // near to, the blocks' shape: lit along the top, shaded at the foot, dark in the joints; far off, only the layers
-  "float rd = 1.0 - smoothstep(260.0, 900.0, camD);",
+  // (still there on the cove's cliffs with the whole town in view, some 600 m off on a phone)
+  "float rd = 1.0 - smoothstep(400.0, 1300.0, camD);",
   "float seam = smoothstep(0.0, 0.07, band);",
   "float joint = smoothstep(0.0, 0.045, blk) * smoothstep(1.0, 0.955, blk);",
   "rock *= mix(1.0, mix(0.82, 1.07, smoothstep(0.05, 0.92, band)), rd);",
@@ -517,7 +536,10 @@ function drawPaths(canvas, lanes) {
   }
 }
 
-export function makeTerrain(ground) {
+// How long one slice of the growing may run before the page gets a turn, in ms.
+const SLICE_MS = 12;
+
+export function makeTerrain(ground, { near = [0, 0] } = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = PATH_PX;
   const paths = new THREE.CanvasTexture(canvas);
@@ -527,6 +549,7 @@ export function makeTerrain(ground) {
   const material = terrainMaterial(paths);
   const group = new THREE.Group();
   group.name = "terrain";
+  group.visible = false;
   const tiles = new Map();
   const mesh = (g, shadows) => {
     const m = new THREE.Mesh(g, material);
@@ -544,19 +567,58 @@ export function makeTerrain(ground) {
   };
   const NX = (CORE.x1 - CORE.x0) / TILE;
   const NZ = (CORE.z1 - CORE.z0) / TILE;
+  // the tiles in short slices between the page's other work, nearest near first (the last in the list)
+  const pending = [];
   for (let tz = 0; tz < NZ; tz++)
-    for (let tx = 0; tx < NX; tx++) {
+    for (let tx = 0; tx < NX; tx++) pending.push({ tx, tz, d: Math.hypot(CORE.x0 + (tx + 0.5) * TILE - near[0], CORE.z0 + (tz + 0.5) * TILE - near[1]) });
+  pending.sort((a, b) => b.d - a.d);
+  let dead = false;
+  let done = null;
+  let fail = null;
+  const ready = new Promise((res, rej) => {
+    done = res;
+    fail = rej;
+  });
+  // the next piece, in a turn of its own (one that throws stops the growing and fails ready, so the page hears of
+  // it rather than waiting for the land for ever)
+  const soon = (piece) =>
+    setTimeout(() => {
+      if (dead) return;
+      try {
+        piece();
+      } catch (e) {
+        dead = true;
+        fail(e);
+      }
+    }, 0);
+  const slice = () => {
+    const ts = performance.now();
+    while (pending.length && performance.now() - ts < SLICE_MS) {
+      const { tx, tz } = pending.pop();
       const m = makeTile(tx, tz);
       tiles.set(`${tx},${tz}`, m);
       group.add(m);
     }
-  const far = mesh(farGeo(ground), false);
-  group.add(far);
+    soon(pending.length ? slice : farSlice);
+  };
+  // the far grid last, a band of rows a slice; the land shows whole the turn after
+  const far = farGrid(ground);
+  const farSlice = () => {
+    if (!far.step(SLICE_MS)) return soon(farSlice);
+    group.add(mesh(far.geo(), false));
+    soon(finish);
+  };
+  const finish = () => {
+    group.visible = true;
+    done(true);
+  };
+  soon(slice);
   return {
     group,
     tiles,
     material,
-    // Makes again the tiles any of rects ({ x0, z0, x1, z1 }) touch, on the new ground.
+    ready,
+    // Makes again the tiles any of rects ({ x0, z0, x1, z1 }) touch, on the new ground (those still to grow grow on it).
     rebuild(next, rects) {
       ground = next;
       for (const [key, m] of tiles) {
@@ -575,7 +637,10 @@ export function makeTerrain(ground) {
       drawPaths(canvas, lanes);
       paths.needsUpdate = true;
     },
+    // (while the land grows: what has grown so far, and the rest never grows)
     dispose() {
+      dead = true;
+      done(false);
       group.traverse((o) => o.isMesh && o.geometry.dispose());
       material.dispose();
       paths.dispose();
