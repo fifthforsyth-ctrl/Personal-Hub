@@ -1,13 +1,16 @@
 // The village's life: everything on the coast that moves but the water.
 // Gulls wheel over the cove, the cliffs and the sea stacks, gliding with now
-// and then a few beats of the wings and banking into their turns; some stand
-// on the stacks, the pier and the wet sand turning their heads; terns skim
-// the cove and a few crows circle the woods. Horses graze the headlands'
-// pastures and a meadow up the valley in small herds, heads down, now and
-// then walking on, or trotting; flocks of sheep shuffle round the town's
-// edges and up the hills. In the cove two fishing boats bob at the pier and
-// a third is rowed slowly round, and out at sea a longship with a striped
-// sail and a row of shields cruises a long loop, its oars dipping.
+// and then a few beats of the wings and banking into their turns, always well
+// above the land and its trees; a colony stands on the stacks, the pier and
+// the wet sand turning their heads, a few of them now and then taking off for
+// a turn round their stack and landing again; terns skim the cove and a few
+// crows circle the woods. Horses graze the headlands' pastures and a meadow up
+// the valley in small herds, heads down, now and then walking on, or
+// trotting; flocks of sheep shuffle round the town's edges and up the hills,
+// keeping clear of walls, fences, trees and every build site. In the cove two
+// fishing boats lie moored to the pier's bollards and a third is rowed slowly
+// round, and a longship with a striped sail and a row of shields cruises a
+// long loop out at sea, slowing as it passes the cove's mouth, its oars dipping.
 //
 //   const life = makeLife(stage, ground, { pads, fields })
 //     -> { group, update(t, dt), setGround(ground, { pads }), dispose(), stats, where(kind, i, j, t) }
@@ -20,19 +23,24 @@
 //   where(kind, i, j, t) -> [x, y, z]: where a thing is at t ("herd" i member j, "boat" i, "flock" i bird j), for a camera.
 //
 // Everything is in the stage's moving layer (stage.moving), so nothing here
-// casts a shadow in the sun's map: each animal has its own soft contact
-// shadow and a softer one cast away from the sun, and each boat a shade, a
-// ring of foam and a wake on the water. Eight draw calls: horses, sheep,
-// birds in flight, birds standing, the fishing boats, the longship, the
-// shadows on the ground and the marks on the water. Each kind is one
-// InstancedMesh whose parts (legs, necks, wings, oars, rowers, the sail) are
-// posed in its vertex shader from a few numbers per instance set here each
-// frame. How things move is worked out in closed form from t (a herd's
-// walks and rests come from a table of its own, a bird's circle from a few
-// sines), so nothing accumulates and nothing is allocated per frame. The
-// light is the land's (terrain.js): the kit's sun with a little wrap times
-// the still layer's shadow, sky and ground filling the shade, the shade
-// lifted toward the sky's blue, a warm rim, the same haze.
+// casts a shadow in the sun's map. Instead each horse and sheep is drawn a
+// second time flattened along the sun onto the ground under it (a plane
+// fitted to the slope there), its colour taken from the still layer's picture
+// with the sun's light taken out, so it reads like a tree's shadow and two
+// never darken each other; every animal and standing bird has a soft contact
+// shadow too, and each boat a shade, a thin ring of foam when it lies still
+// and a short broken wake when it moves. Ten draw calls: horses, sheep, their
+// two ground shadows, birds in flight, birds standing, the fishing boats (with
+// their mooring ropes), the longship, the contact shadows and the marks on the
+// water. Each kind is one InstancedMesh whose parts (legs, necks, wings, oars,
+// rowers, the sail, the ropes) are posed in its vertex shader from a few
+// numbers per instance set here each frame. How things move is worked out in
+// closed form from t (a herd's walks and rests come from a table of its own,
+// a bird's circle from a few sines, the longship's place from a table of its
+// way), so nothing accumulates and nothing is allocated per frame. The light
+// is the land's (terrain.js): the kit's sun with a little wrap times the still
+// layer's shadow, sky and ground filling the shade, the shade lifted toward
+// the sky's blue, a warm rim, the same haze.
 
 import * as THREE from "three";
 import { CORE, tileStep } from "./terrain.js";
@@ -146,9 +154,14 @@ class Geo {
     g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute("normal", new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute("aCol", new THREE.Float32BufferAttribute(this.col, 3));
-    g.setAttribute("aZone", new THREE.Float32BufferAttribute(this.zone, 1));
+    // (the zone and the sky seen share one attribute: a shader has only sixteen)
+    const za = new Float32Array(this.zone.length * 2);
+    for (let i = 0; i < this.zone.length; i++) {
+      za[i * 2] = this.zone[i];
+      za[i * 2 + 1] = this.ao[i];
+    }
+    g.setAttribute("aZA", new THREE.BufferAttribute(za, 2));
     g.setAttribute("aBone", new THREE.Float32BufferAttribute(this.bone, 4));
-    g.setAttribute("aAO", new THREE.Float32BufferAttribute(this.ao, 1));
     g.setAttribute("aUV", new THREE.Float32BufferAttribute(this.uv, 2));
     g.setIndex(this.count > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
     return g;
@@ -348,7 +361,9 @@ function sheet(g, P, o, out) {
 // ------------------------------------------------------------------ the light (the land's, as terrain.js)
 
 const VERT_PARS = [
-  "attribute vec3 aCol; attribute float aZone; attribute vec4 aBone; attribute float aAO; attribute vec2 aUV;",
+  "attribute vec3 aCol; attribute vec2 aZA; attribute vec4 aBone; attribute vec2 aUV;",
+  "#define aZone aZA.x",
+  "#define aAO aZA.y",
   "attribute vec4 aI0; attribute vec4 aI1; attribute vec4 aI2;",
   "varying vec3 vPW; varying vec3 vNW; varying vec3 vAlb; varying vec4 vMisc; varying vec3 vLP; varying vec3 vPaint;",
   "vec3 rotX(vec3 v, float a) { float c = cos(a), s = sin(a); return vec3(v.x, c * v.y - s * v.z, s * v.y + c * v.z); }",
@@ -439,11 +454,14 @@ function lifeMaterial(name, kind) {
 const H_NECK = [0, 1.2, 0.62];
 const H_POLL = [0, 1.88, 1.02];
 
-// A horse, a small sturdy northern one (1.4 m at the withers), facing +z, its hooves at y 0.
+// A horse, a small sturdy northern one (1.4 m at the withers), facing +z, its hooves at y 0. lo: the plainer
+// shape its shadow is drawn from.
 // Parts: 0 body, 1-4 legs (left fore, right fore, left hind, right hind; the weight is how far below the knee),
 // 5 neck and mane, 6 head, 7 tail (the weight is how far down it).
-function horseGeo() {
+function horseGeo(lo = false) {
   const g = new Geo();
+  // (fewer sides round each part for the shape its shadow is drawn from)
+  const sd = (n) => (lo ? Math.max(4, Math.round(n * 0.55)) : n);
   const bone = (part, w, piv) => [part + 0.45 * w, piv[0], piv[1], piv[2]];
   const aoOf = (p, n) => clamp(0.6 + 0.4 * smooth(0.0, 1.25, p[1]), 0, 1) * (0.84 + 0.16 * (n[1] * 0.5 + 0.5));
   const st = (list) => list.map(([z, y, rx, ry]) => ({ c: [0, y, z], rx, ry }));
@@ -459,8 +477,8 @@ function horseGeo() {
     [0.66, 1.12, 0.255, 0.28],
     [0.8, 1.1, 0.175, 0.21],
   ]);
-  loft(g, denser(body, 2), {
-    sides: 12,
+  loft(g, denser(body, lo ? 1 : 2), {
+    sides: sd(12),
     cap0: 0.09,
     cap1: 0.08,
     zone: (p, n) => (n[1] < -0.6 ? 7 : n[1] > 0.93 && Math.abs(p[0]) < 0.07 ? 8 : 0),
@@ -468,7 +486,7 @@ function horseGeo() {
     ao: aoOf,
   });
   // the chest and the point of the shoulder, filling the join under the neck
-  ellipsoid(g, [0, 1.02, 0.6], [0.22, 0.25, 0.23], { sides: 10, rings: 6, zone: 0, bone: BONE0, ao: aoOf });
+  ellipsoid(g, [0, 1.02, 0.6], [0.22, 0.25, 0.23], { sides: sd(10), rings: lo ? 4 : 6, zone: 0, bone: BONE0, ao: aoOf });
   // the neck: deep at its base, arched, slimming to the throat
   const neck = [
     [1.13, 0.58, 0.19, 0.27],
@@ -479,7 +497,7 @@ function horseGeo() {
   ].map(([y, z, rx, ry]) => ({ c: [0, y, z], rx, ry }));
   // how far each point bends with the neck: a little at the withers, fully at the throat (so the neck arcs)
   const nb = (p) => bone(5, 0.12 + 0.88 * smooth(0.05, 1.0, ((p[1] - 1.13) * 0.68 + (p[2] - 0.58) * 0.42) / 0.64), H_NECK);
-  loft(g, neck, { sides: 8, cap0: 0.08, zone: 0, bone: nb, ao: aoOf });
+  loft(g, neck, { sides: sd(8), cap0: 0.08, zone: 0, bone: nb, ao: aoOf });
   // the mane along the crest, standing up a little, and on over the withers
   const crest = [];
   for (let i = neck.length - 1; i >= 0; i--) {
@@ -489,7 +507,7 @@ function horseGeo() {
     const up = cross(t, [1, 0, 0]);
     crest.push({ c: addv(addv(neck[i].c, scl(up, neck[i].ry * 0.8)), [0.035, 0, 0]), rx: 0.06, ry: 0.042 });
   }
-  loft(g, crest, { sides: 6, cap0: 0.04, cap1: 0.05, zone: 1, bone: nb, ao: 0.95 });
+  loft(g, crest, { sides: sd(6), cap0: 0.04, cap1: 0.05, zone: 1, bone: nb, ao: 0.95 });
   // the head: poll, deep jowl, long face to a soft muzzle
   const hb = bone(6, 0, H_POLL);
   const head = [
@@ -501,14 +519,14 @@ function horseGeo() {
   ].map(([y, z, rx, ry]) => ({ c: [0, y, z], rx, ry }));
   const face = norm([0, 0.7, 0.7]);
   loft(g, head, {
-    sides: 8,
+    sides: sd(8),
     cap0: 0.05,
     cap1: [0, 1.44, 1.445],
     zone: (p, n) => (p[2] > 1.33 ? 5 : dot(n, face) > 0.8 && Math.abs(p[0]) < 0.045 && p[2] > 1.04 ? 4 : 0),
     bone: hb,
     ao: (p, n) => 0.9 + 0.1 * n[1],
   });
-  for (const s of [-1, 1]) {
+  for (const s of lo ? [] : [-1, 1]) {
     // ears, pricked forward
     loft(g, [{ c: [s * 0.055, 1.95, 1.0], rx: 0.034, ry: 0.024 }, { c: [s * 0.068, 2.03, 1.02], rx: 0.026, ry: 0.018 }], {
       sides: 5,
@@ -523,7 +541,7 @@ function horseGeo() {
     ellipsoid(g, [s * 0.097, 1.815, 1.105], [0.022, 0.026, 0.032], { sides: 6, rings: 3, zone: 6, bone: hb, ao: 1 });
   }
   // the forelock
-  ellipsoid(g, [0, 1.94, 1.04], [0.045, 0.028, 0.065], { sides: 6, rings: 3, zone: 1, bone: hb, ao: 0.95 });
+  if (!lo) ellipsoid(g, [0, 1.94, 1.04], [0.045, 0.028, 0.065], { sides: 6, rings: 3, zone: 1, bone: hb, ao: 0.95 });
   // the tail: full, hanging to the hocks
   const tail = [
     [1.37, -0.88, 0.05],
@@ -534,7 +552,7 @@ function horseGeo() {
     [0.52, -1.09, 0.045],
   ].map(([y, z, r]) => ({ c: [0, y, z], rx: r * 1.2, ry: r * 1.35 }));
   loft(g, tail, {
-    sides: 7,
+    sides: sd(7),
     cap1: [0, 0.45, -1.08],
     zone: 1,
     bone: (p) => bone(7, clamp((1.37 - p[1]) / 0.85, 0, 1), [0, 1.37, -0.88]),
@@ -559,14 +577,14 @@ function horseGeo() {
     const rings = L.rings.map(([y, z, r]) => ({ c: [L.x, y, z], rx: r * 1.12, ry: r * 0.88 }));
     const w = (p) => smooth(L.knee + 0.06, L.knee - 0.06, p[1]);
     loft(g, rings, {
-      sides: 7,
+      sides: sd(7),
       ref: [0, 0, 1],
       zone: (p) => (p[1] < 0.31 ? 2 : p[1] < L.knee + 0.02 ? 9 : 0),
       bone: (p) => bone(L.part, w(p), hip),
       ao: (p, n) => (0.62 + 0.38 * smooth(0.0, 1.0, p[1])) * (0.88 + 0.12 * Math.abs(n[0])),
     });
     loft(g, [{ c: [L.x, 0.088, L.hoof - 0.008], rx: 0.06, ry: 0.057 }, { c: [L.x, 0.0, L.hoof + 0.01], rx: 0.077, ry: 0.072 }], {
-      sides: 7,
+      sides: sd(7),
       ref: [0, 0, 1],
       cap0: 0.004,
       cap1: [L.x, 0.0, L.hoof + 0.008],
@@ -667,35 +685,91 @@ const COAT_BROWN = [0, 1, 5, 7];
 
 const S_HEAD = [0, 0.55, 0.38];
 
-// A sheep: a round lumpy fleece on short dark legs, a dark face, ears out sideways. Facing +z, hooves at y 0.
-// Parts: 0 fleece, 1-4 legs, 6 head, 7 tail.
-function sheepGeo() {
+// A sheep: a fleece like a cloud (puffs of wool over a round body), short dark legs, a dark face, ears out
+// sideways. Facing +z, hooves at y 0. Parts: 0 fleece, 1-4 legs, 6 head, 7 tail.
+// lo: the plain shape its shadow is drawn from (the body without its puffs, a little fuller; no ears or tail).
+function sheepGeo(lo = false) {
   const g = new Geo();
   const bone = (part, w, piv) => [part + 0.45 * w, piv[0], piv[1], piv[2]];
-  // the fleece: puffs of wool over the round of the body
   const lump = (p) => {
-    const k = 0.06 * Math.max(-0.4, noise2(p[0] * 6.1 + p[2] * 2.3 + 3.1, p[1] * 6.7 - p[2] * 4.1)) + 0.026 * noise2(p[0] * 14.3 - 4.1, p[2] * 13.9 + p[1] * 3.1);
+    const k =
+      0.05 * Math.max(-0.4, noise2(p[0] * 6.1 + p[2] * 2.3 + 3.1, p[1] * 6.7 - p[2] * 4.1)) +
+      0.022 * noise2(p[0] * 14.3 - 4.1, p[2] * 13.9 + p[1] * 3.1);
     const d = norm([p[0], (p[1] - 0.55) * 1.1, p[2] * 0.6]);
     return addv(p, scl(d, k));
   };
-  const fleece = [
-    [-0.47, 0.55, 0.17, 0.17],
-    [-0.4, 0.55, 0.28, 0.27],
-    [-0.24, 0.555, 0.345, 0.315],
-    [0.0, 0.56, 0.365, 0.33],
-    [0.22, 0.57, 0.345, 0.315],
-    [0.37, 0.585, 0.28, 0.27],
-    [0.45, 0.595, 0.18, 0.18],
-  ].map(([z, y, rx, ry]) => ({ c: [0, y, z], rx, ry }));
-  loft(g, denser(fleece, 2), {
-    sides: 14,
-    cap0: 0.07,
-    cap1: 0.07,
-    deform: lump,
-    zone: 0,
-    bone: BONE0,
-    ao: (p, n) => clamp(0.5 + 0.5 * smooth(0.22, 0.8, p[1]), 0, 1) * (0.8 + 0.2 * (n[1] * 0.5 + 0.5)),
-  });
+  // the body under the wool: [z, y, rx, ry]
+  const core = [
+    [-0.44, 0.56, 0.16, 0.16],
+    [-0.36, 0.56, 0.27, 0.25],
+    [-0.2, 0.56, 0.32, 0.28],
+    [0.0, 0.565, 0.335, 0.29],
+    [0.2, 0.575, 0.315, 0.28],
+    [0.34, 0.59, 0.25, 0.24],
+    [0.42, 0.6, 0.15, 0.16],
+  ];
+  const full = lo ? 1.14 : 1;
+  loft(
+    g,
+    denser(
+      core.map(([z, y, rx, ry]) => ({ c: [0, y, z], rx: rx * full, ry: ry * full })),
+      lo ? 1 : 2,
+    ),
+    {
+      sides: lo ? 7 : 10,
+      cap0: 0.06,
+      cap1: 0.06,
+      zone: 0,
+      bone: BONE0,
+      ao: (p, n) => clamp(0.5 + 0.5 * smooth(0.25, 0.75, p[1]), 0, 1) * 0.85,
+    },
+  );
+  if (!lo) {
+    // the puffs: rows along the body, each round its top and sides (never under the belly), every one its own size
+    // and a little out of line; darker where they press into each other, so the fleece reads as curls of wool
+    const r = rngOf(4242);
+    const rows = [-0.33, -0.12, 0.09, 0.29];
+    const angs = [-1.62, -0.56, 0.56, 1.62];
+    const ringAt = (z) => {
+      // the core's centre and radii at z
+      let i = 0;
+      while (i < core.length - 2 && core[i + 1][0] < z) i++;
+      const [z0, y0, rx0, ry0] = core[i];
+      const [z1, y1, rx1, ry1] = core[i + 1];
+      const t = clamp((z - z0) / (z1 - z0), 0, 1);
+      return [lerp(y0, y1, t), lerp(rx0, rx1, t), lerp(ry0, ry1, t)];
+    };
+    rows.forEach((z0, ri) => {
+      angs.forEach((a0, ai) => {
+        // every other row turned half a step, so the puffs sit between those of the row before
+        const a = a0 + (ri % 2 ? 0.28 : -0.28) + (r() - 0.5) * 0.3;
+        const z = z0 + (r() - 0.5) * 0.05;
+        const [cy, rx, ry] = ringAt(z);
+        const out = norm([Math.sin(a) * ry, Math.cos(a) * rx, 0]);
+        const c = [Math.sin(a) * rx * 0.78, cy + Math.cos(a) * ry * 0.78, z];
+        const rad = (ri === 0 || ri === rows.length - 1 ? 0.15 : 0.175) * (0.9 + r() * 0.2);
+        // (each puff a little flattened against the body, so it reads as a lump of the fleece, not a ball on it)
+        const flat = (p) => {
+          const d = sub(p, c);
+          return addv(p, scl(out, -dot(d, out) * 0.3 + 0.01 * noise2(p[0] * 21 + ri, p[2] * 23 + ai)));
+        };
+        ellipsoid(g, c, [rad, rad * 0.95, rad * 1.1], {
+          sides: 7,
+          rings: 4,
+          zone: 0,
+          bone: BONE0,
+          deform: flat,
+          ao: (p, n) => {
+            const k = smooth(-0.4, 0.6, dot(n, out));
+            return (0.8 + 0.2 * k) * clamp(0.55 + 0.45 * smooth(0.28, 0.8, p[1]), 0, 1);
+          },
+        });
+      });
+    });
+    // a puff over the rump and one on the chest, under the head
+    ellipsoid(g, [0, 0.6, -0.43], [0.17, 0.16, 0.12], { sides: 7, rings: 4, zone: 0, bone: BONE0, ao: (p, n) => 0.7 + 0.25 * smooth(-0.3, 0.6, -n[2]) });
+    ellipsoid(g, [0, 0.55, 0.4], [0.17, 0.17, 0.12], { sides: 7, rings: 4, zone: 0, bone: BONE0, ao: (p, n) => 0.7 + 0.25 * smooth(-0.3, 0.6, n[2]) });
+  }
   // the head: a dark face with a woolly cap
   const hb = bone(6, 0, S_HEAD);
   const head = [
@@ -704,22 +778,24 @@ function sheepGeo() {
     [0.54, 0.64, 0.082, 0.09],
     [0.49, 0.72, 0.062, 0.068],
   ].map(([y, z, rx, ry]) => ({ c: [0, y, z], rx, ry }));
-  loft(g, head, { sides: 8, cap0: 0.04, cap1: [0, 0.47, 0.765], zone: 1, bone: hb, ao: (p, n) => 0.85 + 0.15 * n[1] });
-  ellipsoid(g, [0, 0.715, 0.46], [0.1, 0.07, 0.09], { sides: 7, rings: 4, zone: 0, bone: hb, ao: 0.95, deform: lump });
-  for (const s of [-1, 1]) {
-    loft(g, [{ c: [s * 0.08, 0.65, 0.49], rx: 0.036, ry: 0.018 }, { c: [s * 0.15, 0.625, 0.48], rx: 0.04, ry: 0.016 }], {
-      sides: 5,
-      ref: [0, 0, 1],
-      cap0: 0.01,
-      cap1: [s * 0.205, 0.605, 0.47],
-      zone: 1,
-      bone: hb,
-      ao: 0.85,
-    });
+  loft(g, head, { sides: lo ? 5 : 8, cap0: 0.04, cap1: [0, 0.47, 0.765], zone: 1, bone: hb, ao: (p, n) => 0.85 + 0.15 * n[1] });
+  if (!lo) {
+    ellipsoid(g, [0, 0.715, 0.46], [0.1, 0.07, 0.09], { sides: 7, rings: 4, zone: 0, bone: hb, ao: 0.95, deform: lump });
+    for (const s of [-1, 1]) {
+      loft(g, [{ c: [s * 0.08, 0.65, 0.49], rx: 0.036, ry: 0.018 }, { c: [s * 0.15, 0.625, 0.48], rx: 0.04, ry: 0.016 }], {
+        sides: 5,
+        ref: [0, 0, 1],
+        cap0: 0.01,
+        cap1: [s * 0.205, 0.605, 0.47],
+        zone: 1,
+        bone: hb,
+        ao: 0.85,
+      });
+    }
+    // a short tail
+    ellipsoid(g, [0, 0.53, -0.5], [0.075, 0.085, 0.065], { sides: 6, rings: 3, zone: 0, bone: bone(7, 1, [0, 0.6, -0.46]), ao: 0.85 });
   }
-  // a short tail
-  ellipsoid(g, [0, 0.53, -0.5], [0.075, 0.085, 0.065], { sides: 6, rings: 3, zone: 0, bone: bone(7, 1, [0, 0.6, -0.46]), ao: 0.85 });
-  // the legs, dark and thin, a little woolly at the top
+  // the legs, dark and thin
   const legs = [
     [1, 0.15, 0.25],
     [2, -0.15, 0.25],
@@ -736,7 +812,14 @@ function sheepGeo() {
         { c: [x, 0.07, z + 0.01], rx: 0.04, ry: 0.037 },
         { c: [x, 0.0, z + 0.02], rx: 0.045, ry: 0.041 },
       ],
-      { sides: 6, ref: [0, 0, 1], cap1: [x, 0.0, z + 0.02], zone: (p) => (p[1] < 0.05 ? 3 : 2), bone: bone(part, 1, hip), ao: (p) => 0.55 + 0.45 * smooth(0, 0.4, p[1]) },
+      {
+        sides: lo ? 4 : 6,
+        ref: [0, 0, 1],
+        cap1: [x, 0.0, z + 0.02],
+        zone: (p) => (p[1] < 0.05 ? 3 : 2),
+        bone: bone(part, 1, hip),
+        ao: (p) => 0.55 + 0.45 * smooth(0, 0.4, p[1]),
+      },
     );
   }
   return g.geometry();
@@ -766,20 +849,26 @@ void lifePose(inout vec3 p, inout vec3 n) {
 vec3 lifeAlbedo() {
   float z = floor(aZone + 0.5);
   if (z < 0.5) return aI1.rgb;
-  if (z < 2.5) return aI2.rgb;
-  return aI2.rgb * 0.5;
+  if (z < 1.5) return aI2.rgb;
+  // the legs dark whatever the face, the hooves darker
+  vec3 legs = mix(vec3(0.075, 0.064, 0.056), aI2.rgb, 0.1);
+  return z < 2.5 ? legs : legs * 0.6;
 }
 `;
 // the fleece's curls, from its own surface (so it never swims), soft and mipmapped so it never shimmers
+// (the curls finer than the puffs, darker in their hollows; the wool a warmer cream where it turns from the sky)
 const SHEEP_SURFACE = [
   "if (vMisc.y < 0.5) {",
   "  float cu = texture2D(uNoise, vLP.xz * 2.3 + vLP.y * 1.7).a * 0.6 + texture2D(uNoise, vLP.zy * 1.1 + 0.3).g * 0.4;",
-  "  alb *= 0.9 + cu * 0.2;",
+  "  float curl = texture2D(uNoise, vLP.xy * 4.1 + vLP.z * 3.3).g;",
+  "  alb *= (0.9 + cu * 0.2) * (0.86 + 0.14 * curl);",
+  "  alb = mix(alb * vec3(1.04, 0.98, 0.88), alb, smoothstep(-0.3, 0.6, N.y));",
   "}",
 ].join("\n");
 
 const FLEECES = ["#eee7d6", "#e7dec9", "#f2ede1", "#ded3bc", "#e9e1cc"];
-const FACES = ["#2b2421", "#2b2421", "#332a25", "#d4c2a8", "#6d5848"];
+// the faces: nearly all dark, now and then a brown one or a pale one
+const FACES = ["#2b2421", "#2b2421", "#2b2421", "#332a25", "#2f2622", "#3a2e27", "#6d5848", "#d4c2a8"];
 
 // ------------------------------------------------------------------ birds
 
@@ -1159,12 +1248,58 @@ function fishingGeo(P) {
     oar(g, piv, s, 0.72, 2.05, 0.25, P.woodLight, 0.075);
   }
   rower(g, 0, 0.3, 0.42, { tunic: "paint", skin: P.skin, beard: P.beard, steel: P.steel, horn: P.horn, legs: P.legs });
+  // two mooring ropes, from round the stem and the stern posts to the bollards on the pier (part 9). Each is a thin
+  // tube along z of unit length; the shader bends it from its post to its bollard (aUV: how far along, which rope).
+  const RS = 5;
+  const RN = 10;
+  for (const which of [0, 1]) {
+    const V = [];
+    const N = [];
+    const F = [];
+    const UVs = [];
+    for (let i = 0; i <= RN; i++)
+      for (let k = 0; k < RS; k++) {
+        const a = (TAU * k) / RS;
+        V.push(Math.cos(a) * ROPE_R, Math.sin(a) * ROPE_R, i / RN);
+        N.push(Math.cos(a), Math.sin(a), 0);
+        UVs.push([i / RN, which]);
+      }
+    for (let i = 0; i < RN; i++)
+      for (let k = 0; k < RS; k++) {
+        const a = i * RS + k;
+        const b = i * RS + ((k + 1) % RS);
+        F.push(a, b, a + RS, b, b + RS, a + RS);
+      }
+    orient(V, F, (m) => [m[0], m[1], 0]);
+    g.prim(V, F, { zone: 0, col: P.rope, uv: (p, n, i) => UVs[i], bone: [9, 0, 0, 0], ao: 0.9 }, N);
+  }
   return { geo: g.geometry(), hull: h };
 }
+// The mooring ropes: how thick, where each is made fast round its post (the stem's at +z, the stern's at -z), and
+// the bollards on the pier they run to (harbour.js puts bollards here, by the stem's edges and at the head's
+// corner): for the boat moored east of the stem and the one moored west, [bow, stern], each [x, y, z] where the
+// rope meets the bollard's rope ring, on the side toward the boat.
+const ROPE_R = 0.026;
+const ROPE_BOW = [0, 1.12, 3.06];
+const ROPE_STERN = [0, 1.12, -3.06];
+const MOORINGS = {
+  east: [
+    [PIER.x + PIER.w / 2 - 0.24 + 0.19, PIER.deck + 0.34, 63.08],
+    [PIER.x + PIER.w / 2 - 0.24 + 0.19, PIER.deck + 0.34, 56.19],
+  ],
+  west: [
+    [PIER.x - PIER.w / 2 + 0.24 - 0.19, PIER.deck + 0.34, 66.46],
+    [PIER.x - 3.3 + 0.09, PIER.deck + 0.34, 73.3 - 0.25],
+  ],
+};
 
 const BOAT_VERT = `
 // aI0: stroke phase, rowing (0 oars shipped .. 1), crew (0 none, 1 a rower), the sail's billow (the longship)
 // aI1: the top strake's paint (rgb), the flutter's phase; aI2: the rower's tunic (rgb)
+// aI3: where the bow's mooring rope is made fast (the boat's own frame), moored (0 or 1); aI4: the stern's rope's
+attribute vec4 aI3; attribute vec4 aI4;
+const vec3 ROPE_BOW = vec3(${ROPE_BOW.join(", ")});
+const vec3 ROPE_STERN = vec3(${ROPE_STERN.join(", ")});
 void lifePose(inout vec3 p, inout vec3 n) {
   float part = partOf();
   float ph = aI0.x, row = aI0.y;
@@ -1185,6 +1320,21 @@ void lifePose(inout vec3 p, inout vec3 n) {
       float arm = -0.45 * cos(ph) * row;
       p = sh + rotX(p - sh, arm); n = rotX(n, arm);
     }
+  } else if (part > 8.5) {
+    // a mooring rope, from its post on the boat to its bollard on the pier (aI3.xyz or aI4.xyz, in the boat's own
+    // frame), sagging a little; none on a boat under way (aI3.w 0)
+    if (aI3.w < 0.5) { p = vec3(0.0); return; }
+    float u = aUV.x;
+    vec3 A = aUV.y < 0.5 ? ROPE_BOW : ROPE_STERN;
+    vec3 B = aUV.y < 0.5 ? aI3.xyz : aI4.xyz;
+    float sag = 0.08 + 0.06 * length(B - A);
+    vec3 c = mix(A, B, u) - vec3(0.0, sag * 4.0 * u * (1.0 - u), 0.0);
+    vec3 T = normalize(B - A - vec3(0.0, sag * 4.0 * (1.0 - 2.0 * u), 0.0));
+    vec3 S = normalize(cross(T, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+    vec3 U = cross(T, S);
+    vec3 off = S * p.x + U * p.y;
+    p = c + off;
+    n = normalize(S * n.x + U * n.y);
   } else if (part > 7.5) {
     if (aI0.z < 0.5) p = vec3(0.0);
   } else if (part > 5.5 && part < 6.5) {
@@ -1440,6 +1590,72 @@ function longshipGeo(P) {
 
 // ------------------------------------------------------------------ the shadows on the ground and the marks on the water
 
+// The shadow a horse or a sheep casts: the animal posed as it is drawn (its own lifePose), each point carried away
+// from the sun down onto the plane of the ground under it (aI3: the plane's slope along x and along z, and its
+// height under the instance's origin). Where it falls, the still picture's colour is taken and the sun's light
+// there taken out of it, as the land's own light (terrain.js) has it: so the shadow is the very blue of the
+// trees' shadows, it never darkens ground already in shade, and where the legs and the body overlap each pixel
+// is written once with the same colour (it never darkens twice).
+const SHADOW_MAIN = `
+uniform vec3 uSunDir;
+varying vec2 vFoot; varying float vCamD;
+void main() {
+  vec3 p = position; vec3 n = normal;
+  lifePose(p, n);
+  vec4 w = modelMatrix * instanceMatrix * vec4(p, 1.0);
+  vec3 o = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+  float plane = aI3.z + aI3.x * (w.x - o.x) + aI3.y * (w.z - o.z);
+  float den = max(uSunDir.y - aI3.x * uSunDir.x - aI3.y * uSunDir.z, 0.1);
+  w.xyz -= uSunDir * ((w.y - plane) / den);
+  w.y += 0.03;
+  // (how far from the feet, in the animal's own size, for the soft fall-off)
+  vFoot = (w.xz - o.xz) / length(instanceMatrix[0].xyz);
+  vCamD = distance(w.xyz, cameraPosition);
+  gl_Position = projectionMatrix * viewMatrix * w;
+}
+`;
+const SHADOW_FS = [
+  "uniform sampler2D tStill; uniform vec2 uRes; uniform vec3 uSunCol; uniform vec3 uSkyCol; uniform float uShadeLift; uniform vec3 uFog;",
+  "uniform float uFar; varying vec2 vFoot; varying float vCamD;",
+  "void main() {",
+  "  vec4 c = texture2D(tStill, gl_FragCoord.xy / uRes);",
+  // how much sun the ground had there (the land keeps it in its alpha), and its light with and without it
+  "  float lit = clamp(c.a, 0.0, 1.0);",
+  "  vec3 amb = uSkyCol * 0.9 + uSkyCol * uShadeLift * 0.45;",
+  "  vec3 sunny = uSunCol * lit * 0.95 + uSkyCol * 0.9 + uSkyCol * uShadeLift * 0.45 * (1.0 - lit);",
+  "  vec3 dark = amb / max(sunny, vec3(1e-3));",
+  // softer the further it falls from the feet (the sun is not a point), and lost in the haze
+  "  float k = 1.0 - 0.3 * smoothstep(0.6, uFar, length(vFoot));",
+  "  k *= 1.0 - smoothstep(uFog.x, uFog.y, vCamD) * 0.94;",
+  "  gl_FragColor = vec4(c.rgb * mix(vec3(1.0), dark, k * 0.92), c.a);",
+  "}",
+].join("\n");
+
+// A material for a kind's shadow (kind: as lifeMaterial takes it; far: how far its shadow reaches, in its size).
+function shadowMaterial(name, kind, stage, far) {
+  const G = window.KIT.G;
+  const m = new THREE.ShaderMaterial({
+    vertexShader: VERT_PARS + "\nattribute vec4 aI3;\n" + kind.vert + SHADOW_MAIN,
+    fragmentShader: SHADOW_FS,
+    uniforms: {
+      uSunDir: G.uSunDir,
+      uSunCol: G.uSunCol,
+      uSkyCol: G.uSkyCol,
+      uShadeLift: G.uShadeLift,
+      uFog: G.uFog,
+      tStill: stage.shared.tStill,
+      uRes: stage.shared.uRes,
+      uFar: { value: far },
+    },
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
+  });
+  m.name = "life-shadow-" + name;
+  return m;
+}
+
 const BLOB_VS = [
   "attribute vec4 aI0; varying vec2 vQ; varying float vK; varying float vD;",
   "void main() {",
@@ -1498,30 +1714,41 @@ const MARK_FS = [
   "  if (vB.z > 0.0) {",
   "    float lam = (vC.y - q.y) / (abs(sl.z) > 1e-3 ? sl.z : 1e-3);",
   "    float sy = lam * sl.y; float sx = q.x + lam * sl.x;",
-  "    float inS = step(0.0, lam) * smoothstep(vB.w - 0.6, vB.w + 0.6, sy) * (1.0 - smoothstep(vC.x - 0.6, vC.x + 0.6, sy));",
-  "    inS *= 1.0 - smoothstep(vB.z - 0.6, vB.z + 0.6, abs(sx));",
-  "    shade = max(shade, inS * 0.45);",
+  // (soft edged, as the cliffs' shade on the water is, and broken a little by the ripples)
+  "    float inS = step(0.0, lam) * smoothstep(vB.w - 1.5, vB.w + 1.5, sy) * (1.0 - smoothstep(vC.x - 1.5, vC.x + 1.5, sy));",
+  "    inS *= 1.0 - smoothstep(vB.z - 1.5, vB.z + 1.5, abs(sx));",
+  "    inS *= 0.75 + 0.35 * n1 + 0.2 * (n2 - 0.5);",
+  "    shade = max(shade, inS * 0.22);",
   "  }",
-  // a ring of foam where the hull meets the water, more at the bow when under way
+  // a ring of foam where the hull meets the water, more at the bow when under way; a boat lying still has only a
+  // thin line of it, and its own dark at the hull
   "  float bow = smoothstep(0.2, 1.0, q.y / hl);",
-  "  float ring = (1.0 - smoothstep(0.0, 0.25 + 0.5 * speed * bow + 0.15 * n2, o)) * (0.45 + 0.55 * n1);",
-  "  ring *= 0.55 + speed * bow * 0.9;",
-  // the wake: two arms spreading at the Kelvin angle behind the stern, the churned water between, both breaking up and fading
+  "  float still = 1.0 - smoothstep(0.02, 0.15, speed);",
+  "  float ring = (1.0 - smoothstep(0.0, mix(0.25 + 0.5 * speed * bow + 0.15 * n2, 0.1 + 0.06 * n2, still), o)) * (0.45 + 0.55 * n1);",
+  "  ring *= mix(0.55 + speed * bow * 0.9, 0.18, still);",
+  // the wake: two arms spreading at the Kelvin angle behind the stern and the churned water between, both breaking up
+  // and gone within a few lengths of the boat
   "  float d = -q.y - hl * 0.85;",
   "  float wake = 0.0;",
+  "  float churn = 0.0;",
   "  if (d > 0.0 && speed > 0.01) {",
-  "    float fade = exp(-d / (3.0 + 11.0 * speed * vC.w)) * smoothstep(0.0, 1.5, d + 0.5);",
+  "    float fade = exp(-d / (3.0 + 3.2 * speed * vC.w)) * smoothstep(0.0, 1.5, d + 0.5);",
   "    float arm = hb * 0.8 + d * 0.34;",
   "    float th = 0.3 + d * 0.07;",
   "    float ax = (abs(q.x) - arm) / th;",
   // a soft crest with a sharper outer edge, feathered by the short slanting waves that run off it (still in the
-  // boat's frame, as a real wake is), broken into patches by the noise, and thinning as it spreads
+  // boat's frame, as a real wake is), broken into crests along its length and into patches by the noise
   "    float feather = 0.5 + 0.5 * sin((d * 0.8 - abs(q.x) * 0.55) * 6.2832 / (1.4 * vC.w));",
-  "    float arms = exp(-ax * ax * (ax > 0.0 ? 3.0 : 1.2)) * smoothstep(0.25, 0.8, n1 + 0.1 + 0.25 * n2) * (0.4 + 0.6 * feather) / (1.0 + d * 0.05);",
-  "    float trail = (1.0 - smoothstep(hb * 0.35, hb * 0.7 + d * 0.09, abs(q.x))) * exp(-d / (2.0 + 5.0 * speed * vC.w)) * smoothstep(0.3, 0.75, n2 * 0.6 + n1 * 0.5);",
-  "    wake = clamp(arms * 0.75 + trail * 0.95, 0.0, 1.0) * fade * clamp(speed * 1.4, 0.0, 1.0);",
+  "    float dash = smoothstep(0.35, 0.6, texture2D(uNoise, vec2(d / (6.0 * vC.w) - uTime * 0.015, q.x > 0.0 ? 0.31 : 0.67)).r);",
+  "    float arms = exp(-ax * ax * (ax > 0.0 ? 3.0 : 1.2)) * smoothstep(0.25, 0.8, n1 + 0.1 + 0.25 * n2) * (0.4 + 0.6 * feather) * dash / (1.0 + d * 0.05);",
+  // the churned water behind the stern: a wide blotchy patch, only a little paler than the sea
+  "    float trail = (1.0 - smoothstep(hb * 0.5, hb * 1.2 + d * 0.14, abs(q.x))) * exp(-d / (2.0 + 4.0 * speed * vC.w))",
+  "      * smoothstep(0.2, 0.7, n2 * 0.6 + n1 * 0.5);",
+  "    float go = fade * clamp(speed * 1.4, 0.0, 1.0);",
+  "    wake = clamp(arms * 0.6, 0.0, 1.0) * go;",
+  "    churn = trail * 0.25 * go;",
   "  }",
-  "  float foam = clamp(max(ring, wake), 0.0, 1.0);",
+  "  float foam = clamp(max(max(ring, wake), churn), 0.0, 1.0);",
   "  vec3 fc = vec3(0.93, 0.95, 0.93) * (uSunCol * 0.4 + uSkyCol * 0.5);",
   "  vec3 dark = vec3(0.012, 0.05, 0.07);",
   "  float aS = shade * (1.0 - foam);",
@@ -1977,16 +2204,21 @@ const HERDS = [
   { id: 2, kind: "horse", at: [384, -219], R: 28, n: 4, foals: 0, reach: 240 },
   { id: 3, kind: "horse", at: [242, -82], R: 18, n: 4, foals: 1, open: true },
   { id: 4, kind: "sheep", at: [-220, 19], R: 17, n: 12, foals: 3 },
-  { id: 5, kind: "sheep", at: [-40, -446], R: 11, n: 8, foals: 2, open: true },
+  { id: 5, kind: "sheep", at: [-25, -470], R: 11, n: 8, foals: 2, open: true },
   { id: 6, kind: "sheep", at: [-363, -242], R: 26, n: 9, foals: 1 },
 ];
 
 // ------------------------------------------------------------------ the boats' and the birds' ways
 
+// How tall what stands on the land may be, outside the woods: the dressing's lone trees and groves, the pines on
+// the cliff tops, the town's houses. Over the land a bird keeps over this as well.
+const LAND_TOPS = 15;
+
 // The lowest a flock may fly over each point of a box (x0, z0, x1, z1): what is under it (the land, the sea at 0,
-// the stacks) and the woods' canopy (canopy metres where the woods are thick), clear metres above that; the
-// highest of that within three cells round each point, then softened, so a bird rises before it reaches a cliff
-// and glides down after it. Made once, on a grid of 8 m cells: { x0, z0, S, nx, nz, F }.
+// the stacks), what stands on the land (LAND_TOPS) and the woods' canopy (canopy metres more where the woods are
+// thick), clear metres above that; the highest of that within three cells round each point, then softened, so a
+// bird rises before it reaches a cliff and glides down after it. Made once, on a grid of 8 m cells:
+// { x0, z0, S, nx, nz, F }.
 function airFloor(x0, z0, x1, z1, clear, canopy) {
   const S = 8;
   const nx = Math.ceil((x1 - x0) / S) + 1;
@@ -1997,8 +2229,10 @@ function airFloor(x0, z0, x1, z1, clear, canopy) {
       const x = x0 + i * S;
       const z = z0 + j * S;
       // (far out at sea there is nothing but the water, and the stacks, which naturalAt has)
-      const far = shoreDist(x, z) < -40 && !STACKS.some((st) => Math.hypot(st.x - x, st.z - z) < st.r + 12);
-      raw[j * nx + i] = far ? clear : Math.max(0, naturalAt(x, z)) + clear + (canopy ? canopy * forestAt(x, z) : 0);
+      const sd = shoreDist(x, z);
+      const far = sd < -40 && !STACKS.some((st) => Math.hypot(st.x - x, st.z - z) < st.r + 12);
+      const tops = LAND_TOPS * smooth(-2, 8, sd) + (canopy ? canopy * forestAt(x, z) : 0);
+      raw[j * nx + i] = far ? clear : Math.max(0, naturalAt(x, z)) + clear + tops;
     }
   const pass = (src, R, op) => {
     const out = new Float32Array(nx * nz);
@@ -2087,11 +2321,17 @@ function seaOk(line, halfL, halfB) {
   return true;
 }
 
-// The longship's long loop: in past the cove's mouth, out round the east stacks, far out to sea and back round the west.
+// The longship's long loop: in from the west past the stacks, slowly across the cove's mouth as if coming home,
+// a wide turn out between the stacks, past the east stacks, far out to sea and back round the west.
 const LONGSHIP_WAY = [
-  [-30, 128],
-  [40, 136],
-  [92, 224],
+  [-150, 180],
+  [-80, 142],
+  [-32, 110],
+  [28, 106],
+  [62, 120],
+  [56, 152],
+  [22, 200],
+  [92, 232],
   [230, 260],
   [330, 330],
   [300, 440],
@@ -2100,17 +2340,20 @@ const LONGSHIP_WAY = [
   [-320, 420],
   [-330, 300],
   [-230, 215],
-  [-120, 160],
 ];
-// The rowed boat's round in the cove, west of the pier.
+// How much the longship slows at (x, z): coming in across the cove's mouth it takes its time (so it is in the
+// town's view for a while), out at sea it keeps its pace.
+const SHIP_SLOW = 0.45;
+const shipSlowAt = (x, z) => (1 - smooth(112, 150, z)) * (1 - smooth(90, 140, Math.abs(x)));
+// The rowed boat's round in the cove, west of the pier and inside the longship's way.
 const ROWED_WAY = [
-  [-6, 74],
-  [-14, 92],
-  [-36, 102],
-  [-56, 96],
-  [-58, 80],
-  [-42, 66],
-  [-22, 63],
+  [-6, 72],
+  [-12, 85],
+  [-30, 90],
+  [-50, 86],
+  [-55, 73],
+  [-42, 62],
+  [-22, 60],
 ];
 
 // ------------------------------------------------------------------ making it
@@ -2139,7 +2382,9 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    const attrs = ["aI0", "aI1", "aI2"].map((k) => {
+    const names = ["aI0", "aI1", "aI2"];
+    for (let k = 0; k < (opts.more || 0); k++) names.push("aI" + (3 + k));
+    const attrs = names.map((k) => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4);
       a.setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute(k, a);
@@ -2154,6 +2399,28 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     stats.perKind[name] = tris;
     stats.triangles += tris * count;
     stats.drawCalls++;
+    // its shadow on the ground: the same shape, the same instances (their matrices and numbers), another material
+    if (opts.shadow) {
+      const sm = shadowMaterial(name, kind, stage, opts.shadow);
+      // (a plainer shape of its own, given the same instances' numbers)
+      const sg = opts.shadowGeo || geo;
+      if (sg !== geo) {
+        names.forEach((k, i) => sg.setAttribute(k, attrs[i]));
+        disposables.push(sg);
+      }
+      const sh = new THREE.InstancedMesh(sg, sm, count);
+      sh.name = name + " shadow";
+      sh.instanceMatrix = mesh.instanceMatrix;
+      sh.frustumCulled = false;
+      sh.castShadow = false;
+      sh.receiveShadow = false;
+      group.add(sh);
+      disposables.push(sm);
+      mesh.userData.shadow = sh;
+      stats.perKind[name + " shadow"] = sg.index.count / 3;
+      stats.triangles += (sg.index.count / 3) * count;
+      stats.drawCalls++;
+    }
     return mesh;
   };
 
@@ -2165,6 +2432,8 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
   const _n = new THREE.Vector3();
   const _up = new THREE.Vector3(0, 1, 0);
   const _q2 = new THREE.Quaternion();
+  const _mi = new THREE.Matrix4();
+  const _v = new THREE.Vector3();
   // instance i of mesh at (x, y, z), turned yaw, pitched (nose up +), banked (right wing down +), scaled k (or kx, ky, kz)
   const place = (mesh, i, x, y, z, yaw, pitch, bank, kx, ky = kx, kz = kx) => {
     _p.set(x, y, z);
@@ -2183,6 +2452,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
   };
   const done = (mesh, n = mesh.count) => {
     mesh.count = n;
+    if (mesh.userData.shadow) mesh.userData.shadow.count = n;
     mesh.instanceMatrix.needsUpdate = true;
     for (const a of mesh.userData.attrs) a.needsUpdate = true;
   };
@@ -2227,8 +2497,12 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
   const sheepGeom = sheepGeo();
   const nHorse = HERDS.filter((h) => h.kind === "horse").reduce((a, h) => a + h.n, 0);
   const nSheep = HERDS.filter((h) => h.kind === "sheep").reduce((a, h) => a + h.n, 0);
-  const horses = instanced("horses", horseGeom, { vert: HORSE_VERT, wrap: 0.32, rim: 0.7 }, nHorse);
-  const sheep = instanced("sheep", sheepGeom, { vert: SHEEP_VERT, wrap: 0.55, rim: 0.9, surface: SHEEP_SURFACE }, nSheep);
+  const horses = instanced("horses", horseGeom, { vert: HORSE_VERT, wrap: 0.32, rim: 0.7 }, nHorse, { more: 1, shadow: 2.4, shadowGeo: horseGeo(true) });
+  const sheep = instanced("sheep", sheepGeom, { vert: SHEEP_VERT, wrap: 0.55, rim: 0.9, surface: SHEEP_SURFACE }, nSheep, {
+    more: 1,
+    shadow: 1.2,
+    shadowGeo: sheepGeo(true),
+  });
 
   // where a herd grazes: its loop, its field (kept from the other herds) and how close its lanes are drawn in
   const taken = new Set();
@@ -2369,27 +2643,39 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
       seed: fr() * 50,
       k: TERN_K,
     });
-  const nFly = flocks.reduce((a, f) => a + f.n, 0) + terns.length;
-  const birds = instanced("birds", birdGeom, { vert: BIRD_VERT, wrap: 0.45, rim: 0.6 }, nFly);
 
   // gulls standing: on the stacks' tops, along the pier's deck at its end, on the wet sand
   const perchGeom = perchGeo();
   const perched = [];
   const pr = rngOf(4411);
+  // the stacks are the gulls' colony: the big stack crowded, the small ones with a few, most toward the seaward rim
+  // of the top; on the two biggest, now and then one sets off for a turn out over the sea and comes back
   for (const st of STACKS) {
-    const n = st.r > 7 ? 3 : st.r > 5 ? 2 : 1;
-    for (let i = 0; i < n; i++) {
-      let best = null;
-      for (let tr = 0; tr < 24; tr++) {
-        const a = pr() * TAU;
-        const d = pr() * st.r * 0.55;
-        const x = st.x + Math.cos(a) * d;
-        const z = st.z + Math.sin(a) * d;
-        const h = naturalAt(x, z);
-        const flat = Math.abs(naturalAt(x + 0.6, z) - naturalAt(x - 0.6, z)) + Math.abs(naturalAt(x, z + 0.6) - naturalAt(x, z - 0.6));
-        if (flat < 0.5 && (!best || h > best.h - 0.3) && !perched.some((p) => Math.hypot(p.x - x, p.z - z) < 1.2)) best = { x, z, h };
+    const n = st.r > 10 ? 11 : st.r > 7 ? 5 : st.r > 6 ? 4 : st.r > 4.8 ? 3 : 2;
+    const fly = st.r > 10 ? 2 : st.r > 7 ? 1 : 0;
+    const top = naturalAt(st.x, st.z);
+    let made = 0;
+    for (let tr = 0; tr < n * 30 && made < n; tr++) {
+      // (toward the sea, +z, most of them; out toward the rim)
+      const a = Math.PI / 2 + (pr() - 0.5) * (tr % 3 ? 2.6 : 5.6);
+      const d = st.r * (0.25 + 0.47 * Math.sqrt(pr()));
+      const x = st.x + Math.cos(a) * d;
+      const z = st.z + Math.sin(a) * d;
+      const h = naturalAt(x, z);
+      const flat = Math.abs(naturalAt(x + 0.6, z) - naturalAt(x - 0.6, z)) + Math.abs(naturalAt(x, z + 0.6) - naturalAt(x, z - 0.6));
+      if (flat > 0.45 || h < top - 0.9 || perched.some((q) => Math.hypot(q.x - x, q.z - z) < 0.9)) continue;
+      const g = { x, z, y: null, yaw: Math.PI / 2 - a + (pr() - 0.5) * 1.6, seed: pr() * 40, k: PERCH_K * (0.92 + pr() * 0.16) };
+      if (made < fly) {
+        // its turn over the sea: a circle through its perch, out from the stack's middle, set off sideways
+        const ox = Math.cos(a);
+        const oz = Math.sin(a);
+        const side = pr() < 0.5 ? 1 : -1;
+        const D = 13 + pr() * 6;
+        g.cyc = { T: D + 36 + pr() * 40, D, off: pr() * 80, R: 11 + pr() * 6, H: 5 + pr() * 5, ax: ox, az: oz, bx: -oz * side, bz: ox * side };
+        g.yaw = Math.atan2(g.cyc.bx, g.cyc.bz);
       }
-      if (best) perched.push({ x: best.x, z: best.z, y: null, yaw: pr() * TAU, seed: pr() * 40, k: PERCH_K });
+      perched.push(g);
+      made++;
     }
   }
   // three on the pier's deck near its end, a little in from either edge (harbour.js keeps these spots clear)
@@ -2408,6 +2694,8 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     perched.push({ x, z, y: null, yaw: Math.PI * 0.85 + (pr() - 0.5) * 1.5, seed: pr() * 40, k: PERCH_K, sand: true });
   }
   const perch = instanced("perched", perchGeom, { vert: PERCH_VERT, wrap: 0.45, rim: 0.6 }, perched.length);
+  const nFly = flocks.reduce((a, f) => a + f.n, 0) + terns.length + perched.filter((g) => g.cyc).length;
+  const birds = instanced("birds", birdGeom, { vert: BIRD_VERT, wrap: 0.45, rim: 0.6 }, nFly);
 
   // ---------------------------------------------------------------- boats
   const fish = fishingGeo(P);
@@ -2419,13 +2707,43 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     surface: boatSurface(strakes, tar),
   });
   const boats = [
-    { kind: "moored", x: PIER.x + PIER.w / 2 + FB.B / 2 + 0.35, z: 60, yaw: 0.04, paint: P.teal, crew: 0 },
-    { kind: "moored", x: PIER.x - PIER.w / 2 - FB.B / 2 - 0.35, z: 69, yaw: Math.PI - 0.03, paint: P.crimson, crew: 0 },
+    { kind: "moored", x: PIER.x + PIER.w / 2 + FB.B / 2 + 0.35, z: 60, yaw: 0.04, paint: P.teal, crew: 0, ropes: MOORINGS.east },
+    { kind: "moored", x: PIER.x - PIER.w / 2 - FB.B / 2 - 0.35, z: 69, yaw: Math.PI - 0.03, paint: P.crimson, crew: 0, ropes: MOORINGS.west },
     { kind: "rowed", line: splineLoop(ROWED_WAY, 1.5), v: 0.95, paint: P.ember, crew: 1, tunic: P.navy },
   ];
-  const fishing = instanced("boats", fish.geo, boatKind(5, 0), boats.length);
+  const fishing = instanced("boats", fish.geo, boatKind(5, 0), boats.length, { more: 2 });
   const longship = { line: splineLoop(LONGSHIP_WAY, 3), v: 2.3 };
-  const ship = instanced("longship", longGeo.geo, boatKind(7, 3), 1);
+  // its pace at each point of its line, and the time it takes to reach each (made once)
+  {
+    const Ln = longship.line;
+    const V = new Float32Array(Ln.n);
+    const T = new Float64Array(Ln.n + 1);
+    for (let i = 0; i < Ln.n; i++) V[i] = longship.v * (1 - SHIP_SLOW * shipSlowAt(Ln.X[i], Ln.Z[i]));
+    for (let i = 0; i < Ln.n; i++) T[i + 1] = T[i] + (2 * Ln.ds) / (V[i] + V[(i + 1) % Ln.n]);
+    longship.V = V;
+    longship.T = T;
+  }
+  // how far along its line the longship is at t, and how fast it goes (out: [distance, speed])
+  const shipOn = (t, out) => {
+    const Ln = longship.line;
+    const T = longship.T;
+    const Tt = T[Ln.n];
+    const k = Math.floor(t / Tt);
+    const r = t - k * Tt;
+    let lo = 0;
+    let hi = Ln.n - 1;
+    while (lo < hi) {
+      const m = (lo + hi + 1) >> 1;
+      if (T[m] <= r) lo = m;
+      else hi = m - 1;
+    }
+    const u = (r - T[lo]) / (T[lo + 1] - T[lo]);
+    out[0] = k * Ln.L + (lo + u) * Ln.ds;
+    out[1] = lerp(longship.V[lo], longship.V[(lo + 1) % Ln.n], u);
+    return out;
+  };
+  const sv = [0, 0];
+  const ship = instanced("longship", longGeo.geo, boatKind(7, 3), 1, { more: 2 });
   stats.boats.push({
     rowed: seaOk(boats[2].line, FB.L / 2, FB.B / 2),
     rowedL: Math.round(boats[2].line.L),
@@ -2436,7 +2754,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
   // ---------------------------------------------------------------- shadows and water marks
   const quad = new THREE.PlaneGeometry(2, 2);
   quad.rotateX(-Math.PI / 2);
-  const nBlob = (nHorse + nSheep) * 2 + perched.length;
+  const nBlob = nHorse + nSheep + perched.length;
   const blobMat = new THREE.ShaderMaterial({
     vertexShader: BLOB_VS,
     fragmentShader: BLOB_FS,
@@ -2520,11 +2838,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
   const pr2 = [0, 0];
   let nb = 0;
   // a soft shadow on the ground at (x, z): half-length hl along yaw, half-width hw, how dark
-  // the tilt of the last shadow, for a second one nearby
-  let bYaw = 0;
-  let bPitch = 0;
-  let bRoll = 0;
-  // pitch and y0, when the caller already knows them, save reading the ground again
+  // (pitch and y0, when the caller already knows them, save reading the ground again)
   const blob = (x, z, yaw, hl, hw, k, pitch = null, y0 = null) => {
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
@@ -2539,16 +2853,6 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     const roll = Math.atan2(yr - yl, 2 * hw);
     const y = Math.max(y0, (yl + yr) / 2) + 0.06;
     place(blobs, nb, x, y, z, yaw, pitch, roll, hw, 1, hl);
-    set4(blobA, nb, k, 0, 0, 0);
-    bYaw = yaw;
-    bPitch = pitch;
-    bRoll = roll;
-    nb++;
-  };
-  // a second shadow at (x, z) lying on the same slope as the last
-  const blobAgain = (x, z, hl, hw, k) => {
-    const y = surf.at(x, z) + 0.08;
-    place(blobs, nb, x, y, z, bYaw, bPitch, bRoll, hw, 1, hl);
     set4(blobA, nb, k, 0, 0, 0);
     nb++;
   };
@@ -2582,6 +2886,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
       const A0 = mesh.userData.attrs[0];
       const A1 = mesh.userData.attrs[1];
       const A2 = mesh.userData.attrs[2];
+      const A3 = mesh.userData.attrs[3];
       for (let mi = 0; mi < herd.members.length; mi++) {
         const m = herd.members[mi];
         memberAt(herd, m, t, mo);
@@ -2602,6 +2907,15 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
         const walk = smooth(0.03, isHorse ? 0.9 : 0.35, v);
         const i = isHorse ? ih++ : is++;
         const phase = ((dist / (herd.k.stride * k)) * TAU) % TAU;
+        // the ground where its shadow falls, as a plane: its slopes there, its height under the animal
+        const reach = (isHorse ? 1.0 : 0.45) * k;
+        const cx = x + so[0] * reach;
+        const cz = z + so[1] * reach;
+        const e = 1.1 * k;
+        const gx = (surf.at(cx + e, cz) - surf.at(cx - e, cz)) / (2 * e);
+        const gz = (surf.at(cx, cz + e) - surf.at(cx, cz - e)) / (2 * e);
+        const gy = surf.at(cx, cz) - gx * (cx - x) - gz * (cz - z);
+        set4(A3, i, gx, gz, Math.max(gy, y - 0.06), 0);
         if (isHorse) {
           const trot = smooth(1.7, 2.5, v);
           // grazing, with now and then a look up and about
@@ -2612,8 +2926,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
           set4(A1, i, m.coat[0], m.coat[1], m.coat[2], m.marks);
           const swish = 0.32 * Math.sin(t * 1.9 + m.seed) * smooth(0.3, 0.7, wander(t * 0.13 + m.seed, m.seed * 2)) + 0.05 * Math.sin(t * 0.7 + m.seed);
           set4(A2, i, m.hair[0], m.hair[1], m.hair[2], swish);
-          blob(x, z, yaw, 0.95 * k, 0.42 * k, 0.78, pitch, y);
-          blobAgain(x + so[0] * 1.1 * k, z + so[1] * 1.1 * k, 1.05 * k, 0.42 * k, 0.42);
+          blob(x, z, yaw, 0.85 * k, 0.36 * k, 0.5, pitch, y);
         } else {
           const lie = m.lie ? smooth(0.3, 0.6, wander(t * 0.006 + m.seed, m.seed + 3)) * (1 - walk) : 0;
           const down = (1 - walk) * (1 - smooth(0.5, 0.8, wander(t * 0.07 + m.seed * 2.3, m.seed + 9))) * (1 - lie);
@@ -2621,8 +2934,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
           set4(A0, i, phase, walk, down, lie);
           set4(A1, i, m.coat[0], m.coat[1], m.coat[2], 0);
           set4(A2, i, m.hair[0], m.hair[1], m.hair[2], 0);
-          blob(x, z, yaw, 0.55 * k, 0.4 * k, 0.75, pitch, y);
-          blobAgain(x + so[0] * 0.55 * k, z + so[1] * 0.55 * k, 0.55 * k, 0.42 * k, 0.4);
+          blob(x, z, yaw, 0.5 * k, 0.34 * k, 0.5, pitch, y);
         }
       }
     }
@@ -2636,7 +2948,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     let cx;
     let cz;
     if (f.ship) {
-      along(longship.line, longship.v * t, shipAt);
+      along(longship.line, shipOn(t, sv)[0], shipAt);
       cx = shipAt[0] - shipAt[2] * 6;
       cz = shipAt[1] - shipAt[3] * 6;
     } else {
@@ -2701,21 +3013,51 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     flap = Math.max(flap, flapBase);
     set4(birds.userData.attrs[0], i, (t * freq * TAU + seed * 7) % TAU, flap, dih, kind);
   };
+  // a standing gull's feet
+  const perchY = (p) => {
+    if (p.y === null) p.y = p.deck ? PIER.deck : surf.at(p.x, p.z);
+    return p.y;
+  };
+  // where a gull that flies from its perch is in its turn at t: -1 while it stands, else 0 .. 1 round the turn
+  const cycU = (p, t) => {
+    const c = p.cyc;
+    const r = (((t + c.off) % c.T) + c.T) % c.T;
+    return r < c.T - c.D ? -1 : (r - (c.T - c.D)) / c.D;
+  };
+  // its way round: slower as it leaves and as it comes in, up over the sea and down again to its perch
+  const cycAt = (p, t, out) => {
+    const c = p.cyc;
+    const u = Math.max(0, cycU(p, t));
+    const th = TAU * u - 0.6 * Math.sin(TAU * u);
+    const cx = p.x + c.ax * c.R;
+    const cz = p.z + c.az * c.R;
+    out[0] = cx - c.R * (Math.cos(th) * c.ax - Math.sin(th) * c.bx);
+    out[2] = cz - c.R * (Math.cos(th) * c.az - Math.sin(th) * c.bz);
+    out[1] = perchY(p) + 0.15 + c.H * Math.pow(Math.sin(Math.PI * u), 0.6);
+    return out;
+  };
   // every bird in flight with its way through the air (made once)
   const flyers = [];
-  for (const f of flocks) for (const b of f.birds) flyers.push({ at: (tt, out) => birdAt(f, b, tt, out), kind: f.kind, k: b.k, seed: b.seed });
-  for (const b of terns) flyers.push({ at: (tt, out) => ternAt(b, tt, out), kind: 1, k: b.k, seed: b.seed });
+  for (const f of flocks) for (const b of f.birds) flyers.push({ at: (tt, out) => birdAt(f, b, tt, out), kind: f.kind, k: b.k, seed: b.seed, from: null });
+  for (const b of terns) flyers.push({ at: (tt, out) => ternAt(b, tt, out), kind: 1, k: b.k, seed: b.seed, from: null });
+  for (const g of perched) if (g.cyc) flyers.push({ at: (tt, out) => cycAt(g, tt, out), kind: 0, k: GULL_K, seed: g.seed, from: g });
   const updateBirds = (t) => {
     let i = 0;
     for (let fi = 0; fi < flyers.length; fi++) {
       const b = flyers[fi];
-      flyPose(i++, b.at, t, b.kind, b.k, b.seed, 0);
+      if (b.from) {
+        // (only while it is away from its perch; it beats its wings hard as it leaves and as it comes in)
+        const u = cycU(b.from, t);
+        if (u < 0) continue;
+        flyPose(i++, b.at, t, 0, b.k, b.seed, 1 - smooth(0.06, 0.22, Math.min(u, 1 - u)));
+      } else flyPose(i++, b.at, t, b.kind, b.k, b.seed, 0);
     }
     done(birds, i);
     // standing gulls, now and then turning their heads
     let j = 0;
     for (const p of perched) {
-      if (p.y === null) p.y = p.deck ? PIER.deck : surf.at(p.x, p.z);
+      if (p.cyc && cycU(p, t) >= 0) continue;
+      perchY(p);
       place(perch, j, p.x, p.y, p.z, p.yaw + 0.25 * jerky(t, 0.05, p.seed + 3), 0, 0, p.k);
       set4(perch.userData.attrs[0], j, 1.3 * jerky(t, 0.45, p.seed), 0, 0, 0);
       if (!p.deck) blob(p.x, p.z, p.yaw, 0.32, 0.22, 0.5);
@@ -2729,6 +3071,8 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     const F0 = fishing.userData.attrs[0];
     const F1 = fishing.userData.attrs[1];
     const F2 = fishing.userData.attrs[2];
+    const F3 = fishing.userData.attrs[3];
+    const F4 = fishing.userData.attrs[4];
     const M0 = markAttrs[0];
     const M1 = markAttrs[1];
     const M2 = markAttrs[2];
@@ -2765,12 +3109,25 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
       const pitch = 0.012 * Math.sin(t * 0.77 + sd * 3);
       place(fishing, i, x, y, z, yaw, pitch, roll, 1);
       set4(F0, i, ph, row, b.crew, 0);
+      // its mooring ropes' far ends, in its own frame as it is placed now
+      if (b.ropes) {
+        const r0 = b.ropes[0];
+        const r1 = b.ropes[1];
+        _mi.copy(_m).invert();
+        _v.set(r0[0], r0[1], r0[2]).applyMatrix4(_mi);
+        set4(F3, i, _v.x, _v.y, _v.z, 1);
+        _v.set(r1[0], r1[1], r1[2]).applyMatrix4(_mi);
+        set4(F4, i, _v.x, _v.y, _v.z, 1);
+      } else {
+        set4(F3, i, 0, 0, 0, 0);
+        set4(F4, i, 0, 0, 0, 0);
+      }
       set4(F1, i, b.paint[0], b.paint[1], b.paint[2], 0);
       const tu = b.tunic || P.navy;
       set4(F2, i, tu[0], tu[1], tu[2], 0);
       // the water round it
       place(marks, im, x, 0.02, z, yaw, 0, 0, 1);
-      set4(M0, im, speed > 0 ? FB.B / 2 + 22 * 0.36 + 2 : FB.B / 2 + 3, FB.L / 2 + 2, -(FB.L / 2 + (speed > 0 ? 22 : 2)), clamp(speed, 0, 1));
+      set4(M0, im, speed > 0 ? FB.B / 2 + 14 * 0.36 + 2 : FB.B / 2 + 3, FB.L / 2 + 2, -(FB.L / 2 + (speed > 0 ? 14 : 2)), clamp(speed, 0, 1));
       set4(M1, im, fish.hull.lenWL, fish.hull.beamWL, 0, 0);
       set4(M2, im, 0, 0, i, 1);
       im++;
@@ -2778,7 +3135,8 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     done(fishing, boats.length);
     // the longship
     const w = TAU * 0.33;
-    const s = longship.v * t + ((longship.v * 0.12) / w) * Math.sin(w * t);
+    shipOn(t, sv);
+    const s = sv[0] + ((sv[1] * 0.12) / w) * Math.sin(w * t);
     along(longship.line, s, bo);
     const yaw = Math.atan2(bo[2], bo[3]);
     const y = 0.05 * Math.sin(t * 0.8) + 0.03 * Math.sin(t * 1.31 + 1);
@@ -2794,7 +3152,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
     set4(S2, 0, P.navy[0], P.navy[1], P.navy[2], 0);
     done(ship, 1);
     place(marks, im, bo[0], 0.02, bo[1], yaw, 0, 0, 1);
-    set4(M0, im, LS.B / 2 + 50 * 0.36 + 3, LS.L / 2 + 14, -(LS.L / 2 + 50), clamp(longship.v / 2.6, 0, 1));
+    set4(M0, im, LS.B / 2 + 32 * 0.36 + 3, LS.L / 2 + 14, -(LS.L / 2 + 32), clamp(sv[1] / 2.6, 0, 1));
     set4(M1, im, longGeo.hull.lenWL, longGeo.hull.beamWL, SAIL.w / 2, SAIL.top - SAIL.h);
     set4(M2, im, SAIL.top, SAIL.z + 0.6, 9, 2.4);
     im++;
@@ -2836,7 +3194,7 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
       }
       if (kind === "boat") {
         if (i >= boats.length) {
-          along(longship.line, longship.v * t, bo);
+          along(longship.line, shipOn(t, sv)[0], bo);
           return [bo[0], 0, bo[1]];
         }
         const b = boats[i];
@@ -2846,7 +3204,9 @@ export function makeLife(stage, ground, { pads = [], fields = null, clearAt = nu
       }
       if (kind === "flock") {
         const f = flocks[i];
-        birdAt(f, f.birds[j || 0], t, pa);
+        const b = f && f.birds[j || 0];
+        if (!b) return null;
+        birdAt(f, b, t, pa);
         return pa.slice();
       }
       return null;
