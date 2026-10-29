@@ -1423,7 +1423,6 @@ export function makeHarbour(stage) {
       ].some(([gx, gz]) => Math.hypot(gx - x, gz - z) < r);
 
     sec("pier", () => {
-      const zEnd = PIER.z1;
       // the bents the stem stands on: two piles each, a cap across them, spaced a little unevenly as a pier built a span
       // at a time is; the last is the head's first row
       const bents = [];
