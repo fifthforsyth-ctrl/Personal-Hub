@@ -40,7 +40,7 @@ import * as THREE from "three";
 import { loadBuild, preloadKit } from "./paint.js";
 import { seedFor } from "../lib/village.js";
 import { MAX_SOLDIERS, TILE, formationOf, pathsOf, planOf, scaleFor, spanOf, spotsOf, stageOf, stateOn } from "./plots.js";
-import { PLAZA_LEVEL, groundOf, heightAt } from "./coast.js";
+import { BANK, PLAZA_LEVEL, groundOf, heightAt } from "./coast.js";
 import { Glade, LENS } from "./glade.js";
 import { makeTerrain } from "./terrain.js";
 import { makeSea } from "./water.js";
@@ -123,15 +123,10 @@ function letGo() {
   this.array = null;
 }
 
-// The rectangle round a pad and its banks, for the ground and the woods to remake there.
-function rectOfPad(p, m = 14) {
+// The rectangle round a pad and its banks (as far as a bank reaches), for the ground and the woods to remake there.
+function rectOfPad(p, m = BANK) {
   const r = Math.hypot(p.hw ?? TILE / 2, p.hd ?? TILE / 2) + m;
   return { x0: p.x - r, z0: p.z - r, x1: p.x + r, z1: p.z + r };
-}
-function rectOfLine(pts, m = 6) {
-  const xs = pts.map((p) => p[0]);
-  const zs = pts.map((p) => p[1]);
-  return { x0: Math.min(...xs) - m, z0: Math.min(...zs) - m, x1: Math.max(...xs) + m, z1: Math.max(...zs) + m };
 }
 
 export function createWorld(canvas, cb = {}) {
@@ -213,6 +208,9 @@ class World {
     const max = Math.min(g.getParameter(g.MAX_TEXTURE_SIZE), g.getParameter(g.MAX_RENDERBUFFER_SIZE));
     this.maxTex = max;
     const { cw, ch } = this.css();
+    // the kit's light is shared with the builds painted on other pages; the stage puts its own in, teardown gives it back
+    const KIT = window.KIT;
+    this.kitWas ??= { look: KIT.lookName && KIT.lookName !== "glade" ? KIT.lookName : "day", paint: KIT.G.uPaint.value };
     this.stage = new Glade(this.canvas, g, { width: cw, height: ch, float: halfFloats(g), shadowSize: Math.min(2048, max), fov: FOV });
     this.stats.kit = performance.now() - this.t0;
     this.cb.onState?.({ phase: "kit" });
@@ -414,7 +412,7 @@ class World {
       const sea = makeSea(st);
       st.scene.add(sea.mesh);
       this.ground = ground;
-      // (the lanes come with the first reshape, once the builds' own paths are known)
+      // (the lanes come with the woods)
       this.coast = { terrain, sea, padKey: job.padKey, laneKey: null, lanes: [], pads: job.pads };
       took("land");
       if (!this.userMoved) this.view = this.wholeView();
@@ -440,8 +438,19 @@ class World {
       try {
         coarse = window.matchMedia("(pointer: coarse)").matches;
       } catch {}
-      c.dressing = makeDressing(st, this.ground, { lanes: c.lanes, detail: coarse ? 0.5 : 1 });
+      // the lanes are known by now (the builds' own paths came first), so the woods grow round them once
+      const lanes = this.lanesOf();
+      const points = lanes.map((l) => l.points);
+      c.dressing = makeDressing(st, this.ground, { lanes: points, detail: coarse ? 0.5 : 1 });
       st.scene.add(c.dressing.group);
+      c.terrain.setPaths(points);
+      c.lanes = lanes;
+      c.laneKey = this.key(points);
+      this.paths = lanes;
+      // the far woods grow after the first picture; with motion reduced nothing else would draw them in
+      c.dressing.ready?.then(() => {
+        if (!this.dead && !this.lost && this.coast?.dressing === c.dressing) this.drawSoon();
+      });
       took("dressing");
       return;
     }
@@ -454,15 +463,13 @@ class World {
     }
     if (job.what === "reshape") {
       // a plot taken or let go: the ground levelled again round it, the woods cleared, the lanes worn in
+      // (only the pads change the ground; the woods find the lanes that changed themselves)
       const rects = [];
       const was = new Map(c.pads.map((p) => [p.plot, p]));
       const now = new Map(job.pads.map((p) => [p.plot, p]));
       for (const [k, p] of now) if (!was.has(k)) rects.push(rectOfPad(p));
       for (const [k, p] of was) if (!now.has(k)) rects.push(rectOfPad(p));
-      const oldLanes = new Map(c.lanes.map((l) => [l.plot, l.points]));
       const lanes = job.lanes;
-      for (const l of lanes) if (this.key(oldLanes.get(l.plot)) !== this.key(l.points)) rects.push(rectOfLine(l.points));
-      for (const [k, pts] of oldLanes) if (!lanes.some((l) => l.plot === k)) rects.push(rectOfLine(pts));
       if (c.padKey !== job.padKey) {
         this.ground = groundOf(job.pads);
         c.terrain.rebuild(this.ground, rects);
@@ -1343,6 +1350,15 @@ class World {
     clearTimeout(this.tapT);
     clearTimeout(this.keptT);
     const KIT = window.KIT;
+    try {
+      if (this.kitWas) {
+        KIT.applyLook(this.kitWas.look);
+        KIT.G.uPaint.value = this.kitWas.paint;
+        this.kitWas = null;
+      }
+    } catch {
+      // no kit to give it back to
+    }
     try {
       const all = [...this.made.values()].map((B) => B.mk);
       for (const x of [...all, this.shown?.mk, this.spare?.mk, this.stake, this.soldiers, this.folk]) if (x) KIT.village.dispose(x);

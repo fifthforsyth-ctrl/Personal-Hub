@@ -2268,6 +2268,25 @@ function sectionOf({ x, y }) {
   const g1 = C.groundOf([S[0]]);
   ok("a plot in use is cut level", onPad(S[0]).every(([x, z]) => near(g1.height(x, z), S[0].y)) && near(C.heightAt(0, 0), C.PLAZA_LEVEL));
   ok("a plot not yet used is left as the land lies", near(C.groundOf([]).height(S[40].x, S[40].z), C.naturalAt(S[40].x, S[40].z)));
+  const inner = (s, k) => [[-k, -k], [k, -k], [-k, k], [k, k]].map(([a, b]) => [s.x + a * s.hw * Math.cos(s.ry) + b * s.hd * Math.sin(s.ry), s.z - a * s.hw * Math.sin(s.ry) + b * s.hd * Math.cos(s.ry)]);
+  const every = (n) => {
+    const g = C.groundOf(S.slice(0, n));
+    return S.slice(0, n).every((s) => [...onPad(s), ...inner(s, 0.9)].every(([x, z]) => Math.abs(g.height(x, z) - s.y) < 0.02));
+  };
+  ok("every plot in use stays level when its neighbours are cut too", every(7) && every(17) && every(40) && every(64));
+  let seam = 0;
+  const gAll = C.groundOf(S);
+  for (const s of S)
+    for (let k = -60; k <= 60; k += 0.5) {
+      for (const [x, z] of [[s.x + k, s.z], [s.x, s.z + k]]) {
+        const a = gAll.height(x, z);
+        const b = gAll.height(x + 0.1, z + 0.1);
+        // the land's own cliffs aside
+        if (Math.abs(a - b) > 0.6 && Math.abs(C.naturalAt(x, z) - C.naturalAt(x + 0.1, z + 0.1)) < 0.3) seam++;
+      }
+    }
+  ok("the banks round the plots have no steps in them", seam === 0, `${seam} steps`);
+  ok("more builds than plots share the last plots' lanes", C.routeOf(64) === C.routeOf(63 - (64 % 8)) && C.routeOf(70).length > 1);
 
   const aaron = { projects: [{ id: "w", kind: "windmill", plot: 0 }], nextPlot: 1 };
   const plan = P.planOf(aaron);

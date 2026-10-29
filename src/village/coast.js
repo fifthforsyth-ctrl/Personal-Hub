@@ -382,6 +382,8 @@ export const PLAZA = { x: 0, z: 0, w: 24, d: 24 };
 export const PAD = 33;
 // The least room between two pads, for a lane.
 export const GAP = 8;
+// The widest the grassy bank round a levelled pad grows.
+export const BANK = 30;
 // The pier from the beach into the cove: from (x, z0) to (x, z1), its deck this high.
 export const PIER = { x: 10, z0: 24, z1: 78, w: 3.2, deck: 2.1 };
 
@@ -551,7 +553,8 @@ export function groundOf(active = []) {
   const CELL = 40;
   const grid = new Map();
   for (const p of pads) {
-    const reach = Math.hypot(p.hw, p.hd) + 26;
+    // as far as its bank grows, so every point the bank reaches finds the pad
+    const reach = Math.hypot(p.hw, p.hd) + BANK;
     for (let cx = Math.floor((p.x - reach) / CELL); cx <= Math.floor((p.x + reach) / CELL); cx++)
       for (let cz = Math.floor((p.z - reach) / CELL); cz <= Math.floor((p.z + reach) / CELL); cz++) {
         const k = cx * 100003 + cz;
@@ -564,11 +567,17 @@ export function groundOf(active = []) {
   return {
     pads,
     height(x, z) {
+      const list = near(x, z);
+      for (const p of list) if (rectOut(p, x, z) <= 0) return p.y;
       let h = naturalAt(x, z);
-      for (const p of near(x, z)) {
+      for (const p of list) {
         const d = rectOut(p, x, z);
-        const bank = 5 + Math.abs(h - p.y) * 0.9;
-        if (d < bank) h = lerp(h, p.y, 1 - smooth(0, bank, d));
+        const bank = Math.min(BANK, 5 + Math.abs(h - p.y) * 0.9);
+        if (d >= bank) continue;
+        // a bank fades out before it reaches another pad, so every pad stays level to its edge
+        let w = 1 - smooth(0, bank, d);
+        for (const q of list) if (q !== p) w *= smooth(0, 3, rectOut(q, x, z));
+        h = lerp(h, p.y, w);
       }
       return h;
     },
@@ -813,7 +822,7 @@ export function doorOf(site, out = 1) {
 // found in plot order, each joining those before it where it can, once.
 export function routeOf(plot) {
   const list = sites();
-  if (plot >= list.length) return routeOf(siteOf(plot).plot);
+  if (plot >= list.length) return routeOf(list.length - 1 - (plot % 8));
   LANES ??= { grid: laneGrid(), list: [] };
   while (LANES.list.length <= plot) LANES.list.push(findLane(LANES.grid, doorOf(list[LANES.list.length]), list[LANES.list.length]));
   return LANES.list[plot];
