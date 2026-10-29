@@ -6,8 +6,8 @@ import Painting from "../../village/Painting";
 // The build going up in the village, floating at the top of every quest's
 // list: the same painting as the village page, with how many tasks it has
 // and how many it still needs. Every task he ticks, on any quest or lesson,
-// lays its pieces on it here (today's in orange, what's to come in pencil),
-// painted again as he ticks, until it stands; then it asks what to build
+// lays its pieces on it here (only what is laid shows, so it is seen going
+// up), painted again as he ticks, until it stands; then it asks what to build
 // next. Its "N today" is how many tasks were finished today (`todayDone`,
 // on any quest) and opens the list of them (`onToday`). The bar's orange is
 // the pieces laid today, which is the same number except on a day a build
@@ -114,7 +114,6 @@ export default function FloatingBuild({ village, today, onAway, todayDone, onTod
           kind={p.kind}
           done={done}
           need={need}
-          laid={laid}
           live
           idle
           stands={stands}

@@ -1,7 +1,7 @@
 // The painted village: every build as a still picture, the way the approved
 // sketch (https://claude.ai/artifact/5Pw4e13GnTETFHkVthodS5) paints them, in
-// oil-paint dabs under pen and ink on the Hub's paper, with today's pieces in
-// the app's orange and what is still to come in pencil.
+// oil-paint dabs under pen and ink on the Hub's paper, with only the pieces
+// laid so far (a build going up is seen going up, nothing of what is to come).
 //
 // The painting is the sketch's own kit, kept as plain scripts in public/kit/
 // (kit-*.js and builds/<kind>.js; how it works is in the kit's README,
@@ -17,7 +17,7 @@
 // own and let go once painted, so it never costs the build going up its
 // next tick.
 //
-//   paintBuild({ kind, done, need, laid, width, height, slot, signal, keep })
+//   paintBuild({ kind, done, need, width, height, slot, signal, keep })
 //     -> Promise of an object URL (image/jpeg) for an <img>. The URL is the
 //        painter's: it is revoked when the same slot is painted again or on
 //        release(slot). (Without a slot the URL is the caller's to revoke.)
@@ -210,11 +210,9 @@ function dispose(mk) {
 }
 
 // The kit's step count for `done` of `need` tasks: everything once it stands
-// (its people too), and the steps laid today counted back from there.
-function stageOf(units, done, need, laid) {
-  const shown = done >= need ? units + 1 : Math.floor((units * done) / need);
-  const today = laid > 0 ? shown - Math.floor((units * Math.max(0, done - laid)) / need) : 0;
-  return { shown, today };
+// (its people too).
+function stageOf(units, done, need) {
+  return done >= need ? units + 1 : Math.floor((units * done) / need);
 }
 
 // ------------------------------------------------------------------ the queue
@@ -237,7 +235,7 @@ function measure(name, start) {
   }
 }
 
-export function paintBuild({ kind, done, need, laid = 0, width = 960, height = 720, slot, signal, keep = true } = {}) {
+export function paintBuild({ kind, done, need, width = 960, height = 720, slot, signal, keep = true } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError());
     if (!/^[a-z]+$/.test(kind || "")) return reject(new Error(`No painting for ${kind}`));
@@ -245,7 +243,6 @@ export function paintBuild({ kind, done, need, laid = 0, width = 960, height = 7
       kind,
       done: Math.max(0, Number(done) || 0),
       need: Math.max(1, Number(need) || 1),
-      laid: Math.max(0, Number(laid) || 0),
       w: Math.max(16, Math.round(width)),
       h: Math.max(16, Math.round(height)),
       slot,
@@ -330,7 +327,8 @@ async function paint(job) {
     await nextTask();
     stop();
     const t0 = performance.now();
-    const mk = KIT.make(job.kind, { seed: 1 });
+    // (no pencil: only what is laid is painted)
+    const mk = KIT.make(job.kind, { seed: 1, ghost: false });
     letGoOnUpload(mk.group);
     measure(`paint build ${job.kind}`, t0);
     // Making it and painting it are two tasks, so a tap in between is
@@ -361,10 +359,10 @@ async function paint(job) {
   const mk = use.mk;
   const def = mk.def;
   const R = def.r || 12;
-  const { shown, today } = stageOf(mk.units, job.done, job.need, job.laid);
+  const shown = stageOf(mk.units, job.done, job.need);
   try {
-    // show() counts floor(units * frac) steps; half a step over lands on `shown` exactly
-    mk.show(shown > mk.units ? 1 : (shown + 0.5) / mk.units, today);
+    // show() counts floor(units * frac) steps; half a step over lands on `shown` exactly (none picked out as today's)
+    mk.show(shown > mk.units ? 1 : (shown + 0.5) / mk.units, 0);
     KIT.setTorches(mk.litTorches());
     KIT.G.uTime.value = LOOK_TIME;
     st.fitShadow(new THREE.Vector3(0, 2, 0), R * 1.25);

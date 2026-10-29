@@ -19,7 +19,7 @@ import "../styles/village.css";
 // The village, in 3D: every build he has chosen stands on its plot round
 // the plaza, in the kit's painterly style, and every task or camp step he
 // finishes, on any quest or lesson, lays its next pieces on the one going
-// up (today's in orange, what's still to come in pencil). The soldiers his
+// up, and only what is laid shows: it is seen going up. The soldiers his
 // arrows train drill in the plaza; the people he has done temple work for
 // stand about the lanes. He turns it, comes close, taps a build to see what
 // laid it, and replays it all from the first day.
@@ -558,24 +558,6 @@ function Count({ done, need, laid }) {
   );
 }
 
-// What the colours in the village mean.
-function Legend({ laid }) {
-  return (
-    <p className="vl-legend">
-      {laid > 0 && (
-        <span>
-          <i className="vl-legend__today" aria-hidden="true" />
-          Laid today
-        </span>
-      )}
-      <span>
-        <i className="vl-legend__pencil" aria-hidden="true" />
-        Still to come, in pencil
-      </span>
-    </p>
-  );
-}
-
 // --- The dock: the build going up, the soldiers and villagers, the replay --------------------------
 
 const Dock = forwardRef(function Dock({ village, state, going, today, span, replayDay, playing, onOpen, onChoose, onSoldiers, onVillagers, onScrub, onPlay }, ref) {
@@ -887,10 +869,7 @@ function BuildSheet({ sheetRef, p, village, today, onClose, onChoose }) {
           {first && first !== p.finishedOn ? `, ${day(first)} to ${day(p.finishedOn)}.` : "."}
         </p>
       ) : (
-        <>
-          <p className="vl-left">{countLine(p.need - p.done, "more task", "more tasks")} and it stands. Every task you finish, on any quest or lesson, lays its next pieces here.</p>
-          <Legend laid={laid} />
-        </>
+        <p className="vl-left">{countLine(p.need - p.done, "more task", "more tasks")} and it stands. Every task you finish, on any quest or lesson, lays its next pieces here.</p>
       )}
       <div className="vl-actions">
         {going && (

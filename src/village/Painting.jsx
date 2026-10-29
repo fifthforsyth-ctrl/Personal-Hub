@@ -5,10 +5,10 @@ import "../styles/village.css";
 // A build as a painting, for the village page and the build floating over
 // the quests. Its finished picture (public/village/builds/) shows at once;
 // with `live`, the painter (./paint.js) paints it as it stands now, with
-// today's pieces in orange and what's still to come in pencil, and that
+// only the pieces laid so far (nothing of what is to come), and that
 // picture fades in over the first once it's ready.
 //
-//   <Painting slot="village:now" kind="windmill" done={20} need={45} laid={3} live />
+//   <Painting slot="village:now" kind="windmill" done={20} need={45} live />
 //
 // `slot` names the picture to the painter, which keeps one per slot. The
 // last one painted for each slot is remembered here too, so coming back to
@@ -91,7 +91,7 @@ async function keepOnPhone(slot, key, url) {
   }
 }
 
-export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, live = false, keep = true, stands = false, lazy = false, idle = false, aspect = 4 / 3, alt = "", className = "" }) {
+export default function Painting({ slot, kind, done = 0, need = 1, live = false, keep = true, stands = false, lazy = false, idle = false, aspect = 4 / 3, alt = "", className = "" }) {
   const box = useRef(null);
   const [size, setSize] = useState(null);
   const [near, setNear] = useState(!lazy);
@@ -115,7 +115,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, liv
   const w = size ? widthFor(size.w) : 0;
   const ratio = aspect === "fit" ? (size ? size.ratio : 0) : aspect;
   const h = ratio ? Math.round(w / ratio) : 0;
-  const key = JSON.stringify([KIT_V, kind, done, need, laid, w, h]);
+  const key = JSON.stringify([KIT_V, kind, done, need, w, h]);
 
   // How big it shows, to the nearest 40px, and its shape from the box as it
   // is (rounding both sides would make a tall box square).
@@ -171,7 +171,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, liv
           setGl(false);
           return;
         }
-        const url = await paintBuild({ kind, done, need, laid, width: w, height: h, slot, signal: ac.signal, keep });
+        const url = await paintBuild({ kind, done, need, width: w, height: h, slot, signal: ac.signal, keep });
         painted.set(slot, { key, kind, url });
         const was = restored.get(slot);
         if (was) {
@@ -216,7 +216,7 @@ export default function Painting({ slot, kind, done = 0, need = 1, laid = 0, liv
       if (idleId !== null) window.cancelIdleCallback?.(idleId);
       ac.abort();
     };
-    // `key` stands for the kit, kind, done, need, laid and the size
+    // `key` stands for the kit, kind, done, need and the size
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paints, near, key, slot, idle, lazy, keep]);
 
