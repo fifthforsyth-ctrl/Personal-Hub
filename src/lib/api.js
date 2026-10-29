@@ -3369,7 +3369,7 @@ export async function loadTempleSnapshot(userId, snap) {
     const { error } = await supabase.from(table).delete().eq("user_id", userId).neq("synced_at", stamp);
     if (error) throw error;
   }
-  const counts = { people: snap.people.length, open: snap.ordinances.length, done: snap.done?.length ?? null };
+  const counts = { people: snap.people.length, open: snap.ordinances.length, done: snap.done?.length ?? null, version: snap.version ?? null };
   const { error } = await supabase.from("temple_syncs").insert({ user_id: userId, synced_at: stamp, counts });
   if (error) throw error;
   return counts;

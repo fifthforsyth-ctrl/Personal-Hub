@@ -17,7 +17,7 @@ import {
   fetchTempleSyncKeyInfo,
 } from "../lib/api";
 import { SUPABASE_URL } from "../lib/supabaseClient";
-import { syncBookmarklet } from "../lib/templeSync";
+import { syncBookmarklet, SYNC_VERSION } from "../lib/templeSync";
 import {
   KIND,
   TRIP_TYPES,
@@ -222,6 +222,16 @@ export default function Temple() {
               {importing ? "Loading…" : "Load a file"}
             </button>
           </div>
+        </div>
+      )}
+
+      {view && !empty && (sync?.counts?.version ?? 0) < SYNC_VERSION && (
+        <div className="t-hint" style={{ marginBottom: 12 }}>
+          <b>Your sync bookmark is out of date.</b> Make a new one, swap it into your bookmarks bar, and tap it on FamilySearch to bring in the names
+          you hold.{" "}
+          <button type="button" className="btn-link" onClick={openSync}>
+            Make a new bookmark
+          </button>
         </div>
       )}
 
