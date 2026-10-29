@@ -50,7 +50,7 @@ button.t-pill { cursor: pointer; }
 .t-stage--permission { --stage: #d9d6d0; }
 .t-stage--ready { --stage: var(--accent); }
 .t-stage--mine { --stage: var(--ink); }
-.t-stage--shared { --stage: #5b5853; }
+.t-stage--others { --stage: #5b5853; }
 .t-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--stage, var(--line-strong)); }
 
 /* --- The group of people you've done work for -------------------------- */
@@ -98,6 +98,7 @@ button.t-pill { cursor: pointer; }
 .t-box { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--line-strong); display: grid; place-items: center; flex-shrink: 0; background: var(--card); color: var(--on-ink); }
 .t-check[aria-pressed="true"] .t-box { background: var(--ink); border-color: var(--ink); }
 .t-done-mark { color: var(--good-text); font-size: 12px; font-weight: 600; }
+.t-blocked { color: var(--accent-text, #c2410c); font-size: 12px; font-weight: 600; }
 .t-struck .t-item__name { text-decoration: line-through; color: var(--text-2); }
 
 .t-typepick { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }

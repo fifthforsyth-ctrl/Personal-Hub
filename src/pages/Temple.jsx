@@ -11,7 +11,13 @@ import {
   deleteTemplePermission,
   addTempleHelper,
   deleteTempleHelper,
+  fetchTempleInbox,
+  markTempleInboxApplied,
+  makeTempleSyncKey,
+  fetchTempleSyncKeyInfo,
 } from "../lib/api";
+import { SUPABASE_URL } from "../lib/supabaseClient";
+import { syncBookmarklet } from "../lib/templeSync";
 import {
   KIND,
   SHORT,
@@ -39,7 +45,7 @@ import LoadError from "../components/ui/LoadError";
 import Crowd from "../components/temple/Crowd";
 import FanChart from "../components/temple/FanChart";
 import Facts from "../components/temple/Facts";
-import { TripSheet, PersonSheet, PermissionSheet, HelperSheet } from "../components/temple/Sheets";
+import { TripSheet, PersonSheet, PermissionSheet, HelperSheet, SyncSheet } from "../components/temple/Sheets";
 import { fmtShortDate } from "../components/temple/format";
 import "../styles/temple.css";
 
@@ -112,21 +118,64 @@ export default function Temple() {
 
   const fileInput = useRef(null);
   const [importing, setImporting] = useState(false);
+  async function load(text) {
+    const snap = parseSnapshot(text);
+    const counts = await loadTempleSnapshot(userId, snap);
+    haptic("win");
+    toast.show(`Loaded ${counts.people} people and ${counts.open} open ordinances${counts.done != null ? `, and ${counts.done} you've done` : ""}.`);
+    await reload();
+  }
   async function onFile(e) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     setImporting(true);
     try {
-      const snap = parseSnapshot(await file.text());
-      const counts = await loadTempleSnapshot(userId, snap);
-      haptic("win");
-      toast.show(`Loaded ${counts.people} people, ${counts.open} open ordinances and ${counts.done} you've done.`);
-      await reload();
+      await load(await file.text());
     } catch (err) {
       toast.error(err, "Couldn't load that snapshot.");
     } finally {
       setImporting(false);
+    }
+  }
+
+  // A sync the bookmark sent since the last load comes in on its own, once
+  // per visit.
+  const checkedInbox = useRef(false);
+  const lastSyncedAt = data ? (data.syncs?.[0]?.synced_at ?? "") : null;
+  useEffect(() => {
+    if (!userId || lastSyncedAt === null || checkedInbox.current) return;
+    checkedInbox.current = true;
+    (async () => {
+      const row = await fetchTempleInbox(userId, lastSyncedAt || null);
+      if (!row) return;
+      setImporting(true);
+      try {
+        await load(JSON.stringify(row.snapshot));
+        await markTempleInboxApplied(userId);
+      } finally {
+        setImporting(false);
+      }
+    })().catch((err) => toast.error(err, "Couldn't load the latest sync from FamilySearch."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, lastSyncedAt]);
+
+  async function openSync() {
+    let info = null;
+    try {
+      info = await fetchTempleSyncKeyInfo(userId);
+    } catch {
+      info = null;
+    }
+    setSheet({ kind: "sync", info });
+  }
+  async function makeBookmark() {
+    try {
+      const key = await makeTempleSyncKey();
+      return syncBookmarklet({ key, endpoint: `${SUPABASE_URL}/functions/v1/temple-sync`, hub: window.location.origin });
+    } catch (err) {
+      toast.error(err, "Couldn't make the bookmark.");
+      return null;
     }
   }
 
@@ -147,8 +196,8 @@ export default function Temple() {
           <div className="temple-sync">
             {sync ? `From FamilySearch · ${fmtShortDate(sync.synced_at.slice(0, 10), true)}` : "From FamilySearch"}
             <br />
-            <button type="button" className="btn-link" onClick={() => fileInput.current?.click()} disabled={importing}>
-              {importing ? "Loading…" : "Load a newer snapshot"}
+            <button type="button" className="btn-link" onClick={openSync} disabled={importing}>
+              {importing ? "Loading…" : "Sync"}
             </button>
           </div>
         )}
@@ -161,13 +210,18 @@ export default function Temple() {
         <div className="card t-empty">
           <h2>Bring in your family from FamilySearch</h2>
           <p>
-            Load a snapshot file of your tree, your open ordinances and the work you've done. It's read from FamilySearch on your computer; nothing
-            here ever changes FamilySearch.
+            Make a sync bookmark, then tap it on FamilySearch to bring in your tree, your open ordinances and the work you've done. It only reads;
+            nothing here ever changes FamilySearch.
           </p>
-          <button type="button" className="btn btn--accent" onClick={() => fileInput.current?.click()} disabled={importing}>
-            <Upload size={15} />
-            {importing ? "Loading…" : "Load snapshot"}
-          </button>
+          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--accent" onClick={openSync} disabled={importing}>
+              Set up sync
+            </button>
+            <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={importing}>
+              <Upload size={15} />
+              {importing ? "Loading…" : "Load a file"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -206,6 +260,17 @@ export default function Temple() {
           type={sheet.type}
           onClose={close}
           onSave={(trip) => write(() => addTempleTrip(userId, trip), "Couldn't save that trip.", `Trip saved for ${fmtShortDate(trip.planned_on)}. It's on Today.`)}
+        />
+      )}
+      {sheet?.kind === "sync" && (
+        <SyncSheet
+          info={sheet.info}
+          makeBookmark={makeBookmark}
+          onClose={close}
+          onLoadFile={() => {
+            close();
+            fileInput.current?.click();
+          }}
         />
       )}
       {sheet?.kind === "person" && <PersonSheet view={view} pid={sheet.pid} onClose={close} />}
@@ -357,14 +422,36 @@ function NextView({ view, today, setSheet, write, confirm }) {
                     {it.lifespan ? `${it.lifespan} · ` : ""}
                     {KIND[it.kind]}
                     {!it.open && <span className="t-done-mark"> · completed</span>}
+                    {it.open && it.blocked && <span className="t-blocked"> · {it.blocked}</span>}
                   </div>
                 </div>
+                {it.open && it.blocked && (
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() =>
+                      write(
+                        () => updateTempleTrip(trip.id, { items: trip.items.filter((x) => !(x.pid === it.pid && x.kind === it.kind && (x.spouse || "") === (it.spouse || ""))) }),
+                        "Couldn't take that off.",
+                        `${it.name} is off this trip.`
+                      )
+                    }
+                  >
+                    Take off
+                  </button>
+                )}
                 <a className="t-fs" href={fsUrl(it.pid)} target="_blank" rel="noopener noreferrer">
                   {it.pid} ↗
                 </a>
               </div>
             ))}
           </div>
+          {progress.items.some((i) => i.open && i.blocked) && (
+            <div className="t-hint" style={{ marginTop: 10 }}>
+              <b>Some names can't be done right now.</b> The last sync shows them held by someone else or waiting on an earlier ordinance. Take them
+              off, and plan another trip to fill the gaps.
+            </div>
+          )}
           <p className="t-note">It's marked done when FamilySearch shows every name completed.</p>
           <button
             type="button"
@@ -535,7 +622,8 @@ function QueueView({ view, setSheet }) {
                         <div className="t-item__sub">
                           {o.person.lifespan}
                           {o.person.gen ? ` · gen ${o.person.gen}` : ""}
-                          {hers ? " · goes to a helper" : ""}
+                          {o.stage === "others" && o.reserved_by ? ` · ${o.reserved_by}` : ""}
+                          {hers && o.stage !== "others" ? " · goes to a helper" : ""}
                         </div>
                       </div>
                       <span className={"t-code" + (hers ? " t-code--her" : "")}>{SHORT[o.kind]}</span>
