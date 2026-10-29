@@ -40,6 +40,10 @@ import {
   buildTemple,
   candidates,
   fillTrip,
+  myNames,
+  planTrips,
+  paceTimeline,
+  tripDates,
   waitsOn,
   tripProgress,
   nextTrip,
@@ -1587,10 +1591,14 @@ console.log("\nthe mark");
   ok("names you hold go first", bap[0].o.pid === "BUD" && bap[0].why[0] === "Reserved by you");
   ok("women's individual ordinances aren't on your trips", !candidates(v, "bap").some((c) => c.o.pid === "HER"));
   ok("an initiatory waits for that person's baptism", waitsOn(v.open.find((o) => o.pid === "OLD" && o.kind === "ini"), v.open) === "baptism");
-  const ini = fillTrip(v, "ini");
+  ok("only names you've reserved go on your trips", !candidates(v, "bap").some((c) => c.o.stage === "ready"));
+  // The same tree once you've reserved everything that was ready.
+  const held2 = ordinances.map((o) => (o.fs_status === "Ready" || o.fs_status === "ReservedSharedReady" ? { ...o, fs_status: "InProgressNotPrinted", mine: true } : o));
+  const v2h = buildTemple({ people, ordinances: held2, done: [], trips: [] });
+  const ini = fillTrip(v2h, "ini");
   ok("so it isn't on the initiatory trip yet", ini.items.length === 0 && ini.waiting.length === 1);
 
-  const seal = fillTrip(v, "seal");
+  const seal = fillTrip(v2h, "seal");
   ok("a sealing waits until that person's own ordinances are done", seal.items.map((c) => c.o.pid).join() === "GP" && seal.waiting[0].waits === "baptism");
 
   // Someone else holds Bendicht's endowment; Peter's initiatory is held by
@@ -1598,10 +1606,10 @@ console.log("\nthe mark");
   const held = [
     { pid: "BEN", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "Gretamay" },
     { pid: "PET", kind: "ini", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "lisa" },
-    { pid: "PET", kind: "end", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "PET", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
     { pid: "PET", kind: "stp", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
     { pid: "KID", kind: "bap", spouse_name: "", fs_status: "NotAvailable", reasons: [] },
-    { pid: "KID", kind: "stp", spouse_name: "", fs_status: "Ready", reasons: [] },
+    { pid: "KID", kind: "stp", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
     { pid: "MINE", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true },
   ];
   const hp = ["BEN", "PET", "KID", "MINE"].map((pid, i) => ({ pid, name: pid, gender: "M", lifespan: "1800-1850", ahnentafel: 300 + i, rollup_status: "READY" }));
@@ -1618,7 +1626,7 @@ console.log("\nthe mark");
     "a planned name that's no longer doable says why",
     hp2.items[0].blocked === "Reserved by Gretamay" && hp2.items[1].blocked === "Waits on the initiatory" && !hp2.finished
   );
-  ok("the last open ordinance a person has is called out", candidates(v, "seal").find((c) => c.o.pid === "GP").why.includes("Last one for him"));
+  ok("the last open ordinance a person has is called out", candidates(v2h, "seal").find((c) => c.o.pid === "GP").why.includes("Last one for him"));
 
   const trip = { id: "t1", kind: "seal", planned_on: "2026-10-24", status: "planned", items: [{ pid: "GP", name: "Grandpa", kind: "stp", spouse: "" }] };
   const withTrip = buildTemple({ people, ordinances, done: [], trips: [trip] });
@@ -1686,6 +1694,46 @@ console.log("\nthe mark");
       !/\bto anon\b/i.test(ts)
   );
   ok("the sync migration drops nothing", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(ts));
+
+  // Your reservations, in order.
+  {
+    const M = (pid, kind, extra = {}) => ({ pid, kind, spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: true, ...extra });
+    const rp = [
+      ["A", "M", 5], ["ANN", "F", 5], ["B", "M", 6], ["C", "M", 6], ["D", "F", 6], ["E", "M", 7], ["F", "M", 7], ["G", "F", 7],
+    ].map(([pid, gender, generation], i) => ({ pid, name: pid, gender, lifespan: `${1800 + i}-1870`, ahnentafel: 2 ** (generation - 1) + i, generation, rollup_status: "READY" }));
+    const ro = [
+      M("A", "bap"), M("A", "con"), M("A", "ini"), M("A", "end"), M("A", "sts", { spouse_name: "ANN" }),
+      M("B", "end"),
+      M("C", "ini", { mine: false, reserved_by: "lisa" }), M("C", "end"),
+      M("D", "bap"), M("D", "con"),
+      M("E", "stp"),
+      M("F", "stp"), M("F", "sts", { spouse_name: "G" }), M("G", "sts", { spouse_name: "F" }),
+    ];
+    const rv = buildTemple({ people: rp, ordinances: ro, done: [], trips: [] });
+    const lanes = Object.fromEntries(myNames(rv).map((n) => [n.person.pid, n.lane]));
+    ok("each name sits at the next ordinance it needs", lanes.A === "bap" && lanes.B === "end" && lanes.E === "seal" && lanes.F === "seal");
+    ok("an endowment behind someone else's initiatory waits, and says why", lanes.C === "waiting" && myNames(rv).find((n) => n.person.pid === "C").why === "Initiatory held by lisa");
+    ok("a woman's baptism goes to a helper", lanes.D === "helper");
+    const cut = buildTemple({ people: rp, ordinances: [M("B", "bap"), M("B", "con"), M("B", "ini", { mine: false, reserved_by: "lisa" }), M("B", "end")], done: [], trips: [] });
+    const cutB = myNames(cut)[0];
+    ok("steps of yours behind one you don't hold are never planned", cutB.lane === "bap" && cutB.steps.length === 1 && cutB.later[0].step === "end" && planTrips(cut, { from: "2026-10-28" }).trips.length === 1);
+    ok("a couple's sealing counts once", lanes.G === undefined && myNames(rv).find((n) => n.person.pid === "F").steps[0].ords.length === 2);
+    ok("and waits for the spouse who's still behind", myNames(rv).find((n) => n.person.pid === "A").steps.map((x) => x.step).join() === "bap,ini,end,seal");
+    const held = buildTemple({ people: rp, ordinances: [...ro, { pid: "ANN", kind: "end", spouse_name: "", fs_status: "InProgressNotPrinted", reasons: [], mine: false, reserved_by: "Gretamay" }], done: [], trips: [] });
+    ok("a sealing waits on a spouse whose work you don't hold", !myNames(held).find((n) => n.person.pid === "A").steps.some((x) => x.step === "seal"));
+
+    ok("trip days for once, twice and three times a week", tripDates("2026-10-28", 1, 2).join() === "2026-10-31,2026-11-07" && tripDates("2026-10-28", 2, 3).join() === "2026-10-31,2026-11-04,2026-11-07" && tripDates("2026-10-28", 3, 3).join() === "2026-10-31,2026-11-02,2026-11-04");
+    const plan = planTrips(rv, { from: "2026-10-28", perWeek: 1 });
+    ok("one kind of work per trip, the fullest batch first", plan.trips.map((t) => t.kind).join() === "end,seal,bap,ini,end,seal");
+    ok("a person's next step goes on a later trip", plan.trips[2].items[0].pid === "A" && plan.trips[3].items[0].pid === "A" && plan.trips[4].items[0].pid === "A");
+    ok("a baptism trip lists the baptism once (the confirmation goes with it)", plan.trips[2].items.length === 1 && plan.trips[2].items[0].kind === "bap");
+    ok("everything you can do is done, on the sixth Saturday", plan.finished && plan.trips[5].date === "2026-12-05" && plan.ordinances === 9);
+    const pace = paceTimeline(rv, "2026-10-28");
+    ok("going more often finishes sooner", pace[0].doneOn === "2026-12-05" && pace[1].doneOn < pace[0].doneOn && pace[2].doneOn <= pace[1].doneOn && pace[0].in4 < pace[2].in4);
+    const withPlan = buildTemple({ people: rp, ordinances: ro, done: [], trips: [{ id: "p", kind: "bap", planned_on: "2026-10-29", status: "planned", items: [{ pid: "A", name: "A", kind: "bap", spouse: "" }] }] });
+    const p2 = planTrips(withPlan, { from: "2026-10-28", perWeek: 1 });
+    ok("a trip you planned comes first, and its names aren't planned again", p2.trips[0].planned && p2.trips[1].date === "2026-10-31" && !p2.trips.slice(1).some((t) => t.kind === "bap"));
+  }
 
   // The bookmark, run against a pretend FamilySearch.
   const fsAnc = {

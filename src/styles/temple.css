@@ -168,3 +168,23 @@ button.t-pill { cursor: pointer; }
 
 .t-form .field { margin-bottom: 10px; }
 @media (max-width: 480px) { .temple-tabs .seg-btn { padding: 8px 11px; } }
+
+/* Your next trips, from the names you hold */
+.temple .seg--sm { flex-shrink: 0; }
+.temple .seg--sm .seg-btn { padding: 6px 10px; font-size: 12.5px; }
+.t-timeline { display: flex; flex-direction: column; margin-top: 10px; }
+.t-trip { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+.t-trip:first-child { border-top: 0; }
+.t-trip__when { width: 92px; flex-shrink: 0; display: flex; flex-direction: column; font-size: 13.5px; }
+.t-trip__when span { font-size: 12px; color: var(--text-2); font-family: var(--font-mono); }
+.t-trip--saved .t-trip__when span { color: var(--accent-text); font-weight: 600; }
+.t-trip__what { flex: 1; min-width: 0; }
+.t-pace { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.t-pace__row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: var(--r); background: var(--inset); border: 1px solid transparent; font-size: 13.5px; color: var(--text); }
+.t-pace__row.on { border-color: var(--ink); background: transparent; }
+.t-pace__row .muted { font-size: 12.5px; }
+.t-lanes { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.t-lanes b { color: var(--text); }
+@media (max-width: 420px) {
+  .temple .card > .row--between:has(.seg--sm) { flex-direction: column; }
+}
