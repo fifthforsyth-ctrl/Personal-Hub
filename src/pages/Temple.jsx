@@ -20,16 +20,16 @@ import { SUPABASE_URL } from "../lib/supabaseClient";
 import { syncBookmarklet } from "../lib/templeSync";
 import {
   KIND,
-  SHORT,
-  STAGES,
   TRIP_TYPES,
   buildTemple,
   crowd as buildCrowd,
-  fillTrip,
   fsUrl,
   helperNames,
   missingParents,
+  myNames,
   nextTrip,
+  paceTimeline,
+  planTrips,
   parseSnapshot,
   permissionNames,
   plainReason,
@@ -58,16 +58,16 @@ import "../styles/temple.css";
 // tree; a trip is finished when FamilySearch shows its names completed.
 //
 // Five views, each at its own address (/temple/<view>):
-//   Next      the group of everyone you've done work for, your next trip,
-//             and what the queue would fill after it
-//   Queue     every open ordinance by stage
+//   Next      the group of everyone you've done work for, your next trips
+//             from the names you hold, and how far 1, 2 or 3 trips a week get you
+//   Reserved  everyone you hold a name for, at the next ordinance they need
 //   Research  records to fix, missing parents, and 110-year permissions
 //   Family    your family in numbers, and nine generations as a fan
 //   Helpers   women's names, which go to women in your family
 
 const TABS = [
   ["next", "Next"],
-  ["queue", "Queue"],
+  ["reserved", "Reserved"],
   ["research", "Research"],
   ["family", "Family"],
   ["helpers", "Helpers"],
@@ -245,8 +245,18 @@ export default function Temple() {
           </div>
 
           <div className="temple-view">
-            {tab === "next" && <NextView view={view} today={today} setSheet={setSheet} write={write} confirm={confirm} />}
-            {tab === "queue" && <QueueView view={view} setSheet={setSheet} />}
+            {tab === "next" && (
+              <NextView
+                view={view}
+                userId={userId}
+                today={today}
+                setSheet={setSheet}
+                write={write}
+                confirm={confirm}
+                goTab={(id) => navigate(`/temple/${id}`, { replace: true })}
+              />
+            )}
+            {tab === "reserved" && <ReservedView view={view} setSheet={setSheet} />}
             {tab === "research" && <ResearchView view={view} setSheet={setSheet} />}
             {tab === "family" && <FamilyView view={view} setSheet={setSheet} />}
             {tab === "helpers" && <HelpersView view={view} setSheet={setSheet} write={write} confirm={confirm} />}
@@ -316,22 +326,41 @@ function Ring({ pct }) {
   );
 }
 
-function NextView({ view, today, setSheet, write, confirm }) {
+function NextView({ view, userId, today, setSheet, write, confirm, goTab }) {
   const crowd = useMemo(() => buildCrowd(view.done), [view.done]);
   const trip = nextTrip(view.trips, today);
   const progress = trip ? tripProgress(trip, view) : null;
-  const suggestion = useMemo(() => (trip ? null : fillTrip(view, "seal")), [view, trip]);
-  const after = useMemo(() => ["seal", "bap", "ini", "end"].filter((t) => t !== (trip?.kind ?? "seal")).map((t) => ({ t, f: fillTrip(view, t) })), [view, trip]);
-  const endBacklog = view.open.filter((o) => o.kind === "end" && (o.stage === "mine" || o.stage === "ready")).length;
+  const names = useMemo(() => myNames(view), [view]);
+  const [pace, setPace] = useState(() => {
+    try {
+      return Number(localStorage.getItem("temple.pace")) || 1;
+    } catch {
+      return 1;
+    }
+  });
+  const choosePace = (n) => {
+    setPace(n);
+    try {
+      localStorage.setItem("temple.pace", String(n));
+    } catch {
+      // Remembering the pace is a nicety.
+    }
+  };
+  const plan = useMemo(() => planTrips(view, { from: today, perWeek: pace }), [view, today, pace]);
+  const paces = useMemo(() => paceTimeline(view, today), [view, today]);
+  const upcoming = plan.trips.filter((t) => !t.planned || t.planned.id !== trip?.id).slice(0, 6);
+  const firstNew = upcoming.find((t) => !t.planned);
 
   const have = new Set(view.done.map((d) => d.pid));
   const ghosts = [];
-  for (const it of trip ? trip.items : suggestion.items.map((c) => ({ pid: c.o.pid, spouse: c.o.spouse_name, gender: c.o.person.gender }))) {
+  for (const it of trip ? trip.items : (plan.trips[0]?.items ?? [])) {
     const g = it.gender ?? view.byPid.get(it.pid)?.gender;
     if (!have.has(it.pid) && !ghosts.some((x) => x.key === it.pid)) ghosts.push({ key: it.pid, gender: g });
   }
 
   const pct = view.counts.deceased ? view.counts.completed / view.counts.deceased : 0;
+  const ready = names.filter((n) => n.lane !== "waiting" && n.lane !== "helper").length;
+  const waiting = names.filter((n) => n.lane === "waiting").length;
 
   return (
     <>
@@ -355,21 +384,21 @@ function NextView({ view, today, setSheet, write, confirm }) {
         </div>
         <div className="t-stats">
           <div className="t-stat">
-            <b>{view.counts.ready}</b>
-            <span>Ready now</span>
+            <b>{names.length}</b>
+            <span>People you hold</span>
           </div>
           <div className="t-stat">
-            <b>{view.counts.mine}</b>
-            <span>Reserved by you</span>
+            <b>{ready}</b>
+            <span>Ready for a trip</span>
           </div>
           <div className="t-stat">
-            <b>{view.counts.research}</b>
-            <span>Need research</span>
+            <b>{waiting}</b>
+            <span>Waiting</span>
           </div>
         </div>
       </section>
 
-      {trip ? (
+      {trip && (
         <section className="card">
           <div className="trip-head">
             <div>
@@ -382,7 +411,7 @@ function NextView({ view, today, setSheet, write, confirm }) {
             <div style={{ textAlign: "right" }}>
               <Fill n={trip.items.length} max={Math.max(trip.items.length, TRIP_TYPES[trip.kind].limit)} />
               <div className="mono muted" style={{ fontSize: 12, marginTop: 4 }}>
-                {progress.left ? `${trip.items.length - progress.left} of ${trip.items.length} done` : `${trip.items.length} names`}
+                {progress.left ? `${trip.items.length - progress.left} of ${trip.items.length} done` : `${trip.items.length} ${trip.items.length === 1 ? "name" : "names"}`}
               </div>
             </div>
           </div>
@@ -465,173 +494,169 @@ function NextView({ view, today, setSheet, write, confirm }) {
             Cancel this trip
           </button>
         </section>
-      ) : (
-        <section className="card">
-          <div className="eyebrow">Next trip</div>
-          <h3 style={{ margin: "2px 0 0", fontSize: 20 }}>Sealings</h3>
-          <div className="muted" style={{ fontSize: 13 }}>
-            Not planned yet. The queue would fill it with these:
-          </div>
-          <div className="t-list" style={{ marginTop: 6 }}>
-            {suggestion.items.map((c) => (
-              <button key={c.o.key} type="button" className="t-item" onClick={() => setSheet({ kind: "person", pid: c.o.pid })}>
-                <div className="t-item__grow">
-                  <div className="t-item__name">
-                    {c.o.person.name}
-                    {c.o.kind === "sts" ? ` + ${c.o.spouse_name}` : ""}
-                  </div>
-                  <div className="t-item__sub">
-                    {c.o.person.lifespan} · {KIND[c.o.kind]}
-                  </div>
-                </div>
-                <ChevronRight size={16} className="t-item__chev" />
-              </button>
-            ))}
-          </div>
-          <button type="button" className="btn btn--accent btn--lg" style={{ marginTop: 12 }} onClick={() => setSheet({ kind: "trip", type: "seal" })}>
-            Plan this trip
-          </button>
-        </section>
       )}
 
       <section className="card">
-        <div className="row row--between">
-          <div className="eyebrow">After that</div>
-          <span className="muted" style={{ fontSize: 12.5 }}>
-            Filled by your queue
-          </span>
+        <div className="row row--between" style={{ alignItems: "flex-start", gap: 10 }}>
+          <div>
+            <div className="eyebrow">Your next trips</div>
+            <div className="muted" style={{ fontSize: 13 }}>
+              From the names you hold, one kind of work per trip.
+            </div>
+          </div>
+          <div className="seg seg--sm" role="group" aria-label="Trips a week">
+            {[1, 2, 3].map((n) => (
+              <button key={n} type="button" className={"seg-btn" + (pace === n ? " active" : "")} aria-pressed={pace === n} onClick={() => choosePace(n)}>
+                {n}× a week
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="t-list" style={{ marginTop: 6 }}>
-          {after.map(({ t, f }) => (
-            <button key={t} type="button" className="t-item" onClick={() => setSheet({ kind: "trip", type: t })}>
-              <div className="t-item__grow">
-                <div className="t-item__name">{TRIP_TYPES[t].name}</div>
-                <div className="t-item__sub">
-                  {f.items.length ? f.items.map((c) => c.o.person.name).join(", ") : "Nothing ready yet"}
-                  {f.waiting.length ? ` · ${f.waiting.length} waiting on an earlier ordinance` : ""}
+        {upcoming.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13.5, marginTop: 10 }}>
+            Nothing you hold is ready for a trip. Reserve names in FamilySearch, then sync.
+          </p>
+        ) : (
+          <div className="t-timeline">
+            {upcoming.map((t, i) => (
+              <div key={`${t.date}-${i}`} className={"t-trip" + (t.planned ? " t-trip--saved" : "")}>
+                <div className="t-trip__when">
+                  <b>{fmtShortDate(t.date)}</b>
+                  <span>{t.planned ? "Saved" : `Trip ${i + 1 + (trip ? 1 : 0)}`}</span>
+                </div>
+                <div className="t-trip__what">
+                  <div className="t-item__name">
+                    {TRIP_TYPES[t.kind]?.name ?? "Trip"} <span className="muted mono" style={{ fontSize: 12 }}>· {t.items.length}</span>
+                  </div>
+                  <div className="t-item__sub">{t.items.map((it) => (it.spouse ? `${it.name} + ${it.spouse}` : it.name)).join(", ")}</div>
+                  {t === firstNew && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ marginTop: 4 }}
+                      onClick={() =>
+                        write(
+                          () => addTempleTrip(userId, { kind: t.kind, planned_on: t.date, items: t.items }),
+                          "Couldn't save that trip.",
+                          `Trip saved for ${fmtShortDate(t.date)}. It's on Today.`
+                        )
+                      }
+                    >
+                      Save this trip
+                    </button>
+                  )}
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <Fill n={f.items.length} max={f.limit} />
-                <div className="mono muted" style={{ fontSize: 12 }}>
-                  {f.items.length} of {f.limit}
-                </div>
-              </div>
-              <ChevronRight size={16} className="t-item__chev" />
+            ))}
+          </div>
+        )}
+        {plan.trips.length > upcoming.length + (trip ? 1 : 0) && (
+          <p className="t-note">
+            {plan.trips.length - upcoming.length - (trip ? 1 : 0)} more after these
+            {plan.finished && plan.trips.length ? `, the last on ${fmtShortDate(plan.trips[plan.trips.length - 1].date)}` : ""}.
+          </p>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="eyebrow">How far you'll get</div>
+        <div className="muted" style={{ fontSize: 13 }}>
+          Everything you hold now, at each pace. Names you reserve later add to it.
+        </div>
+        <div className="t-pace">
+          {paces.map((p) => (
+            <button key={p.perWeek} type="button" className={"t-pace__row" + (pace === p.perWeek ? " on" : "")} onClick={() => choosePace(p.perWeek)}>
+              <b>{p.perWeek}× a week</b>
+              <span>{p.doneOn ? `All ${p.ordinances} done by ${fmtShortDate(p.doneOn, true)}` : "Nothing ready yet"}</span>
+              <span className="muted">
+                {p.trips} trips · {p.in4} in 4 weeks · {p.in12} in 12 weeks
+              </span>
             </button>
           ))}
         </div>
+        {waiting > 0 && (
+          <p className="t-note">
+            {waiting} {waiting === 1 ? "person is" : "people are"} waiting on work you don't hold, so they aren't in these yet.{" "}
+            <button type="button" className="btn-link" onClick={() => goTab("reserved")}>
+              See who
+            </button>
+          </p>
+        )}
       </section>
 
-      {endBacklog > 3 && (
-        <div className="t-hint">
-          <b>Endowments are the slow lane.</b> {endBacklog} are reserved or ready, and each session takes one. Plan an endowment trip next time you go
-          for sealings.
-        </div>
-      )}
-
-      <button type="button" className="btn btn--accent btn--lg" onClick={() => setSheet({ kind: "trip", type: "seal" })}>
-        Plan a trip
+      <button type="button" className="btn btn--lg" onClick={() => setSheet({ kind: "trip", type: "seal" })}>
+        Build a trip yourself
       </button>
     </>
   );
 }
 
-// --- Queue ----------------------------------------------------------------------------
+// --- Reserved: your names by the next ordinance -----------------------------------------
 
-const FILTERS = [
-  ["all", "All"],
-  ["bap", "Baptism"],
-  ["ini", "Initiatory"],
-  ["end", "Endowment"],
-  ["seal", "Sealings"],
+const LANES = [
+  ["bap", "Baptism", "Baptism and confirmation next."],
+  ["ini", "Initiatory", "Baptized and confirmed; the initiatory is next."],
+  ["end", "Endowment", "Everything before it is done."],
+  ["seal", "Sealing", "Endowed, or never needed one; sealings next."],
+  ["helper", "For a helper", "A woman's ordinance, for a woman in your family to do."],
+  ["waiting", "Waiting", "Something before your names isn't yours or isn't ready."],
 ];
+const STEP_NAME = { bap: "Baptism", ini: "Initiatory", end: "Endowment", seal: "Sealing" };
 
-function inFilter(o, f) {
-  if (f === "all") return true;
-  if (f === "bap") return o.kind === "bap" || o.kind === "con";
-  if (f === "seal") return o.kind === "stp" || o.kind === "sts";
-  return o.kind === f;
-}
-
-function QueueView({ view, setSheet }) {
-  const [filter, setFilter] = useState("all");
-  const [open, setOpen] = useState({ ready: true, mine: true });
-  const items = view.open.filter((o) => inFilter(o, filter));
-
+function ReservedView({ view, setSheet }) {
+  const names = useMemo(() => myNames(view), [view]);
   return (
     <>
       <section className="card">
         <div className="row row--between">
-          <div className="eyebrow">Open ordinances</div>
+          <div className="eyebrow">Names you hold</div>
           <span className="mono" style={{ fontSize: 13 }}>
-            {items.length}
+            {names.length}
           </span>
         </div>
-        <div className="t-strip">
-          {STAGES.map((s) => {
-            const n = items.filter((o) => o.stage === s.id).length;
-            return n ? <span key={s.id} className={`t-stage--${s.id}`} style={{ flex: n }} title={`${s.name}: ${n}`} /> : null;
-          })}
+        <div className="muted" style={{ fontSize: 13 }}>
+          Everyone you've reserved in FamilySearch, at the next ordinance each needs.
         </div>
-        <div className="t-legend">
-          {STAGES.map((s) => (
-            <span key={s.id} className={`t-stage--${s.id}`}>
-              <i className="t-dot" />
-              {s.name} {items.filter((o) => o.stage === s.id).length}
+        <div className="t-lanes">
+          {LANES.map(([id, label]) => (
+            <span key={id}>
+              <b>{names.filter((n) => n.lane === id).length}</b> {label}
             </span>
           ))}
         </div>
       </section>
-      <div className="t-chips">
-        {FILTERS.map(([id, label]) => (
-          <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {STAGES.map((s) => {
-        const list = items.filter((o) => o.stage === s.id).sort((a, b) => (a.person.gen ?? 99) - (b.person.gen ?? 99));
+      {LANES.map(([id, label, note]) => {
+        const list = names.filter((n) => n.lane === id);
         if (!list.length) return null;
-        const isOpen = Boolean(open[s.id]);
         return (
-          <section key={s.id} className={`card t-stage--${s.id}`}>
-            <button type="button" className="t-col-head" aria-expanded={isOpen} onClick={() => setOpen((o) => ({ ...o, [s.id]: !o[s.id] }))}>
-              <h4>
-                <i className="t-dot" />
-                {s.name}
-              </h4>
+          <section key={id} className="card">
+            <div className="row row--between">
+              <h4 style={{ margin: 0 }}>{label}</h4>
               <span className="mono muted" style={{ fontSize: 13 }}>
-                {list.length} {isOpen ? "▴" : "▾"}
+                {list.length}
               </span>
-            </button>
-            <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-              {s.note}
             </div>
-            {isOpen && (
-              <div className="t-list" style={{ marginTop: 6 }}>
-                {list.map((o) => {
-                  const hers = o.person.gender === "F" && ["bap", "con", "ini", "end"].includes(o.kind);
-                  return (
-                    <button key={o.key} type="button" className="t-item" onClick={() => setSheet({ kind: "person", pid: o.pid })}>
-                      <div className="t-item__grow">
-                        <div className="t-item__name">
-                          {o.person.name}
-                          {o.kind === "sts" && o.spouse_name ? <span style={{ fontWeight: 400, color: "var(--text-2)" }}> + {o.spouse_name}</span> : null}
-                        </div>
-                        <div className="t-item__sub">
-                          {o.person.lifespan}
-                          {o.person.gen ? ` · gen ${o.person.gen}` : ""}
-                          {o.stage === "others" && o.reserved_by ? ` · ${o.reserved_by}` : ""}
-                          {hers && o.stage !== "others" ? " · goes to a helper" : ""}
-                        </div>
+            <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
+              {note}
+            </div>
+            <div className="t-list" style={{ marginTop: 6 }}>
+              {list.map((n) => {
+                const rest = [...n.steps.slice(1), ...(n.later ?? [])].map((x) => STEP_NAME[x.step]);
+                return (
+                  <button key={n.person.pid} type="button" className="t-item" onClick={() => setSheet({ kind: "person", pid: n.person.pid })}>
+                    <div className="t-item__grow">
+                      <div className="t-item__name">{n.person.name}</div>
+                      <div className="t-item__sub">
+                        {n.person.lifespan}
+                        {n.why ? <span className="t-blocked"> · {n.why}</span> : null}
+                        {rest.length ? ` · then ${[...new Set(rest)].join(", ")}` : ""}
                       </div>
-                      <span className={"t-code" + (hers ? " t-code--her" : "")}>{SHORT[o.kind]}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                    </div>
+                    <ChevronRight size={16} className="t-item__chev" />
+                  </button>
+                );
+              })}
+            </div>
           </section>
         );
       })}
@@ -645,10 +670,47 @@ function ResearchView({ view, setSheet }) {
   const groups = useMemo(() => researchGroups(view), [view]);
   const missing = useMemo(() => missingParents(view.people), [view.people]);
   const perms = permissionNames(view);
+  const toReserve = useMemo(() => {
+    const by = new Map();
+    for (const o of view.open) {
+      if (o.stage !== "ready" || o.person.ahnentafel == null) continue;
+      if (!by.has(o.pid)) by.set(o.pid, { person: o.person, ords: [] });
+      by.get(o.pid).ords.push(o);
+    }
+    return [...by.values()].sort((a, b) => (a.person.gen ?? 99) - (b.person.gen ?? 99));
+  }, [view]);
 
   return (
     <>
-      <div className="t-hint">Nothing goes into your tree from here. Each fix is made in FamilySearch, and the next snapshot shows it.</div>
+      <div className="t-hint">Nothing goes into your tree from here. Each fix is made in FamilySearch, and the next sync shows it.</div>
+      {toReserve.length > 0 && (
+        <section className="card">
+          <div className="eyebrow">Ready to reserve</div>
+          <div className="muted" style={{ fontSize: 13 }}>
+            Free in your tree. Reserve them in FamilySearch and they join your trips at the next sync.
+          </div>
+          <div className="t-list" style={{ marginTop: 6 }}>
+            {toReserve.map(({ person, ords }) => {
+              const hers = person.gender === "F" && ords.some((o) => ["bap", "con", "ini", "end"].includes(o.kind));
+              return (
+                <div key={person.pid} className="t-item">
+                  <div className="t-item__grow">
+                    <div className="t-item__name">{person.name}</div>
+                    <div className="t-item__sub">
+                      {person.lifespan}
+                      {person.gen ? ` · gen ${person.gen}` : ""} · {[...new Set(ords.map((o) => KIND[o.kind]))].join(", ")}
+                      {hers ? " · for a helper" : ""}
+                    </div>
+                  </div>
+                  <a className="t-fs" href={fsUrl(person.pid)} target="_blank" rel="noopener noreferrer">
+                    {person.pid} ↗
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {groups.length > 0 && (
         <section className="card">
           <div className="eyebrow">Fix a record</div>

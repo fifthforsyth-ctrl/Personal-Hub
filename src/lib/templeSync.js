@@ -16,7 +16,7 @@
 export async function familySearchSync(cfg) {
   const ROOT_FALLBACK = cfg.root || "KWBN-5QK";
   const OWNER_FALLBACK = cfg.owner || "M9MG-YS4";
-  const PID = /^[A-Z0-9]{3,4}-[A-Z0-9]{2,4}$/;
+  const PID = /^[A-Z0-9]{4}-[A-Z0-9]{3}$/;
 
   // --- A small panel in the corner, so you can see it working ------------------
   let panel = null;
@@ -108,27 +108,25 @@ export async function familySearchSync(cfg) {
 
     // 3. Every ordinance for anyone not fully done.
     const K = { baptism: "bap", confirmation: "con", initiatory: "ini", endowment: "end" };
-    const ordinances = [];
-    const todo = dead.filter((id) => rollup[id] !== "COMPLETED");
-    n = 0;
-    await eachLimited(todo, 4, async (id) => {
+    const holder = (x) => {
+      const alt = x.alternateReservationDetails;
+      if (alt && alt.ownerId && alt.ownerId !== owner) return { mine: false, reserved_by: alt.ownerName || null };
+      if (!x.owner) return { mine: null, reserved_by: null };
+      if (x.owner === owner) return { mine: true, reserved_by: null };
+      if (x.owner === "MMMM-MMS") return { mine: false, reserved_by: "the temple" };
+      return { mine: false, reserved_by: x.ownerName || null };
+    };
+    const reasons = (x) => (x.whyNotQualifyingReasons || []).map((r) => (r && r.value) || String(r));
+    async function readPerson(id) {
       const j = await get(
         `/service/tree/tree-data/reservations/person/${id}/ordinances?pendingTransfer=true&owner=${owner}&treeId=PRIVATE&enforceTemplePolicyEx=true`
       );
       const o = (j && j.data) || j || {};
-      const holder = (x) => {
-        const alt = x.alternateReservationDetails;
-        if (alt && alt.ownerId && alt.ownerId !== owner) return { mine: false, reserved_by: alt.ownerName || null };
-        if (!x.owner) return { mine: null, reserved_by: null };
-        if (x.owner === owner) return { mine: true, reserved_by: null };
-        if (x.owner === "MMMM-MMS") return { mine: false, reserved_by: "the temple" };
-        return { mine: false, reserved_by: x.ownerName || null };
-      };
-      const reasons = (x) => (x.whyNotQualifyingReasons || []).map((r) => (r && r.value) || String(r));
+      const out = [];
       for (const k of Object.keys(K)) {
         const x = o[k];
         if (!x || !x.status || x.status === "Completed") continue;
-        ordinances.push({ pid: id, kind: K[k], spouse_name: "", fs_status: x.status, reasons: reasons(x), ...holder(x) });
+        out.push({ pid: id, kind: K[k], spouse_name: "", fs_status: x.status, reasons: reasons(x), ...holder(x) });
       }
       for (const [k, kind] of [
         ["sealingsToParents", "stp"],
@@ -140,12 +138,83 @@ export async function familySearchSync(cfg) {
           const sp = kind === "sts" ? (x.relationships && x.relationships.spouseName) || "" : "";
           if (seen.has(sp)) continue;
           seen.add(sp);
-          ordinances.push({ pid: id, kind, spouse_name: sp, fs_status: x.status, reasons: reasons(x), ...holder(x) });
+          out.push({ pid: id, kind, spouse_name: sp, fs_status: x.status, reasons: reasons(x), ...holder(x) });
         }
       }
+      return { o, out };
+    }
+    const ordinances = [];
+    const read = new Set();
+    const todo = dead.filter((id) => rollup[id] !== "COMPLETED");
+    n = 0;
+    await eachLimited(todo, 4, async (id) => {
+      read.add(id);
+      ordinances.push(...(await readPerson(id)).out);
       n++;
       if (n % 5 === 0) say(`Reading open ordinances… ${n} of ${todo.length}`);
     });
+
+    // 3b. Everyone on your reservations, in your tree or not. The list's
+    // shape isn't documented, so every person id is picked out of it: from
+    // the lists this page already loaded, FamilySearch's own list address,
+    // and the ids shown on the page. Each is then read like anyone else and
+    // kept only if you hold one of their ordinances.
+    say("Reading your reservations…");
+    const found = new Set();
+    const scan = (v, depth) => {
+      if (depth > 8 || v == null) return;
+      if (typeof v === "string") {
+        if (PID.test(v)) found.add(v);
+        return;
+      }
+      if (typeof v !== "object") return;
+      for (const x of Array.isArray(v) ? v : Object.values(v)) scan(x, depth + 1);
+    };
+    const lists = new Set([`/service/tree/tree-data/reservations/list/${owner}`]);
+    try {
+      for (const e of performance.getEntriesByType("resource")) {
+        const u = new URL(e.name, location.href);
+        if (u.hostname === location.hostname && /reservation/i.test(u.pathname) && !/\/person\/|counts/.test(u.pathname)) lists.add(u.pathname + u.search);
+      }
+    } catch (e) {
+      // No list from this page; the others still work.
+    }
+    for (const u of lists) {
+      try {
+        scan(await get(u), 0);
+      } catch (e) {
+        // Not every guess is a list.
+      }
+    }
+    for (const m of (document.body && document.body.innerText ? document.body.innerText : "").match(/\b[A-Z0-9]{4}-[A-Z0-9]{3}\b/g) || []) found.add(m);
+    const inTreeIds = new Set(persons.map((p) => p.id));
+    const extra = [];
+    const more = [...found].filter((id) => !read.has(id) && !inTreeIds.has(id) && id !== owner);
+    n = 0;
+    await eachLimited(more, 4, async (id) => {
+      try {
+        const { o, out } = await readPerson(id);
+        if (out.some((x) => x.mine === true)) {
+          ordinances.push(...out);
+          extra.push({
+            pid: id,
+            name: o.name || [o.givenName, o.familyName].filter(Boolean).join(" ") || id,
+            gender: /^f/i.test(o.gender || "") ? "F" : /^m/i.test(o.gender || "") ? "M" : "U",
+            lifespan: o.lifespan || null,
+            ahnentafel: null,
+            generation: null,
+            birth_place: null,
+            death_place: null,
+            rollup_status: null,
+          });
+        }
+      } catch (e) {
+        // A stray id that isn't a person.
+      }
+      n++;
+      if (n % 5 === 0) say(`Reading your reservations… ${n} of ${more.length}`);
+    });
+    const yours = new Set(ordinances.filter((x) => x.mine === true).map((x) => x.pid));
 
     // 4. Work you reserved that's now completed (FamilySearch keeps 2 years).
     // Its shape isn't documented, so it's read loosely; if it can't be read,
@@ -238,6 +307,8 @@ export async function familySearchSync(cfg) {
         };
       });
 
+    people.push(...extra);
+
     const snap = {
       kind: "hub-temple-snapshot",
       version: 2,
@@ -251,7 +322,7 @@ export async function familySearchSync(cfg) {
     if (cfg.send === false) return snap;
 
     // 5. Send it to the Hub; if the browser won't, save it as a file.
-    const summary = `${people.length} people, ${ordinances.length} open ordinances${done ? `, ${done.length} you've done` : ""}.`;
+    const summary = `You hold names for ${yours.size} people. ${ordinances.length} open ordinances across ${people.length} people${done ? `, and ${done.length} you've done` : ""}.`;
     try {
       const r = await fetch(cfg.endpoint, {
         method: "POST",
