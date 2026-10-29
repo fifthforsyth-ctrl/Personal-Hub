@@ -515,8 +515,10 @@ class World {
       const { p, at } = job;
       const old = this.made.get(p.id);
       let mk = null;
-      let ghost = !p.complete;
-      // a build just chosen was already drawn in pencil on its plot: it becomes the build, with its progress
+      // (a build going up shows only the pieces laid, never what is still to come)
+      let ghost = false;
+      // a build just chosen was already drawn in pencil on its plot: it becomes the build, with its progress (and
+      // apply() takes the pencil away)
       const same = (x) => x && x.kind === p.kind && x.seed === (p.seed || 1) && x.plot === at.plot;
       if (same(this.spare) || same(this.shown)) {
         const was = same(this.spare) ? this.spare : this.shown;
@@ -639,12 +641,11 @@ class World {
       const b = by.get(B.id);
       if (!b) continue;
       B.group.visible = b.exists && !instead.has(B.id);
-      const { frac, today } = stageOf(B.mk.units, b.done, b.need, b.laid);
-      B.mk.show(frac, today);
-      const ghost = b.exists && !b.complete;
-      if (ghost !== B.ghost) {
-        KIT.village.ghosts(B.mk, ghost);
-        B.ghost = ghost;
+      // the pieces laid so far, all in their own colours (none picked out as today's)
+      B.mk.show(stageOf(B.mk.units, b.done, b.need, b.laid).frac, 0);
+      if (B.ghost) {
+        KIT.village.ghosts(B.mk, false);
+        B.ghost = false;
       }
     }
     // the next plot is today's: not staked yet on a day of the replay
