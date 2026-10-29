@@ -1,6 +1,10 @@
-// The village in 3D: every build on its plot round the plaza, in the kit's
-// own painterly style (public/kit), live on screen. He turns it with a
-// finger, pinches to come close, taps a build to fly to it; the page
+// The village in 3D: a town on a northern coast, every build on its plot
+// round the plaza at the head of a cove, in the kit's painterly style, live
+// on screen. The land climbs from the beach to hills and mountains, two
+// rivers fall over the cliffs into the sea, gulls wheel, horses and sheep
+// graze, boats bob at the pier. It is drawn as a model on a table (a
+// tilt-shift lens: the town sharp, the sea in front and the hills behind
+// soft); a tap on a build flies in close and the lens opens up. The page
 // (src/pages/Village.jsx) puts the labels, the dock and the sheets over it.
 //
 //   createWorld(canvas, { onLabels, onTap, onState, onLost, onError })
@@ -14,52 +18,69 @@
 //   world.preview(kind)         a build drawn in pencil on the plot it would take (null: put it back)
 //   world.dispose()
 //
-// How it stays light (the measurements are in the kit3d notes): nothing is
-// drawn at rest. A finger on the glass draws cheap frames (CSS pixels, a
-// small paint radius, no pencil pass, the shadow map kept); 150 ms after it
-// lifts, one full still (device pixels up to 2x, the full paint, the pencil
-// pass, the shadow fitted to the view). Builds that stand have no pencil
-// meshes, every box is the lighter chamfer (detail 1), and meshes off screen
-// are culled. Builds are made one per task so the page keeps answering, and
-// their arrays let go once they are on the GPU.
+// How it stays light: everything that stands still (the land, the builds,
+// the trees) is drawn once into a picture and drawn again only when the
+// view or the village changes (./glade.js); each frame after that draws
+// only what moves (the sea, the rivers and falls, the birds, the animals,
+// the boats) over that picture, then the lens. A finger on the glass draws
+// at CSS pixels; 150 ms after it lifts, one full still at device pixels (up
+// to 2x) with the sun's shadow fitted to the view. What moves runs at 30
+// frames a second, and not at all when the page is hidden or motion is
+// reduced. Builds are made one per task, and the land in short slices, so
+// the page keeps answering, and their arrays let go once they are on the GPU.
 //
-// Lessons kept from the old map's engine and from ./paint.js: checked under Mesa
-// (chromium --use-gl=angle --use-angle=gl in Xvfb) with zero GL errors;
-// half-float targets only when the GPU can draw into them; the phone takes
-// the GPU back from a page left in the background (webglcontextlost), and
-// then everything is let go and the page starts the world afresh. Nothing
-// here is instanced, so the instanceColor rule doesn't arise. paint.js is
-// never asked for a still while this is on screen; its loaders are shared.
+// Checked under Mesa (chromium --use-gl=angle --use-angle=gl in Xvfb) with
+// zero GL errors; half-float targets only when the GPU can draw into them;
+// the phone takes the GPU back from a page left in the background
+// (webglcontextlost), and then everything is let go and the page starts the
+// world afresh. paint.js is never asked for a still while this is on screen;
+// its loaders are shared.
 
 import * as THREE from "three";
 import { loadBuild, preloadKit } from "./paint.js";
 import { seedFor } from "../lib/village.js";
 import { MAX_SOLDIERS, TILE, formationOf, pathsOf, planOf, scaleFor, spanOf, spotsOf, stageOf, stateOn } from "./plots.js";
+import { BANK, PLAZA_LEVEL, groundOf, heightAt } from "./coast.js";
+import { Glade, LENS } from "./glade.js";
+import { makeTerrain } from "./terrain.js";
+import { makeSea } from "./water.js";
+import { makeRivers } from "./rivers.js";
+import { farmland, makeDressing } from "./dressing.js";
+import { makeLife } from "./life.js";
+import { makeHarbour } from "./harbour.js";
 
 const KIT_V = typeof __KIT_VERSION__ !== "undefined" ? __KIT_VERSION__ : "dev";
 const kitUrl = (file) => `${import.meta.env.BASE_URL}kit/${file}?v=${KIT_V}`;
 
 // three's own context attributes, opaque, and not kept after drawing (nothing reads this canvas back)
-const ATTRS = { alpha: false, depth: true, stencil: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: "default" };
-// the sway caught at the moment the painted stills catch it
-const LOOK_TIME = 1.3;
+const ATTRS = { alpha: false, depth: true, stencil: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: "default" };
 const FOV = 28;
-// the first view: a little above, from the side of the build going up,
-// turned this far from it (the whole island, pinched out, from higher on a tall screen)
-const EL0 = 0.56;
-const EL_TALL = 0.74;
-const TURN = 0.45;
+// a tall, narrow screen (a phone held upright) sees at least this much across, in degrees, so the town isn't tiny
+const MIN_ACROSS = 24;
+// the first view: from the sea, a little east of south, looking down on the town as on a model
+const AZ0 = 0.24;
+const EL0 = 0.5;
 const STILL_AFTER = 150;
-const FLY_MS = 650;
-// the pen in CSS pixels, the same in a cheap frame and a still
-const PEN = { line: 1.35, gap: 4.2, hatch: 0.85, grid: 18, tick: 10 };
+const FLY_MS = 750;
+// what moves is drawn this often (ms)
+const TICK = 1000 / 30;
 // the levelled ground staked out for the next build, and the stake's own rectangle
 const STAKED = { w: 26, d: 24 };
 const STAKE = { w: 15, d: 12 };
+// how far the view's centre may wander from the plaza, and how far out it may pull
+const ROAM = { x0: -620, x1: 620, z0: -900, z1: 260 };
+const FAR = 1500;
+// the lens over the whole town (a model on a table) and close to a build (open)
+const LENS_WIDE = { ...LENS };
+const LENS_NEAR = { ...LENS, range: 0.5, ramp: 1.4, blur: 4, screen: 0.12, band: 0.32 };
 
 const nextTask = () => new Promise((r) => setTimeout(r, 0));
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const mixLens = (a, b, t) => Object.fromEntries(Object.keys(a).map((k) => [k, a[k] + (b[k] - a[k]) * t]));
+const RAD = Math.PI / 180;
+// The lens's angle top to bottom for a screen this wide for its height.
+const fovFor = (aspect) => Math.min(46, Math.max(FOV, (2 * Math.atan(Math.tan((MIN_ACROSS / 2) * RAD) / aspect)) / RAD));
 
 let villageKitP = null;
 function loadVillageKit() {
@@ -81,7 +102,7 @@ function loadVillageKit() {
   return villageKitP;
 }
 
-// The paint keeps values far above 1, so it wants half-float targets; without them the kit falls back to bytes.
+// The lens and the haze keep values above 1, so they want half-float targets; without them the stage uses bytes.
 function halfFloats(g) {
   if (typeof WebGL2RenderingContext !== "undefined" && g instanceof WebGL2RenderingContext) {
     return !!(g.getExtension("EXT_color_buffer_float") || g.getExtension("EXT_color_buffer_half_float"));
@@ -102,6 +123,12 @@ function letGo() {
   this.array = null;
 }
 
+// The rectangle round a pad and its banks (as far as a bank reaches), for the ground and the woods to remake there.
+function rectOfPad(p, m = BANK) {
+  const r = Math.hypot(p.hw ?? TILE / 2, p.hd ?? TILE / 2) + m;
+  return { x0: p.x - r, z0: p.z - r, x1: p.x + r, z1: p.z + r };
+}
+
 export function createWorld(canvas, cb = {}) {
   let gl = null;
   try {
@@ -119,10 +146,14 @@ class World {
     this.gl = gl;
     this.cb = cb;
     this.t0 = performance.now();
-    this.stats = { kit: 0, ground: 0, builds: [], people: [], first: 0, full: 0, frames: [] };
-    this.view = { tx: 0, ty: 2, tz: 0, dist: 300, az: 0, el: EL0 };
+    this.stats = { kit: 0, coast: {}, builds: [], people: [], first: 0, full: 0, frames: [] };
+    this.view = { tx: 0, ty: PLAZA_LEVEL + 2, tz: -40, dist: 450, az: AZ0, el: EL0 };
+    this.lens = 0;
     this.insets = { top: 0, bottom: 0, left: 0, right: 0 };
     this.made = new Map();
+    this.coast = null;
+    // the land while it grows (the coast once it is whole)
+    this.growing = null;
     this.ground = null;
     this.stake = null;
     this.soldiers = null;
@@ -139,7 +170,9 @@ class World {
     this.reduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     this.dead = false;
     this.lost = false;
-    this.R = 60;
+    this.R = 80;
+    this.clock = 0;
+    this.lastTick = 0;
 
     this.onLost = (e) => {
       if (this.dead) return;
@@ -153,6 +186,7 @@ class World {
       if (document.hidden) {
         this.cancelFrames();
       } else if (!this.dead) {
+        this.lastTick = 0;
         this.draw("still");
         this.pump();
       }
@@ -172,31 +206,14 @@ class World {
     await preloadKit();
     await loadVillageKit();
     if (this.dead) return;
-    const KIT = window.KIT;
     const g = this.gl;
     const max = Math.min(g.getParameter(g.MAX_TEXTURE_SIZE), g.getParameter(g.MAX_RENDERBUFFER_SIZE));
     this.maxTex = max;
     const { cw, ch } = this.css();
-    this.stage = new KIT.Stage(this.canvas, cw, ch, {
-      radius: 4,
-      paint: true,
-      edge: 0.35,
-      fov: FOV,
-      dbg: 0,
-      pen: 1,
-      ss: 1,
-      context: g,
-      preserve: false,
-      shadowSize: Math.min(2048, max),
-      float: halfFloats(g),
-      keepTargets: true,
-    });
-    const r = this.stage.renderer;
-    r.shadowMap.autoUpdate = false;
-    r.shadowMap.needsUpdate = true;
-    this.stage.skyU.uGlowC.value.set(0.66, 0.86);
-    // a build in pencil veils the ink of what stands behind it (the island's far rim, say), as it veils the hatching
-    this.stage.mFinal.uniforms.uGhostVeil.value = 0.9;
+    // the kit's light is shared with the builds painted on other pages; the stage puts its own in, teardown gives it back
+    const KIT = window.KIT;
+    this.kitWas ??= { look: KIT.lookName && KIT.lookName !== "glade" ? KIT.lookName : "day", paint: KIT.G.uPaint.value };
+    this.stage = new Glade(this.canvas, g, { width: cw, height: ch, float: halfFloats(g), shadowSize: Math.min(2048, max), fov: FOV });
     this.stats.kit = performance.now() - this.t0;
     this.cb.onState?.({ phase: "kit" });
     this.pump();
@@ -230,7 +247,7 @@ class World {
     const was = this.insets;
     this.insets = { top: r.top || 0, bottom: r.bottom || 0, left: r.left || 0, right: r.right || 0 };
     if (was.top === this.insets.top && was.bottom === this.insets.bottom && was.left === this.insets.left && was.right === this.insets.right) return;
-    // the whole village, or the build he flew to, framed again in what is left free
+    // the whole village, or the build flown to, framed again in what is left free
     if (this.focusId) this.focus(this.focusId);
     else if (!this.userMoved) {
       if (this.anim) this.fly(this.wholeView());
@@ -263,20 +280,15 @@ class World {
     return { w: f[0] * k, d: f[1] * k, ground: def.ground || "grass", skip: def.islandOpts?.cobbleSkip, path: def.path };
   }
 
-  groundOpts() {
+  // The lanes: from each build's own door (its def's path), across its pad, then the town's lane to the plaza.
+  lanesOf() {
     const plan = this.plan;
     const toWorld = (p, lx, lz) => [p.x + lx * Math.cos(p.ry) + lz * Math.sin(p.ry), p.z - lx * Math.sin(p.ry) + lz * Math.cos(p.ry)];
-    const flats = plan.plots.map((p) => {
-      const f = this.flatOf(p.kind);
-      return { x: p.x, z: p.z, w: f.w, d: f.d, ry: p.ry, ground: f.ground, skip: f.skip, s: 1 };
-    });
-    flats.push({ x: plan.stake.x, z: plan.stake.z, w: STAKED.w, d: STAKED.d, ry: plan.stake.ry, ground: "grass" });
     const depth = new Map(plan.plots.map((p) => [p.plot, this.flatOf(p.kind).d / 2]));
     depth.set(plan.stake.plot, STAKE.d / 2);
-    const paths = pathsOf(plan, (p) => depth.get(p.plot) + 0.6).map((path) => {
+    return pathsOf(plan, (p) => depth.get(p.plot) + 0.6).map((path) => {
       const p = [...plan.plots, plan.stake].find((q) => q.plot === path.plot);
       const def = p.kind ? this.flatOf(p.kind) : null;
-      // the build's own path from its door, out to where the village's lane takes over
       if (def?.path?.length) {
         const room = TILE / 2 - 2.5;
         const own = [...def.path].reverse().map(([lx, lz]) => toWorld(p, clamp(lx, -room, room), clamp(lz, -room, room)));
@@ -284,26 +296,22 @@ class World {
       }
       return path;
     });
-    this.paths = paths;
-    return {
-      r: plan.radius,
-      seed: 7,
-      detail: 1,
-      cull: true,
-      flats,
-      plaza: plan.plaza,
-      paths: paths.map((p) => p.points),
-      nature: plan.nature.map((n) => ({ x: n.x, z: n.z, s: TILE, kind: n.kind })),
-    };
+  }
+
+  // The pads the ground is levelled for: every plot in use and the one staked out.
+  padsOf() {
+    const plan = this.plan;
+    return [...plan.plots, plan.stake].map((p) => p.site);
   }
 
   key(o) {
     return JSON.stringify(o, (k, v) => (typeof v === "function" ? String(v).length : typeof v === "number" ? Math.round(v * 100) / 100 : v));
   }
 
-  // The next thing to make, nearest first: the ground, the stake, the build
-  // going up, the others by their distance from where he is looking, then
-  // the soldiers and the villagers. Null when everything is made.
+  // The next thing to make, nearest first: the coast (the land and the sea,
+  // then the rivers, the plaza and pier, the woods, the life), the stake, the
+  // build going up, the others by their distance from where the camera looks,
+  // then the soldiers and the villagers. Null when everything is made.
   nextJob() {
     const v = this.village;
     if (!v || !this.stage) return null;
@@ -311,9 +319,14 @@ class World {
     const kinds = [...new Set([...this.plan.plots.map((p) => p.kind), ...(this.previewKind ? [this.previewKind] : [])])];
     const missing = kinds.filter((k) => !KIT.builds[k]);
     if (missing.length) return { what: "scripts", kinds: missing };
-    const go = this.groundOpts();
-    const gk = this.key(go);
-    if (!this.ground || this.ground.key !== gk) return { what: "ground", opts: go, key: gk };
+    const pads = this.padsOf();
+    const padKey = this.key(pads.map((p) => p.plot).sort((a, b) => a - b));
+    const c = this.coast;
+    if (!c) return { what: "land", pads, padKey };
+    for (const part of ["rivers", "harbour", "dressing", "life"]) if (!c[part]) return { what: part };
+    const lanes = this.lanesOf();
+    const laneKey = this.key(lanes.map((l) => l.points));
+    if (c.padKey !== padKey || c.laneKey !== laneKey) return { what: "reshape", pads, padKey, lanes, laneKey };
     const sk = this.key([this.plan.stake.x, this.plan.stake.z, this.plan.stake.ry]);
     if (!this.stake || this.stake.key !== sk) return { what: "stake", key: sk };
     if (this.previewKind && (!this.shown || this.shown.kind !== this.previewKind)) {
@@ -329,17 +342,17 @@ class World {
     if (todo.length) {
       const going = v.current >= 0 ? v.projects[v.current].id : null;
       const t = new THREE.Vector3(this.view.tx, 0, this.view.tz);
-      // the one going up, then the one he is flying to, then the nearest
+      // the one going up, then the one being flown to, then the nearest
       const rank = (x) => (x.p.id === going ? 0 : x.p.id === this.focusId ? 1 : 2);
       todo.sort((a, b) => rank(a) - rank(b) || Math.hypot(a.at.x - t.x, a.at.z - t.z) - Math.hypot(b.at.x - t.x, b.at.z - t.z));
       return { what: "build", p: todo[0].p, at: todo[0].at };
     }
     const s = stateOn(v, spanOf(v));
     const tier = stateOn(v, this.today()).tier;
-    const solK = this.key([Math.min(s.soldiers, MAX_SOLDIERS), tier, this.formationTurn()]);
-    if ((this.soldiers?.key ?? this.key([0, 0, this.formationTurn()])) !== solK) return { what: "soldiers", key: solK, n: s.soldiers, tier };
-    const folkK = this.key([v.villagers.slice(0, 40).map((x) => x.pid), this.paths?.length]);
-    if ((this.folk?.key ?? this.key([[], this.paths?.length])) !== folkK) return { what: "folk", key: folkK };
+    const solK = this.key([Math.min(s.soldiers, MAX_SOLDIERS), tier]);
+    if ((this.soldiers?.key ?? this.key([0, 0])) !== solK) return { what: "soldiers", key: solK, n: s.soldiers, tier };
+    const folkK = this.key([v.villagers.slice(0, 40).map((x) => x.pid), laneKey]);
+    if ((this.folk?.key ?? this.key([[], laneKey])) !== folkK) return { what: "folk", key: folkK };
     return null;
   }
 
@@ -377,35 +390,118 @@ class World {
     while (!this.dead && !this.lost && (document.hidden || this.ptrs.size || this.anim)) await new Promise((r) => setTimeout(r, 120));
   }
 
+  // The highest thing to stand on at (x, z): the plaza's paving and the pier's deck, else the ground.
+  standAt(x, z) {
+    return this.coast?.harbour?.height?.(x, z) ?? this.ground.height(x, z);
+  }
+
   async run(job) {
     const KIT = window.KIT;
     const st = this.stage;
     const t0 = performance.now();
+    const took = (what) => {
+      this.stats.coast[what] = Math.round(performance.now() - t0);
+    };
     if (job.what === "scripts") {
       await Promise.all(job.kinds.map((k) => loadBuild(k)));
       return;
     }
-    if (job.what === "ground") {
-      const old = this.ground;
-      const g = KIT.village.ground(job.opts);
-      g.key = job.key;
-      letGoOnUpload(g.group);
-      st.scene.add(g.group);
-      if (old) {
-        st.scene.remove(old.group);
-        KIT.village.dispose(old);
-      }
-      this.ground = g;
-      this.stats.ground = performance.now() - t0;
-      if (!old && !this.userMoved) this.view = this.wholeView();
+    if (job.what === "land") {
+      const ground = groundOf(job.pads);
+      // the tiles grow in short slices, nearest where the camera looks first, the page answering between them;
+      // the rest of the coast stands on the whole land, so it waits (teardown lets go of what has grown, if it comes first)
+      const terrain = makeTerrain(ground, { near: [this.view.tx, this.view.tz] });
+      st.scene.add(terrain.group);
+      this.growing = terrain;
+      await terrain.ready;
+      this.growing = null;
+      if (this.dead || this.lost) return;
+      // (it showed only now, so nothing of it is on the GPU yet; a still drawn while it grew cast no shadows of it)
+      letGoOnUpload(terrain.group);
+      st.shadowDirty = true;
+      const sea = makeSea(st);
+      st.scene.add(sea.mesh);
+      this.ground = ground;
+      // (the lanes come with the woods)
+      this.coast = { terrain, sea, padKey: job.padKey, laneKey: null, lanes: [], pads: job.pads };
+      took("land");
+      if (!this.userMoved) this.view = this.wholeView();
       this.cb.onState?.({ phase: "ground" });
+      return;
+    }
+    const c = this.coast;
+    if (job.what === "rivers") {
+      c.rivers = makeRivers(st);
+      st.scene.add(c.rivers.group);
+      took("rivers");
+      return;
+    }
+    if (job.what === "harbour") {
+      c.harbour = makeHarbour(st);
+      st.scene.add(c.harbour.group);
+      took("harbour");
+      return;
+    }
+    if (job.what === "dressing") {
+      // a phone (a finger for a pointer) gets fewer of the small things: tufts, flowers, bushes, far trees
+      let coarse = false;
+      try {
+        coarse = window.matchMedia("(pointer: coarse)").matches;
+      } catch {}
+      // the lanes are known by now (the builds' own paths came first), so the woods grow round them once
+      const lanes = this.lanesOf();
+      const points = lanes.map((l) => l.points);
+      c.dressing = makeDressing(st, this.ground, { lanes: points, detail: coarse ? 0.5 : 1 });
+      st.scene.add(c.dressing.group);
+      c.terrain.setPaths(points);
+      c.lanes = lanes;
+      c.laneKey = this.key(points);
+      this.paths = lanes;
+      // the far woods grow after the first picture; with motion reduced nothing else would draw them in
+      c.dressing.ready?.then(() => {
+        if (!this.dead && !this.lost && this.coast?.dressing === c.dressing) this.drawSoon();
+      });
+      took("dressing");
+      return;
+    }
+    if (job.what === "life") {
+      // the herds graze inside the headlands' walled fields
+      c.life = makeLife(st, this.ground, { pads: this.ground.pads, fields: farmland().fields });
+      st.scene.add(c.life.group);
+      took("life");
+      return;
+    }
+    if (job.what === "reshape") {
+      // a plot taken or let go: the ground levelled again round it, the woods cleared, the lanes worn in
+      // (only the pads change the ground; the woods find the lanes that changed themselves)
+      const rects = [];
+      const was = new Map(c.pads.map((p) => [p.plot, p]));
+      const now = new Map(job.pads.map((p) => [p.plot, p]));
+      for (const [k, p] of now) if (!was.has(k)) rects.push(rectOfPad(p));
+      for (const [k, p] of was) if (!now.has(k)) rects.push(rectOfPad(p));
+      const lanes = job.lanes;
+      if (c.padKey !== job.padKey) {
+        this.ground = groundOf(job.pads);
+        c.terrain.rebuild(this.ground, rects);
+        letGoOnUpload(c.terrain.group);
+        c.life.setGround(this.ground, { pads: this.ground.pads });
+      }
+      c.terrain.setPaths(lanes.map((l) => l.points));
+      c.dressing.update(this.ground, { lanes: lanes.map((l) => l.points) }, rects);
+      c.padKey = job.padKey;
+      c.laneKey = job.laneKey;
+      c.lanes = lanes;
+      c.pads = job.pads;
+      this.paths = lanes;
+      st.shadowDirty = true;
+      took("reshape");
       return;
     }
     if (job.what === "stake") {
       const p = this.plan.stake;
       const s = KIT.village.stake({ x: p.x, z: p.z, w: STAKE.w, d: STAKE.d, ry: p.ry, height: this.ground.height, detail: 1, cull: true });
       s.key = job.key;
-      s.box = new THREE.Box3(new THREE.Vector3(p.x - STAKED.w / 2, -0.5, p.z - STAKED.d / 2), new THREE.Vector3(p.x + STAKED.w / 2, 3, p.z + STAKED.d / 2));
+      s.box = new THREE.Box3(new THREE.Vector3(p.x - STAKED.w / 2, p.y - 0.5, p.z - STAKED.d / 2), new THREE.Vector3(p.x + STAKED.w / 2, p.y + 3, p.z + STAKED.d / 2));
       letGoOnUpload(s.group);
       if (this.stake) {
         st.scene.remove(this.stake.group);
@@ -420,7 +516,7 @@ class World {
       const old = this.made.get(p.id);
       let mk = null;
       let ghost = !p.complete;
-      // a build he just chose was already drawn in pencil on its plot: it becomes the build, with its progress
+      // a build just chosen was already drawn in pencil on its plot: it becomes the build, with its progress
       const same = (x) => x && x.kind === p.kind && x.seed === (p.seed || 1) && x.plot === at.plot;
       if (same(this.spare) || same(this.shown)) {
         const was = same(this.spare) ? this.spare : this.shown;
@@ -459,9 +555,9 @@ class World {
       return;
     }
     if (job.what === "soldiers") {
-      const list = formationOf(job.n, job.tier);
+      // drawn up in the plaza in front of the flag, on its paving, facing the sea and whoever looks from it
+      const list = formationOf(job.n, job.tier).map((s) => ({ ...s, y: this.standAt(s.x, s.z) }));
       const ppl = KIT.village.people(list, { detail: 1, cull: true, seed: 17 });
-      ppl.group.rotation.y = this.formationTurn();
       ppl.group.updateMatrixWorld(true);
       ppl.key = job.key;
       ppl.box = new THREE.Box3().setFromObject(ppl.group);
@@ -479,10 +575,9 @@ class World {
     }
     if (job.what === "folk") {
       const v = this.village;
-      const H = this.ground.height;
       const list = spotsOf(this.paths || [], v.villagers).map((s) => {
         const r = (s.seed % 1000) / 1000;
-        return { x: s.x, z: s.z, y: H(s.x, s.z) - 0.02, ry: s.ry, role: s.role, pose: s.pose, beard: s.gender !== "F" && r < 0.35, hat: r > 0.7 ? "straw" : null };
+        return { x: s.x, z: s.z, y: this.standAt(s.x, s.z) - 0.02, ry: s.ry, role: s.role, pose: s.pose, beard: s.gender !== "F" && r < 0.35, hat: r > 0.7 ? "straw" : null };
       });
       const ppl = KIT.village.people(list, { detail: 1, cull: true, seed: 23 });
       ppl.key = job.key;
@@ -500,14 +595,14 @@ class World {
   makeBuild(kind, seed, ghost, at) {
     const KIT = window.KIT;
     const H = this.ground?.height;
-    // the ground under the build, in the build's own frame
+    // the ground under the build, in the build's own frame (its pad's level is its 0)
     const ground = H
-      ? { height: (lx, lz) => H(at.x + lx * Math.cos(at.ry) + lz * Math.sin(at.ry), at.z - lx * Math.sin(at.ry) + lz * Math.cos(at.ry)) }
+      ? { height: (lx, lz) => H(at.x + lx * Math.cos(at.ry) + lz * Math.sin(at.ry), at.z - lx * Math.sin(at.ry) + lz * Math.cos(at.ry)) - at.y }
       : undefined;
     return KIT.make(kind, { island: false, ghost, seed, detail: 1, cull: true, ground });
   }
 
-  // On its plot, facing the plaza, a little smaller only if it would reach past its tile.
+  // On its plot, facing the plaza, a little smaller only if it would reach past its pad.
   place(mk, at, info) {
     const g = mk.group;
     g.position.set(0, 0, 0);
@@ -517,18 +612,16 @@ class World {
     const local = new THREE.Box3().setFromObject(g);
     const reach = Math.max(Math.abs(local.min.x), Math.abs(local.max.x), Math.abs(local.min.z), Math.abs(local.max.z));
     const s = scaleFor(reach);
-    g.position.set(at.x, 0, at.z);
+    // on its pad's level (scaled about its feet, so they stay on the ground)
+    g.position.set(at.x, at.y, at.z);
     g.rotation.y = at.ry;
     g.scale.setScalar(s);
     g.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(g);
     letGoOnUpload(g);
     this.stage.scene.add(g);
-    return { ...info, mk, group: g, box, ry: at.ry, x: at.x, z: at.z, s };
-  }
-
-  formationTurn() {
-    return Math.round(this.sideOf() / (Math.PI / 2)) * (Math.PI / 2);
+    this.stage.shadowDirty = true;
+    return { ...info, mk, group: g, box, ry: at.ry, x: at.x, z: at.z, y: at.y, s };
   }
 
   // ------------------------------------------------------------------ the replay, progress, previews
@@ -559,14 +652,15 @@ class World {
     if (this.soldiers) this.soldiers.show(Math.min(s.soldiers, this.soldiers.units));
     if (this.folk) this.folk.show(Math.min(s.villagers, this.folk.units));
     this.state = s;
-    this.shadowDirty = true;
+    this.stage.shadowDirty = true;
+    this.stage.still = true;
   }
 
   preview(kind) {
     if (this.dead) return;
     this.previewKind = kind || null;
     if (!kind) {
-      // kept a moment: if he chose it, the saved build takes it over
+      // kept a moment: if it is chosen, the saved build takes it over
       if (this.shown) {
         this.dropSpare();
         this.spare = this.shown;
@@ -586,7 +680,7 @@ class World {
     this.pump();
   }
 
-  // He chose the build drawn in pencil and it is saved: it stays on its plot, standing in for what it replaces, until
+  // The build drawn in pencil was chosen and saved: it stays on its plot, standing in for what it replaces, until
   // the saved build takes it over (made() adopts it), so the plot never shows the old build or nothing meanwhile.
   keepPreview() {
     if (this.dead || !this.shown) return;
@@ -606,6 +700,7 @@ class World {
     this.stage.scene.remove(this.shown.group);
     window.KIT.village.dispose(this.shown.mk);
     this.shown = null;
+    this.stage.still = true;
   }
 
   dropSpare() {
@@ -614,6 +709,7 @@ class World {
     this.stage?.scene.remove(this.spare.group);
     window.KIT.village.dispose(this.spare.mk);
     this.spare = null;
+    if (this.stage) this.stage.still = true;
     // nothing took it over: what it stood in for comes back
     if (kept) {
       this.apply();
@@ -623,23 +719,12 @@ class World {
 
   // ------------------------------------------------------------------ the camera
 
-  // Which way the build going up (or the newest, or the next plot) lies from the plaza.
-  sideOf() {
-    const v = this.village;
-    const plan = this.plan;
-    if (!v || !plan) return 0;
-    const id = v.current >= 0 ? v.projects[v.current].id : v.projects[v.projects.length - 1]?.id;
-    const p = plan.plots.find((q) => q.id === id) ?? plan.stake;
-    return Math.atan2(p.x, p.z);
-  }
-
-  // The whole village in the free part of the screen: the plaza, every
-  // build (a plot not made yet by its levelled ground and a likely height, so
-  // the view hardly moves as the builds come in) and the plot staked for the
-  // next one, filling the width, seen a little turned from the side of the
-  // build going up, so that build stands near and the lanes run across the
-  // picture. The island round them runs on past the edges; a pinch out shows
-  // it to its rim.
+  // The whole village in the free part of the screen, seen from the sea as a
+  // model on a table: the plaza and the pier's end (so the cove lies in
+  // front), every build (a plot not made yet by its levelled ground and a
+  // likely height, so the view hardly moves as the builds come in) and the
+  // plot staked for the next one. The coast runs on past the edges; a pinch
+  // out shows the hills and the mountains behind.
   wholeView() {
     // (no plan yet: nothing to frame, so the view waits for the ground)
     if (!this.stage || !this.plan) return { ...this.view };
@@ -647,70 +732,74 @@ class World {
     const corners = (b) => {
       for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(x, y, z));
     };
-    const flat = (x, z, w, d, ry, h) => {
+    const flat = (x, y, z, w, d, ry, h) => {
       const c = Math.abs(Math.cos(ry));
       const s = Math.abs(Math.sin(ry));
       const hw = (w * c + d * s) / 2;
       const hd = (w * s + d * c) / 2;
-      corners(new THREE.Box3(new THREE.Vector3(x - hw, 0, z - hd), new THREE.Vector3(x + hw, h, z + hd)));
+      corners(new THREE.Box3(new THREE.Vector3(x - hw, y, z - hd), new THREE.Vector3(x + hw, y + h, z + hd)));
     };
     const { plaza, stake } = this.plan;
-    flat(plaza.x, plaza.z, plaza.w, plaza.d, 0, 3);
-    flat(stake.x, stake.z, STAKED.w, STAKED.d, stake.ry, 3);
+    flat(plaza.x, plaza.y, plaza.z, plaza.w, plaza.d, 0, 3);
+    // the beach in front of the plaza, so the town is seen over the cove
+    flat(plaza.x, 0, plaza.z + 34, 30, 6, 0, 1);
+    flat(stake.x, stake.y, stake.z, STAKED.w, STAKED.d, stake.ry, 3);
     for (const p of this.plan.plots) {
       const B = this.made.get(p.id);
       // a build the replay hides that day still counts, so the frame is the same on every day
       if (B) corners(B.box);
       else if (window.KIT?.builds?.[p.kind]) {
         const f = this.flatOf(p.kind);
-        flat(p.x, p.z, f.w, f.d, p.ry, Math.min(24, Math.max(f.w, f.d) * 0.8));
-      } else flat(p.x, p.z, 20, 20, p.ry, 14);
+        flat(p.x, p.y, p.z, f.w, f.d, p.ry, Math.min(24, Math.max(f.w, f.d) * 0.8));
+      } else flat(p.x, p.y, p.z, 20, 20, p.ry, 14);
     }
-    const view = this.centred(pts, EL0, 0.94);
-    // he can pinch out until the whole island shows, rim and skirt
-    this.maxDist = Math.max(view.dist * 1.5, this.islandView().dist * 1.15);
+    const view = this.centred(pts, EL0, 0.86);
+    // a pinch out goes until the hills and the mountains show
+    this.maxDist = Math.max(view.dist * 2.4, FAR);
+    this.wideDist = view.dist;
     return view;
   }
 
-  // The island to its rim and the skirt below it, from higher on a tall screen.
-  islandView() {
-    const R = this.R;
-    const depth = Math.max(14, R * 0.3);
-    const pts = [];
-    for (let i = 0; i < 32; i++) {
-      const c = Math.cos((i / 32) * Math.PI * 2);
-      const s = Math.sin((i / 32) * Math.PI * 2);
-      // the rim wavers a few percent either side of R; the skirt narrows as it hangs
-      pts.push(new THREE.Vector3(c * R * 1.05, 0.4, s * R * 1.05), new THREE.Vector3(c * R * 0.64, -depth * 0.55, s * R * 0.64));
-    }
-    const { cw, ch } = this.css();
-    const ins = this.insets;
-    const tall = ch - ins.top - ins.bottom > (cw - ins.left - ins.right) * 1.1;
-    return this.centred(pts, tall ? EL_TALL : EL0, 0.97);
-  }
-
-  // The nearest view, from the side of the build going up, at which the points fit the free part of the screen,
-  // sitting in the middle of it top to bottom: the near ground looks bigger than the far, so the point looked at
-  // slides along the ground, toward or away from the eye, until the points' span is centred.
+  // The nearest view from the sea at which the points fit the free part of the screen, sitting in the middle of it
+  // top to bottom: the near ground looks bigger than the far, so the point looked at slides along the ground, toward
+  // or away from the eye, until the points' span is centred.
   centred(pts, el, fill) {
-    const R = this.R;
-    // from the middle of the points on the ground
     const box = new THREE.Box3().setFromPoints(pts);
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
-    const view = { tx: cx, ty: 2, tz: cz, az: this.sideOf() + TURN, el, dist: 100 };
+    const span = Math.max(40, box.max.x - box.min.x, box.max.z - box.min.z);
+    const view = { tx: cx, ty: PLAZA_LEVEL + 2, tz: cz, az: AZ0, el, dist: 100 };
     const fx = -Math.sin(view.az);
     const fz = -Math.cos(view.az);
     let best = null;
     for (let i = -6; i <= 6; i++) {
-      const k = (i / 6) * R * 0.35;
+      const k = (i / 6) * span * 0.3;
       const v = { ...view, tx: cx + fx * k, tz: cz + fz * k };
+      v.ty = this.groundAt(v.tx, v.tz) + 2;
       v.dist = this.fitDist(pts, v, fill);
       const { y0, y1 } = this.spanOn(pts, v);
       const off = Math.abs((y0 + y1) / 2);
       if (!best || off < best.off) best = { off, v };
     }
-    return best.v;
+    // and across: slid sideways (along the view's right) until the points sit in the middle, then fitted again
+    const v = best.v;
+    const { cw, ch } = this.css();
+    const across = Math.tan((fovFor(cw / ch) / 2) * RAD) * (cw / ch);
+    for (let i = 0; i < 3; i++) {
+      const { x0, x1 } = this.spanOn(pts, v);
+      const mid = (x0 + x1) / 2;
+      if (Math.abs(mid) < 0.01) break;
+      const k = mid * v.dist * across * (1 - (this.insets.left + this.insets.right) / cw);
+      v.tx += Math.cos(v.az) * k;
+      v.tz -= Math.sin(v.az) * k;
+      v.ty = this.groundAt(v.tx, v.tz) + 2;
+      v.dist = this.fitDist(pts, v, fill);
+    }
+    return v;
+  }
+
+  groundAt(x, z) {
+    return this.ground ? Math.max(0, this.ground.height(x, z)) : Math.max(0, heightAt(x, z));
   }
 
   // A build three-quarters from its front, as the painted stills show it, filling the free part of the screen.
@@ -722,13 +811,12 @@ class World {
     for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(x, y, z));
     const view = { tx: c.x, ty: b.min.y + (b.max.y - b.min.y) * 0.32, tz: c.z, az: B.ry - 0.62, el: 0.4, dist: 50 };
     view.dist = this.fitDist(pts, view, 0.9);
-    return view;
+    return this.aboveGround(view);
   }
 
-  // The garrison close, from in front of it where nothing stands between: of
-  // the ways round the plaza, the one nearest its front from which no build
-  // (nor the pencil preview) hides the soldiers, a little higher if every
-  // way is blocked.
+  // The garrison close, from in front of it (it faces the sea) where nothing stands between: of the ways round the
+  // plaza, the one nearest its front from which no build (nor the pencil preview) hides the soldiers, a little higher
+  // if every way is blocked.
   soldiersView() {
     const b = this.soldiers?.box;
     if (!b || b.isEmpty()) return null;
@@ -738,20 +826,20 @@ class World {
     const hx = Math.max(7, (b.max.x - b.min.x) / 2 + 2);
     const hz = Math.max(7, (b.max.z - b.min.z) / 2 + 2);
     const pts = [];
-    for (const x of [c.x - hx, c.x + hx]) for (const z of [c.z - hz, c.z + hz]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, b.max.y + 0.5, z));
+    for (const x of [c.x - hx, c.x + hx]) for (const z of [c.z - hz, c.z + hz]) pts.push(new THREE.Vector3(x, b.min.y, z), new THREE.Vector3(x, b.max.y + 0.5, z));
     const blocks = [...this.made.values()].filter((B) => B.group.visible).map((B) => B.box);
     if (this.shown) blocks.push(this.shown.box);
     // what must be seen: the middle of the ranks and their two ends, at chest height
+    const y = b.min.y + 1.1;
     const dx = (b.max.x - b.min.x) / 2;
     const dz = (b.max.z - b.min.z) / 2;
-    const marks = [new THREE.Vector3(c.x, 1.1, c.z), new THREE.Vector3(c.x - dx, 1.1, c.z - dz), new THREE.Vector3(c.x + dx, 1.1, c.z + dz), new THREE.Vector3(c.x - dx, 1.1, c.z + dz), new THREE.Vector3(c.x + dx, 1.1, c.z - dz)];
+    const marks = [new THREE.Vector3(c.x, y, c.z), new THREE.Vector3(c.x - dx, y, c.z - dz), new THREE.Vector3(c.x + dx, y, c.z + dz), new THREE.Vector3(c.x - dx, y, c.z + dz), new THREE.Vector3(c.x + dx, y, c.z - dz)];
     const ray = new THREE.Ray();
     const hit = new THREE.Vector3();
-    const front = this.formationTurn();
     let best = null;
     for (const el of [0.5, 0.78]) {
       for (let k = -6; k <= 6; k++) {
-        const view = { tx: c.x, ty: 1, tz: c.z, az: front + (k * Math.PI) / 8, el, dist: 50 };
+        const view = { tx: c.x, ty: b.min.y + 1, tz: c.z, az: (k * Math.PI) / 8, el, dist: 50 };
         view.dist = this.fitDist(pts, view, 0.9);
         const ce = Math.cos(el);
         const eye = new THREE.Vector3(view.tx + view.dist * ce * Math.sin(view.az), view.ty + view.dist * Math.sin(el), view.tz + view.dist * ce * Math.cos(view.az));
@@ -765,15 +853,41 @@ class World {
         if (!best || score < best.score) best = { score, view };
       }
     }
-    return best.view;
+    return this.aboveGround(best.view);
   }
 
-  // How far up and down the free part of the screen the points reach from a view: -1 its bottom, 1 its top.
+  // The eye of a view, in the world.
+  eyeOf(v) {
+    const c = Math.cos(v.el);
+    return new THREE.Vector3(v.tx + v.dist * c * Math.sin(v.az), v.ty + v.dist * Math.sin(v.el), v.tz + v.dist * c * Math.cos(v.az));
+  }
+
+  // A view raised, if need be, until its eye clears the ground in front of it (a hill between it and the build).
+  aboveGround(view) {
+    const v = { ...view };
+    for (let i = 0; i < 24; i++) {
+      const e = this.eyeOf(v);
+      let clear = true;
+      for (const t of [1, 0.75, 0.5]) {
+        const x = v.tx + (e.x - v.tx) * t;
+        const z = v.tz + (e.z - v.tz) * t;
+        const y = v.ty + (e.y - v.ty) * t;
+        if (y < this.groundAt(x, z) + 4) clear = false;
+      }
+      if (clear) break;
+      v.el = Math.min(1.35, v.el + 0.04);
+    }
+    return v;
+  }
+
+  // How far up and down (and across) the free part of the screen the points reach from a view: -1 its bottom (left), 1 its top (right).
   spanOn(pts, view) {
     const { cw, ch } = this.css();
     const ins = this.insets;
     const yb = -1 + (2 * ins.bottom) / ch;
     const yt = 1 - (2 * ins.top) / ch;
+    const xl = -1 + (2 * ins.left) / cw;
+    const xr = 1 - (2 * ins.right) / cw;
     const saved = this.view;
     this.view = view;
     this.camera(cw, ch, 1);
@@ -781,14 +895,20 @@ class World {
     const v3 = new THREE.Vector3();
     let y0 = Infinity;
     let y1 = -Infinity;
+    let x0 = Infinity;
+    let x1 = -Infinity;
     for (const p of pts) {
       v3.copy(p).project(this.stage.camera);
       y0 = Math.min(y0, v3.y);
       y1 = Math.max(y1, v3.y);
+      x0 = Math.min(x0, v3.x);
+      x1 = Math.max(x1, v3.x);
     }
     const m = (yt + yb) / 2;
     const h = (yt - yb) / 2;
-    return { y0: (y0 - m) / h, y1: (y1 - m) / h };
+    const mx = (xr + xl) / 2;
+    const w = (xr - xl) / 2;
+    return { y0: (y0 - m) / h, y1: (y1 - m) / h, x0: (x0 - mx) / w, x1: (x1 - mx) / w };
   }
 
   // The nearest distance at which every point is inside the free part of the screen.
@@ -827,16 +947,15 @@ class World {
     const st = this.stage;
     const cam = st.camera;
     const v = this.view;
-    const c = Math.cos(v.el);
-    cam.position.set(v.tx + v.dist * c * Math.sin(v.az), v.ty + v.dist * Math.sin(v.el), v.tz + v.dist * c * Math.cos(v.az));
+    cam.position.copy(this.eyeOf(v));
     cam.up.set(0, 1, 0);
     cam.lookAt(v.tx, v.ty, v.tz);
-    const R = this.R;
-    cam.near = Math.max(0.5, v.dist - R * 1.6);
-    cam.far = v.dist + R * 2.5 + 900;
+    cam.near = clamp(v.dist * 0.04, 0.5, 30);
+    cam.far = v.dist * 3 + 9000;
     const W = Math.round(cw * k);
     const H = Math.round(ch * k);
     cam.aspect = W / H;
+    cam.fov = fovFor(cw / ch);
     const ins = this.insets;
     cam.setViewOffset(W, H, ((ins.right - ins.left) / 2) * k, ((ins.bottom - ins.top) / 2) * k, W, H);
     cam.updateMatrixWorld();
@@ -844,15 +963,15 @@ class World {
 
   clampView() {
     const v = this.view;
-    const R = this.R;
-    v.el = clamp(v.el, 0.12, 1.3);
-    v.dist = clamp(v.dist, 9, this.maxDist || R * 8);
-    const r = Math.hypot(v.tx, v.tz);
-    const lim = R * 0.92;
-    if (r > lim) {
-      v.tx *= lim / r;
-      v.tz *= lim / r;
-    }
+    v.el = clamp(v.el, 0.14, 1.35);
+    v.dist = clamp(v.dist, 9, this.maxDist || FAR);
+    v.tx = clamp(v.tx, ROAM.x0, ROAM.x1);
+    v.tz = clamp(v.tz, ROAM.z0, ROAM.z1);
+    v.ty = this.groundAt(v.tx, v.tz) + 2;
+    // never under the ground: the eye kept above the hills
+    const e = this.eyeOf(v);
+    const floor = this.groundAt(e.x, e.z) + 5;
+    if (e.y < floor) v.el = Math.min(1.35, Math.asin(clamp((floor - v.ty) / v.dist, -1, 1)));
   }
 
   fly(to, ms = FLY_MS) {
@@ -862,13 +981,15 @@ class World {
     if (daz > Math.PI) daz -= Math.PI * 2;
     if (daz < -Math.PI) daz += Math.PI * 2;
     const target = { ...to, az: from.az + daz };
+    const lensTo = this.focusId ? 1 : 0;
     if (this.reduced || !ms) {
       this.view = target;
+      this.lens = lensTo;
       this.anim = null;
       this.later(0);
       return;
     }
-    this.anim = { from, to: target, t0: performance.now(), ms };
+    this.anim = { from, to: target, lens0: this.lens, lens1: lensTo, t0: performance.now(), ms };
     this.request();
   }
 
@@ -895,7 +1016,7 @@ class World {
     this.fly(this.wholeView());
   }
 
-  // Back to the whole village if he hasn't moved it himself; a build he flew to stays in view.
+  // Back to the whole village unless the view was moved by hand; a build flown to stays in view.
   resized() {
     if (!this.stage) return;
     if (!this.userMoved && !this.anim) this.view = this.wholeView();
@@ -906,7 +1027,7 @@ class World {
 
   request() {
     if (this.raf || this.dead) return;
-    this.raf = requestAnimationFrame(() => {
+    this.raf = requestAnimationFrame((now) => {
       this.raf = 0;
       if (this.anim) {
         const a = this.anim;
@@ -915,6 +1036,7 @@ class World {
         const v = {};
         for (const k of Object.keys(a.to)) v[k] = a.from[k] + (a.to[k] - a.from[k]) * e;
         this.view = v;
+        this.lens = a.lens0 + (a.lens1 - a.lens0) * e;
         if (t >= 1) {
           this.anim = null;
           this.later(40);
@@ -923,7 +1045,7 @@ class World {
         // a cheap frame for a change (a day of the replay, a wheel): the still follows it
         this.later();
       }
-      this.draw("drag");
+      this.draw("drag", now);
     });
   }
 
@@ -936,7 +1058,7 @@ class World {
     }, ms);
   }
 
-  // after a build is made: a still, unless he is moving it (then the moving frames show it)
+  // after a build is made: a still, unless the view is moving (then the moving frames show it)
   drawSoon() {
     if (this.ptrs.size || this.anim) this.request();
     else this.draw("still");
@@ -945,24 +1067,53 @@ class World {
   cancelFrames() {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
+    cancelAnimationFrame(this.tickRaf);
+    this.tickRaf = 0;
     clearTimeout(this.stillT);
+  }
+
+  // What moves, between the stills: the sea, the falls, the birds, the boats, about 30 times a second, over the still
+  // picture as it was last drawn (nothing else is drawn again). Not while the page is hidden, nor when motion is reduced.
+  ticking() {
+    if (this.tickRaf || this.dead || this.lost || this.reduced || document.hidden || !this.coast) return;
+    this.tickRaf = requestAnimationFrame((now) => {
+      this.tickRaf = 0;
+      if (this.dead || this.lost || document.hidden) return;
+      if (!this.raf && !this.ptrs.size && !this.anim && now - this.lastTick >= TICK - 2) this.frame(now);
+      this.ticking();
+    });
+  }
+
+  // The clock the moving things run on, in seconds; it stands still while the page is hidden.
+  timeAt(now) {
+    if (now === undefined) return this.clock;
+    if (this.lastTick) this.clock += Math.min(0.1, (now - this.lastTick) / 1000);
+    this.lastTick = now;
+    return this.clock;
+  }
+
+  // One frame of what moves, the still picture kept.
+  frame(now) {
+    const st = this.stage;
+    if (!st) return;
+    const t = this.timeAt(now);
+    this.coast?.life?.update(t, TICK / 1000);
+    this.coast?.rivers?.update?.(t);
+    st.render(t);
   }
 
   stillScale(cw, ch) {
     const dpr = window.devicePixelRatio || 1;
     let k = Math.min(dpr, 2);
-    const ss = k < 1.5 ? 1.5 : 1;
-    const lim = Math.floor(this.maxTex / ss) - 2;
+    const lim = Math.floor(this.maxTex) - 2;
     k = Math.min(k, lim / cw, lim / ch);
-    return { k, ss };
+    return k;
   }
 
-  draw(q) {
+  draw(q, now) {
     if (!this.stage || this.dead || this.lost || document.hidden) return;
-    const KIT = window.KIT;
     const t0 = performance.now();
     const st = this.stage;
-    const r = st.renderer;
     const { cw, ch } = this.css();
     const still = q === "still";
     // a cheap frame still waiting would only cover this one
@@ -970,45 +1121,28 @@ class World {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
     }
-    const { k, ss } = still ? this.stillScale(cw, ch) : { k: 1, ss: 1 };
-    const w = Math.max(1, Math.round(cw * k));
-    const h = Math.max(1, Math.round(ch * k));
-    st.setSize(w, h, ss);
-    st.setRadius(still ? 4 : 2);
-    st.pencil = still;
-    // the pen the same width on the glass, whatever the pixels
-    const f = st.mFinal.uniforms;
-    f.uLineW.value = PEN.line * k;
-    f.uHatchGap.value = PEN.gap * k;
-    f.uHatchW.value = PEN.hatch * k;
-    f.uGrid.value = Math.round(PEN.grid * k);
-    f.uTick.value = Math.round(PEN.tick * k);
+    const k = still ? this.stillScale(cw, ch) : 1;
+    st.setSize(Math.max(1, Math.round(cw * k)), Math.max(1, Math.round(ch * k)));
     this.camera(cw, ch, k);
-    const cam = st.camera;
     const v = this.view;
-    // the shadow map: over the whole village while moving, fitted to the view in a close still
-    const seen = v.dist * Math.tan(((FOV / 2) * Math.PI) / 180) * 1.6;
-    const near = still && seen < this.R * 0.55;
-    const sc = near ? new THREE.Vector3(v.tx, 0, v.tz) : new THREE.Vector3(0, 0, 0);
-    const sr = near ? Math.max(18, seen * 1.2) : this.R * 1.02;
-    const sk = `${Math.round(sc.x)}:${Math.round(sc.z)}:${Math.round(sr)}`;
-    if (sk !== this.shadowKey) {
-      st.fitShadow(sc, sr);
+    // the sun's shadow: over what is seen, fitted again in a still (while moving, the last one is kept)
+    const seen = v.dist * Math.tan(((fovFor(cw / ch) / 2) * Math.PI) / 180) * 2.2;
+    const sr = clamp(seen, 30, 700);
+    const sk = `${Math.round(v.tx / 8)}:${Math.round(v.tz / 8)}:${Math.round(sr / 8)}`;
+    if (still && sk !== this.shadowKey) {
+      st.fitShadow(new THREE.Vector3(v.tx, v.ty, v.tz), sr);
       this.shadowKey = sk;
-      this.shadowDirty = true;
     }
-    if (this.shadowDirty) {
-      r.shadowMap.needsUpdate = true;
-      this.shadowDirty = false;
-    }
-    KIT.village.air({ fog: [v.dist * 0.9, v.dist * 3.5 + this.R], cloud: 0 });
-    KIT.G.uTime.value = LOOK_TIME;
-    if (still) {
-      const list = [...this.made.values()].filter((B) => B.group.visible).map((B) => ({ mk: B.mk, matrix: B.group.matrixWorld }));
-      KIT.setTorches(KIT.village.torches(list, new THREE.Vector3(v.tx, v.ty, v.tz)));
-    }
-    st.sky.position.copy(cam.position);
-    st.render();
+    // the haze: by how far the eye is, so the town is clear and the far hills soft
+    window.KIT.G.uFog.value.set(v.dist * 1.2, v.dist * 5 + 2500, 0);
+    // the lens: the whole town a model on a table; close to a build, open
+    const L = mixLens(LENS_WIDE, LENS_NEAR, this.lens);
+    Object.assign(st.lens, L, { focus: v.dist });
+    st.still = true;
+    const t = this.timeAt(now ?? performance.now());
+    this.coast?.life?.update(t, TICK / 1000);
+    this.coast?.rivers?.update?.(t);
+    st.render(t);
     const ms = performance.now() - t0;
     this.stats.frames.push({ q, ms: Math.round(ms) });
     if (this.stats.frames.length > 60) this.stats.frames.shift();
@@ -1017,11 +1151,14 @@ class World {
       if (!going || this.made.has(going)) this.stats.first = performance.now() - this.t0;
     }
     this.labels(cw, ch);
+    if (still) this.ticking();
   }
 
   // Where each label goes, in CSS pixels: over each build, the next plot, the pencil preview.
   labels(cw, ch) {
     const cam = this.stage.camera;
+    // (the labels are placed on the CSS-pixel camera)
+    this.camera(cw, ch, 1);
     const out = [];
     const v3 = new THREE.Vector3();
     const put = (id, kind, box, lift = 0.8) => {
@@ -1100,9 +1237,7 @@ class World {
         this.pan(mx - this.pinch.mx, my - this.pinch.my);
         this.pinch = { span, mx, my };
       } else return;
-      this.userMoved = true;
-      this.focusId = null;
-      this.clampView();
+      this.moved();
       this.request();
     };
     this.onUp = (e) => {
@@ -1122,10 +1257,8 @@ class World {
       e.preventDefault();
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
       this.view.dist *= Math.exp(e.deltaY * unit * (e.ctrlKey ? 0.01 : 0.0015));
-      this.userMoved = true;
-      this.focusId = null;
       this.anim = null;
-      this.clampView();
+      this.moved();
       this.request();
       this.later();
     };
@@ -1141,9 +1274,8 @@ class World {
       else if (k === "0") return this.fitAll();
       else return;
       e.preventDefault();
-      this.userMoved = true;
       this.anim = null;
-      this.clampView();
+      this.moved();
       this.request();
       this.later();
     };
@@ -1155,11 +1287,20 @@ class World {
     c.addEventListener("keydown", this.onKey);
   }
 
+  // The view was moved by hand: it stays where it was put, and the lens goes back to the whole town's on pulling out.
+  moved() {
+    this.userMoved = true;
+    this.focusId = null;
+    this.clampView();
+    const wide = this.wideDist || this.wholeView().dist;
+    if (this.lens > 0) this.lens = Math.min(this.lens, clamp((wide * 0.6 - this.view.dist) / (wide * 0.4), 0, 1));
+  }
+
   // Two fingers move the village under them, along the ground.
   pan(dx, dy) {
     const v = this.view;
-    const { ch } = this.css();
-    const per = (2 * v.dist * Math.tan(((FOV / 2) * Math.PI) / 180)) / ch;
+    const { cw, ch } = this.css();
+    const per = (2 * v.dist * Math.tan(((fovFor(cw / ch) / 2) * Math.PI) / 180)) / ch;
     const rx = Math.cos(v.az);
     const rz = -Math.sin(v.az);
     const fx = -Math.sin(v.az);
@@ -1220,17 +1361,29 @@ class World {
     clearTimeout(this.keptT);
     const KIT = window.KIT;
     try {
+      if (this.kitWas) {
+        KIT.applyLook(this.kitWas.look);
+        KIT.G.uPaint.value = this.kitWas.paint;
+        this.kitWas = null;
+      }
+    } catch {
+      // no kit to give it back to
+    }
+    try {
       const all = [...this.made.values()].map((B) => B.mk);
-      for (const x of [...all, this.shown?.mk, this.spare?.mk, this.ground, this.stake, this.soldiers, this.folk]) if (x) KIT.village.dispose(x);
+      for (const x of [...all, this.shown?.mk, this.spare?.mk, this.stake, this.soldiers, this.folk]) if (x) KIT.village.dispose(x);
+      const c = this.coast;
+      if (c) for (const part of [c.terrain, c.sea, c.rivers, c.harbour, c.dressing, c.life]) part?.dispose();
+      // (the land still growing stops, and what has grown is let go)
+      this.growing?.dispose();
       this.made.clear();
-      this.ground = this.stake = this.soldiers = this.folk = this.shown = this.spare = null;
+      this.coast = this.ground = this.growing = this.stake = this.soldiers = this.folk = this.shown = this.spare = null;
       if (this.stage) {
         this.stage.dispose();
         this.stage.renderer.dispose();
       }
       // the kit's painted textures are shared with the painter's renderer and hold on to this one
       for (const t of [KIT?.strokeTex, KIT?.grassTex, ...Object.values(KIT?.leafTex ?? {})]) t?.dispose();
-      KIT?.village?.air(null);
     } catch {
       // nothing more to let go of
     }
@@ -1268,10 +1421,11 @@ class World {
     return {
       stats: this.stats,
       view: this.view,
+      lens: () => ({ k: this.lens, ...this.stage?.lens }),
       made: [...this.made.values()].map((B) => ({ id: B.id, kind: B.kind, s: B.s, ghost: B.ghost, box: [B.box.min.toArray(), B.box.max.toArray()] })),
       glError: () => gl.getError(),
       info: () => ({ ...this.stage.renderer.info.render, programs: this.stage.renderer.info.programs?.length, geometries: this.stage.renderer.info.memory.geometries }),
-      // n frames of one kind, each ended by reading a pixel back so the GPU's work is counted
+      // n frames of one kind, each ended by reading a pixel back so the GPU's work is counted ("tick": what moves only)
       time: (q, n = 3) => {
         const out = [];
         const info = this.stage.renderer.info;
@@ -1279,13 +1433,12 @@ class World {
           info.autoReset = false;
           info.reset();
           const t0 = performance.now();
-          this.draw(q);
+          if (q === "tick") this.frame(performance.now());
+          else this.draw(q);
           gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
           out.push(Math.round(performance.now() - t0));
           info.autoReset = true;
         }
-        out.calls = info.render.calls;
-        out.triangles = info.render.triangles;
         return { ms: out, calls: info.render.calls, triangles: info.render.triangles };
       },
       set: (view) => {

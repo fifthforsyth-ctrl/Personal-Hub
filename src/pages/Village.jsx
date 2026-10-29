@@ -207,6 +207,8 @@ export default function Village() {
     else if (type === "villagers") worldRef.current?.fitAll();
   };
   const closeSheet = () => {
+    // a build or the garrison was flown to for its sheet: back out to the whole town, the lens with it
+    if (sheet?.type === "build" || sheet?.type === "soldiers") worldRef.current?.fitAll();
     setSheet(null);
     if (location.search) navigate({ pathname: location.pathname, search: "" }, { replace: true, state: location.state });
   };
