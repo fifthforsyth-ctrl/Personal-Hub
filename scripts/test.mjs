@@ -36,7 +36,7 @@ import {
   pickDiff,
 } from "../src/lib/camp.js";
 import { planMove, applyRows, inPageOrder } from "../src/lib/stepMoves.js";
-import { kindFields, isNote } from "../src/lib/camp.js";
+import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups } from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
   stageOf,
@@ -2093,6 +2093,8 @@ console.log("\nthe mark");
 
   const tally = campProgress([{ camp_id: "c1", done_on: "2026-10-22" }, { camp_id: "c1", done_on: null }, { camp_id: "c2", done_on: null }]);
   ok("steps are tallied by camp", tally.get("c1").done === 1 && tally.get("c1").total === 2 && tally.get("c2").done === 0);
+  const clipTally = campProgress([{ camp_id: "c1", section_id: "s", done_on: null }, { camp_id: "c1", section_id: "clip", done_on: null }], [{ id: "s" }, { id: "clip", clipboard: true }]);
+  ok("the Range leaves the clipboard's thoughts out, as the camp does", clipTally.get("c1").total === 1);
   ok("the camp line reads plainly", stepsLine({ done: 12, total: 49 }) === "12 of 49 steps" && stepsLine({ done: 0, total: 0 }) === "No steps yet" && stepsLine({ done: 3, total: 3 }) === "All 3 steps done");
 
   ok("a pasted list is one step a line, bullets and boxes off", splitSteps("- [ ] Mock it up\n2. Number the steps\n\n• Keep labels short\n  [x] Check widths  ").join("|") === "Mock it up|Number the steps|Keep labels short|Check widths");
@@ -2906,6 +2908,56 @@ function sectionOf({ x, y }) {
   ok("a big photo is made smaller, its shape kept; a small one is left", JSON.stringify(shrinkTo(4032, 3024, 2560)) === JSON.stringify({ width: 2560, height: 1920 }) && JSON.stringify(shrinkTo(800, 600, 2560)) === JSON.stringify({ width: 800, height: 600 }));
   const nums = pinNumbers([{ id: "b", created_at: "2026-10-30T10:05" }, { id: "a", created_at: "2026-10-30T10:01" }, { id: "c", created_at: "2026-10-30T10:09" }]);
   ok("pins are numbered in the order they went on", nums.get("a") === 1 && nums.get("b") === 2 && nums.get("c") === 3);
+}
+
+{
+  console.log("\nresolving a section, and keeping what was finished (0097)");
+  const sec = { id: "S", camp_id: "C", title: "Old UI", clipboard: false };
+  const steps = [
+    { id: "a", camp_id: "C", section_id: "S", parent_id: null, kind: "task", text: "done one", done_on: "2026-10-20", position: 0 },
+    { id: "b", camp_id: "C", section_id: "S", parent_id: "a", kind: "task", text: "done sub", done_on: "2026-10-21", position: 0 },
+    { id: "c", camp_id: "C", section_id: null, parent_id: "a", kind: "task", text: "sub elsewhere", done_on: "2026-10-22", position: 1 },
+    { id: "d", camp_id: "C", section_id: "S", parent_id: null, kind: "task", text: "open", done_on: null, position: 1 },
+    { id: "e", camp_id: "C", section_id: "S", parent_id: null, kind: "note", text: "a note", done_on: null, position: 2 },
+    { id: "f", camp_id: "C", section_id: "T", parent_id: null, kind: "task", text: "other section", done_on: "2026-10-23", position: 0 },
+  ];
+  const plan = resolvePlan(sec, steps, { photos: 1, sketches: 2 });
+  ok("everything in it goes, with what's under its steps", [...plan.ids].sort().join() === "a,b,c,d,e");
+  ok("its finished steps are the ones kept", plan.kept.map((x) => x.id).sort().join() === "a,b,c");
+  ok("it says what else would go", plan.lose.join("|") === "1 step not done yet|1 note|1 photo|2 sketches" && plan.ask);
+  const done = resolvePlan(sec, steps.filter((x) => x.id !== "d" && x.id !== "e"), { photos: 0, sketches: 0 });
+  ok("all finished and nothing else in it, it goes without asking", !done.ask && done.lose.length === 0 && done.kept.length === 3);
+  ok("when the photos couldn't be counted, it asks", resolvePlan(sec, [], null).ask);
+  const words = resolveWords(sec, plan, { photos: 1, sketches: 2 });
+  ok(
+    "the question says what stays and what goes",
+    words.title === "Resolve “Old UI”?" &&
+      words.confirmLabel === "Resolve section" &&
+      words.body.startsWith("Its 3 finished steps stay in your village, and the camp still counts them as done.") &&
+      words.body.includes("Going with it: 1 step not done yet, 1 note, 1 photo and 2 sketches.")
+  );
+  const clip = resolveWords({ ...sec, clipboard: true, title: "Clipboard" }, plan, {});
+  ok("a clipboard column is removed, and isn't counted in the camp", clip.title === "Remove “Clipboard”?" && clip.confirmLabel === "Remove column" && !clip.body.includes("counts"));
+  ok("with nothing finished it's just removed", resolveWords(sec, resolvePlan(sec, [], { photos: 0, sketches: 0 }), {}).confirmLabel === "Remove section");
+  ok("the toast says how many were kept", resolvedLine(sec, 3) === "“Old UI” resolved · 3 done steps kept" && resolvedLine(sec, 0) === "“Old UI” removed");
+  const groups = resolvedGroups([
+    { id: "b", section_id: "S", section_title: "Old UI", parent_id: "a", text: "done sub", done_on: "2026-10-21", position: 0, counted: true, resolved_on: "2026-10-30" },
+    { id: "a", section_id: "S", section_title: "Old UI", parent_id: null, text: "done one", done_on: "2026-10-20", position: 0, counted: true, resolved_on: "2026-10-30" },
+    { id: "z", section_id: "Q", section_title: "Earlier", parent_id: null, text: "long ago", done_on: "2026-09-01", position: 0, counted: false, resolved_on: "2026-10-01" },
+  ]);
+  ok(
+    "resolved sections are listed newest first, sub-steps after their step",
+    groups.map((g) => g.title).join() === "Old UI,Earlier" && groups[0].steps.map((x) => `${x.id}${x.depth}`).join() === "a0,b1" && groups[1].clipboard
+  );
+  // A resolved step lays its bricks where it did, even with its camp gone.
+  const live = finishedUnits({ steps: steps.filter((x) => x.done_on).map((x) => ({ ...x, updated_at: `${x.done_on}T10:00:00Z` })), camps: [{ id: "C", quest_id: "Q1" }] });
+  const kept = finishedUnits({
+    steps: steps.filter((x) => x.done_on).map((x) => ({ id: x.id, camp_id: x.id === "f" ? "C" : null, quest_id: "Q1", text: x.text, done_on: x.done_on, updated_at: `${x.done_on}T10:00:00Z` })),
+    camps: [{ id: "C", quest_id: "Q1" }],
+  });
+  ok("its bricks keep their order and quest after the section goes", live.map((u) => `${u.id}${u.questId}`).join() === kept.map((u) => `${u.id}${u.questId}`).join());
+  const project = [{ id: "p", kind: "beacon", seed: 1, plot: 0, need: 12, started_on: "2026-10-01", created_at: "2026-10-01" }];
+  ok("so the building stands as tall as before", allocate(project, live).projects[0].done === allocate(project, kept).projects[0].done);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

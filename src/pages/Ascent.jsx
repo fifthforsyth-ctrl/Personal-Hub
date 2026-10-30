@@ -6,6 +6,7 @@ import {
   fetchRange,
   fetchCategories,
   fetchStepTally,
+  fetchSectionTally,
   saveMission,
   updateNode,
   addFocus,
@@ -69,8 +70,8 @@ export default function Ascent() {
   const view = useMemo(() => (data ? buildAscent(data, today) : null), [data, today]);
   const range = useMemo(() => (view ? buildRange(view, data.marks, today) : null), [view, data, today]);
   const categories = useLoad(() => (userId ? fetchCategories(userId) : NO_ROWS), [userId]);
-  const tally = useLoad(() => (userId ? fetchStepTally(userId) : NO_ROWS), [userId]);
-  const progress = useMemo(() => campProgress(tally.data), [tally.data]);
+  const tally = useLoad(() => (userId ? Promise.all([fetchStepTally(userId), fetchSectionTally(userId)]) : NO_ROWS), [userId]);
+  const progress = useMemo(() => campProgress(tally.data?.[0], tally.data?.[1]), [tally.data]);
 
   const [sheet, setSheet] = useState(null); // { kind, ...what it edits }
   const [ceremony, setCeremony] = useState(null);

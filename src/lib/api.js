@@ -2909,9 +2909,19 @@ const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 // Every step's camp, whether it's done and whether it's picked for a day,
 // for the camp lists on the Range and Quests. Its section and the step it's
 // under count a section picked for today (0091) by its own steps.
-export function fetchStepTally(userId) {
-  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, section_id, parent_id, kind, done_on, working_since, today_on").eq("user_id", userId).order("id"));
+// Steps of sections he resolved (0097) count as done in their camps, so
+// taking a finished section away leaves the camp as far along as it was.
+export async function fetchStepTally(userId, resolved = fetchResolvedSteps(userId)) {
+  const [steps, kept] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, section_id, parent_id, kind, done_on, working_since, today_on").eq("user_id", userId).order("id")),
+    resolved,
+  ]);
+  return [...steps, ...kept.filter((r) => r.counted && r.camp_id).map(resolvedTallyRow)];
 }
+
+// A resolved step as one of the camp's steps for counting: done, in no
+// section, never on Today.
+const resolvedTallyRow = (r) => ({ id: r.id, camp_id: r.camp_id, section_id: null, parent_id: null, kind: "task", done_on: r.done_on, working_since: null, today_on: null, resolved: true });
 
 // Every section's camp and the day it was picked for (0091), for the same.
 export function fetchSectionTally(userId) {
@@ -2931,17 +2941,19 @@ export async function fetchCampsSteps(userId, campIds) {
 }
 
 // One camp: the camp, the mountain it's on (a quest, or a lesson's own),
-// the camps beside it, its sections and steps, and the plans they came
-// from. Null when the camp is gone.
+// the camps beside it, its sections and steps, the finished steps of
+// sections resolved there (0097), and the plans they came from. Null when
+// the camp is gone.
 export async function fetchCamp(userId, campId) {
   const camp = await supabase.from("quest_camps").select(ASCENT_CAMP).eq("id", campId).eq("user_id", userId).maybeSingle();
   if (camp.error) throw camp.error;
   if (!camp.data) return null;
-  const [quest, camps, sections, steps] = await Promise.all([
+  const [quest, camps, sections, steps, resolved] = await Promise.all([
     supabase.from("quests").select(ASCENT_QUEST).eq("id", camp.data.quest_id).maybeSingle(),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("quest_id", camp.data.quest_id),
     selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("camp_id", campId).order("id")),
     selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("camp_id", campId).order("id")),
+    fetchResolvedSteps(userId, campId),
   ]);
   for (const r of [quest, camps]) if (r.error) throw r.error;
   const planIds = [...new Set(sections.map((s) => s.plan_id).filter(Boolean))];
@@ -2959,6 +2971,7 @@ export async function fetchCamp(userId, campId) {
     camps: camps.data ?? [],
     sections,
     steps,
+    resolved,
     plans: plans.data ?? [],
   };
 }
@@ -3075,6 +3088,52 @@ export async function updateSections(ids, fields) {
 export async function deleteSection(id) {
   const { error } = await supabase.from("camp_sections").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Resolving a section (0097): its finished steps are kept in resolved_steps,
+// so their bricks stay in the village and the camp still counts them, and
+// the section goes with everything in it.
+// ---------------------------------------------------------------------------
+
+const RESOLVED_STEP = "id, camp_id, quest_id, section_id, section_title, parent_id, text, note, done_on, done_at, counted, position, resolved_on, resolved_at";
+
+// Every one of his, or a camp's.
+export function fetchResolvedSteps(userId, campId = null) {
+  return selectAllPages(() => {
+    let q = supabase.from("resolved_steps").select(RESOLVED_STEP).eq("user_id", userId);
+    if (campId) q = q.eq("camp_id", campId);
+    return q.order("id");
+  });
+}
+
+// What else would go with a section: its photos, and the sketches on its
+// steps (`stepIds`), so the page can say so before it goes.
+export async function fetchSectionExtras(sectionId, stepIds) {
+  const photos = await supabase.from("section_photos").select("id", { count: "exact", head: true }).eq("section_id", sectionId);
+  if (photos.error) throw photos.error;
+  let sketches = 0;
+  for (let i = 0; i < stepIds.length; i += 150) {
+    const r = await supabase.from("sketches").select("id", { count: "exact", head: true }).in("camp_step_id", stepIds.slice(i, i + 150));
+    if (r.error) throw r.error;
+    sketches += r.count ?? 0;
+  }
+  return { photos: photos.count ?? 0, sketches };
+}
+
+// Resolves to how many finished steps were kept. The section's photo files
+// go after it, since nothing points at them then.
+export async function resolveSection(sectionId, today) {
+  const files = await supabase.from("section_photos").select("image_path").eq("section_id", sectionId).not("image_path", "is", null);
+  if (files.error) throw files.error;
+  const { data, error } = await supabase.rpc("resolve_section", { p_section: sectionId, p_today: today });
+  if (error) throw error;
+  const paths = (files.data ?? []).map((f) => f.image_path).filter(Boolean);
+  if (paths.length) {
+    const { error: fileError } = await supabase.storage.from("note-images").remove(paths);
+    if (fileError) console.warn(fileError);
+  }
+  return data ?? 0;
 }
 
 // Saves a new order: `rows` in the order they should be, each { id,
@@ -3534,9 +3593,10 @@ const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, d
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
-// enough to say what it was and where it came from.
-function fetchFinished(userId) {
-  return Promise.all([
+// enough to say what it was and where it came from, and the finished steps
+// of sections he resolved (0097), in their places as they were.
+async function fetchFinished(userId, resolved = fetchResolvedSteps(userId)) {
+  const [tasks, steps, kept] = await Promise.all([
     selectAllPages(() =>
       supabase
         .from("quest_tasks")
@@ -3549,8 +3609,12 @@ function fetchFinished(userId) {
     selectAllPages(() =>
       supabase.from("camp_steps").select("id, camp_id, text, note, done_on, updated_at").eq("user_id", userId).not("done_on", "is", null).order("id")
     ),
+    resolved,
   ]);
+  return [tasks, [...steps, ...kept.map(resolvedFinished)]];
 }
+
+const resolvedFinished = (r) => ({ id: r.id, camp_id: r.camp_id, quest_id: r.quest_id, text: r.text, note: r.note ?? null, done_on: r.done_on, updated_at: r.done_at, resolved: true });
 
 // The quests and camps a day's block can be tagged with (0085).
 export async function fetchQuestTagOptions(userId) {
@@ -3635,14 +3699,15 @@ export async function updateVillageProject(id, fields) {
 // is and what's on today there), the builds and everything finished (for
 // the build going up).
 export async function fetchQuestBoard(userId) {
+  const resolved = fetchResolvedSteps(userId);
   const [[tasks, steps], projects, quests, lessons, camps, goals, campSteps, campSections] = await Promise.all([
-    fetchFinished(userId),
+    fetchFinished(userId, resolved),
     supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
     supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
-    fetchStepTally(userId),
+    fetchStepTally(userId, resolved),
     fetchSectionTally(userId),
   ]);
   for (const r of [projects, quests, lessons, camps]) if (r.error) throw r.error;

@@ -458,7 +458,7 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false, extra = n
 // the whole card wears it. While picking for today it has no box to add,
 // and (`pick`, 0091) a box of its own to pick the whole section; on today
 // (`isToday`) it wears the Today tag.
-export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onAdd, onAddSubs, onReorder, onDragOut, onInto, step, sort, picking = false, pick = null, isToday = false, carry, cross }) {
+export function SectionCard({ section: s, open, hideDone, openStep, onToggle, onEdit, onResolve, onAdd, onAddSubs, onReorder, onDragOut, onInto, step, sort, picking = false, pick = null, isToday = false, carry, cross }) {
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const hidden = s.steps.length - shown.length;
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
@@ -504,6 +504,11 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
           </span>
           {!pick && <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />}
         </button>
+        {s.complete && onResolve && !pick && (
+          <button type="button" className="btn btn--sm camp-sec__resolve" onClick={onResolve} title="Clear it out of the camp. What you finished in it stays in your village.">
+            Resolve
+          </button>
+        )}
         <button type="button" className="btn-icon" onClick={onEdit} aria-label={`Edit ${s.title}`} title="Edit section">
           <Pencil size={14} />
         </button>

@@ -180,7 +180,8 @@ export function finishedUnits({ tasks = [], steps = [], camps = [] }) {
   }
   for (const s of steps) {
     if (!s.done_on) continue;
-    out.push({ id: s.id, src: "step", text: s.text, note: s.note ?? null, questId: campQuest.get(s.camp_id) ?? null, day: s.done_on, at: s.updated_at ?? "" });
+    // a resolved section's step (0097) keeps its quest when its camp is gone
+    out.push({ id: s.id, src: "step", text: s.text, note: s.note ?? null, questId: campQuest.get(s.camp_id) ?? s.quest_id ?? null, day: s.done_on, at: s.updated_at ?? "" });
   }
   return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) || String(a.at).localeCompare(String(b.at)) || String(a.id).localeCompare(String(b.id)));
 }

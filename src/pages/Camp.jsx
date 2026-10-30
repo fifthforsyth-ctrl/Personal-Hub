@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, deleteSection, updateCamp, reorder, moveStepToSection, placeSteps } from "../lib/api";
-import { buildCamp, kindFields, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
+import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, updateCamp, reorder, moveStepToSection, placeSteps, fetchSectionExtras, resolveSection } from "../lib/api";
+import { buildCamp, kindFields, pickDiff, resolvePlan, resolveWords, resolvedGroups, resolvedLine, stepsUnder, todayPicks } from "../lib/camp";
 import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
@@ -647,21 +647,66 @@ export default function Camp() {
     (ids) => reorderSections(ids)
   );
 
+  // Resolving a section (0097, Aaron 2026-10-30): it goes, so it stops
+  // taking room here, and the steps he finished in it are kept, in the
+  // village and in this camp's count. It asks first only when something
+  // else would go with it (a step not done, a note, a photo, a sketch);
+  // otherwise it's gone at once, with Undo for a few seconds.
   async function removeSection(s) {
-    const n = data.steps.filter((x) => x.section_id === s.id).length;
-    const ok = await confirm({
-      title: `Remove “${s.title}”?`,
-      body: n ? `Its ${n === 1 ? "step goes" : `${n} steps go`} with it. This can't be undone.` : "It has no steps yet.",
-      confirmLabel: "Remove section",
-    });
-    if (!ok) return;
-    setSheet(null);
+    const raw = data.sections.find((x) => x.id === s.id);
+    if (!raw) return;
+    let extras = null;
+    const first = resolvePlan(raw, data.steps, { photos: 0, sketches: 0 });
     try {
-      await deleteSection(s.id);
-      mutate((d) => d && { ...d, sections: d.sections.filter((x) => x.id !== s.id), steps: d.steps.filter((x) => x.section_id !== s.id) });
-    } catch (err) {
-      failed(err, "Couldn't remove that section.");
+      extras = await fetchSectionExtras(raw.id, first.all.map((x) => x.id));
+    } catch {
+      extras = null;
     }
+    const plan = resolvePlan(raw, stepsNow.current ?? data.steps, extras);
+    if (plan.ask && !(await confirm(resolveWords(raw, plan, extras)))) return;
+    setSheet(null);
+    if (openStep && plan.ids.has(openStep)) setOpenStep(null);
+    if (openToday && plan.ids.has(openToday)) setOpenToday(null);
+    const at = new Date().toISOString();
+    const kept = plan.kept.map((st) => ({
+      id: st.id,
+      camp_id: raw.camp_id,
+      quest_id: data.camp.quest_id,
+      section_id: raw.id,
+      section_title: raw.title,
+      parent_id: st.parent_id ?? null,
+      text: st.text,
+      note: st.note ?? null,
+      done_on: st.done_on,
+      counted: !raw.clipboard,
+      position: st.position ?? 0,
+      resolved_on: today,
+      resolved_at: at,
+    }));
+    mutate(
+      (d) =>
+        d && {
+          ...d,
+          sections: d.sections.filter((x) => x.id !== raw.id),
+          steps: d.steps.filter((x) => !plan.ids.has(x.id)),
+          resolved: [...(d.resolved ?? []).filter((r) => !plan.ids.has(r.id)), ...kept],
+        }
+    );
+    haptic(kept.length ? "success" : "tap");
+    toast.undoable({
+      message: resolvedLine(raw, kept.length),
+      run: () => resolveSection(raw.id, today),
+      onUndo: () =>
+        mutate(
+          (d) =>
+            d && {
+              ...d,
+              sections: [...d.sections.filter((x) => x.id !== raw.id), raw],
+              steps: [...d.steps.filter((x) => !plan.ids.has(x.id)), ...plan.all],
+              resolved: (d.resolved ?? []).filter((r) => !plan.ids.has(r.id)),
+            }
+        ),
+    });
   }
 
   async function saveNote() {
@@ -700,7 +745,13 @@ export default function Camp() {
   const mountain = data.lesson ? `Lesson · ${data.lesson.title}` : data.quest ? `Quest · ${data.quest.title}` : "Camp";
   const next = view.next;
   const nextSection = next?.section_id ? view.sections.find((s) => s.id === next.section_id) : null;
-  const pct = view.total ? Math.round((view.done / view.total) * 100) : 0;
+  // Steps of sections resolved here (0097) still count as done.
+  const resolved = data.resolved ?? [];
+  const keptN = resolved.filter((r) => r.counted).length;
+  const doneN = view.done + keptN;
+  const totalN = view.total + keptN;
+  const pct = totalN ? Math.round((doneN / totalN) * 100) : 0;
+  const gone = resolvedGroups(resolved);
   const isOpen = (s) => opened[s.id] ?? !s.complete;
   const looseShown = hideDone ? view.loose.filter((st) => !st.done_on) : view.loose;
   const empty = view.total === 0 && view.sections.length === 0;
@@ -784,8 +835,8 @@ export default function Camp() {
             Where it stands
           </h2>
           <div className="camp-now__count">
-            <b>{view.total ? `${view.done} of ${view.total}` : "0"}</b>
-            <span>{view.total ? "steps done" : "steps yet"}</span>
+            <b>{totalN ? `${doneN} of ${totalN}` : "0"}</b>
+            <span>{totalN ? "steps done" : "steps yet"}</span>
           </div>
           <div className="camp-bar camp-bar--big" aria-hidden="true">
             <i style={{ width: `${pct}%` }} />
@@ -808,7 +859,7 @@ export default function Camp() {
                 </button>
               </div>
             </div>
-          ) : view.total ? (
+          ) : totalN ? (
             <p className="camp-now__all">
               Every step here is done.{" "}
               {!data.camp.reached_on && (
@@ -851,7 +902,11 @@ export default function Camp() {
 
             {empty && (
               <section className="card camp-empty">
-                <p>No steps here yet. Type them in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you.</p>
+                <p>
+                  {gone.length
+                    ? "Nothing open here. Type new steps in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you."
+                    : "No steps here yet. Type them in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you."}
+                </p>
                 <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--accent">
                   <BookOpen size={14} />
                   Bring in a plan
@@ -881,6 +936,7 @@ export default function Camp() {
                 openStep={openStep}
                 onToggle={pick.on ? undefined : () => setOpened((o) => ({ ...o, [s.id]: !isOpen(s) }))}
                 onEdit={() => setSheet(s)}
+                onResolve={() => removeSection(s)}
                 onAdd={addTo}
                 onAddSubs={addSubs}
                 onReorder={reorderSteps}
@@ -944,6 +1000,8 @@ export default function Camp() {
             />
           </section>
 
+          {gone.length > 0 && <Resolved groups={gone} />}
+
           {data.plans.map((p) => (
             <details key={p.id} className="card camp-ref">
               <summary>
@@ -988,6 +1046,48 @@ export default function Camp() {
   );
 }
 
+// The sections resolved here (0097): what was finished in each, out of the
+// way, for when he wants to look back.
+function Resolved({ groups }) {
+  const n = groups.reduce((k, g) => k + g.steps.length, 0);
+  return (
+    <details className="card camp-ref camp-resolved">
+      <summary>
+        <span>
+          <span className="eyebrow">Resolved</span>
+          <b>
+            {groups.length === 1 ? "1 section" : `${groups.length} sections`} · {n === 1 ? "1 step done" : `${n} steps done`}
+          </b>
+        </span>
+        <ChevronDown size={16} className="camp-resolved__chev" aria-hidden="true" />
+      </summary>
+      <ul className="camp-resolved__list">
+        {groups.map((g) => (
+          <li key={g.id}>
+            <div className="camp-resolved__head">
+              <Check size={13} strokeWidth={3} aria-hidden="true" />
+              <b>{g.title}</b>
+              <span className="ascent-mini">
+                {g.clipboard ? "Clipboard · " : ""}
+                {fmtShortDate(g.on)}
+              </span>
+            </div>
+            {g.steps.length > 0 ? (
+              <ul className="camp-resolved__steps">
+                {g.steps.map((st) => (
+                  <li key={st.id} style={st.depth ? { paddingLeft: `${Math.min(st.depth, 3) * 14}px` } : undefined}>
+                    <Rich text={st.text} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function SectionSheet({ section, onSave, onDelete, onClose }) {
   const [title, setTitle] = useState(section?.title ?? "");
   const [why, setWhy] = useState(section?.why ?? "");
@@ -1027,7 +1127,7 @@ function SectionSheet({ section, onSave, onDelete, onClose }) {
         <div className="ascent-sheet__actions">
           {section && (
             <button type="button" className="btn-link btn-link--danger" onClick={onDelete} disabled={busy}>
-              Remove section
+              {section.done > 0 ? "Resolve section" : "Remove section"}
             </button>
           )}
           <span className="spacer" />

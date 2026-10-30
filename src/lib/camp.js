@@ -185,11 +185,105 @@ export function stepsUnder(steps, id) {
   return out;
 }
 
-// Steps done and in all, by camp, for the camp list on the Range.
-export function campProgress(steps) {
+// Resolving a section (0097, Aaron 2026-10-30): it goes, so it stops
+// taking room in the camp, but the steps he finished in it are kept: their
+// bricks stay in the village and the camp still counts them as done.
+// `steps` are the camp's; `extras` the section's photos and the sketches on
+// its steps ({ photos, sketches }), or null when they couldn't be counted.
+// Gives every step in it (`all`, with what's under them, and their `ids`),
+// the finished ones kept (`kept`), what else goes with it in words
+// (`lose`), and whether to ask before it goes (`ask`: only when something
+// would be lost, or might be).
+export function resolvePlan(section, steps, extras) {
+  const all = (steps ?? []).filter((x) => x.section_id === section.id);
+  const ids = new Set(all.map((x) => x.id));
+  for (const x of [...all]) {
+    for (const k of stepsUnder(steps, x.id)) {
+      if (ids.has(k.id)) continue;
+      ids.add(k.id);
+      all.push(k);
+    }
+  }
+  const kept = all.filter((x) => !isNote(x) && x.done_on);
+  const open = all.filter((x) => !isNote(x) && !x.done_on).length;
+  const notes = all.filter(isNote).length;
+  const count = (n, one, many) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
+  const lose = [
+    open && count(open, "step not done yet", "steps not done yet"),
+    notes && count(notes, "note", "notes"),
+    extras?.photos && count(extras.photos, "photo", "photos"),
+    extras?.sketches && count(extras.sketches, "sketch", "sketches"),
+  ].filter(Boolean);
+  return { all, ids, kept, lose, ask: lose.length > 0 || !extras };
+}
+
+// What the question before resolving says.
+export function resolveWords(section, plan, extras) {
+  const n = plan.kept.length;
+  const list = plan.lose.length <= 1 ? plan.lose[0] ?? "" : `${plan.lose.slice(0, -1).join(", ")} and ${plan.lose[plan.lose.length - 1]}`;
+  const parts = [];
+  if (n) parts.push(`${n === 1 ? "Its finished step stays" : `Its ${n} finished steps stay`} in your village${section.clipboard ? "" : ", and the camp still counts them as done"}.`);
+  if (list) parts.push(`Going with it: ${list}. Move anything you want to keep first.`);
+  if (!extras) parts.push("Any photos in it, and sketches on its steps, go too.");
+  return {
+    title: `${section.clipboard ? "Remove" : n ? "Resolve" : "Remove"} “${section.title}”?`,
+    body: parts.join(" ") || "It has nothing in it.",
+    confirmLabel: section.clipboard ? "Remove column" : n ? "Resolve section" : "Remove section",
+  };
+}
+
+// What the toast says once it's gone (with Undo).
+export function resolvedLine(section, kept) {
+  const name = String(section.title ?? "");
+  const cut = name.length > 32 ? `${name.slice(0, 32).trimEnd()}…` : name;
+  if (!kept) return `“${cut}” removed`;
+  return `“${cut}” resolved · ${kept === 1 ? "1 done step kept" : `${kept} done steps kept`}`;
+}
+
+// The sections resolved in a camp, newest first, each { id, title, on,
+// steps } with its finished steps in the order they sat, each sub-step
+// after its step with its `depth`.
+export function resolvedGroups(rows) {
+  const by = new Map();
+  for (const r of rows ?? []) {
+    const g = by.get(r.section_id) ?? { id: r.section_id, title: r.section_title, on: r.resolved_on, at: r.resolved_at ?? "", clipboard: r.counted === false, rows: [] };
+    g.rows.push(r);
+    if (r.resolved_on > g.on) g.on = r.resolved_on;
+    by.set(r.section_id, g);
+  }
+  const order = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.done_on).localeCompare(String(b.done_on)) || String(a.id).localeCompare(String(b.id));
+  const list = [...by.values()].map(({ rows: mine, ...g }) => {
+    const here = new Set(mine.map((r) => r.id));
+    const kids = new Map();
+    for (const r of mine) {
+      const up = r.parent_id && here.has(r.parent_id) ? r.parent_id : null;
+      if (!kids.has(up)) kids.set(up, []);
+      kids.get(up).push(r);
+    }
+    const steps = [];
+    const seen = new Set();
+    const walk = (up, depth) => {
+      for (const r of (kids.get(up) ?? []).sort(order)) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        steps.push({ ...r, depth });
+        walk(r.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return { ...g, steps };
+  });
+  return list.sort((a, b) => String(b.on).localeCompare(String(a.on)) || String(b.at).localeCompare(String(a.at)));
+}
+
+// Steps done and in all, by camp, for the camp list on the Range. The
+// clipboard's thoughts (in `sections` marked clipboard, 0095) don't count,
+// as on the camp's own page.
+export function campProgress(steps, sections = null) {
+  const clip = new Set((sections ?? []).filter((x) => x.clipboard).map((x) => x.id));
   const by = new Map();
   for (const st of steps ?? []) {
-    if (isNote(st)) continue;
+    if (isNote(st) || (st.section_id && clip.has(st.section_id))) continue;
     const p = by.get(st.camp_id) ?? { done: 0, total: 0 };
     p.total += 1;
     if (st.done_on) p.done += 1;
