@@ -25,12 +25,13 @@ import {
   lineToStep,
   stepToLine,
   addSection,
-  deleteSection,
+  fetchSectionExtras,
+  resolveSection,
   deleteStep,
   placeSteps,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
-import { buildCamp, kindFields, pickDiff, questToday, stepsUnder } from "../lib/camp";
+import { buildCamp, kindFields, pickDiff, questToday, resolvePlan, resolveWords, resolvedLine, stepsUnder } from "../lib/camp";
 import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
 import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../lib/todayBoard";
 import { villageOf } from "../lib/village";
@@ -1141,19 +1142,25 @@ export default function Quests() {
     updateSection(sec.id, { title }).catch((err) => stepsFailed(err, "Couldn't rename that column."));
   }
 
+  // Its finished thoughts keep their bricks in the village (0097); the rest
+  // goes with it, so it asks first when there's anything else in it.
   async function removeColumn(sec) {
-    const n = (campData?.steps ?? []).filter((x) => x.section_id === sec.id).length;
-    const ok = await confirm({
-      title: `Remove “${sec.title}”?`,
-      body: n ? `What's in it goes with it (${nSteps(n)}). Move them first to keep them. This can't be undone.` : "It's empty.",
-      confirmLabel: "Remove column",
-    });
-    if (!ok) return;
+    const steps = campData?.steps ?? [];
+    const first = resolvePlan(sec, steps, { photos: 0, sketches: 0 });
+    let extras = null;
     try {
-      await deleteSection(sec.id);
-      const gone = new Set((campData?.steps ?? []).filter((x) => x.section_id === sec.id).map((x) => x.id));
-      mutateCamps((d) => d && { ...d, sections: d.sections.filter((x) => x.id !== sec.id), steps: d.steps.filter((x) => !gone.has(x.id)) });
-      setTally((list) => list.filter((x) => !gone.has(x.id)));
+      extras = await fetchSectionExtras(sec.id, first.all.map((x) => x.id));
+    } catch {
+      extras = null;
+    }
+    const plan = resolvePlan(sec, campStepsNow.current ?? steps, extras);
+    if (plan.ask && !(await confirm(resolveWords(sec, plan, extras)))) return;
+    try {
+      await resolveSection(sec.id, today);
+      // the build's finished steps stay as they are: they're kept, same ids
+      mutateCamps((d) => d && { ...d, sections: d.sections.filter((x) => x.id !== sec.id), steps: d.steps.filter((x) => !plan.ids.has(x.id)) });
+      setTally((list) => list.filter((x) => !plan.ids.has(x.id)));
+      toast.show(resolvedLine(sec, plan.kept.length));
     } catch (err) {
       stepsFailed(err, "Couldn't remove that column.");
     }

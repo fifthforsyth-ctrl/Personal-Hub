@@ -264,6 +264,18 @@
 .camp-ref summary::-webkit-details-marker { display: none; }
 .camp-ref summary > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .camp-ref summary b { font-size: 14.5px; font-weight: 650; }
+
+/* A finished section's way out (0097), and what was resolved */
+.btn.camp-sec__resolve { flex: none; margin-right: 2px; padding: 0 12px; min-height: 30px; font-size: 12.5px; }
+.camp-resolved__chev { flex: none; color: var(--text-3); transition: transform 0.15s; }
+.camp-resolved[open] .camp-resolved__chev { transform: rotate(180deg); }
+.camp-resolved__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.camp-resolved__head { display: flex; align-items: baseline; gap: 7px; }
+.camp-resolved__head svg { flex: none; align-self: center; color: var(--text-3); }
+.camp-resolved__head b { min-width: 0; font-size: 13.5px; font-weight: 650; overflow-wrap: anywhere; }
+.camp-resolved__head .ascent-mini { margin-left: auto; flex: none; }
+.camp-resolved__steps { list-style: none; margin: 4px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 3px; }
+.camp-resolved__steps li { font-size: 13px; line-height: 1.4; color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--line-strong); overflow-wrap: anywhere; }
 .camp-ref[open] summary { margin-bottom: 10px; }
 .camp-ref > .btn-link { display: inline-block; margin-top: 10px; }
 
