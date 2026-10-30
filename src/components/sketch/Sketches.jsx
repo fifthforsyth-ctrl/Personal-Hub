@@ -1,5 +1,5 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, PenTool, Sparkles } from "lucide-react";
+import { Loader2, Maximize2, PenTool, Sparkles } from "lucide-react";
 import { addSketch, analyzeSketch, deleteSketch, fetchCampSketches, fetchQuestSketches, updateSketch } from "../../lib/api";
 import { drawStrokes, fitPage, inkFrame, plainSummary, sketchPng, staleSummary } from "../../lib/sketch";
 import { fmtShortDate, toDateStr } from "../../lib/planDates";
@@ -8,13 +8,16 @@ import { useConfirm, useToast } from "../ui/Feedback";
 import Sheet from "../ascent/Sheet";
 import { PlanNotes } from "../camp/Rich";
 import SketchPad from "./SketchPad";
+import { usePhotos } from "../photos/context";
+import Viewer from "../photos/Viewer";
 import "../../styles/sketch.css";
 
 // Sketches on a quest's lines or a camp's steps (0088). The page wraps its
 // list in a SketchProvider; each row shows its sketches small under its
 // words (SketchStrip) and, open, a Sketch button (SketchButton). Tapping a
 // sketch opens it large with what it says; Analyze has the sketch reader
-// look at it with what it's on and sum up what he jotted down.
+// look at it with what it's on and sum up what he jotted down. Tapping it
+// there enlarges it over the whole screen, to zoom in and pin (0096).
 //
 //   <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => text} onAddToNote={(id, text) => …}>
 //
@@ -48,6 +51,9 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
   const [pad, setPad] = useState(null); // { itemId, sketch }
   const [viewing, setViewing] = useState(null); // a sketch's id
   const [reading, setReading] = useState(() => new Set()); // ids being read
+  // Up close (0096): with the page's photos and pins, there; else on its own.
+  const photos = usePhotos();
+  const [big, setBig] = useState(null);
 
   const list = data ?? [];
   const byItem = useMemo(() => {
@@ -166,10 +172,12 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
                 }
               : null
           }
+          onEnlarge={() => (photos ? photos.openSketch(open, about?.(open[key])) : setBig(open))}
           onRemove={() => remove(open)}
           onClose={() => setViewing(null)}
         />
       )}
+      {big && <Viewer title={big.title || "Sketch"} sketch={big} onClose={() => setBig(null)} />}
     </Ctx.Provider>
   );
 }
@@ -248,14 +256,17 @@ export function SketchButton({ itemId }) {
 }
 
 // One sketch, large, with what it says once it's been read.
-function SketchSheet({ sketch, about, reading, onAnalyze, onDraw, onAddToNote, onRemove, onClose }) {
+function SketchSheet({ sketch, about, reading, onAnalyze, onDraw, onAddToNote, onEnlarge, onRemove, onClose }) {
   const stale = staleSummary(sketch);
   return (
     <Sheet title={sketch.title || "Sketch"} onClose={onClose}>
       <div className="sk-view">
-        <div className="sk-view__img" style={{ aspectRatio: `${sketch.width} / ${sketch.height}` }}>
+        <button type="button" className="sk-view__img sk-view__big" style={{ aspectRatio: `${sketch.width} / ${sketch.height}` }} onClick={onEnlarge} aria-label="Enlarge the sketch" title="Enlarge, zoom in and pin">
           <SketchImage sketch={sketch} pad={6} />
-        </div>
+          <span className="sk-view__zoom" aria-hidden="true">
+            <Maximize2 size={14} />
+          </span>
+        </button>
         <p className="ascent-mini sk-view__on">
           {about ? <>On “{about}” · </> : null}
           {sketch.created_at ? fmtShortDate(toDateStr(new Date(sketch.created_at))) : null}

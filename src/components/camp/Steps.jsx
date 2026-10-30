@@ -7,6 +7,7 @@ import { useDragSort } from "../../lib/useDragSort";
 import { ColorPick, tintOf } from "./ColorPick";
 import { CardBadge, ComputerPick } from "./ComputerPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
+import { PhotoButton, PinTag, SectionPhotos, ShowPin } from "../photos/Bits";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
 // add steps, and a section with its steps.
@@ -207,6 +208,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
           <span className="camp-step__words">
             {!asNote && <UrgencyMark value={step.urgency} />}
             <Rich text={step.text} />
+            {step.pin_id && <PinTag pinId={step.pin_id} />}
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
           {working && <WorkingBadge />}
@@ -264,6 +266,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
           </label>
           <div className="camp-step__tools">
             <SketchButton itemId={step.id} />
+            {step.pin_id && <ShowPin pinId={step.pin_id} />}
             {done && <span className="ascent-mini">Done {fmtShortDate(step.done_on)}</span>}
             <span className="spacer" />
             {onMove && (
@@ -396,7 +399,8 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
 }
 
 // "Add a step": Enter adds it. A pasted list adds one step per line.
-export function AddStep({ onAdd, label = "Add a step", hidden = false }) {
+// `extra` sits at its end (a section's "Add a photo", 0096).
+export function AddStep({ onAdd, label = "Add a step", hidden = false, extra = null }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useGrow(value);
@@ -442,13 +446,15 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false }) {
           {busy ? "Adding…" : count > 1 ? `Add ${count}` : "Add"}
         </button>
       )}
+      {extra}
     </form>
   );
 }
 
 // A section: its number, name and how far along, then (open) why it
 // matters, its note, its steps and the box to add more. With `sort` it has
-// a handle to drag the whole section into a new place. In a colour (0089)
+// a handle to drag the whole section into a new place. Its photos (0096)
+// sit above its steps. In a colour (0089)
 // the whole card wears it. While picking for today it has no box to add,
 // and (`pick`, 0091) a box of its own to pick the whole section; on today
 // (`isToday`) it wears the Today tag.
@@ -520,9 +526,10 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
               <Rich text={s.note} />
             </p>
           )}
+          <SectionPhotos sectionId={s.id} />
           {shown.length > 0 && <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} carry={carry} cross={cross} />}
           {hidden > 0 && <p className="ascent-mini camp-hidden">{hidden === 1 ? "1 done step hidden" : `${hidden} done steps hidden`}</p>}
-          <AddStep hidden={picking} onAdd={(texts) => onAdd(s.id, texts)} />
+          <AddStep hidden={picking} onAdd={(texts) => onAdd(s.id, texts)} extra={<PhotoButton sectionId={s.id} title={s.title} />} />
         </div>
       )}
     </section>

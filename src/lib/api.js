@@ -2903,7 +2903,7 @@ export async function deleteLesson(id) {
 // ---------------------------------------------------------------------------
 
 const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, computer, clipboard, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, kind, text, note, urgency, color, working_since, today_on, computer, done_on, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, kind, text, note, urgency, color, working_since, today_on, computer, pin_id, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp, whether it's done and whether it's picked for a day,
@@ -3530,7 +3530,7 @@ export function sendWakeTest(peerId) {
 // task and camp step finished, so this loads those beside the builds.
 // ---------------------------------------------------------------------------
 
-const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, working_since, done_on, done_at, position, created_at, updated_at";
+const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, working_since, pin_id, done_on, done_at, position, created_at, updated_at";
 const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
 // What lays bricks: every finished task (not note lines) and camp step, with
@@ -3813,3 +3813,116 @@ export async function analyzeSketch(id, image) {
   if (!out?.summary) throw new Error("The sketch came back unread.");
   return { title: out.title ?? null, summary: out.summary, analyzed_at: out.analyzed_at ?? new Date().toISOString() };
 }
+
+// One sketch, wherever it is (a pin's task opens the sketch it's on).
+export async function fetchSketch(id) {
+  const { data, error } = await supabase.from("sketches").select(SKETCH).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// His latest sketches, anywhere, newest first: to take one as a section's
+// photo.
+export async function fetchRecentSketches(userId, limit = 12) {
+  const { data, error } = await supabase.from("sketches").select(SKETCH).eq("user_id", userId).order("updated_at", { ascending: false }).limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Photos on sections, and pins on photos and sketches (0096). A photo's
+// picture sits in the private note-images bucket under his own folder; the
+// app signs a short-lived URL to show it (signedImageUrl).
+// ---------------------------------------------------------------------------
+
+const PHOTO = "id, section_id, image_path, sketch, sketch_id, width, height, caption, position, created_at, updated_at";
+const PIN = "id, photo_id, sketch_id, x, y, note, created_at, updated_at";
+
+// The photos on these sections.
+export async function fetchSectionPhotos(userId, sectionIds) {
+  const ids = [...new Set(sectionIds ?? [])].filter(Boolean);
+  if (!ids.length) return [];
+  const out = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    out.push(...(await selectAllPages(() => supabase.from("section_photos").select(PHOTO).eq("user_id", userId).in("section_id", ids.slice(i, i + 150)).order("id"))));
+  }
+  return out;
+}
+
+export async function fetchSectionPhoto(id) {
+  const { data, error } = await supabase.from("section_photos").select(PHOTO).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// A picture into his folder of the bucket. Resolves to its path.
+export async function uploadSectionPicture(userId, blob, extension = "jpg") {
+  const path = `${userId}/section-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+  const { error } = await supabase.storage.from("note-images").upload(path, blob, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: blob.type || undefined,
+  });
+  if (error) throw error;
+  return path;
+}
+
+// A photo on a section: { section_id, image_path | sketch (+ sketch_id), width, height, position }.
+export async function addSectionPhoto(userId, fields) {
+  const { data, error } = await supabase
+    .from("section_photos")
+    .insert({ user_id: userId, ...fields })
+    .select(PHOTO)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateSectionPhoto(id, fields) {
+  const { error } = await supabase
+    .from("section_photos")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// The photo goes (its pins with it; their tasks stay, without the pin),
+// then its picture's file, which is only clutter once nothing points at it.
+export async function deleteSectionPhoto(photo) {
+  const { error } = await supabase.from("section_photos").delete().eq("id", photo.id);
+  if (error) throw error;
+  if (photo.image_path) {
+    const { error: fileError } = await supabase.storage.from("note-images").remove([photo.image_path]);
+    if (fileError) console.warn(fileError);
+  }
+}
+
+// Every pin of his: they're few, and a step's pin opens from anywhere.
+export async function fetchPins(userId) {
+  return selectAllPages(() => supabase.from("image_pins").select(PIN).eq("user_id", userId).order("id"));
+}
+
+// A pin on a photo ({ photo_id }) or a sketch ({ sketch_id }), at { x, y }.
+export async function addPin(userId, fields) {
+  const { data, error } = await supabase
+    .from("image_pins")
+    .insert({ user_id: userId, ...fields })
+    .select(PIN)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updatePin(id, fields) {
+  const { error } = await supabase
+    .from("image_pins")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deletePin(id) {
+  const { error } = await supabase.from("image_pins").delete().eq("id", id);
+  if (error) throw error;
+}
+

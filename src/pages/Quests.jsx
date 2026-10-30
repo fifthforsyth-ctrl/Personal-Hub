@@ -52,6 +52,7 @@ import DoneToday from "../components/quests/DoneToday";
 import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
 import { PickBar, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
+import { PhotoProvider } from "../components/photos/Photos";
 import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
 import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
 import "../styles/ascent.css";
@@ -98,7 +99,7 @@ import "../styles/quests.css";
 
 const EARLIER_SHOWN = 10;
 // A quest task's own columns, for putting one back as it was.
-const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "working_since", "done_on", "done_at", "position", "created_at", "updated_at"];
+const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "working_since", "pin_id", "done_on", "done_at", "position", "created_at", "updated_at"];
 
 // Wide enough for the list beside the build: Today's board in columns then
 // takes the whole width above them.
@@ -908,7 +909,7 @@ export default function Quests() {
     }
     const position = (campData.steps ?? []).filter((x) => x.camp_id === campId && !x.section_id && !x.parent_id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     const id = crypto.randomUUID();
-    const base = (x) => ({ camp_id: campId, section_id: null, text: x.text, urgency: x.urgency ?? null, color: x.color ?? null, done_on: x.done_on ?? null, working_since: x.working_since ?? null, from: x.id });
+    const base = (x) => ({ camp_id: campId, section_id: null, text: x.text, urgency: x.urgency ?? null, color: x.color ?? null, done_on: x.done_on ?? null, working_since: x.working_since ?? null, pin_id: x.pin_id ?? null, from: x.id });
     const steps = [
       { ...base(task), id, parent_id: null, note, today_on: today, computer: task.computer ?? null, position },
       ...subTasks.map((x, i) => ({ ...base(x), id: crypto.randomUUID(), parent_id: id, note: x.note ?? null, position: i })),
@@ -1295,6 +1296,57 @@ export default function Quests() {
     }
   }
 
+  // --- Photos and pins (0096) -------------------------------------------------------
+
+  // Where a pin's tasks go: a photo's section; a sketch's step's section
+  // (its camp's top, if in none); a sketch's line's list, beside it.
+  // Null: not on this page.
+  const pinHome = ({ photo, sketch }) => {
+    if (photo) {
+      const sec = (campData?.sections ?? []).find((x) => x.id === photo.section_id);
+      return sec ? { campId: sec.camp_id, sectionId: sec.id } : null;
+    }
+    if (sketch?.camp_step_id) {
+      const st = rawStep(sketch.camp_step_id);
+      return st ? { campId: st.camp_id, sectionId: st.section_id ?? null } : null;
+    }
+    const line = sketch?.quest_task_id ? (lines ?? []).find((x) => x.id === sketch.quest_task_id) : null;
+    return line ? { line } : null;
+  };
+  const pinProps = {
+    sectionIds: (campData?.sections ?? []).map((x) => x.id),
+    tasksOf: (pinId) => [...(campData?.steps ?? []).filter((x) => x.pin_id === pinId), ...(lines ?? []).filter((x) => x.pin_id === pinId)].sort(byPos),
+    place: (target) => {
+      const home = pinHome(target);
+      if (!home) return null;
+      if (home.line) return home.line.ongoing ? "the ongoing list" : home.line.day === today ? "today's list" : "its day's list";
+      const sec = (campData?.sections ?? []).find((x) => x.id === home.sectionId);
+      const camp = questCamps.find((c) => c.id === home.campId)?.title;
+      if (sec?.clipboard) return `${camp ? `${camp}'s ` : "the "}${sec.title}`;
+      return sectionName(home.sectionId, home.campId);
+    },
+    addTasks: async (target, texts) => {
+      const home = pinHome(target);
+      if (!home) return false;
+      if (!home.line) return addStepsTo(home.campId, home.sectionId, texts, { pin_id: target.pin.id });
+      const line = home.line;
+      try {
+        let pos = nextPosition(lines ?? [], line.ongoing ? null : line.day, line.parent_id ?? null);
+        const rows = await addQuestTasks(
+          userId,
+          texts.map((text) => ({ quest_id: line.quest_id, parent_id: line.parent_id ?? null, kind: "task", text, day: line.day, ongoing: Boolean(line.ongoing), pin_id: target.pin.id, position: pos++ }))
+        );
+        mutateLines((list) => [...(list ?? []), ...rows]);
+        haptic("tap");
+        return true;
+      } catch (err) {
+        toast.error(err, texts.length > 1 ? "Couldn't add those." : "Couldn't add that.");
+        return false;
+      }
+    },
+    tick: (row) => (row.camp_id ? toggleStepDone(row) : toggleDone(row)),
+  };
+
   // A line (with its sub-tasks) onto the end of the ongoing list, or off it
   // onto the end of today's.
   function shiftLine(line) {
@@ -1534,6 +1586,7 @@ export default function Quests() {
 
   return (
     <div className="page ascent qs">
+      <PhotoProvider userId={userId} {...pinProps}>
       <header className="qs-head">
         <div className="qs-head__name">
           <div className="eyebrow">{sel ? (sel.type === "Lesson" ? "Lesson" : "Quest") : "Quests"}</div>
@@ -1690,6 +1743,7 @@ export default function Quests() {
           onClose={() => setDoneView(null)}
         />
       )}
+      </PhotoProvider>
     </div>
   );
 }

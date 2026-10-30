@@ -1,0 +1,120 @@
+/* ===========================================================================
+   Photos on sections and pins (0096): a row of small photos in a section,
+   and a photo or sketch up close over the whole screen, with its pins.
+   Dark around the picture so it reads like a lightbox; pins in the accent,
+   the open one in ink.
+   =========================================================================== */
+
+/* A section's photos, small, in a row */
+.ph-strip { display: flex; gap: 8px; margin: 4px 0 10px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 2px; scrollbar-width: thin; }
+.ph-thumb {
+  position: relative; flex: 0 0 auto; height: 76px; min-width: 44px; max-width: 168px; padding: 0; border: 0; border-radius: 10px; overflow: hidden;
+  background: var(--inset); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: zoom-in;
+}
+.ph-thumb img, .ph-thumb canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ph-thumb--sketch { background: #fff; }
+.ph-thumb__wait { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, var(--inset), var(--surface), var(--inset)); }
+.ph-thumb__pins {
+  position: absolute; right: 4px; bottom: 4px; display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px 2px 4px; border-radius: 999px;
+  background: var(--accent); color: #fff; font: 700 10px var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.clip-col .ph-strip { margin-top: 8px; }
+.clip-col .ph-thumb { height: 64px; }
+
+/* "Add a photo" at the end of a section's box for new steps */
+.camp-add .ph-add { flex: 0 0 auto; align-self: center; color: var(--text-3); }
+@media (hover: hover) { .camp-add .ph-add:hover { color: var(--ink); } }
+
+/* On a step made on a pin */
+.pin-tag {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px 1px 5px; border-radius: 999px; vertical-align: 1px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font: 700 10px var(--font-mono); letter-spacing: 0.02em; white-space: nowrap;
+}
+.btn.ph-show { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Adding one */
+.ph-add-sheet { display: flex; flex-direction: column; gap: 12px; }
+.btn.ph-pick { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; cursor: pointer; }
+.btn.ph-pick.busy { opacity: 0.75; cursor: progress; }
+.ph-add-sheet .eyebrow { margin: 6px 0 0; }
+.ph-recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.ph-recent__one { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; font: inherit; color: var(--text-2); text-align: left; cursor: pointer; }
+.ph-recent__img { display: block; width: 100%; max-height: 120px; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ph-recent__img canvas { display: block; width: 100%; height: 100%; }
+.ph-recent__one small { font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) { .ph-recent__one:hover .ph-recent__img { box-shadow: inset 0 0 0 2px var(--ink); } }
+
+/* ---- Up close -------------------------------------------------------------- */
+.iv {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: #121212; color: #f4f2ee; outline: none;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+.iv-bar { flex: none; display: flex; align-items: center; gap: 6px; min-height: 54px; padding: 6px 10px; }
+.iv-title { min-width: 0; margin: 0 4px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iv-btn, .iv-pct {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 38px; height: 38px; padding: 0 9px;
+  border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.1); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  touch-action: manipulation;
+}
+@media (hover: hover) { .iv-btn:hover, .iv-pct:hover { background: rgba(255, 255, 255, 0.18); } }
+.iv-btn--word { padding: 0 14px; }
+.iv-btn.on { background: var(--accent); color: #fff; }
+.iv-zoom { display: inline-flex; align-items: center; gap: 4px; }
+.iv-pct { min-width: 56px; font: 600 12px var(--font-mono); font-variant-numeric: tabular-nums; background: none; }
+.iv-body { flex: 1; min-height: 0; display: flex; }
+.iv-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; touch-action: none; cursor: grab; -webkit-user-select: none; user-select: none; }
+.iv-stage:active { cursor: grabbing; }
+.iv-stage.pinning { cursor: crosshair; }
+.iv-img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
+.iv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.iv-hint {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 999px;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* A pin: its point exactly where it was put, its head above it */
+.iv-pin {
+  position: absolute; left: 0; top: 0; width: 32px; height: 44px; margin: -44px 0 0 -16px; padding: 0; border: 0; background: none;
+  cursor: pointer; touch-action: manipulation;
+}
+.iv-pin__head {
+  position: absolute; left: 1px; top: 0; width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 999px; background: var(--accent); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), 0 0 0 2px #fff;
+  color: #fff; font: 800 12px var(--font-mono);
+}
+.iv-pin__head::after {
+  content: ""; position: absolute; left: 50%; bottom: -9px; width: 0; height: 0; transform: translateX(-50%);
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid var(--accent);
+}
+.iv-pin.open .iv-pin__head { background: #fff; color: var(--ink); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45), 0 0 0 3px var(--accent); }
+.iv-pin.open .iv-pin__head::after { border-top-color: #fff; }
+.iv-pin::before { content: ""; position: absolute; left: 13px; bottom: -3px; width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px var(--accent); }
+
+/* The open pin's note and tasks: beside it, or below it on a phone */
+.iv-panel {
+  flex: 0 0 360px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
+  background: var(--card); color: var(--text); border-top-left-radius: 18px; box-shadow: -8px 0 30px rgba(0, 0, 0, 0.25);
+}
+@media (max-width: 760px) {
+  .iv-bar { flex-wrap: wrap; }
+  .iv-title { flex: 1 1 40%; }
+  .iv-fit { display: none; }
+  .iv-body { flex-direction: column; }
+  .iv-panel { flex: 0 0 auto; max-height: 52%; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25); }
+}
+.iv-pinp { display: flex; flex-direction: column; gap: 12px; }
+.iv-pinp__head { display: flex; align-items: center; gap: 10px; }
+.iv-pinp__head h3 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.iv-pinp__head .iv-btn { background: var(--inset); color: var(--text); }
+.iv-pinp__n { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 999px; background: var(--accent); color: #fff; font: 800 12px var(--font-mono); }
+.iv-pinp .field { margin: 0; }
+.iv-pinp__tasks { display: flex; flex-direction: column; gap: 6px; }
+.iv-pinp__tasks .eyebrow { margin: 0; }
+.iv-pinp__tasks ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.iv-pinp__tasks li { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.iv-pinp__tasks li .camp-check, .iv-pinp__tasks li .qs-pen { flex: none; margin: 0; }
+.iv-pinp__tasks li .qs-pen { width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-3); }
+.iv-pinp__text { flex: 1; min-width: 0; padding-top: 4px; font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.iv-pinp__tasks li.done .iv-pinp__text { color: var(--text-3); text-decoration: line-through; }
+.iv-pinp__tasks .camp-add { margin-top: 2px; }
+.iv-pinp__acts { display: flex; justify-content: flex-end; }

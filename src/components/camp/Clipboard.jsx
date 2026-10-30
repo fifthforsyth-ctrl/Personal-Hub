@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { ClipboardList, Pencil, Pin, PinOff, Plus } from "lucide-react";
 import { AddStep, StepList } from "./Steps";
 import { NewSectionSheet } from "./Select";
+import { PhotoButton, SectionPhotos } from "../photos/Bits";
 import { tintOf } from "./ColorPick";
 import Sheet from "../ascent/Sheet";
 import "../../styles/clipboard.css";
@@ -125,11 +126,12 @@ function ClipColumn({ col, showCamp, openStep, step, hideDone, onAdd, onAddSubs,
           </button>
         )}
       </div>
+      <SectionPhotos sectionId={s.id} />
       {shown.length > 0 && (
         <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} carry={carry} cross={cross} />
       )}
       {s.steps.length > shown.length && <p className="ascent-mini camp-hidden">{s.steps.length - shown.length} done, hidden</p>}
-      <AddStep label="Jot it down" hidden={picking} onAdd={(texts) => onAdd(s, texts)} />
+      <AddStep label="Jot it down" hidden={picking} onAdd={(texts) => onAdd(s, texts)} extra={<PhotoButton sectionId={s.id} title={s.title} />} />
     </section>
   );
 }
