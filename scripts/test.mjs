@@ -34,6 +34,8 @@ import {
   questToday,
   pickDiff,
 } from "../src/lib/camp.js";
+import { planMove, applyRows, inPageOrder } from "../src/lib/stepMoves.js";
+import { kindFields, isNote } from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
   stageOf,
@@ -2821,6 +2823,62 @@ function sectionOf({ x, y }) {
   ok("a new computer takes the lowest number free", JSON.stringify(nextComputer([{ n: 1 }, { n: 3 }])) === JSON.stringify({ n: 2, name: "Computer 2" }) && nextComputer([]).n === 1);
   ok("nor one still handed out on a row (a removal that didn't clear it)", nextComputer([{ n: 1 }], [2, 1]).n === 3 && nextComputer([{ n: 1 }], []).n === 2);
   ok("where a card's computer is written", rowOf(by["sec:sec1"]).table === "camp_sections" && rowOf(by["step:c"]).table === "camp_steps" && rowOf(by["line:o1"]).table === "quest_tasks" && rowOf(by["line:o1"]).id === "o1");
+}
+
+
+{
+  console.log("\nthe clipboard: many steps moved at once (0095)");
+  const st = (id, camp, section, parent, position, extra = {}) => ({ id, camp_id: camp, section_id: section, parent_id: parent, position, created_at: "2026-10-30", ...extra });
+  const steps = [
+    st("a", "sift", "clip", null, 0),
+    st("b", "sift", "clip", null, 1),
+    st("b1", "sift", "clip", "b", 0),
+    st("c", "sift", "clip", null, 2),
+    st("x", "sift", "ui", null, 0),
+    st("y", "sift", "ui", null, 1),
+    st("m", "multi", "mclip", null, 0),
+  ];
+  const plan = planMove(steps, ["c", "a"], { campId: "sift", sectionId: "ui", beforeId: "y" });
+  const after = applyRows(steps, plan.rows);
+  const order = (sec) => after.filter((x) => x.section_id === sec && !x.parent_id).sort((p, q) => p.position - q.position).map((x) => x.id).join();
+  ok("selected steps land together, in the order given, before the one let go on", order("ui") === "x,c,a,y", order("ui"));
+  ok("the ones left behind keep their places", order("clip") === "b");
+  ok("only what changed is written", plan.rows.every((r) => Object.keys(r).length > 1) && !plan.rows.some((r) => r.id === "x"));
+  const back = applyRows(after, plan.was);
+  ok("Undo puts every row back as it was", JSON.stringify(back) === JSON.stringify(steps));
+
+  const cross = planMove(steps, ["b"], { campId: "multi", sectionId: "mclip" });
+  const moved = applyRows(steps, cross.rows);
+  const b1 = moved.find((x) => x.id === "b1");
+  ok("into another camp: its sub-steps come along into that camp and section", b1.camp_id === "multi" && b1.section_id === "mclip" && b1.parent_id === "b");
+  ok("...at the end there", moved.find((x) => x.id === "b").position === 1);
+
+  const nested = planMove(steps, ["a", "c"], { parentId: "x" });
+  const n2 = applyRows(steps, nested.rows);
+  ok("under another step: in its camp and section, after its others", n2.filter((x) => x.parent_id === "x").map((x) => x.id).join() === "a,c" && n2.find((x) => x.id === "a").section_id === "ui");
+  ok("not under itself, nor under one of its own", planMove(steps, ["b"], { parentId: "b1" }) === null && planMove(steps, ["b"], { parentId: "b" }) === null);
+  const withSub = planMove(steps, ["b1", "b"], { campId: "sift", sectionId: "ui" });
+  ok("a sub-step selected with its step comes along under it, not beside it", withSub.tops.join() === "b" && applyRows(steps, withSub.rows).find((x) => x.id === "b1").parent_id === "b");
+  ok("nothing there to move asks for nothing", planMove(steps, ["zz"], { sectionId: "ui" }) === null);
+  ok("already where it is, nothing is written", planMove(steps, ["a"], { campId: "sift", sectionId: "clip", beforeId: "b" }).rows.length === 0);
+
+  const sections = [{ id: "ui", position: 0 }, { id: "clip", position: 5 }, { id: "mclip", position: 0 }];
+  const camps = [{ id: "sift" }, { id: "multi" }];
+  ok("selected in the order they sit on the page", inPageOrder(new Set(["m", "c", "x", "b1", "a"]), steps, sections, camps).join() === "x,a,b1,c,m", inPageOrder(new Set(["m", "c", "x", "b1", "a"]), steps, sections, camps).join());
+
+  const view = buildCamp(
+    [{ id: "s1", title: "UI", position: 0 }, { id: "cb", title: "Meeting", position: 1, clipboard: true }],
+    [st("t1", "c", "s1", null, 0, { done_on: "2026-10-30" }), st("t2", "c", "s1", null, 1, { kind: "note" }), st("t3", "c", "cb", null, 0), st("t4", "c", "cb", null, 1, { today_on: "2026-10-30" })],
+    "2026-10-30"
+  );
+  ok("clipboard columns stand apart from the camp's sections", view.sections.map((x) => x.id).join() === "s1" && view.clips.map((x) => x.id).join() === "cb" && view.clips[0].steps.length === 2);
+  ok("what's on the clipboard, and notes, don't count toward how far along it is", view.total === 1 && view.done === 1 && view.sections[0].total === 1);
+  ok("nor is a note ever the next step", view.next === null);
+  const picks = todayPicks(view, "2026-10-30");
+  ok("a clipboard step picked for today shows on Today, saying it's from the clipboard", picks.items.map((x) => x.id).join() === "t4" && picks.items[0].from === "Clipboard · Meeting");
+  ok("a step made a note can't stay done or urgent", JSON.stringify(kindFields({ kind: "task" })) === JSON.stringify({ kind: "note", done_on: null, urgency: null, working_since: null }) && kindFields({ kind: "note" }).kind === "task" && isNote({ kind: "note" }));
+  const tally = campTally([st("t1", "c", "s1", null, 0), st("t3", "c", "cb", null, 0, { today_on: "2026-10-30" }), st("t5", "c", null, null, 0, { kind: "note" })], "2026-10-30", [{ id: "cb", camp_id: "c", clipboard: true }]).get("c");
+  ok("the camps on Quests count neither the clipboard nor notes, but its picks are on today", tally.total === 1 && tally.today === 1, JSON.stringify(tally));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

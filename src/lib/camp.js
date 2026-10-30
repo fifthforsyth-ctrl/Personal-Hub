@@ -20,6 +20,12 @@ const BYPOS = (a, b) =>
 // step, and a sub-step whose step is gone stands on its own. With `today`,
 // a step picked for today (0090), or in a section picked for today (0091),
 // comes next before the rest.
+export const isNote = (st) => st?.kind === "note";
+
+// A step made a note (0095: it can't be ticked, be urgent or be worked on),
+// or a task again.
+export const kindFields = (st) => (isNote(st) ? { kind: "task" } : { kind: "note", done_on: null, urgency: null, working_since: null });
+
 export function buildCamp(sections, steps, today = null) {
   const all = [...(steps ?? [])].sort(BYPOS);
   const ids = new Set(all.map((st) => st.id));
@@ -46,18 +52,25 @@ export function buildCamp(sections, steps, today = null) {
       bySection.get(st.section_id).push(st);
     } else loose.push(st);
   }
-  const flat = (list) => list.flatMap((st) => [st, ...flat(st.subs)]);
-  const list = [...(sections ?? [])].sort(BYPOS).map((s, i) => {
+  // A note (0095) is a line of notes: it can't be ticked, so it isn't counted.
+  const flat = (list) => list.flatMap((st) => [...(isNote(st) ? [] : [st]), ...flat(st.subs)]);
+  const shape = (s, i) => {
     const own = bySection.get(s.id) ?? [];
     const every = flat(own);
     const done = every.filter((st) => st.done_on).length;
     return { ...s, number: i + 1, steps: own, done, total: every.length, complete: every.length > 0 && done === every.length };
-  });
+  };
+  const sorted = [...(sections ?? [])].sort(BYPOS);
+  const list = sorted.filter((s) => !s.clipboard).map(shape);
+  // The clipboard's columns (0095) stand apart: thoughts not yet sorted
+  // into the camp's sections don't count toward how far along it is.
+  const clips = sorted.filter((s) => s.clipboard).map(shape);
   const ordered = flat([...loose, ...list.flatMap((s) => s.steps)]);
   const done = ordered.filter((st) => st.done_on).length;
   const onToday = (st) => Boolean(today) && (st.today_on === today || list.some((s) => s.id === st.section_id && s.today_on === today));
   return {
     sections: list,
+    clips,
     loose,
     done,
     total: ordered.length,
@@ -100,6 +113,7 @@ export function todayPicks(view, today) {
     }
   };
   walk(view?.loose ?? [], null, null);
+  for (const s of view?.clips ?? []) walk(s.steps, s, null);
   for (const s of view?.sections ?? []) {
     if (today && s.today_on === today) {
       const items = s.steps.filter((st) => stillOn(st, today));
@@ -107,7 +121,7 @@ export function todayPicks(view, today) {
       run = null;
     } else walk(s.steps, s, null);
   }
-  const flat = (list) => list.flatMap((st) => [st, ...flat(st.subs)]);
+  const flat = (list) => list.flatMap((st) => [...(isNote(st) ? [] : [st]), ...flat(st.subs)]);
   for (const b of blocks) {
     const every = flat(b.items);
     b.done = every.filter((st) => st.done_on).length;
@@ -130,7 +144,7 @@ function stillOn(st, today) {
 // Where a step sits, for a step shown away from its place: "2. Search",
 // "under “Tag clips”", or both.
 export function fromLabel(section, parent) {
-  const where = section ? `${section.number}. ${section.title}` : null;
+  const where = section ? (section.clipboard ? `Clipboard · ${section.title}` : `${section.number}. ${section.title}`) : null;
   const under = parent ? `under “${String(parent.text ?? "").slice(0, 60)}${String(parent.text ?? "").length > 60 ? "…" : ""}”` : null;
   return [where, under].filter(Boolean).join(" · ") || null;
 }
@@ -175,6 +189,7 @@ export function stepsUnder(steps, id) {
 export function campProgress(steps) {
   const by = new Map();
   for (const st of steps ?? []) {
+    if (isNote(st)) continue;
     const p = by.get(st.camp_id) ?? { done: 0, total: 0 };
     p.total += 1;
     if (st.done_on) p.done += 1;

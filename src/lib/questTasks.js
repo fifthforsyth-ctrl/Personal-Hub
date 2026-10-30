@@ -163,6 +163,7 @@ export function withFinishedStep(finished, step) {
 // or with something under them still to do (as todayPicks shows them).
 export function campTally(steps, today = null, sections = null) {
   const whole = new Set(today ? (sections ?? []).filter((x) => x.today_on === today).map((x) => x.id) : []);
+  const clip = new Set((sections ?? []).filter((x) => x.clipboard).map((x) => x.id));
   const kids = new Map();
   for (const s of steps ?? []) {
     if (!s.parent_id) continue;
@@ -178,13 +179,18 @@ export function campTally(steps, today = null, sections = null) {
   const m = new Map();
   for (const s of steps ?? []) {
     const t = m.get(s.camp_id) ?? { done: 0, total: 0, working: false, today: 0 };
-    t.total += 1;
-    if (s.done_on) t.done += 1;
-    else if (s.working_since) t.working = true;
+    m.set(s.camp_id, t);
+    // a note (0095) can't be ticked; the clipboard's thoughts aren't counted
+    // until they're sorted into a section
+    if (s.kind === "note") continue;
+    if (!clip.has(s.section_id)) {
+      t.total += 1;
+      if (s.done_on) t.done += 1;
+    }
+    if (!s.done_on && s.working_since) t.working = true;
     if (s.section_id && whole.has(s.section_id)) {
       if (!s.parent_id && still(s)) t.today += 1;
     } else if (today && s.today_on === today) t.today += 1;
-    m.set(s.camp_id, t);
   }
   return m;
 }

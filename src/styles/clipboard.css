@@ -1,0 +1,104 @@
+/* ===========================================================================
+   The clipboard (0095): a card with a clip at the top, its columns side by
+   side (Quests, and above a camp's steps) or stacked down the right of the
+   window (a camp, pinned). Ink on white like the rest; orange only where a
+   carried step will land.
+   =========================================================================== */
+
+.card.clip { position: relative; display: flex; flex-direction: column; gap: 10px; padding-top: 22px; }
+/* the clip itself */
+.card.clip::before {
+  content: ""; position: absolute; top: -7px; left: 50%; width: 76px; height: 16px; transform: translateX(-50%);
+  border-radius: 6px 6px 9px 9px; background: var(--ink); box-shadow: 0 2px 6px rgba(20, 20, 20, 0.18);
+}
+.card.clip::after {
+  content: ""; position: absolute; top: -2px; left: 50%; width: 22px; height: 6px; transform: translateX(-50%);
+  border-radius: 3px; background: var(--bg);
+}
+.clip-head { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
+.clip-head h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+.clip-head h2 svg { color: var(--text-2); }
+.clip-head small { font: 600 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.btn.clip-pin { display: inline-flex; align-items: center; gap: 6px; }
+.clip-empty { margin: -2px 0 0; }
+
+.clip-cols { display: flex; gap: 10px; min-width: 0; }
+.clip--row .clip-cols {
+  align-items: flex-start; margin: 0 -4px; padding: 2px 4px 6px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+}
+.clip--stack .clip-cols { flex-direction: column; }
+
+.clip-col {
+  min-width: 0; display: flex; flex-direction: column; padding: 8px 12px 10px;
+  border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+.clip--row .clip-col { flex: 1 0 280px; max-width: 420px; }
+.clip-col.tinted { box-shadow: inset 4px 0 0 var(--tint), inset 0 0 0 1px var(--line-strong); }
+.clip-col__head { display: flex; align-items: center; gap: 6px; min-height: 34px; padding-bottom: 6px; border-bottom: 1px solid var(--line-strong); }
+.clip-col__name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.clip-col__name h3 { margin: 0; font-size: 14.5px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere; }
+.clip-col__camp { font: 600 10px var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); }
+.clip-col__count { flex: none; font: 600 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.clip-col .camp-add { margin-top: 2px; }
+.clip-col.drop-here { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); box-shadow: inset 0 0 0 2px var(--accent); }
+.clip-col.drop-end > .camp-add { margin-top: 52px; }
+.clip-col--add {
+  flex: 0 0 150px; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-height: 96px;
+  border: 1.5px dashed var(--line-strong); background: transparent; box-shadow: none;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); cursor: pointer; touch-action: manipulation;
+}
+.clip--stack .clip-col--add { flex-basis: auto; min-height: 52px; }
+@media (hover: hover) { .clip-col--add:hover { color: var(--text); border-color: var(--ink); } }
+
+/* Pinned down the right of a camp's page: it stays in view while the steps
+   scroll beside it, and scrolls on its own. */
+.camp-left { min-width: 0; }
+@media (min-width: 1100px) {
+  .page.camp.camp--pinned {
+    max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); gap: 22px; align-items: start;
+  }
+  .camp--pinned .camp-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "now" "main" "side"; grid-template-rows: none; }
+  .camp-clipside {
+    position: sticky; top: 12px; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain;
+    margin-top: 6px; padding: 10px 6px 18px; scrollbar-width: thin;
+  }
+  .camp-clipside .card.clip { box-shadow: var(--shadow-lift); }
+}
+
+/* Selecting many (0095): a box that selects, the rows picked out, and the
+   bar along the bottom. While one selected is carried, the others wait
+   faded where they are, and it says how many more come along. */
+.camp-step.selected > .camp-step__row {
+  background: var(--inset); border-radius: 10px; box-shadow: -6px 0 0 var(--inset), 6px 0 0 var(--inset);
+}
+.camp-pick.camp-select { box-shadow: inset 0 0 0 2px var(--ink); }
+.camp-pick.camp-select[aria-checked="true"] { background: var(--ink); color: var(--on-ink); }
+.drag-sorting .camp-step.selected:not(.lifted) { opacity: 0.35; }
+.nest-tag.group-tag { background: var(--ink); color: var(--on-ink); }
+.btn.sel-btn { display: inline-flex; align-items: center; gap: 6px; }
+.btn.sel-btn.on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.sel-bar { gap: 6px; }
+.sel-bar .btn { display: inline-flex; align-items: center; gap: 6px; }
+.sel-bar .btn:disabled { opacity: 0.45; }
+.btn-link.sel-bar__clear { color: rgba(255, 255, 255, 0.75); padding: 0 6px; }
+@media (max-width: 640px) { .sel-bar__word { display: none; } .sel-bar { padding-left: 14px; } }
+.sel-places { display: flex; flex-direction: column; gap: 14px; }
+.sel-places__group { display: flex; flex-direction: column; gap: 6px; }
+.sel-places__group .eyebrow { margin: 0; }
+.sel-place {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--card); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
+}
+@media (hover: hover) { .sel-place:hover { border-color: var(--ink); } }
+.sel-place--new { border-style: dashed; color: var(--text-2); }
+
+/* A step that's a note (0095) reads quieter, like a quest's note lines. */
+.camp-step--note .camp-step__words { color: var(--text-2); }
+.camp-step--note .qs-pen { flex: 0 0 auto; width: 28px; height: 28px; margin: 7px 0 0; display: grid; place-items: center; color: var(--text-3); }
+.camp-subs .camp-step--note .qs-pen { width: 22px; height: 22px; margin-top: 6px; }
+/* Thoughts on the clipboard sit close together: no "working on it" button
+   under each box (it's there once a step is sorted into a section). */
+.clip-col .camp-work-btn { display: none; }
+.clip--row .clip-col.clip-col--add { flex: 0 0 160px; align-self: stretch; max-height: 140px; }
