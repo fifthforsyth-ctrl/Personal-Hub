@@ -5,7 +5,7 @@ import { dropIndex, edgePush, moved, towardEdge } from "./dragOrder";
 // Drag to reorder, by a handle only, so a stray touch never moves anything.
 // Works the same with a finger or a mouse (pointer events): press the handle,
 // the item lifts and follows, the others slide out of its way, and letting
-// go hands the new order of ids to `onDrop`. Near the top or bottom of the
+// go hands the new order of ids to `onDrop` (and the id that was carried). Near the top or bottom of the
 // screen the page scrolls along with it: the app's page scrolls inside
 // `.main`, not the window, so it scrolls whatever the list sits in, and the
 // edges are that box's own (under the top bar, above the phone's tab bar).
@@ -153,7 +153,7 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       if (commit) haptic("tap");
     } else if (commit && d.to !== d.from) {
       haptic("tap");
-      latest.current.onDrop(moved(d.ids, d.from, d.to));
+      latest.current.onDrop(moved(d.ids, d.from, d.to), d.id);
     }
     // Columns carried sideways come to rest on the one under the pointer,
     // after the drop: where it lands is read where it was let go.
@@ -293,7 +293,8 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
       if (d.clip) {
         const r = d.clip.getBoundingClientRect();
         const row = d.into?.row.getBoundingClientRect();
-        d.ghostAt = d.y < r.top || d.y > r.bottom ? (row ? { x: row.left + NEST_X, y: row.bottom } : { x: d.x - d.grabX, y: d.y - d.grab }) : null;
+        const away = d.y < r.top || d.y > r.bottom || (!xbox && (d.x < r.left || d.x > r.right));
+        d.ghostAt = away ? (row ? { x: row.left + NEST_X, y: row.bottom } : { x: d.x - d.grabX, y: d.y - d.grab }) : null;
         ghost(d);
       }
     };
@@ -308,6 +309,19 @@ export function useDragSort(ids, onDrop, { onOut, into, cross } = {}) {
         if (box) box.scrollTop = before + by;
         else window.scrollBy(0, by);
         moving = scrolled() !== before;
+      }
+      // Carried out of its own box (a clipboard pinned beside the page,
+      // 2026-10-30), the box under the finger scrolls along at its edges.
+      if (d.out && !d.into) {
+        const under = document.elementsFromPoint(d.x, d.y).find((e) => !d.self.contains(e) && !e.classList.contains("drag-ghost"));
+        const other = under ? scrollerOf(under) : null;
+        if (other && other !== box) {
+          const r = other.getBoundingClientRect();
+          const by = Math.round(towardEdge(edgePush(d.y, Math.max(0, r.top), Math.min(window.innerHeight, r.bottom)), d.startY, d.y) * SPEED);
+          const before = other.scrollTop;
+          if (by) other.scrollTop = before + by;
+          if (other.scrollTop !== before) moving = true;
+        }
       }
       // Once the page stops, the row under the finger can light up again.
       // Sideways too, at the columns' own left and right edges.

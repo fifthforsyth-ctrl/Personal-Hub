@@ -2902,20 +2902,20 @@ export async function deleteLesson(id) {
 // edge function and kept, so it can fill any number of camps.
 // ---------------------------------------------------------------------------
 
-const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, computer, position, created_at";
-const CAMP_STEP = "id, camp_id, section_id, parent_id, text, note, urgency, color, working_since, today_on, computer, done_on, position, created_at";
+const CAMP_SECTION = "id, camp_id, plan_id, title, why, note, color, today_on, computer, clipboard, position, created_at";
+const CAMP_STEP = "id, camp_id, section_id, parent_id, kind, text, note, urgency, color, working_since, today_on, computer, done_on, position, created_at";
 const PLAN_ROW = "id, title, summary, notes, sections, source, created_at";
 
 // Every step's camp, whether it's done and whether it's picked for a day,
 // for the camp lists on the Range and Quests. Its section and the step it's
 // under count a section picked for today (0091) by its own steps.
 export function fetchStepTally(userId) {
-  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, section_id, parent_id, done_on, working_since, today_on").eq("user_id", userId).order("id"));
+  return selectAllPages(() => supabase.from("camp_steps").select("id, camp_id, section_id, parent_id, kind, done_on, working_since, today_on").eq("user_id", userId).order("id"));
 }
 
 // Every section's camp and the day it was picked for (0091), for the same.
 export function fetchSectionTally(userId) {
-  return selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, today_on").eq("user_id", userId).order("id"));
+  return selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, today_on, clipboard").eq("user_id", userId).order("id"));
 }
 
 // The sections and steps of several camps (a quest's), for its Today on
@@ -2977,9 +2977,10 @@ export async function fetchMountains(userId) {
 
 // New steps at the end of a section (or of the camp's loose steps, with no
 // section), in the order given; with `parentId`, sub-steps under that step
-// (0083), in its section. Resolves to the rows as saved.
-export async function addSteps(userId, campId, sectionId, texts, startAt = 0, parentId = null) {
-  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: campId, section_id: sectionId ?? null, parent_id: parentId, text, position: startAt + i }));
+// (0083), in its section. `extra` goes on every one (today_on, a step added
+// to Today's board). Resolves to the rows as saved.
+export async function addSteps(userId, campId, sectionId, texts, startAt = 0, parentId = null, extra = {}) {
+  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: campId, section_id: sectionId ?? null, parent_id: parentId, text, position: startAt + i, ...extra }));
   if (!rows.length) return [];
   const { data, error } = await supabase.from("camp_steps").insert(rows).select(CAMP_STEP);
   if (error) throw error;
@@ -3034,15 +3035,24 @@ export async function moveToCamp(table, rows) {
   }
 }
 
+// Many steps moved at once (0095): `rows` from planMove (lib/stepMoves.js),
+// each { id, camp_id?, section_id?, parent_id?, position?, today_on? },
+// written in one statement, so they land together or not at all.
+export async function placeSteps(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.rpc("camp_steps_place", { p_rows: rows });
+  if (error) throw error;
+}
+
 export async function deleteStep(id) {
   const { error } = await supabase.from("camp_steps").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function addSection(userId, campId, { title, why = null, color = null, position = 0 }) {
+export async function addSection(userId, campId, { title, why = null, color = null, position = 0, clipboard = false }) {
   const { data, error } = await supabase
     .from("camp_sections")
-    .insert({ user_id: userId, camp_id: campId, title, why: why || null, color: color || null, position })
+    .insert({ user_id: userId, camp_id: campId, title, why: why || null, color: color || null, position, ...(clipboard ? { clipboard: true } : {}) })
     .select(CAMP_SECTION)
     .single();
   if (error) throw error;

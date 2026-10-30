@@ -5,7 +5,7 @@ import { useDragSort } from "../../lib/useDragSort";
 import { moved } from "../../lib/dragOrder";
 import { campColumns, computerColumns, filterOn, matchesFilter, MAX_COMPUTERS, moveKey, nextComputer, NO_FILTER, reorderShown } from "../../lib/todayBoard";
 import { dayLabel } from "../../lib/questTasks";
-import { DragHandle, StepList, URGENCY } from "../camp/Steps";
+import { AddStep, DragHandle, StepList, URGENCY } from "../camp/Steps";
 import { STEP_COLORS, tintOf } from "../camp/ColorPick";
 import { CardBadge, ComputerPick } from "../camp/ComputerPick";
 import { SketchProvider, SketchScope, useSketchScope } from "../sketch/Sketches";
@@ -153,6 +153,8 @@ export default function TodayBoard({
   onMoveCamp,
   onComputers,
   onRemoveComputer,
+  camps = [],
+  onAddToCamp,
   sketch,
 }) {
   const [sheet, setSheet] = useState(null); // { card } or { pc }
@@ -444,8 +446,11 @@ export default function TodayBoard({
               {workBox(col.working, col.still)}
               {list(col.shown, cross)}
               {!col.shown.length && !col.working.length && !col.still.length && <p className="tb-col__empty">{emptyHint(col.cards)}</p>}
+              {/* Aaron, 2026-10-30: add to today right in a camp's column */}
+              {col.camp && onAddToCamp && <AddStep label={`Add to ${col.camp.title} today`} onAdd={(texts) => onAddToCamp(col.camp.id, texts)} />}
             </section>
           ))}
+        {onAddToCamp && <OtherCamp camps={camps.filter((c) => !campCols.some((col) => col.camp?.id === c.id))} onAdd={onAddToCamp} />}
       </div>
     );
   } else {
@@ -720,5 +725,30 @@ function ComputerSheet({ pc, count, onRename, onRemove, onClose }) {
         )}
       </form>
     </Sheet>
+  );
+}
+
+// By camp, the column at the end: a camp with nothing on today yet, picked
+// here, and what's typed goes onto today in it.
+function OtherCamp({ camps, onAdd }) {
+  const [campId, setCampId] = useState("");
+  if (!camps.length) return null;
+  const camp = camps.find((c) => c.id === campId) ?? null;
+  return (
+    <section className="tb-col tb-col--other" aria-label="Add to today in another camp">
+      <div className="tb-col__head">
+        <label className="tb-col__name tb-other">
+          <select className="input tb-other__pick" aria-label="Camp" value={campId} onChange={(e) => setCampId(e.target.value)}>
+            <option value="">Another camp…</option>
+            {camps.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {camp ? <AddStep label={`Add to ${camp.title} today`} onAdd={(texts) => onAdd(camp.id, texts)} /> : <p className="tb-col__empty">Pick a camp to add to today in it.</p>}
+    </section>
   );
 }

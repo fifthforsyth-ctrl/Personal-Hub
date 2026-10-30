@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, deleteSection, updateCamp, reorder, moveStepToSection } from "../lib/api";
-import { buildCamp, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
+import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, deleteSection, updateCamp, reorder, moveStepToSection, placeSteps } from "../lib/api";
+import { buildCamp, kindFields, pickDiff, stepsUnder, todayPicks } from "../lib/camp";
+import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
 import { savesInOrder, undoableSave } from "../lib/inOrder";
@@ -19,6 +20,8 @@ import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
 import { PickBar, TodayBlocks, TodayHead, usePick } from "../components/camp/Today";
+import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
+import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 
@@ -32,8 +35,38 @@ import "../styles/camp.css";
 // to do today, or whole sections (0091), shown again there without leaving
 // where they sit. A tick, a note or a sub-step in either place is the same
 // one. Each day's Today starts empty; nothing carries forward.
+//
+// The camp's clipboard (0095, Aaron 2026-10-30) sits above its steps, or
+// pinned down the right side of the window, where a meeting's thoughts wait
+// to be dragged into the sections on the left. Select picks out many steps
+// at once, anywhere on the page, to drag or move together, or to make a new
+// section from.
 
 const HIDE_KEY = "hub.camp.hideDone";
+const PIN_KEY = "hub:clip-pinned";
+// Wide enough for the clipboard down the right beside the steps.
+const PIN_ROOM = "(min-width: 1100px)";
+
+function readPin() {
+  try {
+    return localStorage.getItem(PIN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function useRoom(query) {
+  const [room, setRoom] = useState(() => typeof window !== "undefined" && Boolean(window.matchMedia?.(query).matches));
+  useEffect(() => {
+    const mql = window.matchMedia?.(query);
+    if (!mql) return undefined;
+    const on = (e) => setRoom(e.matches);
+    mql.addEventListener("change", on);
+    return () => mql.removeEventListener("change", on);
+  }, [query]);
+  return room;
+}
+
 
 function readHide() {
   try {
@@ -82,6 +115,10 @@ export default function Camp() {
   const [saving, setSaving] = useState(false);
   const pick = usePick(saving);
   const [sheet, setSheet] = useState(null); // a section to edit, or { new: true }
+  const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
+  const select = useSelect();
+  const [pinned, setPinned] = useState(readPin);
+  const room = useRoom(PIN_ROOM);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
 
@@ -90,6 +127,7 @@ export default function Camp() {
     setOpenStep(null);
     setOpenToday(null);
     pick.stop();
+    select.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => setNote(data?.camp?.note ?? ""), [data?.camp?.id, data?.camp?.note]);
@@ -170,6 +208,7 @@ export default function Camp() {
   // already on with their section (those come off as steps of their own if
   // it's saved).
   function startPicking() {
+    select.stop();
     setOpenStep(null);
     setOpenToday(null);
     const whole = new Set(data.sections.filter(onToday).map((s) => s.id));
@@ -300,14 +339,16 @@ export default function Camp() {
 
   // A step carried out of its own list: the section under the finger lights
   // up, and letting go there drops it in, between the steps it landed on.
-  function dropTarget(x, y, st) {
+  // Carrying several (`group`), it lands before the first one not among them.
+  function dropTarget(x, y, st, group = null) {
     const el = document
       .elementsFromPoint(x, y)
       .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-drop]"))
       ?.closest("[data-drop]");
     if (!el) return null;
+    const along = new Set((group ?? []).map((k) => `step-${k}`));
     const below = [...el.querySelectorAll("li.camp-step:not(.camp-step--sub)")].find((li) => {
-      if (li.id === `step-${st.id}`) return false;
+      if (li.id === `step-${st.id}` || along.has(li.id)) return false;
       const r = li.getBoundingClientRect();
       return y < r.top + r.height / 2;
     });
@@ -315,9 +356,12 @@ export default function Camp() {
   }
 
   function dragOut(phase, x, y, st) {
-    const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st) : null;
+    const g = group(st);
+    const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st, g) : null;
     markDrop(phase === "move" ? hit : null);
-    if (phase === "drop" && hit) moveToSection(st, hit.sectionId, hit.beforeId);
+    if (phase !== "drop" || !hit) return;
+    if (g) moveMany(g, { sectionId: hit.sectionId, beforeId: hit.beforeId }, `Moved ${many(g.length)} to ${where(hit.sectionId)}`);
+    else moveToSection(st, hit.sectionId, hit.beforeId);
   }
 
   // Dropped onto another step (Aaron, 2026-10-27): it goes under that one,
@@ -325,6 +369,11 @@ export default function Camp() {
   // along. Undo puts it back where it was.
   function nestUnder(st, parentId) {
     const parent = data.steps.find((x) => x.id === parentId);
+    const g = st && group(st);
+    if (g && parent) {
+      moveMany(g, { parentId }, `Moved ${many(g.length)} under “${short(parent.text)}”`);
+      return;
+    }
     if (!st || !parent || parent.id === st.id || st.parent_id === parent.id) return;
     const under = stepsUnder(data.steps, st.id);
     if (under.some((x) => x.id === parent.id)) return;
@@ -355,11 +404,126 @@ export default function Camp() {
     toast.show(`Moved under “${short(parent.text)}”`, { actionLabel: "Undo", onAction: () => undo(put(was), (err) => failed(err, "Couldn't move that step back.")) });
   }
 
+  // --- Many at once (0095) ------------------------------------------------------
+
+  // The ones selected, in the order they sit on the page.
+  const chosen = () => (data ? inPageOrder(select.sel, data.steps, data.sections, [data.camp]) : []);
+  // Carrying one that's selected carries every one selected.
+  const group = (st) => (select.on && select.sel.has(st.id) && select.sel.size > 1 ? chosen() : null);
+  const many = (n) => `${n} step${n === 1 ? "" : "s"}`;
+  const where = (sectionId) => {
+    const s = sectionId ? data.sections.find((x) => x.id === sectionId) : null;
+    return s ? (s.clipboard ? `the clipboard's ${s.title}` : s.title) : "the top";
+  };
+
+  // Steps moved together (lib/stepMoves.js): on screen at once, saved in
+  // one go, and all put back by Undo.
+  function moveMany(ids, to, label) {
+    const plan = planMove(stepsNow.current ?? [], ids, { campId: id, ...to });
+    if (!plan || !plan.rows.length) return false;
+    setSteps((list) => applyRows(list, plan.rows));
+    if (plan.sectionId) setOpened((o) => ({ ...o, [plan.sectionId]: true }));
+    haptic("tap");
+    const undo = undoableSave(inOrder, () => placeSteps(plan.rows), (err) => failed(err, "Couldn't move those."));
+    toast.show(label, {
+      actionLabel: "Undo",
+      onAction: () => {
+        setSteps((list) => applyRows(list, plan.was));
+        undo(() => placeSteps(plan.was), (err) => failed(err, "Couldn't move those back."));
+      },
+    });
+    return true;
+  }
+
+  function startSelecting() {
+    pick.stop();
+    setOpenStep(null);
+    setOpenToday(null);
+    select.start();
+    haptic("tap");
+  }
+
+  function moveSelected(key) {
+    const ids = chosen();
+    if (!moveMany(ids, { sectionId: key || null }, `Moved ${many(ids.length)} to ${where(key || null)}`)) toast.show(ids.length === 1 ? "It's there already." : "They're there already.");
+  }
+
+  // A new section, with the ones selected moved into it.
+  async function newSectionFor({ title }) {
+    const ids = chosen();
+    try {
+      const position = data.sections.reduce((m, s) => Math.max(m, s.position + 1), 0);
+      const row = await addSection(userId, id, { title, position });
+      mutate((d) => d && { ...d, sections: [...d.sections, row] });
+      setOpened((o) => ({ ...o, [row.id]: true }));
+      if (ids.length) moveMany(ids, { sectionId: row.id }, `Moved ${many(ids.length)} to ${title}`);
+      requestAnimationFrame(() => document.getElementById(`sec-${row.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      return true;
+    } catch (err) {
+      toast.error(err, "Couldn't make that section.");
+      return false;
+    }
+  }
+
+  // All of them notes, or (when they're all notes already) tasks again.
+  function kindSelected() {
+    const ids = new Set(chosen());
+    const rows = data.steps.filter((x) => ids.has(x.id));
+    if (!rows.length) return;
+    const toTasks = rows.every((x) => x.kind === "note");
+    const fields = toTasks ? { kind: "task" } : { kind: "note", done_on: null, urgency: null, working_since: null };
+    setSteps((list) => list.map((x) => (ids.has(x.id) ? { ...x, ...fields } : x)));
+    haptic("tap");
+    toast.show(toTasks ? `${rows.length === 1 ? "It's a task" : `${rows.length} are tasks`} again` : rows.length === 1 ? "Made a note" : `${rows.length} made notes`);
+    updateSteps([...ids], fields).catch((err) => failed(err, "Couldn't change those."));
+  }
+
+  // --- The clipboard (0095) ----------------------------------------------------
+
+  async function newColumn({ title }) {
+    try {
+      const position = data.sections.reduce((m, s) => Math.max(m, s.position + 1), 0);
+      const row = await addSection(userId, id, { title, position, clipboard: true });
+      mutate((d) => d && { ...d, sections: [...d.sections, row] });
+      haptic("tap");
+      return true;
+    } catch (err) {
+      toast.error(err, "Couldn't make that column.");
+      return false;
+    }
+  }
+
+  function renameColumn(s, title) {
+    mutate((d) => d && { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, title } : x)) });
+    updateSection(s.id, { title }).catch((err) => failed(err, "Couldn't rename that column."));
+  }
+
+  function togglePin() {
+    setPinned((p) => {
+      try {
+        localStorage.setItem(PIN_KEY, p ? "0" : "1");
+      } catch {
+        /* remembering is a nicety */
+      }
+      return !p;
+    });
+    haptic("tap");
+  }
+
   // New steps at the end of a section, or (with `parent`) sub-steps under a step.
   // Dragged into a new order: `shown` is the list as it stood on screen and
   // `ids` its new order. Done steps hidden from it keep their places.
-  function reorderSteps(shown, ids) {
+  function reorderSteps(shown, ids, draggedId) {
     if (!shown.length) return;
+    // carrying several: they all land where the one carried was let go
+    const dragged = shown.find((x) => x.id === draggedId);
+    const g = dragged && group(dragged);
+    if (g) {
+      const along = new Set(g);
+      const beforeId = ids.slice(ids.indexOf(draggedId) + 1).find((k) => !along.has(k)) ?? null;
+      moveMany(g, { sectionId: dragged.section_id ?? null, parentId: dragged.parent_id ?? null, beforeId }, `Moved ${many(g.length)} together`);
+      return;
+    }
     const full = siblings(shown[0]).sort(byPos);
     const byId = new Map(full.map((x) => [x.id, x]));
     const onScreen = new Set(ids);
@@ -388,7 +552,10 @@ export default function Camp() {
 
   // Where a step can go: any section, or the camp's top above them.
   const sectionChoices = data?.sections?.length
-    ? [{ id: null, title: "No section (top of the camp)" }, ...[...data.sections].sort(byPos).map((s) => ({ id: s.id, title: s.title }))]
+    ? [
+        { id: null, title: "No section (top of the camp)" },
+        ...[...data.sections].sort((a, b) => Number(a.clipboard) - Number(b.clipboard) || byPos(a, b)).map((s) => ({ id: s.id, title: s.clipboard ? `Clipboard · ${s.title}` : s.title })),
+      ]
     : null;
 
   const stepProps = (st, shown) => ({
@@ -403,6 +570,8 @@ export default function Camp() {
     isToday: onToday(st) && !withSection(st),
     onToday: withSection(st) ? undefined : () => setToday(st, !onToday(st)),
     pick: pick.on && withSection(st) ? LOCKED : pick.of(st.id),
+    select: select.of(st.id),
+    onKind: () => saveStep(st, kindFields(st)),
     sections: sectionChoices,
     onMoveTo: (sectionId) => moveToSection(st, sectionId),
   });
@@ -511,6 +680,40 @@ export default function Camp() {
   const isOpen = (s) => opened[s.id] ?? !s.complete;
   const looseShown = hideDone ? view.loose.filter((st) => !st.done_on) : view.loose;
   const empty = view.total === 0 && view.sections.length === 0;
+  // The clipboard down the right, on a screen with room for it.
+  const pinNow = pinned && room;
+  const picked = select.on ? chosen() : [];
+  const carry = select.on ? select.carry : undefined;
+  const places = [
+    { key: "", label: "The top of the camp (no section)", group: null },
+    ...view.sections.map((s) => ({ key: s.id, label: `${s.number}. ${s.title}`, group: "Sections" })),
+    ...view.clips.map((s) => ({ key: s.id, label: s.title, group: "Clipboard" })),
+  ];
+  const selectBtn = !empty || view.clips.length ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null;
+  const clipboard = (stack) => (
+    <Clipboard
+      cols={view.clips.map((section) => ({ section, camp: data.camp }))}
+      layout={stack ? "stack" : "row"}
+      camps={[data.camp]}
+      openStep={openStep}
+      step={stepProps}
+      hideDone={hideDone}
+      onAdd={(sec, texts) => addTo(sec.id, texts)}
+      onAddSubs={addSubs}
+      onReorder={reorderSteps}
+      onDragOut={dragOut}
+      onInto={nestUnder}
+      carry={carry}
+      onNewColumn={newColumn}
+      onEditColumn={(sec) => setColSheet(sec)}
+      tools={stack ? selectBtn : null}
+      pinned={stack}
+      onPin={room ? togglePin : undefined}
+      picking={pick.on}
+    />
+  );
+  // Pinned beside them, a step carried sideways out of a section leaves it.
+  const cross = pinNow ? {} : undefined;
 
   function goToNext() {
     if (!next) return;
@@ -521,7 +724,9 @@ export default function Camp() {
   }
 
   return (
-    <div className="page ascent camp">
+    <div className={"page ascent camp" + (pinNow ? " camp--pinned" : "")}>
+      <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
+      <div className="camp-left">
       <header className="ascent-head camp-head">
         <Link to={fromQuests ? `/quests/${data.camp.quest_id}` : "/ascent"} className="btn-link camp-back">
           <ChevronLeft size={14} />
@@ -590,8 +795,7 @@ export default function Camp() {
           ) : null}
         </section>
 
-        <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
-          <div className={"camp-main" + (pick.on ? " picking" : "")}>
+          <div className={"camp-main" + (pick.on || select.on ? " picking" : "")}>
             {!empty && (
               <section className="card today-card camp-today" aria-labelledby="camp-today-h">
                 <TodayHead id="camp-today-h" done={picks.done} total={picks.total} picking={pick.on} onPick={startPicking} />
@@ -607,13 +811,17 @@ export default function Camp() {
               </section>
             )}
 
+            {!pinNow && clipboard(false)}
+
             <div className="ascent-row camp-main__head">
               <h2 className="eyebrow">Steps</h2>
+              <span className="spacer" />
               {view.done > 0 && (
                 <button type="button" className="btn-link" aria-pressed={hideDone} onClick={toggleHide}>
                   {hideDone ? "Show done steps" : "Hide done steps"}
                 </button>
               )}
+              {!pick.on && selectBtn}
             </div>
 
             {empty && (
@@ -628,7 +836,9 @@ export default function Camp() {
 
             {(view.loose.length > 0 || empty) && (
               <section className="card camp-sec open camp-loose" aria-label="Steps" data-drop="">
-                {looseShown.length > 0 && <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} onInto={nestUnder} />}
+                {looseShown.length > 0 && (
+                  <StepList list={looseShown} openStep={openStep} hideDone={hideDone} step={stepProps} onAddSubs={addSubs} onReorder={reorderSteps} onDragOut={dragOut} onInto={nestUnder} carry={carry} cross={cross} />
+                )}
                 {view.loose.length > looseShown.length && <p className="ascent-mini camp-hidden">{view.loose.length - looseShown.length} done, hidden</p>}
                 <AddStep hidden={pick.on} onAdd={(texts) => addTo(null, texts)} />
               </section>
@@ -651,6 +861,8 @@ export default function Camp() {
                 onReorder={reorderSteps}
                 onDragOut={dragOut}
                 onInto={nestUnder}
+                carry={carry}
+                cross={cross}
                 step={stepProps}
                 sort={
                   view.sections.length > 1 && !pick.on
@@ -661,6 +873,18 @@ export default function Camp() {
             ))}
 
             {pick.on && <PickBar count={pick.sel.size} busy={saving} onCancel={pick.stop} onDone={savePicks} />}
+            {select.on && (
+              <SelectBar
+                count={picked.length}
+                places={places}
+                notes={picked.length > 0 && picked.every((k) => data.steps.find((x) => x.id === k)?.kind === "note")}
+                onMove={moveSelected}
+                onNewSection={newSectionFor}
+                onKind={kindSelected}
+                onClear={() => select.start()}
+                onDone={select.stop}
+              />
+            )}
 
             <div className="camp-more">
               <button type="button" className="btn btn--sm btn--on-page" onClick={() => setSheet({ new: true })}>
@@ -675,7 +899,6 @@ export default function Camp() {
               )}
             </div>
           </div>
-        </SketchProvider>
 
         <aside className="camp-side">
           <section className="card camp-notes" aria-labelledby="camp-notes-h">
@@ -713,8 +936,28 @@ export default function Camp() {
           ))}
         </aside>
       </div>
+      </div>
+
+      {pinNow && (
+        <aside className="camp-clipside" aria-label="Clipboard">
+          {clipboard(true)}
+        </aside>
+      )}
+      </SketchProvider>
 
       {sheet && <SectionSheet section={sheet.new ? null : sheet} onSave={saveSection} onDelete={() => removeSection(sheet)} onClose={() => setSheet(null)} />}
+      {colSheet && (
+        <ColumnSheet
+          section={colSheet}
+          onRename={(title) => renameColumn(colSheet, title)}
+          onRemove={() => {
+            const s = colSheet;
+            setColSheet(null);
+            removeSection(s);
+          }}
+          onClose={() => setColSheet(null)}
+        />
+      )}
     </div>
   );
 }

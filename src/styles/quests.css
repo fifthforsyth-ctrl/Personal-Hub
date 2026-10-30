@@ -457,3 +457,23 @@
   .qs-mini__bar, .qs-bar i, .tb-card, .tb-list, .tb-col { transition: none; }
   .qs-pill__body, .qs-camp__working i { animation: none; }
 }
+
+/* By camp: adding to today in a camp's column, and the column for a camp
+   with nothing on today yet (2026-10-30). */
+.tb-col > .camp-add { margin-top: 4px; }
+.tb-col--other { flex: 0 0 240px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); border: 0; }
+.tb-other { display: block; }
+.input.tb-other__pick { width: 100%; min-height: 34px; padding: 4px 10px; font-size: 13px; font-weight: 700; }
+
+/* The clipboard (0095) spans the page under Today on a wide screen, so its
+   columns have room side by side; the build and the notes stay beside
+   Today. */
+@media (min-width: 901px) {
+  .qs-grid--clip { grid-template-areas: "today rail" "clip clip" "main ."; }
+  .qs-grid--clip .qs-main { display: contents; }
+  .qs-grid--clip .qs-today { grid-area: today; }
+  .qs-grid--clip .qs-clip { grid-area: clip; min-width: 0; }
+  .qs-grid--clip .qs-rest, .qs-grid--clip .qs-mini { grid-area: main; }
+  .qs-grid--board.qs-grid--clip { grid-template-areas: "today today" "clip clip" "main rail"; }
+}
+.qs-clip { min-width: 0; }

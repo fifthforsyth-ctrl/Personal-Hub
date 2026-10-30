@@ -24,9 +24,14 @@ import {
   moveToCamp,
   lineToStep,
   stepToLine,
+  addSection,
+  deleteSection,
+  deleteStep,
+  placeSteps,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
-import { pickDiff, questToday } from "../lib/camp";
+import { buildCamp, kindFields, pickDiff, questToday, stepsUnder } from "../lib/camp";
+import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
 import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../lib/todayBoard";
 import { villageOf } from "../lib/village";
 import { allDoneToday, earlierOnToday, questDoneToday } from "../lib/doneToday";
@@ -37,7 +42,7 @@ import { useLoad } from "../lib/useLoad";
 import { markDrop } from "../lib/useDragSort";
 import { haptic } from "../lib/haptics";
 import { playClink } from "../lib/clink";
-import { useToast } from "../components/ui/Feedback";
+import { useConfirm, useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
 import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
@@ -47,6 +52,8 @@ import DoneToday from "../components/quests/DoneToday";
 import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
 import { PickBar, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
+import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
+import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
 import "../styles/ascent.css";
 import "../styles/camp.css";
 import "../styles/quests.css";
@@ -82,6 +89,12 @@ import "../styles/quests.css";
 // he drags it into, or in columns by camp or by the computer it's handed to
 // (he has more than one computer and chat working on a quest), filtered by
 // urgency or colour. See TodayBoard.jsx.
+//
+// Under Today sits the clipboard (0095, Aaron 2026-10-30): "this quest page
+// is all about gathering and organizing tasks". Columns he makes in a
+// moment, each in one of the quest's camps, where a meeting's hundred
+// thoughts land as fast as he types; then he selects many, drags them
+// between columns or into a camp's sections, or makes a section of them.
 
 const EARLIER_SHOWN = 10;
 // A quest task's own columns, for putting one back as it was.
@@ -109,6 +122,7 @@ export default function Quests() {
   const today = todayStr();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const { data: board, error, loading, reload, mutate: mutateBoard } = useLoad(() => (userId ? fetchQuestBoard(userId) : null), [userId]);
   const items = useMemo(() => (board ? boardOf(board) : []), [board]);
@@ -250,6 +264,9 @@ export default function Quests() {
   // A line open where it sits is its id; open in today's list, "t:" and its id.
   const [openId, setOpenId] = useState(null);
   const [openStep, setOpenStep] = useState(null);
+  const [openClip, setOpenClip] = useState(null); // a step open on the clipboard
+  const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
+  const select = useSelect();
   const [saving, setSaving] = useState(false);
   const picker = usePick(saving);
   const [openKey, setOpenKey] = useState(null);
@@ -264,9 +281,11 @@ export default function Quests() {
   useEffect(() => {
     setOpenId(null);
     setOpenStep(null);
+    setOpenClip(null);
     setUnfolded({});
     setAllEarlier(false);
     picker.stop();
+    select.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.key]);
   useEffect(() => setNote(sel?.note ?? ""), [sel?.key, sel?.note]);
@@ -385,7 +404,7 @@ export default function Quests() {
         b && {
           ...b,
           finished: { ...b.finished, steps: withFinishedStep(b.finished.steps, { ...st, updated_at: new Date().toISOString() }) },
-          campSteps: (b.campSteps ?? []).map((x) => (x.id === st.id ? { ...x, done_on: st.done_on ?? null, working_since: st.working_since ?? null, today_on: st.today_on ?? null } : x)),
+          campSteps: (b.campSteps ?? []).map((x) => (x.id === st.id ? { ...x, kind: st.kind ?? "task", done_on: st.done_on ?? null, working_since: st.working_since ?? null, today_on: st.today_on ?? null } : x)),
         }
     );
   const stepFailed = (err, what) => {
@@ -638,7 +657,7 @@ export default function Quests() {
   // (`col`, with its cards' keys) when it's in columns.
   function lineDropTarget(x, y, line, skip = `#line-${line.id}`) {
     const under = document.elementsFromPoint(x, y).filter((e) => !e.closest(skip));
-    const el = under.find((e) => e.closest("[data-drop]"))?.closest("[data-drop]");
+    const el = under.find((e) => e.closest("[data-drop]:not([data-clip])"))?.closest("[data-drop]:not([data-clip])");
     if (!el) return null;
     const tb = el.dataset.drop === "today" ? el.querySelector(".tb") : null;
     if (tb) {
@@ -927,6 +946,251 @@ export default function Quests() {
     });
   }
 
+  // --- The clipboard (0095) ----------------------------------------------------------
+
+  const sortedCamps = useMemo(() => [...questCamps].sort(byPos), [questCamps]);
+  // Every camp's clipboard columns, in camp order, each camp's in its own.
+  const clipCols = useMemo(
+    () =>
+      sortedCamps.flatMap((camp) =>
+        buildCamp(
+          (campData?.sections ?? []).filter((x) => x.camp_id === camp.id),
+          (campData?.steps ?? []).filter((x) => x.camp_id === camp.id)
+        ).clips.map((section) => ({ section, camp }))
+      ),
+    [sortedCamps, campData]
+  );
+  // The steps as they are now, for a move or an Undo made after others.
+  const campStepsNow = useRef(null);
+  campStepsNow.current = campData?.steps ?? null;
+  const setTally = (fn) => mutateBoard((b) => b && { ...b, campSteps: fn(b.campSteps ?? []) });
+  const tallyRow = (r) => ({ id: r.id, camp_id: r.camp_id, section_id: r.section_id ?? null, parent_id: r.parent_id ?? null, kind: r.kind ?? "task", done_on: r.done_on ?? null, working_since: null, today_on: r.today_on ?? null });
+  const stepsFailed = (err, what) => {
+    toast.error(err, what);
+    inOrder.reload(() => Promise.all([reloadCamps(), reload()]));
+  };
+  const nSteps = (n) => (n === 1 ? "1 step" : `${n} steps`);
+  const shortText = (t) => {
+    const s = String(t ?? "");
+    return s.length > 40 ? `${s.slice(0, 40).trimEnd()}…` : s;
+  };
+  const sectionName = (sectionId, campId) => {
+    const s = (campData?.sections ?? []).find((x) => x.id === sectionId);
+    if (s) return s.title;
+    return `the top of ${questCamps.find((c) => c.id === campId)?.title ?? "that camp"}`;
+  };
+
+  // The ones selected, in the order they sit; carrying one of them carries all.
+  const chosenSteps = () => inPageOrder(select.sel, campData?.steps ?? [], campData?.sections ?? [], sortedCamps);
+  const clipGroup = (st) => (select.on && select.sel.has(st.id) && select.sel.size > 1 ? chosenSteps() : null);
+
+  // Steps moved together (lib/stepMoves.js), into another column, another
+  // camp's section or under another step: on screen at once, saved in one
+  // go, all put back by Undo.
+  function moveSteps(ids, to, label) {
+    const plan = planMove(campStepsNow.current ?? [], ids, to);
+    if (!plan || !plan.rows.length) return false;
+    const show = (rows) => {
+      setCampSteps((list) => applyRows(list, rows));
+      setTally((list) => applyRows(list, rows));
+    };
+    show(plan.rows);
+    haptic("tap");
+    const undo = undoableSave(inOrder, () => placeSteps(plan.rows), (err) => stepsFailed(err, "Couldn't move those."));
+    toast.show(label, {
+      actionLabel: "Undo",
+      onAction: () => {
+        show(plan.was);
+        undo(() => placeSteps(plan.was), (err) => stepsFailed(err, "Couldn't move those back."));
+      },
+    });
+    return true;
+  }
+
+  // A step carried out of its column: the column under the finger lights
+  // up, and letting go drops it (and any selected with it) in, between the
+  // steps it landed on.
+  function clipDropTarget(x, y, st, group) {
+    const el = document
+      .elementsFromPoint(x, y)
+      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-clip]"))
+      ?.closest("[data-clip]");
+    if (!el) return null;
+    const along = new Set((group ?? []).map((k) => `step-${k}`));
+    const below = [...el.querySelectorAll("li.camp-step:not(.camp-step--sub)")].find((li) => {
+      if (li.id === `step-${st.id}` || along.has(li.id)) return false;
+      const r = li.getBoundingClientRect();
+      return y < r.top + r.height / 2;
+    });
+    return { el, below, sectionId: el.dataset.drop, campId: el.dataset.camp, beforeId: below ? below.id.slice(5) : null };
+  }
+
+  function clipDragOut(phase, x, y, st) {
+    const g = clipGroup(st);
+    const hit = phase === "move" || phase === "drop" ? clipDropTarget(x, y, st, g) : null;
+    markDrop(phase === "move" ? hit : null);
+    if (phase !== "drop" || !hit) return;
+    const ids = g ?? [st.id];
+    moveSteps(ids, { campId: hit.campId, sectionId: hit.sectionId, beforeId: hit.beforeId }, `Moved ${g ? nSteps(ids.length) : "it"} to ${sectionName(hit.sectionId, hit.campId)}`);
+  }
+
+  function clipNest(st, parentId) {
+    const parent = (campData?.steps ?? []).find((x) => x.id === parentId);
+    if (!st || !parent) return;
+    const ids = clipGroup(st) ?? [st.id];
+    moveSteps(ids, { parentId }, `Moved ${ids.length > 1 ? nSteps(ids.length) : "it"} under “${shortText(parent.text)}”`);
+  }
+
+  // Dragged into a new order in its column (`shown` as it stood, `ids` the
+  // new order, `draggedId` the one carried). Done ones hidden from it keep
+  // their places; carrying several, they all land where it was let go.
+  function clipReorder(shown, ids, draggedId) {
+    const dragged = shown.find((x) => x.id === draggedId) ?? shown[0];
+    if (!dragged) return;
+    const g = clipGroup(dragged);
+    if (g) {
+      const along = new Set(g);
+      const beforeId = ids.slice(ids.indexOf(dragged.id) + 1).find((k) => !along.has(k)) ?? null;
+      moveSteps(g, { campId: dragged.camp_id, sectionId: dragged.section_id ?? null, parentId: dragged.parent_id ?? null, beforeId }, `Moved ${nSteps(g.length)} together`);
+      return;
+    }
+    const full = (campData?.steps ?? [])
+      .filter((x) => x.camp_id === dragged.camp_id && (x.section_id ?? null) === (dragged.section_id ?? null) && (x.parent_id ?? null) === (dragged.parent_id ?? null))
+      .sort(byPos);
+    const byId = new Map(full.map((x) => [x.id, x]));
+    const onScreen = new Set(ids);
+    const queue = [...ids];
+    const next = full.map((x) => (onScreen.has(x.id) ? byId.get(queue.shift()) : x)).filter(Boolean);
+    const at = new Map(next.map((x, k) => [x.id, k]));
+    setCampSteps((list) => list.map((x) => (at.has(x.id) ? { ...x, position: at.get(x.id) } : x)));
+    inOrder(() => reorder("camp_steps", next)).catch((err) => stepsFailed(err, "Couldn't move that."));
+  }
+
+  // New steps at the end of a column, or (`today`) a camp's own steps on today.
+  async function addStepsTo(campId, sectionId, texts, extra = {}) {
+    const there = (campData?.steps ?? []).filter((x) => x.camp_id === campId && (x.section_id ?? null) === (sectionId ?? null) && !x.parent_id);
+    const start = there.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+    try {
+      const rows = await addSteps(userId, campId, sectionId ?? null, texts, start, null, extra);
+      setCampSteps((list) => [...list, ...rows]);
+      setTally((list) => [...list, ...rows.map(tallyRow)]);
+      haptic("tap");
+      return true;
+    } catch (err) {
+      toast.error(err, texts.length > 1 ? "Couldn't add those." : "Couldn't add that.");
+      return false;
+    }
+  }
+
+  // A new section in one of the quest's camps: a clipboard column, or one
+  // of the camp's own (with what's selected moved in).
+  async function newSectionIn({ title, campId }, clipboard) {
+    const camp = questCamps.find((c) => c.id === campId) ?? sortedCamps[0];
+    if (!camp) return null;
+    try {
+      const position = (campData?.sections ?? []).filter((x) => x.camp_id === camp.id).reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
+      const row = await addSection(userId, camp.id, { title, position, clipboard });
+      mutateCamps((d) => d && { ...d, sections: [...d.sections, row] });
+      mutateBoard((b) => b && { ...b, campSections: [...(b.campSections ?? []), { id: row.id, camp_id: row.camp_id, today_on: null, clipboard: Boolean(clipboard) }] });
+      haptic("tap");
+      return row;
+    } catch (err) {
+      toast.error(err, clipboard ? "Couldn't make that column." : "Couldn't make that section.");
+      return null;
+    }
+  }
+
+  async function newSectionForSelected(values) {
+    const ids = chosenSteps();
+    const row = await newSectionIn(values, false);
+    if (!row) return false;
+    if (ids.length) moveSteps(ids, { campId: row.camp_id, sectionId: row.id }, `Moved ${nSteps(ids.length)} to ${row.title}`);
+    return true;
+  }
+
+  function moveSelectedTo(key) {
+    const [campId, sectionId] = key.split("|");
+    const ids = chosenSteps();
+    if (!moveSteps(ids, { campId, sectionId: sectionId || null }, `Moved ${nSteps(ids.length)} to ${sectionName(sectionId, campId)}`)) toast.show(ids.length === 1 ? "It's there already." : "They're there already.");
+  }
+
+  // All of them notes, or (when they all are) tasks again.
+  function kindOfSelected() {
+    const ids = new Set(chosenSteps());
+    const rows = (campData?.steps ?? []).filter((x) => ids.has(x.id));
+    if (!rows.length) return;
+    const toTasks = rows.every((x) => x.kind === "note");
+    const fields = toTasks ? { kind: "task" } : { kind: "note", done_on: null, urgency: null, working_since: null };
+    setCampSteps((list) => list.map((x) => (ids.has(x.id) ? { ...x, ...fields } : x)));
+    setTally((list) => list.map((x) => (ids.has(x.id) ? { ...x, ...fields } : x)));
+    haptic("tap");
+    toast.show(toTasks ? `${rows.length === 1 ? "It's a task" : `${rows.length} are tasks`} again` : rows.length === 1 ? "Made a note" : `${rows.length} made notes`);
+    updateSteps([...ids], fields).catch((err) => stepsFailed(err, "Couldn't change those."));
+  }
+
+  function startSelecting() {
+    picker.stop();
+    setOpenClip(null);
+    select.start();
+    haptic("tap");
+  }
+
+  function renameColumn(sec, title) {
+    mutateCamps((d) => d && { ...d, sections: d.sections.map((x) => (x.id === sec.id ? { ...x, title } : x)) });
+    updateSection(sec.id, { title }).catch((err) => stepsFailed(err, "Couldn't rename that column."));
+  }
+
+  async function removeColumn(sec) {
+    const n = (campData?.steps ?? []).filter((x) => x.section_id === sec.id).length;
+    const ok = await confirm({
+      title: `Remove “${sec.title}”?`,
+      body: n ? `What's in it goes with it (${nSteps(n)}). Move them first to keep them. This can't be undone.` : "It's empty.",
+      confirmLabel: "Remove column",
+    });
+    if (!ok) return;
+    try {
+      await deleteSection(sec.id);
+      const gone = new Set((campData?.steps ?? []).filter((x) => x.section_id === sec.id).map((x) => x.id));
+      mutateCamps((d) => d && { ...d, sections: d.sections.filter((x) => x.id !== sec.id), steps: d.steps.filter((x) => !gone.has(x.id)) });
+      setTally((list) => list.filter((x) => !gone.has(x.id)));
+    } catch (err) {
+      stepsFailed(err, "Couldn't remove that column.");
+    }
+  }
+
+  // Taken off, with everything under it (Undo, for a few seconds, keeps it).
+  function removeClipStep(st) {
+    setOpenClip(null);
+    const all = campData?.steps ?? [];
+    const gone = [all.find((x) => x.id === st.id), ...stepsUnder(all, st.id)].filter(Boolean);
+    const ids = new Set(gone.map((x) => x.id));
+    setCampSteps((list) => list.filter((x) => !ids.has(x.id)));
+    setTally((list) => list.filter((x) => !ids.has(x.id)));
+    toast.undoable({
+      message: gone.length > 1 ? "Step and its sub-steps removed" : "Removed",
+      run: () => deleteStep(st.id).catch((err) => stepsFailed(err, "Couldn't remove that.")),
+      onUndo: () => {
+        setCampSteps((list) => [...list.filter((x) => !ids.has(x.id)), ...gone]);
+        setTally((list) => [...list.filter((x) => !ids.has(x.id)), ...gone.map(tallyRow)]);
+      },
+    });
+  }
+
+  const clipRow = (st) => ({
+    onOpen: () => {
+      setOpenId(null);
+      setOpenStep(null);
+      setOpenClip((o) => (o === st.id ? null : st.id));
+    },
+    onDone: () => toggleStepDone(st),
+    onSave: (fields) => saveStep(st, fields),
+    onKind: () => saveStep(st, kindFields(st)),
+    onRemove: () => removeClipStep(st),
+    isToday: st.today_on === today,
+    onToday: sectionOnToday(st) ? undefined : () => setStepToday(st, st.today_on !== today),
+    select: select.of(st.id),
+  });
+
   // His computers on this quest (quests.computers), renamed or added to.
   // Saved in line with the rest (a computer taken off just before saves its
   // shorter list first); if it doesn't save, what's saved is reloaded.
@@ -1211,6 +1475,8 @@ export default function Quests() {
       onMoveCamp={(card, campId, keys) => (card.kind === "line" ? lineToCamp : moveCardToCamp)(card, campId, keys)}
       onComputers={saveComputers}
       onRemoveComputer={removeComputer}
+      camps={sortedCamps}
+      onAddToCamp={(campId, texts) => addStepsTo(campId, null, texts, { today_on: today })}
       sketch={{ userId, about: (sid) => rawStep(sid)?.text, onAddToNote: addToStepNote }}
     />
   ) : null;
@@ -1219,6 +1485,36 @@ export default function Quests() {
   // In columns, on a screen wide enough, Today spans the page above the rest.
   const spread = Boolean(sel) && roomy && boardView !== "order" && !picker.on && cards.length > 0;
   const building = buildNow(village, today);
+  const selected = select.on ? chosenSteps() : [];
+  const clipPlaces = [
+    ...clipCols.map((c) => ({ key: `${c.camp.id}|${c.section.id}`, label: c.section.title, group: `Clipboard · ${c.camp.title}` })),
+    ...sortedCamps.flatMap((camp) => [
+      { key: `${camp.id}|`, label: "The top of the camp (no section)", group: camp.title },
+      ...buildCamp((campData?.sections ?? []).filter((x) => x.camp_id === camp.id), []).sections.map((x) => ({ key: `${camp.id}|${x.id}`, label: `${x.number}. ${x.title}`, group: camp.title })),
+    ]),
+  ];
+  const clipCard =
+    sel && sortedCamps.length > 0 ? (
+      <SketchProvider kind="step" userId={userId} scopeId={sortedCamps.map((c) => c.id)} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
+        <Clipboard
+          cols={clipCols}
+          layout="row"
+          camps={sortedCamps}
+          openStep={openClip}
+          step={clipRow}
+          onAdd={(sec, texts) => addStepsTo(sec.camp_id, sec.id, texts)}
+          onAddSubs={addStepSubs}
+          onReorder={clipReorder}
+          onDragOut={clipDragOut}
+          onInto={clipNest}
+          carry={select.on ? select.carry : undefined}
+          onNewColumn={async (values) => Boolean(await newSectionIn(values, true))}
+          onEditColumn={(sec) => setColSheet(sec)}
+          tools={clipCols.length ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null}
+          picking={picker.on}
+        />
+      </SketchProvider>
+    ) : null;
   const todayCard = sel ? (
     <>
       {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
@@ -1261,7 +1557,7 @@ export default function Quests() {
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 
       <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => (lines ?? []).find((x) => x.id === id)?.text} onAddToNote={addToNote}>
-        <div className={"qs-grid" + (spread ? " qs-grid--board" : "")}>
+        <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipCard ? " qs-grid--clip" : "")}>
           <div className="qs-rail">
             <div className="qs-rail__build">
               <FloatingBuild village={village} today={today} onAway={onAway} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
@@ -1290,7 +1586,7 @@ export default function Quests() {
             )}
           </div>
 
-          <div className={"qs-main" + (picker.on ? " picking" : "")}>
+          <div className={"qs-main" + (picker.on || select.on ? " picking" : "")}>
             <BuildMini village={village} today={today} show={away} />
 
             {!sel ? (
@@ -1307,6 +1603,7 @@ export default function Quests() {
                     (spread or not, it's CSS that moves it), so what's
                     open or focused in it stays so as it moves. */}
                 <div className="qs-today">{todayCard}</div>
+                {clipCard && <div className="qs-clip">{clipCard}</div>}
 
                 <div className="qs-rest">
                   <OngoingList
@@ -1358,6 +1655,31 @@ export default function Quests() {
         </div>
       </SketchProvider>
 
+      {select.on && (
+        <SelectBar
+          count={selected.length}
+          places={clipPlaces}
+          camps={sortedCamps}
+          notes={selected.length > 0 && selected.every((k) => rawStep(k)?.kind === "note")}
+          onMove={moveSelectedTo}
+          onNewSection={newSectionForSelected}
+          onKind={kindOfSelected}
+          onClear={() => select.start()}
+          onDone={select.stop}
+        />
+      )}
+      {colSheet && (
+        <ColumnSheet
+          section={colSheet}
+          onRename={(title) => renameColumn(colSheet, title)}
+          onRemove={() => {
+            const sec = colSheet;
+            setColSheet(null);
+            removeColumn(sec);
+          }}
+          onClose={() => setColSheet(null)}
+        />
+      )}
       {newQuest && <NewQuest onSave={startQuest} onClose={() => setNewQuest(false)} />}
       {doneView && (
         <DoneToday
