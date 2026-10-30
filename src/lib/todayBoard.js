@@ -151,18 +151,21 @@ export function orderCards(cards, keys) {
 
 // { urgency: ["red", ...], color: ["blue", ...] }: a card shows when one row
 // on it has one of the urgencies and one of the colours asked for (either
-// left empty asks nothing of it). A line of notes is never urgent.
+// left empty asks nothing of it). A line of notes is never urgent. With
+// `shade` (lib/camp shades().of), a camp's step goes by the colour it shows,
+// its section's when it has none of its own; a quest line by its own.
 export const NO_FILTER = { urgency: [], color: [] };
 
 export function filterOn(filter) {
   return Boolean(filter?.urgency?.length || filter?.color?.length);
 }
 
-export function matchesFilter(card, filter) {
+export function matchesFilter(card, filter, shade = null) {
   const u = filter?.urgency ?? [];
   const c = filter?.color ?? [];
   if (!u.length && !c.length) return true;
-  return card.rows.some((r) => (!u.length || (r.urgency && r.kind !== "note" && u.includes(r.urgency))) && (!c.length || (r.color && c.includes(r.color))));
+  const colorOf = shade && card.kind !== "line" ? shade : (r) => r.color;
+  return card.rows.some((r) => (!u.length || (r.urgency && r.kind !== "note" && u.includes(r.urgency))) && (!c.length || c.includes(colorOf(r))));
 }
 
 // --- Columns -------------------------------------------------------------------

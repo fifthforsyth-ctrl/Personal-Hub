@@ -76,3 +76,15 @@ export function pinSpots(pins, { w, h, frame = null, pad = 0, cover = false }, b
     .map((p) => ({ ...p, left: ox + (p.x * w - f.x) * k, top: oy + (p.y * h - f.y) * k }))
     .filter((p) => p.left >= -0.5 && p.left <= bw + 0.5 && p.top >= -0.5 && p.top <= bh + 0.5);
 }
+
+// Where a pin's card goes on screen (PinDots): above the pin `at` ({ left,
+// top, right, bottom }, its box on screen), centred on it, or below when
+// there's no room above; slid along to stay `edge` px inside a `vw` × `vh`
+// screen. Gives { left, top, below }.
+export function tipAt(at, tw, th, vw, vh, gap = 8, edge = 8) {
+  const mid = (at.left + at.right) / 2;
+  const left = Math.max(edge, Math.min(vw - edge - tw, mid - tw / 2));
+  const above = at.top - gap - th;
+  const below = above < edge && at.bottom + gap + th <= vh - edge;
+  return { left, top: below ? at.bottom + gap : Math.max(edge, above), below };
+}

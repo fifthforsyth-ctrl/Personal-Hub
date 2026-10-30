@@ -14,7 +14,7 @@ import { playClink } from "../lib/clink";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
-import { SectionCard, StepList, AddStep } from "../components/camp/Steps";
+import { SectionCard, SectionTints, StepList, AddStep } from "../components/camp/Steps";
 import { markDrop, useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
@@ -826,6 +826,7 @@ export default function Camp() {
   return (
     <div className={"page ascent camp" + (pinNow ? " camp--pinned" : "")}>
       <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
+      <SectionTints sections={data.sections} steps={data.steps}>
       <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
       <div className="camp-left">
       <header className="ascent-head camp-head">
@@ -1053,6 +1054,7 @@ export default function Camp() {
       )}
       <PhotoSide>{clipboard(true, true)}</PhotoSide>
       </SketchProvider>
+      </SectionTints>
       </PhotoProvider>
 
       {sheet && <SectionSheet section={sheet.new ? null : sheet} onSave={saveSection} onDelete={() => removeSection(sheet)} onClose={() => setSheet(null)} />}

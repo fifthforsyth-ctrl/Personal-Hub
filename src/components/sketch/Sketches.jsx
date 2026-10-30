@@ -346,12 +346,15 @@ function PictureChip({ sketch, onOpen }) {
 function SketchChip({ sketch, onOpen }) {
   const frame = useMemo(() => inkFrame(sketch), [sketch]);
   const f = frame ?? sketch;
-  const pins = usePhotos()?.pinsOf({ sketch }) ?? [];
+  const photos = usePhotos();
+  const pins = photos?.pinsOf({ sketch }) ?? [];
+  // the whole chip opens it up close, under its pins, which answer on their own
   return (
-    <button type="button" className="sk-chip" onClick={onOpen} aria-label={sketch.title ? `Open sketch: ${sketch.title}` : "Open sketch"}>
+    <span className="sk-chip">
+      <button type="button" className="sk-chip__open" onClick={onOpen} aria-label={sketch.title ? `Open sketch: ${sketch.title}` : "Open sketch"} />
       <span className="sk-chip__img" style={{ aspectRatio: `${Math.round(f.width)} / ${Math.round(f.height)}` }}>
         <SketchImage sketch={sketch} frame={frame} pad={3} minPx={1.3} />
-        {pins.length > 0 && <PinDots pins={pins} fit={{ w: sketch.width, h: sketch.height, frame, pad: 3 }} />}
+        {pins.length > 0 && <PinDots pins={pins} fit={{ w: sketch.width, h: sketch.height, frame, pad: 3 }} onOpen={photos.openPin} />}
       </span>
       {sketch.title && (
         <span className="sk-chip__title">
@@ -359,7 +362,7 @@ function SketchChip({ sketch, onOpen }) {
           {sketch.title}
         </span>
       )}
-    </button>
+    </span>
   );
 }
 

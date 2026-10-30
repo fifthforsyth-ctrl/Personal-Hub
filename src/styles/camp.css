@@ -186,8 +186,9 @@
 .camp-urgency-opt .camp-urgency { margin: 0 6px 0 0; }
 .camp-urgency-opt.on { background: var(--ink); color: var(--on-ink); }
 
-/* A step or quest line in a colour he picked (0088): a soft wash on its row
-   and its box ringed in it. Only the row itself; its sub-steps keep their own. */
+/* A step or quest line in a colour he picked (0088), or a step taking on its
+   section's or its step's (2026-10-30): a soft wash on its row and its box
+   ringed in it. Only the row itself; its sub-steps show what they take on. */
 .camp-step.tinted > .camp-step__row {
   background: color-mix(in srgb, var(--tint) 12%, var(--card));
   border-radius: 12px; margin: 3px -8px; padding: 0 8px;
@@ -227,6 +228,11 @@
   background: var(--text-3); transform: rotate(-45deg);
 }
 .camp-swatch--none.on { box-shadow: inset 0 0 0 1.5px var(--ink), 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+/* "Same as its section": the colour it takes on, half filled, so it reads
+   apart from picking that colour for the step itself */
+.camp-color-pick--same .camp-color-pick__opts { grid-template-columns: repeat(10, minmax(0, 32px)); }
+.camp-swatch--same { background: linear-gradient(135deg, var(--swatch) 50%, color-mix(in srgb, var(--swatch) 22%, var(--card)) 50%); box-shadow: inset 0 0 0 1.5px var(--swatch); }
+.camp-color-pick__from { font-weight: 500; color: var(--text-3); }
 
 /* Sub-steps: a smaller checklist tucked under its step, on a thin rule. */
 .camp-subs { margin: -4px 0 8px 38px; border-left: 1.5px solid var(--line); padding-left: 12px; }

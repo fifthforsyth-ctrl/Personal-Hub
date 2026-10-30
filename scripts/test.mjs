@@ -15,7 +15,7 @@ import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, 
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
-import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers, pinSpots } from "../src/lib/zoom.js";
+import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers, pinSpots, tipAt } from "../src/lib/zoom.js";
 import { pastedImage, pageOf } from "../src/lib/photo.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
@@ -37,7 +37,7 @@ import {
   pickDiff,
 } from "../src/lib/camp.js";
 import { planMove, applyRows, inPageOrder, planPinDrop, applyPinDrop, byPin } from "../src/lib/stepMoves.js";
-import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups } from "../src/lib/camp.js";
+import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups, shades } from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
   stageOf,
@@ -3015,6 +3015,51 @@ function sectionOf({ x, y }) {
   const inked = pinSpots([{ id: "a", x: 0.5, y: 0.5 }, { id: "far", x: 0.95, y: 0.05 }], { w: 1000, h: 1000, frame: { x: 400, y: 400, width: 200, height: 200 }, pad: 0 }, 100, 100);
   ok("on a sketch shown by its inked part, a pin outside that part isn't shown", inked.length === 1 && inked[0].left === 50 && inked[0].top === 50);
   ok("before its box is measured there's nowhere to show them", pinSpots(pins, { w: 10, h: 10 }, 0, 0).length === 0);
+}
+
+{
+  console.log("\nsection colours on their steps, and a pin's card");
+  // Aaron, 2026-10-30: "when I change the color of a section I want all the
+  // tasks to share the same color unless I change the color of a specific task"
+  const sections = [{ id: "ui", color: "blue" }, { id: "plain", color: null }];
+  const steps = [
+    { id: "a", section_id: "ui", color: null },
+    { id: "b", section_id: "ui", color: "red" },
+    { id: "c", section_id: "ui", color: "none" },
+    { id: "a1", section_id: "ui", parent_id: "a", color: null },
+    { id: "b1", section_id: "ui", parent_id: "b", color: null },
+    { id: "b1x", section_id: null, parent_id: "b1", color: null },
+    { id: "c1", section_id: "ui", parent_id: "c", color: null },
+    { id: "a2", section_id: null, parent_id: "a", color: null },
+    { id: "p", section_id: "plain", color: null },
+    { id: "loose", section_id: null, color: null },
+    { id: "lp1", section_id: "ui", parent_id: "lp2", color: null },
+    { id: "lp2", section_id: "ui", parent_id: "lp1", color: null },
+  ];
+  const sh = shades(sections, steps);
+  const of = (id) => sh.of(steps.find((x) => x.id === id));
+  ok("a step with no colour of its own wears its section's", of("a") === "blue" && JSON.stringify(sh.above(steps[0])) === JSON.stringify({ color: "blue", from: "section" }));
+  ok("one given its own keeps it", of("b") === "red");
+  ok("one set to No color stays plain, and so do its sub-steps", of("c") === "none" && of("c1") === "none");
+  ok("a sub-step wears its step's colour, however deep", of("b1") === "red" && of("b1x") === "red" && sh.above(steps.find((x) => x.id === "b1")).from === "step");
+  ok("or, under a step with none, the section's", of("a1") === "blue" && of("a2") === "blue");
+  ok("a section with no colour gives none", of("p") === null && of("loose") === null);
+  ok("a loop in the data doesn't go round forever", of("lp1") === "blue");
+  const changed = shades([{ id: "ui", color: "green" }], steps);
+  ok("a section's new colour reaches every step without its own at once", changed.of(steps[0]) === "green" && changed.of(steps[1]) === "red");
+
+  const card = { kind: "step", rows: [steps[0], steps[3]] };
+  ok("the Today filter finds a step by the colour it shows", matchesFilter(card, { urgency: [], color: ["blue"] }, sh.of) && !matchesFilter(card, { urgency: [], color: ["blue"] }));
+  ok("and not one set plain in a coloured section", !matchesFilter({ kind: "step", rows: [steps[2]] }, { urgency: [], color: ["blue"] }, sh.of));
+  ok("a quest line goes by its own colour", !matchesFilter({ kind: "line", rows: [{ id: "a", section_id: "ui", color: null }] }, { urgency: [], color: ["blue"] }, sh.of));
+
+  const at = { left: 100, right: 124, top: 200, bottom: 232 };
+  const up = tipAt(at, 200, 80, 400, 800);
+  ok("a pin's card sits centred above it", up.left === 12 && up.top === 112 && !up.below);
+  ok("and slides in from the screen's edge", tipAt({ left: 380, right: 400, top: 300, bottom: 330 }, 200, 80, 400, 800).left === 192);
+  const low = tipAt({ left: 100, right: 124, top: 30, bottom: 62 }, 200, 80, 400, 800);
+  ok("with no room above, it goes below", low.below && low.top === 70);
+  ok("with no room either way, it stays on screen above", tipAt({ left: 100, right: 124, top: 30, bottom: 62 }, 200, 80, 400, 120).top === 8);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

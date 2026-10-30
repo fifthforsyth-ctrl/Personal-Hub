@@ -2,7 +2,8 @@ import { Check } from "lucide-react";
 
 // Colours a step or a quest line can wear (0088): the row takes a soft wash
 // of it and its box a ring in it. The database takes any short lowercase
-// name, so a colour added here needs nothing else.
+// name, so a colour added here needs nothing else ("none", which no colour
+// here is, keeps a step plain in a section with a colour).
 export const STEP_COLORS = [
   { key: "red", label: "Red", hex: "#d64541" },
   { key: "orange", label: "Orange", hex: "#f26a1b" },
@@ -23,34 +24,57 @@ export function tintOf(color) {
 }
 
 // "Color": a row of swatches, the first taking the colour off. Tapping the
-// one it has takes it off too.
-export function ColorPick({ value, onChange }) {
+// one it has takes it off too. With `inherited` ({ color, from }: the colour
+// a step takes on from its section, or the step it's under), the first is
+// that one, "Same as its section", and "No color" (stored as "none") comes
+// next, for one that should have none even there.
+export function ColorPick({ value, inherited = null, onChange }) {
+  const from = inherited && HEX[inherited.color] ? inherited : null;
+  const own = !from && value === "none" ? null : value;
+  const same = from ? STEP_COLORS.find((c) => c.key === from.color) : null;
   return (
-    <div className="field camp-color-pick" role="radiogroup" aria-label="Color">
-      <span>Color</span>
+    <div className={"field camp-color-pick" + (from ? " camp-color-pick--same" : "")} role="radiogroup" aria-label="Color">
+      <span>
+        Color
+        {from && !own && <small className="camp-color-pick__from"> · same as its {from.from}</small>}
+      </span>
       <div className="camp-color-pick__opts">
+        {from && (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!own}
+            className={"camp-swatch camp-swatch--same" + (!own ? " on" : "")}
+            style={{ "--swatch": same.hex }}
+            title={`Same as its ${from.from} (${same.label})`}
+            aria-label={`Same as its ${from.from}`}
+            onClick={() => onChange(null)}
+          >
+            {!own && <Check size={14} strokeWidth={3} aria-hidden="true" />}
+          </button>
+        )}
         <button
           type="button"
           role="radio"
-          aria-checked={!value}
-          className={"camp-swatch camp-swatch--none" + (!value ? " on" : "")}
+          aria-checked={from ? own === "none" : !own}
+          className={"camp-swatch camp-swatch--none" + ((from ? own === "none" : !own) ? " on" : "")}
           title="No color"
           aria-label="No color"
-          onClick={() => onChange(null)}
+          onClick={() => onChange(from ? (own === "none" ? null : "none") : null)}
         />
         {STEP_COLORS.map((c) => (
           <button
             key={c.key}
             type="button"
             role="radio"
-            aria-checked={value === c.key}
-            className={"camp-swatch" + (value === c.key ? " on" : "")}
+            aria-checked={own === c.key}
+            className={"camp-swatch" + (own === c.key ? " on" : "")}
             style={{ "--swatch": c.hex }}
             title={c.label}
             aria-label={c.label}
-            onClick={() => onChange(value === c.key ? null : c.key)}
+            onClick={() => onChange(own === c.key ? null : c.key)}
           >
-            {value === c.key && <Check size={14} strokeWidth={3} aria-hidden="true" />}
+            {own === c.key && <Check size={14} strokeWidth={3} aria-hidden="true" />}
           </button>
         ))}
       </div>
