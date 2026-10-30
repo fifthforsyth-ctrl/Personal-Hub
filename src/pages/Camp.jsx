@@ -542,7 +542,8 @@ export default function Camp() {
       const rows = await addSteps(userId, id, sectionId, texts, start, parent?.id ?? null, extra);
       setSteps((list) => [...list, ...rows]);
       haptic("tap");
-      return true;
+      // the rows made, so a picture pasted in (0098) can go on the first
+      return rows;
     } catch (err) {
       toast.error(err, texts.length > 1 ? `Couldn't add those ${parent ? "sub-steps" : "steps"}.` : `Couldn't add that ${parent ? "sub-step" : "step"}.`);
       return false;

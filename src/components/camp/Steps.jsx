@@ -6,7 +6,8 @@ import { Rich } from "./Rich";
 import { useDragSort } from "../../lib/useDragSort";
 import { ColorPick, tintOf } from "./ColorPick";
 import { CardBadge, ComputerPick } from "./ComputerPick";
-import { SketchButton, SketchStrip } from "../sketch/Sketches";
+import { SketchButton, SketchStrip, usePastePicture, useSketchScope } from "../sketch/Sketches";
+import { pastedImage } from "../../lib/photo";
 import { PhotoButton, PinTag, SectionPhotos, ShowPin } from "../photos/Bits";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
@@ -126,6 +127,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
   const textRef = useGrow(open ? text : "");
   const noteRef = useGrow(open ? note : "");
   const tint = tintOf(step.color);
+  const paste = usePastePicture(step.id);
 
   function saveText() {
     const t = text.trim();
@@ -225,7 +227,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
       {sort?.lifted && sort.group > 1 && !sort.nesting && <span className="nest-tag group-tag">{`+${sort.group - 1} more`}</span>}
       <SketchStrip itemId={step.id} />
       {open && (
-        <div className="camp-step__edit">
+        <div className="camp-step__edit" onPaste={paste}>
           <label className="field">
             <span>{asNote ? "Note" : step.parent_id ? "Sub-step" : "Step"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
@@ -258,7 +260,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
               rows={2}
               value={note}
               maxLength={4000}
-              placeholder="What you found, what's left, links…"
+              placeholder="What you found, what's left, links, or paste a picture…"
               onChange={(e) => setNote(e.target.value)}
               onBlur={saveNote}
               autoFocus
@@ -405,6 +407,24 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false, extra = n
   const [busy, setBusy] = useState(false);
   const ref = useGrow(value);
   const count = splitSteps(value).length;
+  const sketches = useSketchScope();
+
+  // A picture pasted here (0098) makes a step of what's typed (or "Pasted
+  // picture") and goes on it, where the page hands back the steps it made.
+  async function pastePicture(e) {
+    const file = sketches ? pastedImage(e.clipboardData) : null;
+    if (!file || busy) return;
+    e.preventDefault();
+    const text = splitSteps(value)[0] ?? "Pasted picture";
+    setBusy(true);
+    const made = await onAdd([text]);
+    setBusy(false);
+    if (!made) return;
+    setValue("");
+    const row = Array.isArray(made) ? made[0] : null;
+    if (row?.id) sketches.addImage(row.id, file);
+    ref.current?.focus();
+  }
 
   async function submit() {
     const list = splitSteps(value);
@@ -434,6 +454,7 @@ export function AddStep({ onAdd, label = "Add a step", hidden = false, extra = n
         placeholder={label}
         aria-label={label}
         onChange={(e) => setValue(e.target.value)}
+        onPaste={pastePicture}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();

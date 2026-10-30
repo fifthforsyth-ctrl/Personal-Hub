@@ -4,7 +4,8 @@ import { parseLines } from "../../lib/questTasks";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
 import { ColorPick, tintOf } from "../camp/ColorPick";
-import { SketchButton, SketchStrip } from "../sketch/Sketches";
+import { SketchButton, SketchStrip, usePastePicture, useSketchScope } from "../sketch/Sketches";
+import { pastedImage } from "../../lib/photo";
 import { PinTag, ShowPin } from "../photos/Bits";
 import { DragHandle, UrgencyMark, UrgencyPick, WorkingBadge, WorkingButton } from "../camp/Steps";
 import { CardBadge, ComputerPick } from "../camp/ComputerPick";
@@ -53,6 +54,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
   }, [line.id, line.text, line.note]);
   const textRef = useGrow(open ? text : "");
   const noteRef = useGrow(open ? notes : "");
+  const paste = usePastePicture(line.id);
   const tint = tintOf(line.color);
 
   function saveText() {
@@ -125,7 +127,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
       {sort?.nesting && <span className="nest-tag">{sort.nesting}</span>}
       <SketchStrip itemId={line.id} />
       {open && (
-        <div className="camp-step__edit">
+        <div className="camp-step__edit" onPaste={paste}>
           <label className="field">
             <span>{note ? "Note line" : line.parent_id ? "Sub-task" : "Task"}</span>
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
@@ -138,7 +140,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
               rows={2}
               value={notes}
               maxLength={20000}
-              placeholder={note ? "More on it…" : "What you did, what you found, what's left…"}
+              placeholder={note ? "More on it, or paste a picture…" : "What you did, what you found, what's left, or paste a picture…"}
               onChange={(e) => setNotes(e.target.value)}
               onBlur={saveNotes}
               autoFocus
@@ -202,6 +204,25 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
   const ref = useGrow(value);
   const lines = parseLines(value);
   const label = sub ? "Add a sub-task" : kind === "note" ? (ongoing ? "Write an ongoing note line" : "Write a note line") : ongoing ? "Add an ongoing task" : "Add a task";
+  const sketches = useSketchScope();
+
+  // A picture pasted here (0098) makes a line of what's typed (or "Pasted
+  // picture") and goes on it, where the page hands back the lines it made.
+  async function pastePicture(e) {
+    const file = sketches ? pastedImage(e.clipboardData) : null;
+    if (!file || busy) return;
+    e.preventDefault();
+    const first = lines[0]?.text ?? "Pasted picture";
+    setBusy(true);
+    const made = await onAdd([{ text: first, sub: false }], kind);
+    setBusy(false);
+    if (!made) return;
+    setValue("");
+    setKind("task");
+    const row = Array.isArray(made) ? made[0] : null;
+    if (row?.id) sketches.addImage(row.id, file);
+    ref.current?.focus();
+  }
 
   async function submit() {
     if (!lines.length || busy) return;
@@ -247,6 +268,7 @@ export function AddLine({ onAdd, sub = false, ongoing = false, autoFocus = false
         aria-label={label}
         autoFocus={autoFocus}
         onChange={(e) => setValue(e.target.value)}
+        onPaste={pastePicture}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();

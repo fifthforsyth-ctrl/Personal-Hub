@@ -3107,28 +3107,41 @@ export function fetchResolvedSteps(userId, campId = null) {
   });
 }
 
-// What else would go with a section: its photos, and the sketches on its
-// steps (`stepIds`), so the page can say so before it goes.
+// What else would go with a section: its photos, and the sketches and
+// pasted pictures (0098) on its steps (`stepIds`), so the page can say so
+// before it goes.
 export async function fetchSectionExtras(sectionId, stepIds) {
   const photos = await supabase.from("section_photos").select("id", { count: "exact", head: true }).eq("section_id", sectionId);
   if (photos.error) throw photos.error;
   let sketches = 0;
+  let pictures = 0;
   for (let i = 0; i < stepIds.length; i += 150) {
-    const r = await supabase.from("sketches").select("id", { count: "exact", head: true }).in("camp_step_id", stepIds.slice(i, i + 150));
-    if (r.error) throw r.error;
-    sketches += r.count ?? 0;
+    const some = stepIds.slice(i, i + 150);
+    const [drawn, pasted] = await Promise.all([
+      supabase.from("sketches").select("id", { count: "exact", head: true }).in("camp_step_id", some).is("image_path", null),
+      supabase.from("sketches").select("id", { count: "exact", head: true }).in("camp_step_id", some).not("image_path", "is", null),
+    ]);
+    if (drawn.error) throw drawn.error;
+    if (pasted.error) throw pasted.error;
+    sketches += drawn.count ?? 0;
+    pictures += pasted.count ?? 0;
   }
-  return { photos: photos.count ?? 0, sketches };
+  return { photos: photos.count ?? 0, sketches, pictures };
 }
 
-// Resolves to how many finished steps were kept. The section's photo files
-// go after it, since nothing points at them then.
+// Resolves to how many finished steps were kept. The section's photo files,
+// and pictures pasted on its steps (0098), go after it, since nothing
+// points at them then.
 export async function resolveSection(sectionId, today) {
-  const files = await supabase.from("section_photos").select("image_path").eq("section_id", sectionId).not("image_path", "is", null);
+  const [files, pasted] = await Promise.all([
+    supabase.from("section_photos").select("image_path").eq("section_id", sectionId).not("image_path", "is", null),
+    supabase.from("sketches").select("image_path, camp_steps!inner(section_id)").eq("camp_steps.section_id", sectionId).not("image_path", "is", null),
+  ]);
   if (files.error) throw files.error;
+  if (pasted.error) throw pasted.error;
   const { data, error } = await supabase.rpc("resolve_section", { p_section: sectionId, p_today: today });
   if (error) throw error;
-  const paths = (files.data ?? []).map((f) => f.image_path).filter(Boolean);
+  const paths = [...(files.data ?? []), ...(pasted.data ?? [])].map((f) => f.image_path).filter(Boolean);
   if (paths.length) {
     const { error: fileError } = await supabase.storage.from("note-images").remove(paths);
     if (fileError) console.warn(fileError);
@@ -3824,7 +3837,7 @@ export async function saveTodayOrder(userId, questId, day, keys) {
 // with what the sketch reader made of them.
 // ---------------------------------------------------------------------------
 
-const SKETCH = "id, quest_task_id, camp_step_id, width, height, strokes, title, summary, analyzed_at, created_at, updated_at";
+const SKETCH = "id, quest_task_id, camp_step_id, width, height, strokes, image_path, title, summary, analyzed_at, created_at, updated_at";
 const sketchRows = (rows) => rows.map(({ quest_tasks: _t, camp_steps: _s, ...row }) => row);
 
 // Every sketch on one quest's lines.
@@ -3865,9 +3878,14 @@ export async function updateSketch(id, fields) {
   if (error) throw error;
 }
 
-export async function deleteSketch(id) {
+// A pasted picture's file (0098) goes after it, once nothing points at it.
+export async function deleteSketch(id, imagePath = null) {
   const { error } = await supabase.from("sketches").delete().eq("id", id);
   if (error) throw error;
+  if (imagePath) {
+    const { error: fileError } = await supabase.storage.from("note-images").remove([imagePath]);
+    if (fileError) console.warn(fileError);
+  }
 }
 
 // Has the sketch reader look at a sketch (`image`: a PNG, base64) with what
@@ -3889,7 +3907,8 @@ export async function fetchSketch(id) {
 // His latest sketches, anywhere, newest first: to take one as a section's
 // photo.
 export async function fetchRecentSketches(userId, limit = 12) {
-  const { data, error } = await supabase.from("sketches").select(SKETCH).eq("user_id", userId).order("updated_at", { ascending: false }).limit(limit);
+  // drawings only: a pasted picture (0098) is a file of its own
+  const { data, error } = await supabase.from("sketches").select(SKETCH).eq("user_id", userId).is("image_path", null).order("updated_at", { ascending: false }).limit(limit);
   if (error) throw error;
   return data ?? [];
 }
@@ -3921,8 +3940,8 @@ export async function fetchSectionPhoto(id) {
 }
 
 // A picture into his folder of the bucket. Resolves to its path.
-export async function uploadSectionPicture(userId, blob, extension = "jpg") {
-  const path = `${userId}/section-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+export async function uploadSectionPicture(userId, blob, extension = "jpg", kind = "section") {
+  const path = `${userId}/${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
   const { error } = await supabase.storage.from("note-images").upload(path, blob, {
     cacheControl: "3600",
     upsert: false,

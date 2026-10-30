@@ -188,8 +188,9 @@ export function stepsUnder(steps, id) {
 // Resolving a section (0097, Aaron 2026-10-30): it goes, so it stops
 // taking room in the camp, but the steps he finished in it are kept: their
 // bricks stay in the village and the camp still counts them as done.
-// `steps` are the camp's; `extras` the section's photos and the sketches on
-// its steps ({ photos, sketches }), or null when they couldn't be counted.
+// `steps` are the camp's; `extras` the section's photos and the sketches
+// and pasted pictures on its steps ({ photos, sketches, pictures }), or null
+// when they couldn't be counted.
 // Gives every step in it (`all`, with what's under them, and their `ids`),
 // the finished ones kept (`kept`), what else goes with it in words
 // (`lose`), and whether to ask before it goes (`ask`: only when something
@@ -212,6 +213,7 @@ export function resolvePlan(section, steps, extras) {
     open && count(open, "step not done yet", "steps not done yet"),
     notes && count(notes, "note", "notes"),
     extras?.photos && count(extras.photos, "photo", "photos"),
+    extras?.pictures && count(extras.pictures, "picture", "pictures"),
     extras?.sketches && count(extras.sketches, "sketch", "sketches"),
   ].filter(Boolean);
   return { all, ids, kept, lose, ask: lose.length > 0 || !extras };
