@@ -1,4 +1,4 @@
-import { shrinkTo } from "./zoom";
+import { shrinkTo } from "./zoom.js";
 
 // A photo for a section (0096), made ready to keep: no bigger than it needs
 // to be to read a whiteboard up close (its longer side `max` pixels), as a
@@ -45,3 +45,27 @@ function extensionOf(file) {
   if (/^(jpe?g|png|webp|gif|heic)$/.test(fromName)) return fromName;
   return (file.type?.split("/")[1] || "jpg").replace("jpeg", "jpg");
 }
+
+// The picture in a paste (0098), or null when there's text to paste
+// instead (copying cells from a spreadsheet brings a picture of them along).
+export function pastedImage(data) {
+  if (!data) return null;
+  if (String(data.getData?.("text/plain") ?? "").trim()) return null;
+  for (const f of Array.from(data.files ?? [])) if (f?.type?.startsWith("image/")) return f;
+  for (const it of Array.from(data.items ?? [])) {
+    if (it?.kind !== "file" || !it.type?.startsWith("image/")) continue;
+    const f = it.getAsFile?.();
+    if (f) return f;
+  }
+  return null;
+}
+
+// A picture's size as a sketch's page (0098: 50 to 10000 each way), its
+// shape kept; a size not known (a file this browser can't open) is 4 by 3.
+export function pageOf(width, height) {
+  if (!width || !height) return { width: 1200, height: 900 };
+  const k = Math.min(Math.max(1, 50 / Math.min(width, height)), 10000 / Math.max(width, height));
+  const fit = (n) => Math.max(50, Math.min(10000, Math.round(n * k)));
+  return { width: fit(width), height: fit(height) };
+}
+

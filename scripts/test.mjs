@@ -16,6 +16,7 @@ import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLineP
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
 import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers } from "../src/lib/zoom.js";
+import { pastedImage, pageOf } from "../src/lib/photo.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2921,20 +2922,20 @@ function sectionOf({ x, y }) {
     { id: "e", camp_id: "C", section_id: "S", parent_id: null, kind: "note", text: "a note", done_on: null, position: 2 },
     { id: "f", camp_id: "C", section_id: "T", parent_id: null, kind: "task", text: "other section", done_on: "2026-10-23", position: 0 },
   ];
-  const plan = resolvePlan(sec, steps, { photos: 1, sketches: 2 });
+  const plan = resolvePlan(sec, steps, { photos: 1, sketches: 2, pictures: 1 });
   ok("everything in it goes, with what's under its steps", [...plan.ids].sort().join() === "a,b,c,d,e");
   ok("its finished steps are the ones kept", plan.kept.map((x) => x.id).sort().join() === "a,b,c");
-  ok("it says what else would go", plan.lose.join("|") === "1 step not done yet|1 note|1 photo|2 sketches" && plan.ask);
+  ok("it says what else would go", plan.lose.join("|") === "1 step not done yet|1 note|1 photo|1 picture|2 sketches" && plan.ask);
   const done = resolvePlan(sec, steps.filter((x) => x.id !== "d" && x.id !== "e"), { photos: 0, sketches: 0 });
   ok("all finished and nothing else in it, it goes without asking", !done.ask && done.lose.length === 0 && done.kept.length === 3);
   ok("when the photos couldn't be counted, it asks", resolvePlan(sec, [], null).ask);
-  const words = resolveWords(sec, plan, { photos: 1, sketches: 2 });
+  const words = resolveWords(sec, plan, { photos: 1, sketches: 2, pictures: 1 });
   ok(
     "the question says what stays and what goes",
     words.title === "Resolve “Old UI”?" &&
       words.confirmLabel === "Resolve section" &&
       words.body.startsWith("Its 3 finished steps stay in your village, and the camp still counts them as done.") &&
-      words.body.includes("Going with it: 1 step not done yet, 1 note, 1 photo and 2 sketches.")
+      words.body.includes("Going with it: 1 step not done yet, 1 note, 1 photo, 1 picture and 2 sketches.")
   );
   const clip = resolveWords({ ...sec, clipboard: true, title: "Clipboard" }, plan, {});
   ok("a clipboard column is removed, and isn't counted in the camp", clip.title === "Remove “Clipboard”?" && clip.confirmLabel === "Remove column" && !clip.body.includes("counts"));
@@ -2958,6 +2959,22 @@ function sectionOf({ x, y }) {
   ok("its bricks keep their order and quest after the section goes", live.map((u) => `${u.id}${u.questId}`).join() === kept.map((u) => `${u.id}${u.questId}`).join());
   const project = [{ id: "p", kind: "beacon", seed: 1, plot: 0, need: 12, started_on: "2026-10-01", created_at: "2026-10-01" }];
   ok("so the building stands as tall as before", allocate(project, live).projects[0].done === allocate(project, kept).projects[0].done);
+}
+
+{
+  console.log("\npictures pasted into a task (0098)");
+  const png = { type: "image/png", name: "image.png" };
+  const clip = (text, files = [], items = []) => ({ getData: (t) => (t === "text/plain" ? text : ""), files, items });
+  ok("a screenshot on the clipboard is a picture to add", pastedImage(clip("", [png])) === png);
+  ok("one that only comes as an item is found too", pastedImage(clip("", [], [{ kind: "file", type: "image/jpeg", getAsFile: () => png }])) === png);
+  ok("text pastes as text, even with a picture of it along (cells from a sheet)", pastedImage(clip("Q3 numbers", [png])) === null);
+  ok("a file that isn't a picture isn't taken", pastedImage(clip("", [{ type: "application/pdf" }])) === null && pastedImage(null) === null);
+  ok("a picture's size is its page, as it is", JSON.stringify(pageOf(1600, 1200)) === JSON.stringify({ width: 1600, height: 1200 }));
+  const tiny = pageOf(20, 10);
+  ok("a tiny one is made big enough to be a page, its shape kept", tiny.height === 50 && tiny.width === 100);
+  ok("a size not known is a 4 by 3 page", JSON.stringify(pageOf(null, null)) === JSON.stringify({ width: 1200, height: 900 }));
+  const long = pageOf(30, 12000);
+  ok("an odd long one stays within the page's bounds", long.width >= 50 && long.height <= 10000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

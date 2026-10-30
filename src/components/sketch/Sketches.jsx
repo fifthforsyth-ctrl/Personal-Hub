@@ -1,6 +1,8 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Maximize2, PenTool, Sparkles } from "lucide-react";
-import { addSketch, analyzeSketch, deleteSketch, fetchCampSketches, fetchQuestSketches, updateSketch } from "../../lib/api";
+import { ImagePlus, Loader2, Maximize2, PenTool, Sparkles, Trash2 } from "lucide-react";
+import { addSketch, analyzeSketch, deleteSketch, fetchCampSketches, fetchQuestSketches, updateSketch, uploadSectionPicture } from "../../lib/api";
+import { pageOf, pastedImage, readyPhoto } from "../../lib/photo";
+import { prime, useSignedUrl } from "../../lib/useSignedUrl";
 import { drawStrokes, fitPage, inkFrame, plainSummary, sketchPng, staleSummary } from "../../lib/sketch";
 import { fmtShortDate, toDateStr } from "../../lib/planDates";
 import { useLoad } from "../../lib/useLoad";
@@ -18,6 +20,10 @@ import "../../styles/sketch.css";
 // sketch opens it large with what it says; Analyze has the sketch reader
 // look at it with what it's on and sum up what he jotted down. Tapping it
 // there enlarges it over the whole screen, to zoom in and pin (0096).
+//
+// A picture pasted into a row (0098) is kept as one of its sketches with
+// nothing drawn on it, its file in his folder of the bucket. It shows large
+// under the row's words and opens straight up close, to zoom in and pin.
 //
 //   <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => text} onAddToNote={(id, text) => …}>
 //
@@ -51,6 +57,7 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
   const [pad, setPad] = useState(null); // { itemId, sketch }
   const [viewing, setViewing] = useState(null); // a sketch's id
   const [reading, setReading] = useState(() => new Set()); // ids being read
+  const [adding, setAdding] = useState(() => new Map()); // row id → pictures on their way
   // Up close (0096): with the page's photos and pins, there; else on its own.
   const photos = usePhotos();
   const [big, setBig] = useState(null);
@@ -117,22 +124,71 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
   }
 
   async function remove(sketch) {
-    const ok = await confirm({ title: "Delete this sketch?", body: sketch.summary ? "What it says goes with it." : undefined, confirmLabel: "Delete" });
-    if (!ok) return;
+    const picture = Boolean(sketch.image_path);
+    const ok = await confirm({
+      title: picture ? "Delete this picture?" : "Delete this sketch?",
+      body: sketch.summary ? "What it says goes with it." : undefined,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return false;
     setViewing(null);
+    setBig(null);
     mutate((l) => (l ?? []).filter((s) => s.id !== sketch.id));
     try {
-      await deleteSketch(sketch.id);
+      await deleteSketch(sketch.id, sketch.image_path ?? null);
     } catch (err) {
-      toast.error(err, "Couldn't delete that sketch.");
+      toast.error(err, picture ? "Couldn't delete that picture." : "Couldn't delete that sketch.");
       reload();
     }
+    return true;
+  }
+
+  // A picture pasted or picked onto a row (0098): made ready (no bigger than
+  // it needs to be), kept in his folder, and put on the row. It shows from
+  // the device at once while the page is open.
+  async function addImage(itemId, file) {
+    const bump = (by) =>
+      setAdding((m) => {
+        const next = new Map(m);
+        const n = (next.get(itemId) ?? 0) + by;
+        if (n > 0) next.set(itemId, n);
+        else next.delete(itemId);
+        return next;
+      });
+    bump(1);
+    try {
+      const ready = await readyPhoto(file);
+      const path = await uploadSectionPicture(userId, ready.blob, ready.extension, kind === "step" ? "step" : "task");
+      try {
+        prime(path, URL.createObjectURL(ready.blob));
+      } catch {
+        /* it signs a link instead */
+      }
+      const row = await addSketch(userId, { [key]: itemId, ...pageOf(ready.width, ready.height), strokes: [], image_path: path });
+      mutate((l) => [...(l ?? []), row]);
+      return row;
+    } catch (err) {
+      toast.error(err, "Couldn't add that picture.");
+      return null;
+    } finally {
+      bump(-1);
+    }
+  }
+
+  // A picture opens straight up close (with the page's pins, if it has
+  // them), with a way to delete it there.
+  function openPicture(k) {
+    if (photos) photos.openSketch(k, about?.(k[key]), { onRemove: () => remove(k) });
+    else setBig(k);
   }
 
   const ctx = {
     byItem,
+    adding,
     draw: (itemId) => setPad({ itemId, sketch: null }),
     view: (id) => setViewing(id),
+    addImage,
+    openPicture,
   };
   const open = viewing ? list.find((s) => s.id === viewing) : null;
 
@@ -177,7 +233,7 @@ export function SketchProvider({ kind, userId, scopeId, about, onAddToNote, chil
           onClose={() => setViewing(null)}
         />
       )}
-      {big && <Viewer title={big.title || "Sketch"} sketch={big} onClose={() => setBig(null)} />}
+      {big && <BigOne sketch={big} onRemove={() => remove(big)} onClose={() => setBig(null)} />}
     </Ctx.Provider>
   );
 }
@@ -209,17 +265,60 @@ export function SketchImage({ sketch, className, pad = 0, minPx = 1.2, frame = n
   return <canvas ref={ref} className={className} role="img" aria-label={sketch.title ? `Sketch: ${sketch.title}` : "Sketch"} />;
 }
 
-// A row's sketches, small, under its words.
+// A sketch or picture up close where the page has no photos of its own.
+function BigOne({ sketch, onRemove, onClose }) {
+  const src = useSignedUrl(sketch.image_path ?? null);
+  const picture = Boolean(sketch.image_path);
+  return (
+    <Viewer
+      title={sketch.title || (picture ? "Picture" : "Sketch")}
+      src={picture ? src : null}
+      sketch={picture ? null : sketch}
+      width={picture ? sketch.width : null}
+      height={picture ? sketch.height : null}
+      tools={
+        picture ? (
+          <button type="button" className="iv-btn" onClick={onRemove} aria-label="Delete this picture" title="Delete this picture">
+            <Trash2 size={16} />
+          </button>
+        ) : null
+      }
+      onClose={onClose}
+    />
+  );
+}
+
+// A row's sketches and pictures, under its words: big enough to read.
 export function SketchStrip({ itemId }) {
   const s = useContext(Ctx);
   const list = s?.byItem.get(itemId);
-  if (!list?.length) return null;
+  const waiting = s?.adding.get(itemId) ?? 0;
+  if (!list?.length && !waiting) return null;
   return (
     <div className="sk-strip">
-      {list.map((k) => (
-        <SketchChip key={k.id} sketch={k} onOpen={() => s.view(k.id)} />
+      {(list ?? []).map((k) =>
+        k.image_path ? <PictureChip key={k.id} sketch={k} onOpen={() => s.openPicture(k)} /> : <SketchChip key={k.id} sketch={k} onOpen={() => s.view(k.id)} />
+      )}
+      {Array.from({ length: waiting }, (_, i) => (
+        <span key={`wait-${i}`} className="sk-pic sk-pic--wait" role="status" aria-label="Adding the picture">
+          <Loader2 size={18} className="spin" aria-hidden="true" />
+        </span>
       ))}
     </div>
+  );
+}
+
+// A picture on a row (0098), as large as the row lets it be.
+function PictureChip({ sketch, onOpen }) {
+  const src = useSignedUrl(sketch.image_path);
+  return (
+    <button type="button" className="sk-pic" onClick={onOpen} aria-label="Open the picture">
+      {src ? (
+        <img src={src} alt="" width={sketch.width} height={sketch.height} draggable={false} />
+      ) : (
+        <span className="sk-pic__wait" style={{ aspectRatio: `${sketch.width} / ${sketch.height}` }} aria-hidden="true" />
+      )}
+    </button>
   );
 }
 
@@ -243,16 +342,49 @@ function SketchChip({ sketch, onOpen }) {
   );
 }
 
-// "Sketch", among an open row's tools.
+// "Sketch", among an open row's tools, and "Picture" beside it (0098): one
+// taken or chosen, for when there's nothing to paste (on a phone).
 export function SketchButton({ itemId }) {
   const s = useContext(Ctx);
+  const file = useRef(null);
   if (!s) return null;
   return (
-    <button type="button" className="btn btn--sm sk-add" onClick={() => s.draw(itemId)}>
-      <PenTool size={14} />
-      Sketch
-    </button>
+    <>
+      <button type="button" className="btn btn--sm sk-add" onClick={() => s.draw(itemId)}>
+        <PenTool size={14} />
+        Sketch
+      </button>
+      <label className="btn btn--sm sk-add" title="Add a picture. You can paste one here too.">
+        <ImagePlus size={14} aria-hidden="true" />
+        Picture
+        <input
+          ref={file}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            for (const f of files) s.addImage(itemId, f);
+          }}
+        />
+      </label>
+    </>
   );
+}
+
+// Pasting a picture into a row (0098): `onPaste` for anything inside an
+// open row, putting it on `itemId`. Text pastes as it always has.
+export function usePastePicture(itemId) {
+  const s = useContext(Ctx);
+  return (e) => {
+    if (!s || !itemId) return;
+    const f = pastedImage(e.clipboardData);
+    if (!f) return;
+    e.preventDefault();
+    s.addImage(itemId, f);
+  };
 }
 
 // One sketch, large, with what it says once it's been read.

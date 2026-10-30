@@ -475,7 +475,7 @@ export default function Quests() {
           }
       );
       haptic("tap");
-      return true;
+      return rows;
     } catch (err) {
       toast.error(err, texts.length > 1 ? "Couldn't add those sub-steps." : "Couldn't add that sub-step.");
       return false;
@@ -1077,7 +1077,7 @@ export default function Quests() {
       setCampSteps((list) => [...list, ...rows]);
       setTally((list) => [...list, ...rows.map(tallyRow)]);
       haptic("tap");
-      return true;
+      return rows;
     } catch (err) {
       toast.error(err, texts.length > 1 ? "Couldn't add those." : "Couldn't add that.");
       return false;
@@ -1278,7 +1278,9 @@ export default function Quests() {
         await reload();
         navigate(`/quests/${qid}`, { replace: true });
       } else mutateLines((list) => [...(list ?? []), ...rows]);
-      return true;
+      // the rows made, so a picture pasted in (0098) can go on the first;
+      // on a mountain made just now the page has moved on
+      return made ? true : rows;
     } catch (err) {
       toast.error(err, parsed.length > 1 ? "Couldn't add those." : "Couldn't add that.");
       // A mountain made just now stays; load it so the next try writes there.
@@ -1296,7 +1298,7 @@ export default function Quests() {
       );
       mutateLines((list) => [...(list ?? []), ...rows]);
       haptic("tap");
-      return true;
+      return rows;
     } catch (err) {
       toast.error(err, parsed.length > 1 ? "Couldn't add those." : "Couldn't add that.");
       return false;

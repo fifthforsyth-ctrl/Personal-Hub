@@ -15,6 +15,7 @@ import {
   uploadSectionPicture,
 } from "../../lib/api";
 import { readyPhoto } from "../../lib/photo";
+import { signPicture } from "../../lib/useSignedUrl";
 import { pinNumbers } from "../../lib/zoom";
 import { inkFrame } from "../../lib/sketch";
 import { fmtShortDate, toDateStr } from "../../lib/planDates";
@@ -229,8 +230,9 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
       } else {
         const sketch = await fetchSketch(pin.sketch_id);
         if (!sketch) throw new Error("That sketch is gone.");
+        const src = sketch.image_path ? await signPicture(sketch.image_path) : null;
         setPinning(false);
-        setLook({ sketch, pin: pin.id, focus: { x: pin.x, y: pin.y } });
+        setLook({ sketch, src, pin: pin.id, focus: { x: pin.x, y: pin.y } });
       }
     } catch (err) {
       toast.error(err, "Couldn't open its pin.");
@@ -246,9 +248,12 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
       setPinning(false);
       setLook({ photo, pin: null });
     },
-    openSketch: (sketch, about) => {
+    // A sketch, or a picture pasted on a row (0098), which can be deleted
+    // from here (`onRemove` resolves true once it's gone).
+    openSketch: async (sketch, about, { onRemove = null } = {}) => {
+      const src = sketch.image_path ? await signPicture(sketch.image_path) : null;
       setPinning(false);
-      setLook({ sketch, about, pin: null });
+      setLook({ sketch, about, src, onRemove, pin: null });
     },
     openPin,
     pinLabel: (pinId) => (numbers.has(pinId) ? `Pin ${numbers.get(pinId)}` : null),
@@ -261,15 +266,17 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
     const here = pinsOn(target).map((p) => ({ ...p, n: numbers.get(p.id) ?? 0, count: tasksOf?.(p.id)?.length ?? 0 }));
     const open = here.find((p) => p.id === look.pin) ?? null;
     const where = place ? place(target) : null;
-    const title = look.photo ? look.photo.caption || "Photo" : look.sketch.title || (look.about ? `Sketch on “${short(look.about)}”` : "Sketch");
+    const picture = !look.photo && Boolean(look.sketch.image_path);
+    const what = picture ? "Picture" : "Sketch";
+    const title = look.photo ? look.photo.caption || "Photo" : look.sketch.title || (look.about ? `${what} on “${short(look.about)}”` : what);
     viewer = (
       <Viewer
         key={look.photo?.id ?? look.sketch.id}
         title={title}
-        src={look.photo ? ctx.urlOf(look.photo) : null}
-        sketch={look.photo ? look.photo.sketch : look.sketch}
-        width={look.photo?.width ?? null}
-        height={look.photo?.height ?? null}
+        src={look.photo ? ctx.urlOf(look.photo) : picture ? look.src ?? null : null}
+        sketch={look.photo ? look.photo.sketch : picture ? null : look.sketch}
+        width={look.photo ? look.photo.width ?? null : picture ? look.sketch.width : null}
+        height={look.photo ? look.photo.height ?? null : picture ? look.sketch.height : null}
         pins={here}
         openPin={open?.id ?? null}
         pinning={pinning}
@@ -283,6 +290,18 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
         tools={
           look.photo ? (
             <button type="button" className="iv-btn" onClick={() => removePhoto(look.photo)} aria-label="Remove this photo" title="Remove this photo">
+              <Trash2 size={16} />
+            </button>
+          ) : look.onRemove ? (
+            <button
+              type="button"
+              className="iv-btn"
+              onClick={async () => {
+                if (await look.onRemove()) setLook(null);
+              }}
+              aria-label="Delete this picture"
+              title="Delete this picture"
+            >
               <Trash2 size={16} />
             </button>
           ) : null
