@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Camera, Check, Loader2, NotebookPen, Trash2, X } from "lucide-react";
 import {
   addPin,
@@ -48,16 +49,103 @@ import "../../styles/photos.css";
 //     place={({ photo } | { sketch }) => "UI changes" | null}
 //                                          where its tasks go (null: they can't, from here)
 //     addTasks={({ pin, photo, sketch }, texts) => Promise<boolean>}
-//     tick={(row) => …}>                   ticks one
+//     tick={(row) => …}                    ticks one
+//     side="Clipboard"                     offers the page's clipboard beside a picture up close
+//     attach={({ photo } | { sketch }, pin, ids) => { undo, moved } | null}
+//                                          steps dropped on a pin: they wear it (and go
+//                                          where its tasks go, `moved`); `undo()` puts them back
+//     handle={ref}>                        ref.current.dropOnPicture(phase, x, y, ids), for the page's drags
 //
 // A step made on a pin wears a PinTag and, open, a ShowPin button that
 // opens its picture on that pin.
+//
+// Steps dropped on a picture (Aaron, 2026-10-30: "when I drag and drop a
+// task onto the image it creates a pin in that spot") are pinned there: on
+// a pin already there, or on a new one. That's the picture up close, with
+// the clipboard beside it (<PhotoSide>, which the page puts its clipboard
+// in), or a picture on a row (0098) on the page. The page's own drag hands
+// each move to `handle.current.dropOnPicture`, which says whether it's over
+// a picture (true: it lights the spot, and on "drop" pins them).
 
 export { usePhotos };
 
 const byOrder = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
-export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTasks, tick, children }) {
+const SIDE_KEY = "hub:iv-side";
+
+function readSide() {
+  try {
+    return localStorage.getItem(SIDE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// The page's clipboard (its children), in the box beside a picture up close
+// while it's showing there.
+export function PhotoSide({ children }) {
+  const ph = usePhotos();
+  return ph?.sideEl ? createPortal(children, ph.sideEl) : null;
+}
+
+// Where a step carried to (x, y) would be pinned (see the top). Over the
+// picture up close: on one of its pins, at a spot on it, or `off` it (its
+// dark surround, where nothing lands); over the rest of the viewer, `none`
+// unless it's a box the step can go into there (null: the page's own drop).
+// With the page showing: a picture on a row, the same way. `skip` is the
+// rows being carried, whose own pictures don't count.
+function spotAt(x, y, skip) {
+  const within = (el) => {
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
+  const on = (el, page, target) => {
+    const pin = [...el.querySelectorAll("[data-pin]")].find(within);
+    if (pin) return { el, target, pinEl: pin, pinId: pin.dataset.pin };
+    const r = page?.getBoundingClientRect();
+    const fx = r?.width ? (x - r.left) / r.width : -1;
+    const fy = r?.height ? (y - r.top) / r.height : -1;
+    if (!(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)) return { el, target, off: true };
+    const box = el.getBoundingClientRect();
+    return { el, target, x: fx, y: fy, at: { x: x - box.left, y: y - box.top } };
+  };
+  const viewer = document.querySelector(".iv");
+  const under = document.elementsFromPoint(x, y).filter((e) => !e.classList.contains("drag-ghost") && !(skip && e.closest(skip)));
+  if (viewer) {
+    const stage = viewer.querySelector(".iv-stage");
+    if (stage && within(stage)) return on(stage, stage.querySelector(".iv-page"), null);
+    const top = under[0];
+    return top && viewer.contains(top) && top.closest("[data-drop]") ? null : { none: true };
+  }
+  const pic = under.map((e) => e.closest("[data-pin-sketch]")).find(Boolean);
+  if (!pic) return null;
+  const sketch = { id: pic.dataset.pinSketch, camp_step_id: pic.dataset.pinStep || null, quest_task_id: pic.dataset.pinLine || null };
+  return on(pic, pic.querySelector("img"), { sketch });
+}
+
+// Lights where it would go: the pin it would join, or a pin's shadow at the spot.
+let lit = null;
+function markSpot(hit) {
+  const el = hit && !hit.none ? hit.el : null;
+  if (lit && lit !== el) {
+    lit.classList.remove("pin-drop");
+    lit.querySelector(".drop-mark")?.classList.remove("show");
+  }
+  document.querySelectorAll(".pin-into").forEach((e) => e !== hit?.pinEl && e.classList.remove("pin-into"));
+  // what's carried fades, so the picture under it shows
+  document.documentElement.classList.toggle("pin-dropping", Boolean(el && !hit.off));
+  lit = el;
+  if (!el) return;
+  el.classList.toggle("pin-drop", !hit.off);
+  hit.pinEl?.classList.add("pin-into");
+  const mark = el.querySelector(".drop-mark");
+  if (!mark) return;
+  const show = !hit.off && !hit.pinEl;
+  mark.classList.toggle("show", show);
+  if (show) mark.style.transform = `translate3d(${hit.at.x}px, ${hit.at.y}px, 0)`;
+}
+
+export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTasks, tick, side = null, attach, handle, children }) {
   const toast = useToast();
   const confirm = useConfirm();
   const ids = [...new Set(sectionIds.filter(Boolean))].sort();
@@ -68,6 +156,8 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
   const [adding, setAdding] = useState(null); // { sectionId, title }
   const [look, setLook] = useState(null); // { photo } | { sketch, about }, with { pin, focus }
   const [pinning, setPinning] = useState(false);
+  const [sideOn, setSideOn] = useState(readSide);
+  const [sideEl, setSideEl] = useState(null); // the box beside a picture up close
 
   const photoList = photos.data ?? [];
   const pinList = pins.data ?? [];
@@ -213,6 +303,57 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
     }
   }
 
+  // Steps let go on a picture (`hit` from spotAt): on its pin there, or on
+  // a new one at that spot, with Undo (which takes a new pin off again).
+  async function dropSteps(hit, ids) {
+    const target = hit.target ?? (look?.photo ? { photo: look.photo } : look ? { sketch: look.sketch } : null);
+    if (!target || !attach) return;
+    let pin = hit.pinId ? pinList.find((p) => p.id === hit.pinId) : null;
+    const made = !pin;
+    if (made) {
+      try {
+        pin = await addPin(userId, { ...(target.photo ? { photo_id: target.photo.id } : { sketch_id: target.sketch.id }), x: hit.x, y: hit.y });
+      } catch (err) {
+        toast.error(err, "Couldn't put a pin there.");
+        return;
+      }
+      pins.mutate((l) => [...(l ?? []), pin]);
+    }
+    const n = pinNumbers([...pinsOn(target).filter((p) => p.id !== pin.id), pin]).get(pin.id);
+    const takeOff = () => {
+      pins.mutate((l) => (l ?? []).filter((p) => p.id !== pin.id));
+      setLook((l) => (l && l.pin === pin.id ? { ...l, pin: null } : l));
+      return deletePin(pin.id).catch((err) => {
+        toast.error(err, "Couldn't take that pin off.");
+        pins.reload();
+      });
+    };
+    const done = attach(target, pin, ids);
+    if (!done) {
+      if (made) takeOff();
+      toast.show(ids.length === 1 ? `It's on pin ${n} already.` : `They're on pin ${n} already.`);
+      return;
+    }
+    haptic("tap");
+    const where = done.moved && place ? place(target) : null;
+    toast.show(`${ids.length === 1 ? "Pinned" : `${ids.length} pinned`} to pin ${n}${where ? `, in ${where}` : ""}`, {
+      actionLabel: "Undo",
+      onAction: async () => {
+        await done.undo();
+        if (made) takeOff();
+      },
+    });
+  }
+
+  function dropOnPicture(phase, x, y, ids) {
+    const hit = phase === "move" || phase === "drop" ? spotAt(x, y, ids.map((k) => `#step-${k}`).join(", ")) : null;
+    markSpot(phase === "move" ? hit : null);
+    if (!hit) return false;
+    if (phase === "drop" && !hit.none && !hit.off) dropSteps(hit, ids);
+    return true;
+  }
+  if (handle) handle.current = { dropOnPicture };
+
   // A step's pin, from the step: its picture, up close on it.
   async function openPin(pinId) {
     const pin = pinList.find((p) => p.id === pinId);
@@ -241,7 +382,6 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
 
   const ctx = {
     photosOf: (sectionId) => bySection.get(sectionId) ?? [],
-    pinCount: (photo) => pinList.filter((p) => p.photo_id === photo.id).length,
     urlOf: (photo) => (photo.image_path ? urls[photo.image_path] ?? null : null),
     add: (sectionId, title) => setAdding({ sectionId, title }),
     open: (photo) => {
@@ -257,6 +397,11 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
     },
     openPin,
     pinLabel: (pinId) => (numbers.has(pinId) ? `Pin ${numbers.get(pinId)}` : null),
+    // A picture's pins, numbered, with how many tasks each has.
+    pinsOf: (target) => pinsOn(target).map((p) => ({ ...p, n: numbers.get(p.id) ?? 0, count: tasksOf?.(p.id)?.length ?? 0 })),
+    // pictures on rows take steps dropped on them only where they can be pinned
+    drops: Boolean(attach),
+    sideEl,
   };
 
   // What's open up close.
@@ -287,6 +432,17 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
         onPlace={putPin}
         onPin={(id) => setLook((l) => ({ ...l, pin: id }))}
         focus={look.focus}
+        side={side}
+        sideOn={sideOn}
+        onSide={(on) => {
+          setSideOn(on);
+          try {
+            localStorage.setItem(SIDE_KEY, on ? "1" : "0");
+          } catch {
+            /* remembering is a nicety */
+          }
+        }}
+        sideRef={setSideEl}
         tools={
           look.photo ? (
             <button type="button" className="iv-btn" onClick={() => removePhoto(look.photo)} aria-label="Remove this photo" title="Remove this photo">

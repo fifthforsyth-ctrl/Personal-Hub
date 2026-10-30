@@ -15,7 +15,7 @@ import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, 
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
-import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers } from "../src/lib/zoom.js";
+import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers, pinSpots } from "../src/lib/zoom.js";
 import { pastedImage, pageOf } from "../src/lib/photo.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
@@ -36,7 +36,7 @@ import {
   questToday,
   pickDiff,
 } from "../src/lib/camp.js";
-import { planMove, applyRows, inPageOrder } from "../src/lib/stepMoves.js";
+import { planMove, applyRows, inPageOrder, planPinDrop, applyPinDrop, byPin } from "../src/lib/stepMoves.js";
 import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups } from "../src/lib/camp.js";
 import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
@@ -2975,6 +2975,46 @@ function sectionOf({ x, y }) {
   ok("a size not known is a 4 by 3 page", JSON.stringify(pageOf(null, null)) === JSON.stringify({ width: 1200, height: 900 }));
   const long = pageOf(30, 12000);
   ok("an odd long one stays within the page's bounds", long.width >= 50 && long.height <= 10000);
+}
+
+{
+  console.log("\nsteps dropped on a picture, and its pins shown small");
+  const steps = [
+    { id: "pic", camp_id: "c1", section_id: "ui", parent_id: null, position: 0, pin_id: null },
+    { id: "u2", camp_id: "c1", section_id: "ui", parent_id: null, position: 1, pin_id: "p1" },
+    { id: "t1", camp_id: "c1", section_id: "clip", parent_id: null, position: 0, pin_id: null },
+    { id: "t1a", camp_id: "c1", section_id: "clip", parent_id: "t1", position: 0, pin_id: null },
+    { id: "t2", camp_id: "c1", section_id: "clip", parent_id: null, position: 1, pin_id: "p0" },
+  ];
+  const to = { campId: "c1", sectionId: "ui" };
+  const one = planPinDrop(steps, ["t1"], "p9", to);
+  const after = applyPinDrop(steps, one);
+  const t1 = after.find((x) => x.id === "t1");
+  ok("a clipboard thought dropped on a picture wears its pin", t1.pin_id === "p9");
+  ok("and goes to the end of the picture's section", t1.section_id === "ui" && t1.position === 2 && one.sectionId === "ui");
+  ok("its sub-steps come along, without the pin", after.find((x) => x.id === "t1a").section_id === "ui" && after.find((x) => x.id === "t1a").pin_id === null);
+  const back = applyPinDrop(after, one, true);
+  ok("Undo puts it back as it was, pin and all", JSON.stringify(back) === JSON.stringify(steps));
+  const two = planPinDrop(steps, ["t1", "t2"], "p9", to);
+  ok("several carried together all take the pin", applyPinDrop(steps, two).filter((x) => x.pin_id === "p9").length === 2);
+  ok("each one's pin before is kept for Undo", JSON.stringify(two.pinsWas) === JSON.stringify([{ id: "t1", pin_id: null }, { id: "t2", pin_id: "p0" }]));
+  const there = planPinDrop(steps, ["u2"], "p9", to);
+  ok("one in the picture's section already only changes its pin", there.place.length === 0 && there.sectionId === null && there.pins[0].pin_id === "p9");
+  ok("nothing to change asks for nothing", planPinDrop(steps, ["u2"], "p1", to) === null && planPinDrop(steps, ["gone"], "p9", to) === null);
+  const stay = planPinDrop(steps, ["t1"], "p9", null);
+  ok("where its tasks can't go from here, it only takes the pin", stay.place.length === 0 && applyPinDrop(steps, stay).find((x) => x.id === "t1").section_id === "clip");
+  ok("pins to save, one list each", JSON.stringify(byPin([{ id: "a", pin_id: null }, { id: "b", pin_id: "p0" }, { id: "c", pin_id: null }])) === JSON.stringify([[null, ["a", "c"]], ["p0", ["b"]]]));
+
+  const pins = [{ id: "a", x: 0.5, y: 0.5 }, { id: "b", x: 0, y: 1 }];
+  const whole = pinSpots(pins, { w: 1200, h: 300 }, 600, 150);
+  ok("on a picture shown whole, a pin sits where it was put", whole[0].left === 300 && whole[0].top === 75 && whole[1].left === 0 && whole[1].top === 150);
+  const boxed = pinSpots(pins, { w: 1200, h: 300 }, 600, 300);
+  ok("fitted into a taller box, it's centred with the picture", boxed[0].left === 300 && boxed[0].top === 150 && boxed[1].top === 225);
+  const cut = pinSpots([{ id: "a", x: 0.5, y: 0.5 }, { id: "edge", x: 0.02, y: 0.5 }], { w: 1200, h: 300, cover: true }, 150, 150);
+  ok("cut to fill a small square, the middle stays and the cut-off one goes", cut.length === 1 && cut[0].left === 75 && cut[0].top === 75);
+  const inked = pinSpots([{ id: "a", x: 0.5, y: 0.5 }, { id: "far", x: 0.95, y: 0.05 }], { w: 1000, h: 1000, frame: { x: 400, y: 400, width: 200, height: 200 }, pad: 0 }, 100, 100);
+  ok("on a sketch shown by its inked part, a pin outside that part isn't shown", inked.length === 1 && inked[0].left === 50 && inked[0].top === 50);
+  ok("before its box is measured there's nowhere to show them", pinSpots(pins, { w: 10, h: 10 }, 0, 0).length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

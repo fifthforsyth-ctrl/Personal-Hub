@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronDown, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, updateCamp, reorder, moveStepToSection, placeSteps, fetchSectionExtras, resolveSection } from "../lib/api";
+import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, updateCamp, reorder, moveStepToSection, placeSteps, fetchSectionExtras, resolveSection, savePinDrop } from "../lib/api";
 import { buildCamp, kindFields, pickDiff, resolvePlan, resolveWords, resolvedGroups, resolvedLine, stepsUnder, todayPicks } from "../lib/camp";
-import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
+import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../lib/stepMoves";
 import { todayStr, fmtShortDate } from "../lib/planDates";
 import { appendToNote } from "../lib/sketch";
 import { savesInOrder, undoableSave } from "../lib/inOrder";
@@ -19,7 +19,7 @@ import { markDrop, useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
-import { PhotoProvider } from "../components/photos/Photos";
+import { PhotoProvider, PhotoSide } from "../components/photos/Photos";
 import { PickBar, TodayBlocks, TodayHead, usePick } from "../components/camp/Today";
 import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
 import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
@@ -41,7 +41,8 @@ import "../styles/camp.css";
 // pinned down the right side of the window, where a meeting's thoughts wait
 // to be dragged into the sections on the left. Select picks out many steps
 // at once, anywhere on the page, to drag or move together, or to make a new
-// section from.
+// section from. A picture up close can have the clipboard beside it, and a
+// step dropped on a picture (there or on the page) is pinned where it lands.
 
 const HIDE_KEY = "hub.camp.hideDone";
 const PIN_KEY = "hub:clip-pinned";
@@ -118,6 +119,8 @@ export default function Camp() {
   const [sheet, setSheet] = useState(null); // a section to edit, or { new: true }
   const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
   const select = useSelect();
+  // the page's photos and pins: steps dropped on a picture
+  const photoApi = useRef(null);
   const [pinned, setPinned] = useState(readPin);
   const room = useRoom(PIN_ROOM);
   const [note, setNote] = useState("");
@@ -358,6 +361,11 @@ export default function Camp() {
 
   function dragOut(phase, x, y, st) {
     const g = group(st);
+    // let go on a picture, it's pinned there
+    if (photoApi.current?.dropOnPicture(phase, x, y, g ?? [st.id])) {
+      markDrop(null);
+      return;
+    }
     const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st, g) : null;
     markDrop(phase === "move" ? hit : null);
     if (phase !== "drop" || !hit) return;
@@ -573,6 +581,21 @@ export default function Camp() {
       return home === undefined ? Promise.resolve(false) : addTo(home, texts, null, { pin_id: target.pin.id });
     },
     tick: (st) => toggleDone(st),
+    side: "Clipboard",
+    // Steps dropped on a picture wear its pin, and go where its tasks go.
+    attach: (target, pin, ids) => {
+      const home = pinHome(target);
+      const plan = planPinDrop(stepsNow.current ?? [], ids, pin.id, home === undefined ? null : { campId: id, sectionId: home });
+      if (!plan) return null;
+      setSteps((list) => applyPinDrop(list, plan));
+      if (plan.sectionId) setOpened((o) => ({ ...o, [plan.sectionId]: true }));
+      inOrder(() => savePinDrop(plan)).catch((err) => failed(err, "Couldn't pin that."));
+      const undo = () => {
+        setSteps((list) => applyPinDrop(list, plan, true));
+        return inOrder(() => savePinDrop(plan, true)).catch((err) => failed(err, "Couldn't put that back."));
+      };
+      return { undo, moved: Boolean(plan.sectionId) };
+    },
   };
 
   // Where a step can go: any section, or the camp's top above them.
@@ -766,7 +789,8 @@ export default function Camp() {
     ...view.clips.map((s) => ({ key: s.id, label: s.title, group: "Clipboard" })),
   ];
   const selectBtn = !empty || view.clips.length ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null;
-  const clipboard = (stack) => (
+  // Down the right (`stack`), or beside a picture up close (`viewing`).
+  const clipboard = (stack, viewing = false) => (
     <Clipboard
       cols={view.clips.map((section) => ({ section, camp: data.camp }))}
       layout={stack ? "stack" : "row"}
@@ -782,9 +806,9 @@ export default function Camp() {
       carry={carry}
       onNewColumn={newColumn}
       onEditColumn={(sec) => setColSheet(sec)}
-      tools={stack ? selectBtn : null}
-      pinned={stack}
-      onPin={room ? togglePin : undefined}
+      tools={stack && !viewing ? selectBtn : null}
+      pinned={stack && !viewing}
+      onPin={room && !viewing ? togglePin : undefined}
       picking={pick.on}
     />
   );
@@ -801,7 +825,7 @@ export default function Camp() {
 
   return (
     <div className={"page ascent camp" + (pinNow ? " camp--pinned" : "")}>
-      <PhotoProvider userId={userId} {...pinProps}>
+      <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
       <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
       <div className="camp-left">
       <header className="ascent-head camp-head">
@@ -1027,6 +1051,7 @@ export default function Camp() {
           {clipboard(true)}
         </aside>
       )}
+      <PhotoSide>{clipboard(true, true)}</PhotoSide>
       </SketchProvider>
       </PhotoProvider>
 

@@ -68,7 +68,7 @@ export default function Clipboard({
           <ClipColumn
             key={c.section.id}
             col={c}
-            showCamp={layout === "row" && (camps?.length ?? 0) > 1}
+            showCamp={(camps?.length ?? 0) > 1}
             openStep={openStep}
             step={step}
             hideDone={hideDone}
