@@ -11,6 +11,7 @@ import Sheet from "../ascent/Sheet";
 import { PlanNotes } from "../camp/Rich";
 import SketchPad from "./SketchPad";
 import { usePhotos } from "../photos/context";
+import PinDots from "../photos/PinDots";
 import Viewer from "../photos/Viewer";
 import "../../styles/sketch.css";
 
@@ -308,29 +309,49 @@ export function SketchStrip({ itemId }) {
   );
 }
 
-// A picture on a row (0098), as large as the row lets it be.
+// A picture on a row (0098), as large as the row lets it be, with its pins
+// on it (each opens it up close there). A step carried onto it is pinned
+// where it's let go (Photos.jsx reads the data-pin-* marks).
 function PictureChip({ sketch, onOpen }) {
   const src = useSignedUrl(sketch.image_path);
+  const photos = usePhotos();
+  const pins = photos?.pinsOf({ sketch }) ?? [];
+  const drops = Boolean(photos?.drops && src);
   return (
-    <button type="button" className="sk-pic" onClick={onOpen} aria-label="Open the picture">
-      {src ? (
-        <img src={src} alt="" width={sketch.width} height={sketch.height} draggable={false} />
-      ) : (
-        <span className="sk-pic__wait" style={{ aspectRatio: `${sketch.width} / ${sketch.height}` }} aria-hidden="true" />
+    <span
+      className="sk-pic"
+      data-pin-sketch={drops ? sketch.id : undefined}
+      data-pin-step={drops ? sketch.camp_step_id ?? "" : undefined}
+      data-pin-line={drops ? sketch.quest_task_id ?? "" : undefined}
+    >
+      <button type="button" className="sk-pic__open" onClick={onOpen} aria-label={pins.length ? `Open the picture and its ${pins.length === 1 ? "pin" : `${pins.length} pins`}` : "Open the picture"}>
+        {src ? (
+          <img src={src} alt="" width={sketch.width} height={sketch.height} draggable={false} />
+        ) : (
+          <span className="sk-pic__wait" style={{ aspectRatio: `${sketch.width} / ${sketch.height}` }} aria-hidden="true" />
+        )}
+      </button>
+      {src && pins.length > 0 && <PinDots pins={pins} fit={{ w: sketch.width, h: sketch.height }} onOpen={photos.openPin} />}
+      {drops && (
+        <span className="pin-dot drop-mark" aria-hidden="true">
+          <span className="pin-dot__head">+</span>
+        </span>
       )}
-    </button>
+    </span>
   );
 }
 
 // One sketch, small: just the part with ink on it, so a few words in a
-// corner of a big iPad page still show.
+// corner of a big iPad page still show; its pins too, where they fall on it.
 function SketchChip({ sketch, onOpen }) {
   const frame = useMemo(() => inkFrame(sketch), [sketch]);
   const f = frame ?? sketch;
+  const pins = usePhotos()?.pinsOf({ sketch }) ?? [];
   return (
     <button type="button" className="sk-chip" onClick={onOpen} aria-label={sketch.title ? `Open sketch: ${sketch.title}` : "Open sketch"}>
       <span className="sk-chip__img" style={{ aspectRatio: `${Math.round(f.width)} / ${Math.round(f.height)}` }}>
         <SketchImage sketch={sketch} frame={frame} pad={3} minPx={1.3} />
+        {pins.length > 0 && <PinDots pins={pins} fit={{ w: sketch.width, h: sketch.height, frame, pad: 3 }} />}
       </span>
       {sketch.title && (
         <span className="sk-chip__title">

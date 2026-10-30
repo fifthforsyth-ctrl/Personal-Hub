@@ -21,6 +21,36 @@
 .clip-col .ph-strip { margin-top: 8px; }
 .clip-col .ph-thumb { height: 64px; }
 
+/* A picture's pins where it's shown small (PinDots): the same pin as up
+   close, smaller; on a section's little photos, just a dot. A shadow of
+   one (.drop-mark) shows where a step carried over the picture would be
+   pinned, and a pin it would join grows. */
+.pin-dots { position: absolute; inset: 0; pointer-events: none; }
+.pin-dot {
+  position: absolute; left: 0; top: 0; width: 24px; height: 32px; margin: -32px 0 0 -12px; padding: 0; border: 0; background: none;
+  font: inherit; color: #fff; -webkit-tap-highlight-color: transparent;
+}
+button.pin-dot { pointer-events: auto; cursor: pointer; touch-action: manipulation; }
+.pin-dot__head {
+  position: absolute; left: 1px; top: 0; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 999px;
+  background: var(--accent); box-shadow: 0 2px 7px rgba(0, 0, 0, 0.35), 0 0 0 1.5px #fff; font: 800 10.5px var(--font-mono);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.pin-dot__head::after {
+  content: ""; position: absolute; left: 50%; bottom: -7px; width: 0; height: 0; transform: translateX(-50%);
+  border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; border-top: 8px solid var(--accent);
+}
+@media (hover: hover) { button.pin-dot:hover .pin-dot__head { transform: scale(1.12); } }
+.pin-dots--small .pin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; }
+.pin-dots--small .pin-dot__head { left: 1px; top: 1px; width: 10px; height: 10px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1.5px #fff; }
+.pin-dots--small .pin-dot__head::after { display: none; }
+.drop-mark { display: none; pointer-events: none; }
+.pin-dropping .drag-ghost, .pin-dropping .camp-step.lifted { opacity: 0.4; transition: opacity 0.12s ease; }
+.drop-mark.show { display: block; }
+.pin-dot.drop-mark .pin-dot__head, .iv-drop .iv-pin__head { opacity: 0.88; font-size: 15px; }
+.pin-dot.pin-into .pin-dot__head, .iv-pin.pin-into .iv-pin__head { transform: scale(1.3); background: var(--ink); }
+.pin-dot.pin-into .pin-dot__head::after, .iv-pin.pin-into .iv-pin__head::after { border-top-color: var(--ink); }
+
 /* "Add a photo" at the end of a section's box for new steps */
 .camp-add .ph-add { flex: 0 0 auto; align-self: center; color: var(--text-3); }
 @media (hover: hover) { .camp-add .ph-add:hover { color: var(--ink); } }
@@ -89,18 +119,33 @@
 .iv-pin.open .iv-pin__head { background: #fff; color: var(--ink); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45), 0 0 0 3px var(--accent); }
 .iv-pin.open .iv-pin__head::after { border-top-color: #fff; }
 .iv-pin::before { content: ""; position: absolute; left: 13px; bottom: -3px; width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px var(--accent); }
+.iv-pin__head { transition: transform 0.12s ease, background 0.12s ease; }
+
+/* Where the picture is on screen (for a step dropped on it), and where it
+   would be pinned */
+.iv-page { position: absolute; left: 0; top: 0; pointer-events: none; }
+.iv-drop { position: absolute; left: 0; top: 0; width: 32px; height: 44px; margin: -44px 0 0 -16px; }
+.iv-stage.pin-drop { cursor: copy; }
 
 /* The open pin's note and tasks: beside it, or below it on a phone */
 .iv-panel {
   flex: 0 0 360px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
   background: var(--card); color: var(--text); border-top-left-radius: 18px; box-shadow: -8px 0 30px rgba(0, 0, 0, 0.25);
 }
+/* The clipboard beside it (under the open pin, if there is one) */
+.iv-panel--side { flex-basis: 380px; display: flex; flex-direction: column; gap: 14px; }
+.iv-side { flex: none; padding-top: 10px; }
+.iv-panel--side .iv-pinp + .iv-side { border-top: 1px solid var(--line-strong); padding-top: 22px; }
+.iv-side .card.clip { padding: 22px 0 0; background: none; box-shadow: none; }
+.iv-side .card.clip::after { background: var(--card); }
+
 @media (max-width: 760px) {
   .iv-bar { flex-wrap: wrap; }
   .iv-title { flex: 1 1 40%; }
   .iv-fit { display: none; }
   .iv-body { flex-direction: column; }
   .iv-panel { flex: 0 0 auto; max-height: 52%; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25); }
+  .iv-panel--side { flex-basis: auto; }
 }
 .iv-pinp { display: flex; flex-direction: column; gap: 12px; }
 .iv-pinp__head { display: flex; align-items: center; gap: 10px; }

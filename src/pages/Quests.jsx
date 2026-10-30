@@ -29,10 +29,11 @@ import {
   resolveSection,
   deleteStep,
   placeSteps,
+  savePinDrop,
 } from "../lib/api";
 import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
 import { buildCamp, kindFields, pickDiff, questToday, resolvePlan, resolveWords, resolvedLine, stepsUnder } from "../lib/camp";
-import { applyRows, inPageOrder, planMove } from "../lib/stepMoves";
+import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../lib/stepMoves";
 import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../lib/todayBoard";
 import { villageOf } from "../lib/village";
 import { allDoneToday, earlierOnToday, questDoneToday } from "../lib/doneToday";
@@ -53,7 +54,7 @@ import DoneToday from "../components/quests/DoneToday";
 import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
 import { PickBar, usePick } from "../components/camp/Today";
 import { SketchProvider } from "../components/sketch/Sketches";
-import { PhotoProvider } from "../components/photos/Photos";
+import { PhotoProvider, PhotoSide } from "../components/photos/Photos";
 import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
 import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
 import "../styles/ascent.css";
@@ -269,6 +270,8 @@ export default function Quests() {
   const [openClip, setOpenClip] = useState(null); // a step open on the clipboard
   const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
   const select = useSelect();
+  // the page's photos and pins: clipboard steps dropped on a picture
+  const photoApi = useRef(null);
   const [saving, setSaving] = useState(false);
   const picker = usePick(saving);
   const [openKey, setOpenKey] = useState(null);
@@ -1029,6 +1032,11 @@ export default function Quests() {
 
   function clipDragOut(phase, x, y, st) {
     const g = clipGroup(st);
+    // let go on a picture, it's pinned there
+    if (photoApi.current?.dropOnPicture(phase, x, y, g ?? [st.id])) {
+      markDrop(null);
+      return;
+    }
     const hit = phase === "move" || phase === "drop" ? clipDropTarget(x, y, st, g) : null;
     markDrop(phase === "move" ? hit : null);
     if (phase !== "drop" || !hit) return;
@@ -1354,6 +1362,25 @@ export default function Quests() {
       }
     },
     tick: (row) => (row.camp_id ? toggleStepDone(row) : toggleDone(row)),
+    side: sel && sortedCamps.length > 0 ? "Clipboard" : null,
+    // Clipboard steps dropped on a picture wear its pin, and go where its
+    // tasks go (a picture on a line: they only take the pin).
+    attach: (target, pin, ids) => {
+      const home = pinHome(target);
+      const plan = planPinDrop(campStepsNow.current ?? [], ids, pin.id, home && !home.line ? { campId: home.campId, sectionId: home.sectionId } : null);
+      if (!plan) return null;
+      const show = (back) => {
+        setCampSteps((list) => applyPinDrop(list, plan, back));
+        setTally((list) => applyPinDrop(list, plan, back));
+      };
+      show(false);
+      inOrder(() => savePinDrop(plan)).catch((err) => stepsFailed(err, "Couldn't pin that."));
+      const undo = () => {
+        show(true);
+        return inOrder(() => savePinDrop(plan, true)).catch((err) => stepsFailed(err, "Couldn't put that back."));
+      };
+      return { undo, moved: Boolean(plan.sectionId) };
+    },
   };
 
   // A line (with its sub-tasks) onto the end of the ongoing list, or off it
@@ -1554,26 +1581,31 @@ export default function Quests() {
       ...buildCamp((campData?.sections ?? []).filter((x) => x.camp_id === camp.id), []).sections.map((x) => ({ key: `${camp.id}|${x.id}`, label: `${x.number}. ${x.title}`, group: camp.title })),
     ]),
   ];
+  // Side by side on the page, or stacked beside a picture up close (`viewing`).
+  const clipboardOf = (viewing) => (
+    <Clipboard
+      cols={clipCols}
+      layout={viewing ? "stack" : "row"}
+      camps={sortedCamps}
+      openStep={openClip}
+      step={clipRow}
+      onAdd={(sec, texts) => addStepsTo(sec.camp_id, sec.id, texts)}
+      onAddSubs={addStepSubs}
+      onReorder={clipReorder}
+      onDragOut={clipDragOut}
+      onInto={clipNest}
+      carry={select.on ? select.carry : undefined}
+      onNewColumn={async (values) => Boolean(await newSectionIn(values, true))}
+      onEditColumn={(sec) => setColSheet(sec)}
+      tools={clipCols.length && !viewing ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null}
+      picking={picker.on}
+    />
+  );
   const clipCard =
     sel && sortedCamps.length > 0 ? (
       <SketchProvider kind="step" userId={userId} scopeId={sortedCamps.map((c) => c.id)} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
-        <Clipboard
-          cols={clipCols}
-          layout="row"
-          camps={sortedCamps}
-          openStep={openClip}
-          step={clipRow}
-          onAdd={(sec, texts) => addStepsTo(sec.camp_id, sec.id, texts)}
-          onAddSubs={addStepSubs}
-          onReorder={clipReorder}
-          onDragOut={clipDragOut}
-          onInto={clipNest}
-          carry={select.on ? select.carry : undefined}
-          onNewColumn={async (values) => Boolean(await newSectionIn(values, true))}
-          onEditColumn={(sec) => setColSheet(sec)}
-          tools={clipCols.length ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null}
-          picking={picker.on}
-        />
+        {clipboardOf(false)}
+        <PhotoSide>{clipboardOf(true)}</PhotoSide>
       </SketchProvider>
     ) : null;
   const todayCard = sel ? (
@@ -1595,7 +1627,7 @@ export default function Quests() {
 
   return (
     <div className="page ascent qs">
-      <PhotoProvider userId={userId} {...pinProps}>
+      <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
       <header className="qs-head">
         <div className="qs-head__name">
           <div className="eyebrow">{sel ? (sel.type === "Lesson" ? "Lesson" : "Quest") : "Quests"}</div>

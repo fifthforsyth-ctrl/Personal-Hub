@@ -113,3 +113,54 @@ export function inPageOrder(sel, steps, sections = [], camps = []) {
     })
     .map((st) => st.id);
 }
+
+// Steps dropped on a picture (Aaron, 2026-10-30: "when I drag and drop a
+// task onto the image it creates a pin in that spot"): each one carried
+// wears the pin (`pinId`), and goes to the end of the picture's section
+// (`to`, as planMove takes it) unless it's a step of that section already,
+// the way a task added on a pin lands there (0096). With `to` null the
+// picture's tasks can't go there from this page, so they only take the pin.
+// Null when nothing would change; otherwise
+//   { place, placeWas, pins, pinsWas, ids, sectionId }
+// where `place`/`placeWas` are planMove's rows (for camp_steps_place) and
+// `pins`/`pinsWas` the pin each one wears after, and before.
+export function planPinDrop(steps, ids, pinId, to = null) {
+  const all = steps ?? [];
+  const byId = new Map(all.map((s) => [s.id, s]));
+  const known = [...new Set(ids ?? [])].filter((id) => byId.has(id));
+  if (!known.length || !pinId) return null;
+  const away = to
+    ? known.filter((id) => {
+        const st = byId.get(id);
+        return (to.campId && st.camp_id !== to.campId) || (st.section_id ?? null) !== (to.sectionId ?? null) || Boolean(st.parent_id);
+      })
+    : [];
+  const move = away.length ? planMove(all, away, to) : null;
+  const wearing = known.filter((id) => (byId.get(id).pin_id ?? null) !== pinId);
+  const place = move?.rows ?? [];
+  if (!place.length && !wearing.length) return null;
+  return {
+    place,
+    placeWas: move?.was ?? [],
+    pins: wearing.map((id) => ({ id, pin_id: pinId })),
+    pinsWas: wearing.map((id) => ({ id, pin_id: byId.get(id).pin_id ?? null })),
+    ids: known,
+    sectionId: place.length ? move.sectionId : null,
+  };
+}
+
+// The steps as a pin drop leaves them, or (`back`) as they were.
+export function applyPinDrop(steps, plan, back = false) {
+  return back ? applyRows(applyRows(steps, plan.pinsWas), plan.placeWas) : applyRows(applyRows(steps, plan.place), plan.pins);
+}
+
+// Rows of { id, pin_id } as one list of ids for each pin (null: none).
+export function byPin(rows) {
+  const m = new Map();
+  for (const r of rows ?? []) {
+    const k = r.pin_id ?? null;
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(r.id);
+  }
+  return [...m];
+}

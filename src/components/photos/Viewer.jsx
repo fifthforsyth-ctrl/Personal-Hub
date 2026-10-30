@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MapPin, Maximize2, Minus, Plus, X } from "lucide-react";
+import { ClipboardList, MapPin, Maximize2, Minus, Plus, X } from "lucide-react";
 import { centreOn, clampView, fitView, toBox, toPicture, zoomAt } from "../../lib/zoom";
 import { drawStrokes } from "../../lib/sketch";
 import "../../styles/photos.css";
@@ -17,11 +17,18 @@ import "../../styles/photos.css";
 // `panel` shows beside it (below, on a phone): the open pin's note and
 // tasks. `focus` ({ x, y }) opens it zoomed in on that point.
 //
-//   <Viewer title src | sketch width height pins openPin pinning onPinning onPlace onPin tools panel focus onClose />
+// With `side` (a name, "Clipboard"), a button shows or hides a box beside
+// it too, under the pin's panel, that the page fills (`sideRef` hands over
+// the box; Photos.jsx's PhotoSide puts the page's clipboard in it). Steps
+// carried out of it onto the picture are pinned where they're let go: the
+// picture's place on screen is kept in `.iv-page`, and `.iv-drop` shows
+// where the pin would go (Photos.jsx reads and lights them).
+//
+//   <Viewer title src | sketch width height pins openPin pinning onPinning onPlace onPin tools panel focus side sideOn onSide sideRef onClose />
 
 const DOUBLE_MS = 320;
 
-export default function Viewer({ title, src, sketch, width, height, pins = [], openPin = null, pinning = false, onPinning, onPlace, onPin, tools, panel, focus = null, onClose }) {
+export default function Viewer({ title, src, sketch, width, height, pins = [], openPin = null, pinning = false, onPinning, onPlace, onPin, tools, panel, focus = null, side = null, sideOn = false, onSide, sideRef, onClose }) {
   const stage = useRef(null);
   const canvas = useRef(null);
   const [box, setBox] = useState(null); // { w, h }
@@ -205,7 +212,8 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
   // Escape puts the open pin down, then the viewer (and not the sheet under it).
   useEffect(() => {
     const onKey = (e) => {
-      if (document.querySelector(".modal-backdrop, .confirm-sheet")) return;
+      // (a sheet opened from the box beside it closes first)
+      if (document.querySelector(".modal-backdrop, .confirm-sheet") || root.current?.querySelector(".sheet-backdrop")) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         e.preventDefault();
@@ -240,7 +248,7 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
   const pct = view && fit ? Math.round((view.k / fit.k) * 100) : 100;
 
   return (
-    <div className={"iv" + (panel ? " iv--panel" : "")} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={root}>
+    <div className={"iv" + (panel ? " iv--panel" : "") + (side && sideOn ? " iv--side" : "")} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={root}>
       <div className="iv-bar">
         <button type="button" className="iv-btn" onClick={onClose} aria-label="Close" title="Close">
           <X size={18} />
@@ -248,6 +256,12 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
         <h2 className="iv-title">{title}</h2>
         <span className="spacer" />
         {tools}
+        {side && (
+          <button type="button" className={"iv-btn iv-btn--word iv-side-btn" + (sideOn ? " on" : "")} aria-pressed={sideOn} onClick={() => onSide?.(!sideOn)} title={sideOn ? `Hide the ${side.toLowerCase()}` : `Show the ${side.toLowerCase()} beside it`}>
+            <ClipboardList size={16} aria-hidden="true" />
+            <span>{side}</span>
+          </button>
+        )}
         {onPinning && (
           <button type="button" className={"iv-btn iv-btn--word" + (pinning ? " on" : "")} aria-pressed={pinning} onClick={() => onPinning(!pinning)}>
             <MapPin size={16} aria-hidden="true" />
@@ -293,6 +307,7 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
               />
             )
           )}
+          {view && <span className="iv-page" aria-hidden="true" style={{ width: W * view.k, height: H * view.k, transform: `translate3d(${view.x}px, ${view.y}px, 0)` }} />}
           {view &&
             pins.map((p) => {
               const b = toBox(view, W, H, p.x, p.y);
@@ -301,6 +316,7 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
                   key={p.id}
                   type="button"
                   className={"iv-pin" + (p.id === openPin ? " open" : "") + (p.count ? " has" : "")}
+                  data-pin={p.id}
                   style={{ transform: `translate3d(${b.x}px, ${b.y}px, 0)` }}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => onPin?.(p.id === openPin ? null : p.id)}
@@ -310,9 +326,17 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
                 </button>
               );
             })}
+          <span className="iv-drop drop-mark" aria-hidden="true">
+            <span className="iv-pin__head">+</span>
+          </span>
           {pinning && <p className="iv-hint">Tap where the pin goes</p>}
         </div>
-        {panel && <aside className="iv-panel">{panel}</aside>}
+        {(panel || (side && sideOn)) && (
+          <aside className={"iv-panel" + (side && sideOn ? " iv-panel--side" : "")}>
+            {panel}
+            {side && sideOn && <div className="iv-side" ref={sideRef} />}
+          </aside>
+        )}
       </div>
     </div>
   );

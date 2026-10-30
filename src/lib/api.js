@@ -3,6 +3,7 @@ import { parseScriptureRefs } from "./scripture";
 import { todayStr, addDays, toDateStr, startOfMonth, startOfWeek } from "./planDates";
 import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 import { planRows } from "./camp";
+import { byPin } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
 
 // ---------------------------------------------------------------------------
@@ -3055,6 +3056,13 @@ export async function placeSteps(rows) {
   if (!rows.length) return;
   const { error } = await supabase.rpc("camp_steps_place", { p_rows: rows });
   if (error) throw error;
+}
+
+// Steps dropped on a pin (planPinDrop, lib/stepMoves.js): moved into the
+// picture's section, then wearing the pin; or (`back`) as they were.
+export async function savePinDrop(plan, back = false) {
+  await placeSteps(back ? plan.placeWas : plan.place);
+  for (const [pin_id, ids] of byPin(back ? plan.pinsWas : plan.pins)) await updateSteps(ids, { pin_id });
 }
 
 export async function deleteStep(id) {

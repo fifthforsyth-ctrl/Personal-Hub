@@ -60,3 +60,19 @@ export function pinNumbers(pins) {
     .forEach((p, i) => m.set(p.id, i + 1));
   return m;
 }
+
+// Where a picture's pins sit in a box `bw` × `bh` it's shown small in (px
+// from its top left, as `left` and `top`): a picture `w` × `h`, or only
+// `frame` of it (a sketch's inked part), fitted in with `pad` around it, or
+// (`cover`) filling the box and cut to fit. Pins the box cuts off are left
+// out.
+export function pinSpots(pins, { w, h, frame = null, pad = 0, cover = false }, bw, bh) {
+  if (!(bw > 0 && bh > 0 && w > 0 && h > 0)) return [];
+  const f = frame ?? { x: 0, y: 0, width: w, height: h };
+  const k = cover ? Math.max(bw / f.width, bh / f.height) : Math.max(0.01, Math.min((bw - pad * 2) / f.width, (bh - pad * 2) / f.height));
+  const ox = (bw - f.width * k) / 2;
+  const oy = (bh - f.height * k) / 2;
+  return (pins ?? [])
+    .map((p) => ({ ...p, left: ox + (p.x * w - f.x) * k, top: oy + (p.y * h - f.y) * k }))
+    .filter((p) => p.left >= -0.5 && p.left <= bw + 0.5 && p.top >= -0.5 && p.top <= bh + 0.5);
+}
