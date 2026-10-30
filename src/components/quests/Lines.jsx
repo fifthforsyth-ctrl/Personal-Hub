@@ -5,6 +5,7 @@ import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "../camp/Rich";
 import { ColorPick, tintOf } from "../camp/ColorPick";
 import { SketchButton, SketchStrip } from "../sketch/Sketches";
+import { PinTag, ShowPin } from "../photos/Bits";
 import { DragHandle, UrgencyMark, UrgencyPick, WorkingBadge, WorkingButton } from "../camp/Steps";
 import { CardBadge, ComputerPick } from "../camp/ComputerPick";
 import { useDragSort } from "../../lib/useDragSort";
@@ -108,6 +109,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
           <span className="camp-step__words">
             {!note && <UrgencyMark value={line.urgency} />}
             <Rich text={line.text} />
+            {line.pin_id && <PinTag pinId={line.pin_id} />}
             {isToday && !mirror && <span className="today-tag">Today</span>}
           </span>
           {working && <WorkingBadge />}
@@ -147,6 +149,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
           {computer && <ComputerPick {...computer} />}
           <div className="camp-step__tools">
             <SketchButton itemId={line.id} />
+            {line.pin_id && <ShowPin pinId={line.pin_id} />}
             {done && <span className="ascent-mini">Done {fmtShortDate(line.done_on)}</span>}
             <span className="spacer" />
             {onMove && (

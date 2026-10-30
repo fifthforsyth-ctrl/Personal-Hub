@@ -15,6 +15,7 @@ import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, 
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
+import { fitView, zoomAt, clampView, toPicture, toBox, centreOn, shrinkTo, pinNumbers } from "../src/lib/zoom.js";
 import { fitPage, pageSize, pushPoint, widthAt, nearStroke, erasedBy, drawPieces, drawStrokes, staleSummary, inkFrame, plainSummary, appendToNote } from "../src/lib/sketch.js";
 import {
   buildCamp,
@@ -2879,6 +2880,32 @@ function sectionOf({ x, y }) {
   ok("a step made a note can't stay done or urgent", JSON.stringify(kindFields({ kind: "task" })) === JSON.stringify({ kind: "note", done_on: null, urgency: null, working_since: null }) && kindFields({ kind: "note" }).kind === "task" && isNote({ kind: "note" }));
   const tally = campTally([st("t1", "c", "s1", null, 0), st("t3", "c", "cb", null, 0, { today_on: "2026-10-30" }), st("t5", "c", null, null, 0, { kind: "note" })], "2026-10-30", [{ id: "cb", camp_id: "c", clipboard: true }]).get("c");
   ok("the camps on Quests count neither the clipboard nor notes, but its picks are on today", tally.total === 1 && tally.today === 1, JSON.stringify(tally));
+}
+
+{
+  console.log("\nlooking up close, and pins (0096)");
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  const fit = fitView(2000, 1000, 1000, 800, 20);
+  ok("all of it fits, centred, with room around it", near(fit.k, 0.48) && near(fit.x, 20) && near(fit.y, 160));
+  const z = zoomAt(fit, 0.96, 500, 400);
+  ok("zooming keeps what's under the pointer under it", near(toPicture(z, 2000, 1000, 500, 400).x, toPicture(fit, 2000, 1000, 500, 400).x) && near(toPicture(z, 2000, 1000, 500, 400).y, 0.5));
+  const off = toPicture(fit, 2000, 1000, 5, 5);
+  ok("a tap beside the picture is on nothing", off === null);
+  const back = toBox(z, 2000, 1000, 0.25, 0.75);
+  const there = toPicture(z, 2000, 1000, back.x, back.y);
+  ok("a pin goes where it was put and comes back there", near(there.x, 0.25) && near(there.y, 0.75));
+  const small = clampView({ k: 0.3, x: -400, y: 900 }, 2000, 1000, 1000, 800, 0.36, 4.8);
+  ok("zoomed out past the least, it stops there, centred", near(small.k, 0.36) && near(small.x, 140) && near(small.y, 220));
+  const far = clampView({ k: 2, x: 500, y: -5000 }, 2000, 1000, 1000, 800, 0.36, 4.8, 48);
+  ok("zoomed in, it can't be dragged far off its edges", near(far.x, 48) && near(far.y, 800 - 2000 - 48));
+  const big = clampView({ k: 9, x: 0, y: 0 }, 2000, 1000, 1000, 800, 0.36, 4.8);
+  ok("nor zoomed in past the most", near(big.k, 4.8));
+  const c = centreOn(2000, 1000, 1000, 800, 0.8, 0.2, 1.2);
+  const mid = toPicture(c, 2000, 1000, 500, 400);
+  ok("opened on a pin, the pin is in the middle", near(mid.x, 0.8) && near(mid.y, 0.2));
+  ok("a big photo is made smaller, its shape kept; a small one is left", JSON.stringify(shrinkTo(4032, 3024, 2560)) === JSON.stringify({ width: 2560, height: 1920 }) && JSON.stringify(shrinkTo(800, 600, 2560)) === JSON.stringify({ width: 800, height: 600 }));
+  const nums = pinNumbers([{ id: "b", created_at: "2026-10-30T10:05" }, { id: "a", created_at: "2026-10-30T10:01" }, { id: "c", created_at: "2026-10-30T10:09" }]);
+  ok("pins are numbered in the order they went on", nums.get("a") === 1 && nums.get("b") === 2 && nums.get("c") === 3);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

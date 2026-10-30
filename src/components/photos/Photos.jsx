@@ -1,0 +1,443 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Camera, Check, Loader2, NotebookPen, Trash2, X } from "lucide-react";
+import {
+  addPin,
+  addSectionPhoto,
+  deletePin,
+  deleteSectionPhoto,
+  fetchPins,
+  fetchRecentSketches,
+  fetchSectionPhoto,
+  fetchSectionPhotos,
+  fetchSketch,
+  signedImageUrl,
+  updatePin,
+  uploadSectionPicture,
+} from "../../lib/api";
+import { readyPhoto } from "../../lib/photo";
+import { pinNumbers } from "../../lib/zoom";
+import { inkFrame } from "../../lib/sketch";
+import { fmtShortDate, toDateStr } from "../../lib/planDates";
+import { useLoad } from "../../lib/useLoad";
+import { haptic } from "../../lib/haptics";
+import { useConfirm, useToast } from "../ui/Feedback";
+import Sheet from "../ascent/Sheet";
+import { AddStep } from "../camp/Steps";
+import { SketchImage } from "../sketch/Sketches";
+import { PhotoCtx, usePhotos } from "./context";
+export { PhotoButton, PinTag, SectionPhotos, ShowPin } from "./Bits";
+import Viewer from "./Viewer";
+import "../../styles/photos.css";
+
+// Photos on sections, and pins on photos and sketches (0096, Aaron
+// 2026-10-30): "allow me to add photos to sections", "allow me to use a
+// recent sketch as a photo", "allow me to add pins to any image and
+// sketch. There I can add notes and tasks. When I add a task to a pin it
+// shows up in the same section the image is from."
+//
+// A page wraps everything in a PhotoProvider. A section shows its photos
+// small (SectionPhotos) and has a button to add one (PhotoButton); tapping
+// one opens it up close (Viewer), where pins go on it, each with a note and
+// tasks. A pin's tasks are the page's own steps (or a quest's lines), in
+// the section the picture belongs to, so the page says what they are and
+// makes them:
+//
+//   <PhotoProvider userId sectionIds
+//     tasksOf={(pinId) => rows}            the steps and lines made on a pin
+//     place={({ photo } | { sketch }) => "UI changes" | null}
+//                                          where its tasks go (null: they can't, from here)
+//     addTasks={({ pin, photo, sketch }, texts) => Promise<boolean>}
+//     tick={(row) => …}>                   ticks one
+//
+// A step made on a pin wears a PinTag and, open, a ShowPin button that
+// opens its picture on that pin.
+
+export { usePhotos };
+
+const byOrder = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
+
+export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTasks, tick, children }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const ids = [...new Set(sectionIds.filter(Boolean))].sort();
+  const idsKey = ids.join(",");
+  const photos = useLoad(() => (userId && ids.length ? fetchSectionPhotos(userId, ids) : []), [userId, idsKey]);
+  const pins = useLoad(() => (userId ? fetchPins(userId) : []), [userId]);
+  const [urls, setUrls] = useState({}); // image_path → a URL to show it
+  const [adding, setAdding] = useState(null); // { sectionId, title }
+  const [look, setLook] = useState(null); // { photo } | { sketch, about }, with { pin, focus }
+  const [pinning, setPinning] = useState(false);
+
+  const photoList = photos.data ?? [];
+  const pinList = pins.data ?? [];
+
+  // A short-lived link to each photo's picture, once.
+  const asked = useRef(new Set());
+  useEffect(() => {
+    for (const p of photoList) {
+      const path = p.image_path;
+      if (!path || asked.current.has(path)) continue;
+      asked.current.add(path);
+      signedImageUrl(path, 6 * 3600).then((url) => url && setUrls((u) => (u[path] ? u : { ...u, [path]: url })));
+    }
+  }, [photoList]);
+
+  const bySection = useMemo(() => {
+    const m = new Map();
+    for (const p of [...photoList].sort(byOrder)) {
+      if (!m.has(p.section_id)) m.set(p.section_id, []);
+      m.get(p.section_id).push(p);
+    }
+    return m;
+  }, [photoList]);
+
+  const pinsOn = (target) => pinList.filter((p) => (target.photo ? p.photo_id === target.photo.id : p.sketch_id === target.sketch?.id));
+  const numbers = useMemo(() => {
+    const m = new Map();
+    const groups = new Map();
+    for (const p of pinList) {
+      const k = p.photo_id ?? p.sketch_id;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(p);
+    }
+    for (const g of groups.values()) for (const [id, n] of pinNumbers(g)) m.set(id, n);
+    return m;
+  }, [pinList]);
+
+  // --- Adding photos ------------------------------------------------------------
+
+  async function addFiles(files) {
+    const { sectionId } = adding;
+    const start = (bySection.get(sectionId) ?? []).reduce((m, p) => Math.max(m, (p.position ?? 0) + 1), 0);
+    let made = 0;
+    for (const [i, file] of [...files].entries()) {
+      try {
+        const ready = await readyPhoto(file);
+        const path = await uploadSectionPicture(userId, ready.blob, ready.extension);
+        const row = await addSectionPhoto(userId, { section_id: sectionId, image_path: path, width: ready.width, height: ready.height, position: start + i });
+        setUrls((u) => ({ ...u, [path]: URL.createObjectURL(ready.blob) }));
+        asked.current.add(path);
+        photos.mutate((l) => [...(l ?? []), row]);
+        made++;
+      } catch (err) {
+        toast.error(err, files.length > 1 ? `Couldn't add ${file.name || "one of them"}.` : "Couldn't add that photo.");
+      }
+    }
+    if (made) {
+      haptic("tap");
+      setAdding(null);
+    }
+  }
+
+  async function addSketchPhoto(sketch) {
+    const { sectionId, title } = adding;
+    const position = (bySection.get(sectionId) ?? []).reduce((m, p) => Math.max(m, (p.position ?? 0) + 1), 0);
+    try {
+      const row = await addSectionPhoto(userId, {
+        section_id: sectionId,
+        sketch: { width: sketch.width, height: sketch.height, strokes: sketch.strokes ?? [] },
+        sketch_id: sketch.id,
+        width: sketch.width,
+        height: sketch.height,
+        caption: sketch.title ?? null,
+        position,
+      });
+      photos.mutate((l) => [...(l ?? []), row]);
+      haptic("tap");
+      setAdding(null);
+      toast.show(`Sketch added to ${title}`);
+    } catch (err) {
+      toast.error(err, "Couldn't add that sketch.");
+    }
+  }
+
+  async function removePhoto(photo) {
+    const n = pinsOn({ photo }).length;
+    const ok = await confirm({
+      title: "Remove this photo?",
+      body: n ? `Its ${n === 1 ? "pin goes" : `${n} pins go`} with it. Tasks made on them stay where they are.` : undefined,
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
+    setLook(null);
+    photos.mutate((l) => (l ?? []).filter((p) => p.id !== photo.id));
+    pins.mutate((l) => (l ?? []).filter((p) => p.photo_id !== photo.id));
+    try {
+      await deleteSectionPhoto(photo);
+    } catch (err) {
+      toast.error(err, "Couldn't remove that photo.");
+      photos.reload();
+      pins.reload();
+    }
+  }
+
+  // --- Pins -----------------------------------------------------------------------
+
+  async function putPin(x, y) {
+    const target = look;
+    try {
+      const row = await addPin(userId, { ...(target.photo ? { photo_id: target.photo.id } : { sketch_id: target.sketch.id }), x, y });
+      pins.mutate((l) => [...(l ?? []), row]);
+      haptic("tap");
+      setPinning(false);
+      setLook((l) => l && { ...l, pin: row.id });
+    } catch (err) {
+      toast.error(err, "Couldn't put a pin there.");
+    }
+  }
+
+  function saveNote(pin, note) {
+    pins.mutate((l) => (l ?? []).map((p) => (p.id === pin.id ? { ...p, note } : p)));
+    updatePin(pin.id, { note }).catch((err) => {
+      toast.error(err, "Couldn't save that note.");
+      pins.reload();
+    });
+  }
+
+  async function removePin(pin) {
+    const n = tasksOf?.(pin.id)?.length ?? 0;
+    const ok = await confirm({
+      title: `Remove pin ${numbers.get(pin.id) ?? ""}?`.replace(" ?", "?"),
+      body: n ? `Its ${n === 1 ? "task stays" : `${n} tasks stay`} where ${n === 1 ? "it is" : "they are"}.` : pin.note ? "Its note goes with it." : undefined,
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
+    setLook((l) => l && { ...l, pin: null });
+    pins.mutate((l) => (l ?? []).filter((p) => p.id !== pin.id));
+    try {
+      await deletePin(pin.id);
+    } catch (err) {
+      toast.error(err, "Couldn't remove that pin.");
+      pins.reload();
+    }
+  }
+
+  // A step's pin, from the step: its picture, up close on it.
+  async function openPin(pinId) {
+    const pin = pinList.find((p) => p.id === pinId);
+    if (!pin) return;
+    try {
+      if (pin.photo_id) {
+        const photo = photoList.find((p) => p.id === pin.photo_id) ?? (await fetchSectionPhoto(pin.photo_id));
+        if (!photo) throw new Error("That photo is gone.");
+        if (photo.image_path && !urls[photo.image_path]) {
+          const url = await signedImageUrl(photo.image_path, 6 * 3600);
+          if (url) setUrls((u) => ({ ...u, [photo.image_path]: url }));
+        }
+        setPinning(false);
+        setLook({ photo, pin: pin.id, focus: { x: pin.x, y: pin.y } });
+      } else {
+        const sketch = await fetchSketch(pin.sketch_id);
+        if (!sketch) throw new Error("That sketch is gone.");
+        setPinning(false);
+        setLook({ sketch, pin: pin.id, focus: { x: pin.x, y: pin.y } });
+      }
+    } catch (err) {
+      toast.error(err, "Couldn't open its pin.");
+    }
+  }
+
+  const ctx = {
+    photosOf: (sectionId) => bySection.get(sectionId) ?? [],
+    pinCount: (photo) => pinList.filter((p) => p.photo_id === photo.id).length,
+    urlOf: (photo) => (photo.image_path ? urls[photo.image_path] ?? null : null),
+    add: (sectionId, title) => setAdding({ sectionId, title }),
+    open: (photo) => {
+      setPinning(false);
+      setLook({ photo, pin: null });
+    },
+    openSketch: (sketch, about) => {
+      setPinning(false);
+      setLook({ sketch, about, pin: null });
+    },
+    openPin,
+    pinLabel: (pinId) => (numbers.has(pinId) ? `Pin ${numbers.get(pinId)}` : null),
+  };
+
+  // What's open up close.
+  let viewer = null;
+  if (look) {
+    const target = look.photo ? { photo: look.photo } : { sketch: look.sketch };
+    const here = pinsOn(target).map((p) => ({ ...p, n: numbers.get(p.id) ?? 0, count: tasksOf?.(p.id)?.length ?? 0 }));
+    const open = here.find((p) => p.id === look.pin) ?? null;
+    const where = place ? place(target) : null;
+    const title = look.photo ? look.photo.caption || "Photo" : look.sketch.title || (look.about ? `Sketch on “${short(look.about)}”` : "Sketch");
+    viewer = (
+      <Viewer
+        key={look.photo?.id ?? look.sketch.id}
+        title={title}
+        src={look.photo ? ctx.urlOf(look.photo) : null}
+        sketch={look.photo ? look.photo.sketch : look.sketch}
+        width={look.photo?.width ?? null}
+        height={look.photo?.height ?? null}
+        pins={here}
+        openPin={open?.id ?? null}
+        pinning={pinning}
+        onPinning={(on) => {
+          setPinning(on);
+          if (on) setLook((l) => ({ ...l, pin: null }));
+        }}
+        onPlace={putPin}
+        onPin={(id) => setLook((l) => ({ ...l, pin: id }))}
+        focus={look.focus}
+        tools={
+          look.photo ? (
+            <button type="button" className="iv-btn" onClick={() => removePhoto(look.photo)} aria-label="Remove this photo" title="Remove this photo">
+              <Trash2 size={16} />
+            </button>
+          ) : null
+        }
+        panel={
+          open ? (
+            <PinPanel
+              key={open.id}
+              pin={open}
+              tasks={tasksOf?.(open.id) ?? []}
+              where={where}
+              onNote={(note) => saveNote(open, note)}
+              onAdd={addTasks && where ? (texts) => addTasks({ pin: open, ...target }, texts) : null}
+              onTick={tick}
+              onRemove={() => removePin(open)}
+              onClose={() => setLook((l) => ({ ...l, pin: null }))}
+            />
+          ) : null
+        }
+        onClose={() => {
+          setPinning(false);
+          setLook(null);
+        }}
+      />
+    );
+  }
+
+  return (
+    <PhotoCtx.Provider value={ctx}>
+      {children}
+      {adding && <AddPhotoSheet userId={userId} title={adding.title} onFiles={addFiles} onSketch={addSketchPhoto} onClose={() => setAdding(null)} />}
+      {viewer}
+    </PhotoCtx.Provider>
+  );
+}
+
+const short = (t) => {
+  const s = String(t ?? "");
+  return s.length > 40 ? `${s.slice(0, 40).trimEnd()}…` : s;
+};
+
+// A photo taken or chosen, or one of his latest sketches.
+function AddPhotoSheet({ userId, title, onFiles, onSketch, onClose }) {
+  const recent = useLoad(() => fetchRecentSketches(userId, 12), [userId]);
+  const [busy, setBusy] = useState(0);
+  return (
+    <Sheet title={`A photo for ${title}`} onClose={onClose}>
+      <div className="ph-add-sheet">
+        <label className={"btn btn--accent ph-pick" + (busy ? " busy" : "")}>
+          {busy ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Camera size={16} aria-hidden="true" />}
+          {busy ? (busy > 1 ? `Adding ${busy} photos…` : "Adding it…") : "Take or choose a photo"}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            disabled={busy > 0}
+            onChange={async (e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              if (!files.length) return;
+              setBusy(files.length);
+              await onFiles(files);
+              setBusy(0);
+            }}
+          />
+        </label>
+        <p className="eyebrow">Or one of your sketches</p>
+        {recent.loading ? (
+          <p className="ascent-mini">Finding your sketches…</p>
+        ) : !(recent.data ?? []).length ? (
+          <p className="ascent-mini">No sketches yet. Draw one on any step with Sketch.</p>
+        ) : (
+          <div className="ph-recent">
+            {recent.data.map((k) => (
+              <RecentSketch key={k.id} sketch={k} onPick={() => onSketch(k)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+function RecentSketch({ sketch, onPick }) {
+  const frame = useMemo(() => inkFrame(sketch), [sketch]);
+  const f = frame ?? sketch;
+  return (
+    <button type="button" className="ph-recent__one" onClick={onPick}>
+      <span className="ph-recent__img" style={{ aspectRatio: String(Math.min(2, Math.max(0.6, f.width / f.height))) }}>
+        <SketchImage sketch={sketch} frame={frame} pad={3} minPx={1.2} />
+      </span>
+      <small>{sketch.title || fmtShortDate(toDateStr(new Date(sketch.updated_at ?? sketch.created_at)))}</small>
+    </button>
+  );
+}
+
+// An open pin: its note, its tasks (in the picture's section), and taking it off.
+function PinPanel({ pin, tasks, where, onNote, onAdd, onTick, onRemove, onClose }) {
+  const [note, setNote] = useState(pin.note ?? "");
+  const saved = useRef(pin.note ?? "");
+  const latest = useRef(note);
+  latest.current = note;
+  const save = () => {
+    const n = latest.current.trim() || null;
+    if (n !== (saved.current || null)) {
+      saved.current = n ?? "";
+      onNote(n);
+    }
+  };
+  // what was typed is kept when the panel closes, too
+  useEffect(() => () => save(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="iv-pinp">
+      <div className="iv-pinp__head">
+        <span className="iv-pinp__n" aria-hidden="true">
+          {pin.n}
+        </span>
+        <h3>Pin {pin.n}</h3>
+        <span className="spacer" />
+        <button type="button" className="iv-btn" onClick={onClose} aria-label="Close this pin" title="Close">
+          <X size={16} />
+        </button>
+      </div>
+      <label className="field">
+        <span>Note</span>
+        <textarea className="textarea" rows={3} value={note} maxLength={4000} placeholder="What's here…" onChange={(e) => setNote(e.target.value)} onBlur={save} />
+      </label>
+      <div className="iv-pinp__tasks">
+        <p className="eyebrow">{where ? `Tasks · in ${where}` : "Tasks"}</p>
+        {tasks.length > 0 && (
+          <ul>
+            {tasks.map((t) => (
+              <li key={t.id} className={t.done_on ? "done" : ""}>
+                {t.kind === "note" ? (
+                  <span className="qs-pen" aria-hidden="true">
+                    <NotebookPen size={13} />
+                  </span>
+                ) : (
+                  <button type="button" className="camp-check" role="checkbox" aria-checked={Boolean(t.done_on)} aria-label={t.done_on ? "Done. Tap to open it again" : "Mark done"} onClick={() => onTick?.(t)}>
+                    <Check size={13} strokeWidth={3} aria-hidden="true" />
+                  </button>
+                )}
+                <span className="iv-pinp__text">{t.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {onAdd ? <AddStep label="Add a task to this pin" onAdd={onAdd} /> : <p className="ascent-mini">Its tasks can be added where its picture is.</p>}
+      </div>
+      <div className="iv-pinp__acts">
+        <button type="button" className="btn-link btn-link--danger" onClick={onRemove}>
+          Remove pin
+        </button>
+      </div>
+    </div>
+  );
+}

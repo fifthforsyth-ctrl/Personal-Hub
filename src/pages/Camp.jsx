@@ -19,6 +19,7 @@ import { markDrop, useDragSort } from "../lib/useDragSort";
 import { PlanNotes, Rich } from "../components/camp/Rich";
 import { ColorPick } from "../components/camp/ColorPick";
 import { SketchProvider } from "../components/sketch/Sketches";
+import { PhotoProvider } from "../components/photos/Photos";
 import { PickBar, TodayBlocks, TodayHead, usePick } from "../components/camp/Today";
 import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
 import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
@@ -534,11 +535,11 @@ export default function Camp() {
     inOrder(() => reorder("camp_steps", next)).catch((err) => failed(err, "Couldn't move that step."));
   }
 
-  async function addTo(sectionId, texts, parent = null) {
+  async function addTo(sectionId, texts, parent = null, extra = {}) {
     const same = siblings({ section_id: sectionId, parent_id: parent?.id ?? null });
     const start = same.reduce((m, x) => Math.max(m, (x.position ?? 0) + 1), 0);
     try {
-      const rows = await addSteps(userId, id, sectionId, texts, start, parent?.id ?? null);
+      const rows = await addSteps(userId, id, sectionId, texts, start, parent?.id ?? null, extra);
       setSteps((list) => [...list, ...rows]);
       haptic("tap");
       return true;
@@ -549,6 +550,29 @@ export default function Camp() {
   }
 
   const addSubs = (st, texts) => addTo(st.section_id ?? null, texts, st);
+
+  // --- Photos and pins (0096) -------------------------------------------------------
+
+  // Where a pin's tasks go: the photo's section, or the section of the step
+  // the sketch is on (its top, if it's in none). Undefined: not on this page.
+  const pinHome = ({ photo, sketch }) => {
+    if (photo) return data.sections.some((s) => s.id === photo.section_id) ? photo.section_id : undefined;
+    const st = sketch?.camp_step_id ? data.steps.find((x) => x.id === sketch.camp_step_id) : null;
+    return st ? (st.section_id ?? null) : undefined;
+  };
+  const pinProps = {
+    sectionIds: (data?.sections ?? []).map((s) => s.id),
+    tasksOf: (pinId) => (data?.steps ?? []).filter((x) => x.pin_id === pinId).sort(byPos),
+    place: (target) => {
+      const home = pinHome(target);
+      return home === undefined ? null : where(home);
+    },
+    addTasks: (target, texts) => {
+      const home = pinHome(target);
+      return home === undefined ? Promise.resolve(false) : addTo(home, texts, null, { pin_id: target.pin.id });
+    },
+    tick: (st) => toggleDone(st),
+  };
 
   // Where a step can go: any section, or the camp's top above them.
   const sectionChoices = data?.sections?.length
@@ -725,6 +749,7 @@ export default function Camp() {
 
   return (
     <div className={"page ascent camp" + (pinNow ? " camp--pinned" : "")}>
+      <PhotoProvider userId={userId} {...pinProps}>
       <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
       <div className="camp-left">
       <header className="ascent-head camp-head">
@@ -944,6 +969,7 @@ export default function Camp() {
         </aside>
       )}
       </SketchProvider>
+      </PhotoProvider>
 
       {sheet && <SectionSheet section={sheet.new ? null : sheet} onSave={saveSection} onDelete={() => removeSection(sheet)} onClose={() => setSheet(null)} />}
       {colSheet && (
