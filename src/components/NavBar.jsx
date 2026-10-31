@@ -18,7 +18,6 @@ import {
   Smartphone,
   Watch,
   Landmark,
-  AlarmClock,
   Castle,
   ListChecks,
   RotateCw,
@@ -65,7 +64,6 @@ export const MORE = [
   { to: "/quests", label: "Quests", Icon: ListChecks },
   { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
-  { to: "/wake", label: "Wake watch", Icon: AlarmClock },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
   { to: "/watch", label: "On your watch", Icon: Watch },
 ];

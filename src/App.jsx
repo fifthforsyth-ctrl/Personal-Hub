@@ -27,7 +27,6 @@ const Mirror = lazy(() => import("./pages/Mirror"));
 const WatchPage = lazy(() => import("./pages/Watch"));
 const Phone = lazy(() => import("./pages/Phone"));
 const Temple = lazy(() => import("./pages/Temple"));
-const Wake = lazy(() => import("./pages/Wake"));
 const Quests = lazy(() => import("./pages/Quests"));
 // The village brings three.js with it, so it stays in its own bundle.
 const Village = lazy(() => import("./pages/Village"));
@@ -67,7 +66,6 @@ export default function App() {
             <Route path="/mirror" element={<Mirror />} />
             <Route path="/watch" element={<WatchPage />} />
             <Route path="/phone" element={<Phone />} />
-            <Route path="/wake" element={<Wake />} />
             <Route path="/temple" element={<Temple />} />
             <Route path="/temple/:view" element={<Temple />} />
             <Route path="/quests" element={<Quests />} />

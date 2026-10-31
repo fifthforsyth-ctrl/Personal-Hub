@@ -290,3 +290,11 @@
   .mk-mini b { font-size: 11.5px; }
   .mk-mini small { font-size: 9.5px; }
 }
+
+/* The short evening's shots: one row, one tap per target. */
+.mk-quick__hint { font-size: 12px; }
+.mk-quick__rows { display: flex; flex-direction: column; gap: 8px; }
+.mk-quick__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mk-quick__name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; font-weight: 550; }
+.mk-quick__name svg { flex-shrink: 0; }
+.mk-quick__name small { font-size: 11px; font-weight: 400; }

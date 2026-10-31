@@ -21,7 +21,11 @@ import { useToast } from "../ui/Feedback";
 // evening's targets are answered ({ ready, total }), and `onLoose` looses
 // them once the day is safely banked; a target left blank gets no arrow,
 // and nothing about that stops the day from closing.
-export default function CloseOut({ userId, date, reflectionDone, onBanked, arrows = null, onLoose = null }) {
+//
+// `short` is the short evening: Bank the day is always ready (there's no
+// reflection to finish, only a line to write if you want), and `onBefore`
+// saves that line before the summary is written from the day.
+export default function CloseOut({ userId, date, reflectionDone, onBanked, arrows = null, onLoose = null, short = false, onBefore = null }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(null);
@@ -34,6 +38,17 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
     if (onLoose) primeAudio();
     setBusy(true);
     setError(null);
+    if (onBefore) {
+      try {
+        setStage("Saving…");
+        await onBefore();
+      } catch (err) {
+        setError(friendlyError(err, "Couldn't save your line. Try again."));
+        setBusy(false);
+        setStage(null);
+        return;
+      }
+    }
     let synopsis = null;
     try {
       setStage("Writing the summary…");
@@ -66,7 +81,7 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
   }
 
   return (
-    <div className={"card" + (reflectionDone ? " card--accent" : "")}>
+    <div className={"card" + (reflectionDone || short ? " card--accent" : "")}>
       <div className="card-head">
         <span className="card-title"><Archive size={14} />Close out the day</span>
       </div>
@@ -76,15 +91,17 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
         everything you wrote, kept together.
       </p>
 
-      <div className="row" style={{ gap: 9, alignItems: "flex-start", marginBottom: 16 }}>
-        <span style={{ flexShrink: 0, marginTop: 1, color: reflectionDone ? "var(--accent)" : "var(--text-3)" }}>
-          {reflectionDone ? <Check size={15} /> : <Circle size={15} />}
-        </span>
-        <span style={{ minWidth: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 550, color: reflectionDone ? "var(--text)" : "var(--text-2)" }}>Reflection written</span>
-          {!reflectionDone && <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>Finish the four cards above.</span>}
-        </span>
-      </div>
+      {!short && (
+        <div className="row" style={{ gap: 9, alignItems: "flex-start", marginBottom: 16 }}>
+          <span style={{ flexShrink: 0, marginTop: 1, color: reflectionDone ? "var(--accent)" : "var(--text-3)" }}>
+            {reflectionDone ? <Check size={15} /> : <Circle size={15} />}
+          </span>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 550, color: reflectionDone ? "var(--text)" : "var(--text-2)" }}>Reflection written</span>
+            {!reflectionDone && <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>Finish the four cards above.</span>}
+          </span>
+        </div>
+      )}
 
       {arrows?.total > 0 && (
         <div className="row" style={{ gap: 9, alignItems: "flex-start", marginBottom: 16, marginTop: -6 }}>
@@ -104,12 +121,12 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 
-      <button className="btn btn--accent btn--block" onClick={bank} disabled={busy || !reflectionDone}>
+      <button className="btn btn--accent btn--block" onClick={bank} disabled={busy || (!reflectionDone && !short)}>
         <Archive size={15} />
         {busy ? stage : "Bank the day"}
       </button>
 
-      {!reflectionDone && !busy && (
+      {!reflectionDone && !short && !busy && (
         <button className="btn-link close-out__skip" onClick={bank}>
           Bank without reflecting
         </button>

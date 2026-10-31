@@ -201,7 +201,7 @@ function YesterdayBanner({ date, urgent }) {
         <Moon size={16} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span className="yesterday-banner__title">Yesterday isn't banked yet</span>
-          <span className="yesterday-banner__sub">Reflect on {weekday} and bank it</span>
+          <span className="yesterday-banner__sub">A few taps on {weekday}, then bank it</span>
         </span>
         <ArrowRight size={15} />
       </Link>

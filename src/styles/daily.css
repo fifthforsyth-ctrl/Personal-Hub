@@ -506,3 +506,7 @@ a.quote-card__source:hover { text-decoration: underline; }
   color: var(--text-3);
 }
 @media (hover: hover) { .plan-blocks__earlier:hover { color: var(--text); } }
+
+/* Short or full: past midnight the evening opens short. */
+.evening-length { margin-top: 10px; }
+.evening-length .seg-btn { padding: 6px 16px; font-size: 13px; }
