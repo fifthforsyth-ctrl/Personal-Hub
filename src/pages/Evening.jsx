@@ -17,6 +17,7 @@ import FocusDay from "../components/focus/FocusDay";
 import TonightShots from "../components/mark/TonightShots";
 import Volley from "../components/mark/Volley";
 import CuratedCards from "../components/curator/CuratedCards";
+import WatchLine from "../components/day/WatchLine";
 import TapEditor from "../components/today/TapEditor";
 import Swords from "../components/ui/Swords";
 import { useOutbox, withTaps, isUnnamed } from "../components/today/tapOutbox";
@@ -138,6 +139,7 @@ export default function Evening() {
         <div className="stack">
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
           <MinutesCard archive={a} />
+          <WatchLine userId={userId} date={date} />
           <CuratedCards slot="day" date={date} title="From your board" compact />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
           <FocusDay userId={userId} date={date} variant="evening" />

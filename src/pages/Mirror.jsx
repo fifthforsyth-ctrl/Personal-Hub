@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, ArrowRight, Moon, Briefcase, Users, Flag, Smile, Target, Wallet, HeartPulse } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight, Moon, Briefcase, Users, Flag, Smile, Target, Wallet, HeartPulse, Watch } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchMirrorWeek } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
@@ -22,7 +22,7 @@ import "../styles/mirror.css";
 // Everything here is worked out on the page from what's already recorded
 // (src/lib/mirror.js); the mirror stores nothing of its own.
 
-const ICONS = { mornings: Moon, work: Briefcase, people: Users, misses: Flag, mood: Smile, focus: Target, money: Wallet, practice: HeartPulse };
+const ICONS = { mornings: Moon, work: Briefcase, people: Users, misses: Flag, mood: Smile, focus: Target, money: Wallet, practice: HeartPulse, watch: Watch };
 const LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
 export default function Mirror() {

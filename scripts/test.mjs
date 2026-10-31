@@ -9,6 +9,8 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
+import { eveningWatchParts, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
@@ -181,6 +183,7 @@ import {
   focusMirror,
   moneyWeek,
   practiceWeek,
+  watchWeek,
   weightTrend,
   pieces,
   andList,
@@ -3060,6 +3063,120 @@ function sectionOf({ x, y }) {
   const low = tipAt({ left: 100, right: 124, top: 30, bottom: 62 }, 200, 80, 400, 800);
   ok("with no room above, it goes below", low.below && low.top === 70);
   ok("with no room either way, it stays on screen above", tipAt({ left: 100, right: 124, top: 30, bottom: 62 }, 200, 80, 400, 120).top === 8);
+}
+
+
+console.log("\napple watch");
+{
+  const TZ = "America/Denver";
+  ok("a Health Auto Export date reads with its offset", parseHaeDate("2026-10-31 05:10:00 -0600").toISOString() === "2026-10-31T11:10:00.000Z");
+  ok("a date-only string keeps its day", parseHaeDate("2026-10-31").toISOString().startsWith("2026-10-31"));
+  ok("rubbish is null", parseHaeDate("soon") === null && parseHaeDate("") === null);
+  ok("metric names match loosely", metricFor("step_count")?.col === "steps" && metricFor("Resting Heart Rate")?.col === "resting_hr" && metricFor("heart_rate")?.col === "avg_hr");
+  ok("an unknown metric matches nothing", metricFor("toothbrushing") === null);
+
+  const payload = {
+    data: {
+      metrics: [
+        { name: "step_count", units: "count", data: [{ date: "2026-10-30 00:00:00 -0600", qty: 8421.6 }, { date: "2026-10-31 00:00:00 -0600", qty: 1200 }] },
+        { name: "resting_heart_rate", units: "count/min", data: [{ date: "2026-10-30 00:00:00 -0600", qty: 52 }, { date: "2026-10-30 12:00:00 -0600", qty: 56 }] },
+        { name: "heart_rate", units: "count/min", data: [{ date: "2026-10-30 00:00:00 -0600", Min: 48, Avg: 71, Max: 140 }] },
+        { name: "active_energy", units: "kJ", data: [{ date: "2026-10-30 00:00:00 -0600", qty: 4184 }] },
+        { name: "weight_body_mass", units: "kg", data: [{ date: "2026-10-30 07:00:00 -0600", qty: 80 }] },
+        { name: "toothbrushing", units: "count", data: [{ date: "2026-10-30 00:00:00 -0600", qty: 2 }] },
+        {
+          name: "sleep_analysis",
+          units: "hr",
+          data: [
+            { date: "2026-10-31", totalSleep: 6.5, core: 4, deep: 1, rem: 1.5, awake: 0.25, inBed: 7, sleepStart: "2026-10-30 22:20:00 -0600", sleepEnd: "2026-10-31 04:50:00 -0600" },
+            { date: "2026-10-31", totalSleep: 0.5, core: 0.5, deep: 0, rem: 0, sleepStart: "2026-10-31 13:00:00 -0600", sleepEnd: "2026-10-31 13:30:00 -0600" },
+          ],
+        },
+      ],
+      workouts: [
+        { id: "W1", name: "Traditional Strength Training", start: "2026-10-30 06:10:00 -0600", end: "2026-10-30 06:45:00 -0600", duration: 2100, activeEnergyBurned: { qty: 280, units: "kcal" }, heartRate: { avg: { qty: 118, units: "bpm" }, max: { qty: 151, units: "bpm" } } },
+        { name: "Outdoor Run", start: "2026-10-29 17:00:00 -0600", end: "2026-10-29 17:31:00 -0600", distance: { qty: 3.1, units: "mi" }, avgHeartRate: { qty: 150, units: "bpm" } },
+        { name: "Broken", start: "2026-10-29 17:00:00 -0600", end: "2026-10-29 16:00:00 -0600" },
+      ],
+    },
+  };
+  const r = readHealthPayload(payload, TZ);
+  ok("steps land on their day, whole", r.days["2026-10-30"].steps === 8422 && r.days["2026-10-31"].steps === 1200);
+  ok("a rate averages across the day's rows", r.days["2026-10-30"].resting_hr === 54);
+  ok("heart rate rows read their Avg", r.days["2026-10-30"].avg_hr === 71);
+  ok("kJ become kcal and kg become lb", r.days["2026-10-30"].active_kcal === 1000 && Math.abs(r.days["2026-10-30"].weight_lb - 176.4) < 0.1);
+  ok("an unknown metric is kept by name, not dropped", r.days["2026-10-30"].extra.toothbrushing?.qty === 2 && r.unknown.includes("toothbrushing"));
+  const night = r.days["2026-10-31"];
+  ok("the night lands on the morning you woke, in minutes", night.asleep_min === 390 && night.deep_min === 60 && night.rem_min === 90 && night.in_bed_min === 420);
+  ok("a nap doesn't stand in for the night", r.nights.length === 1 && r.nights[0].end.toISOString() === "2026-10-31T10:50:00.000Z");
+  ok("broken workouts are left out", r.workouts.length === 2);
+  const lift = r.workouts.find((w) => w.external_id === "W1");
+  ok("a v2 workout reads its seconds, energy and heart", lift.minutes === 35 && lift.active_kcal === 280 && lift.avg_hr === 118 && lift.max_hr === 151 && lift.kind === "gym");
+  const run = r.workouts.find((w) => w.name === "Outdoor Run");
+  ok("a v1 workout without an id or duration still lands once", run.external_id === "Outdoor Run@2026-10-29T23:00:00.000Z" && run.minutes === 31 && run.distance === 3.1 && run.kind === "run");
+  ok("workout kinds", exerciseKindOf("Running") === "run" && exerciseKindOf("Functional Strength Training") === "gym" && exerciseKindOf("Walking") === "other");
+  ok("a duration that isn't seconds falls back to the clock", workoutFrom({ name: "X", start: "2026-10-30 06:00:00 -0600", end: "2026-10-30 06:40:00 -0600", duration: 40 }).minutes === 40);
+
+  const stages = readHealthPayload(
+    {
+      data: {
+        metrics: [
+          {
+            name: "sleep_analysis",
+            units: "hr",
+            data: [
+              { startDate: "2026-10-30 22:30:00 -0600", endDate: "2026-10-30 22:40:00 -0600", value: "In Bed", qty: 0.17 },
+              { startDate: "2026-10-30 22:40:00 -0600", endDate: "2026-10-31 01:00:00 -0600", value: "Core", qty: 2.3 },
+              { startDate: "2026-10-31 01:00:00 -0600", endDate: "2026-10-31 02:00:00 -0600", value: "Deep", qty: 1 },
+              { startDate: "2026-10-31 02:00:00 -0600", endDate: "2026-10-31 02:10:00 -0600", value: "Awake", qty: 0.17 },
+              { startDate: "2026-10-31 02:10:00 -0600", endDate: "2026-10-31 04:30:00 -0600", value: "REM", qty: 2.3 },
+            ],
+          },
+        ],
+      },
+    },
+    TZ
+  );
+  const sn = stages.days["2026-10-31"];
+  ok("stage rows add up into one night", sn && sn.asleep_min === 340 && sn.deep_min === 60 && sn.awake_min === 10 && sn.rem_min === 140 && sn.core_min === 140);
+  ok("the night runs from first sleep to last", sn.sleep_start === "2026-10-31T04:40:00.000Z" && sn.sleep_end === "2026-10-31T10:30:00.000Z");
+
+  ok("a day's totals keep the larger count on a resend", mergeDay({ steps: 9000, resting_hr: 55, extra: { a: 1 } }, { steps: 4000, resting_hr: 53, extra: { b: 2 } }).steps === 9000);
+  ok("and readings take the newest", mergeDay({ steps: 9000, resting_hr: 55 }, { resting_hr: 53 }).resting_hr === 53);
+  ok("and extra merges", JSON.stringify(mergeDay({ extra: { a: 1 } }, { extra: { b: 2 } }).extra) === '{"a":1,"b":2}');
+
+  const nightObj = { start: new Date("2026-10-31T04:20:00Z"), end: new Date("2026-10-31T10:50:00Z") };
+  const now = new Date("2026-10-31T14:00:00Z");
+  ok("an unlogged night goes in", sleepAction(nightObj, [], now).kind === "add");
+  ok("a logged night is left alone", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T11:00:00Z" }], now).kind === "skip");
+  ok("a Sleep timer still running from that night ends when you woke", (() => {
+    const a = sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: null }], now);
+    return a.kind === "end" && a.id === "s" && a.at === "2026-10-31T10:50:00.000Z";
+  })());
+  ok("an old forgotten Sleep timer is left to the fix list", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-30T20:00:00Z", ended_at: null }], now).kind === "skip");
+  ok("a stale night doesn't end a running timer", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: null }], new Date("2026-11-02T14:00:00Z")).kind === "skip");
+  ok("a night that isn't over yet waits", sleepAction({ start: nightObj.start, end: new Date("2026-10-31T16:00:00Z") }, [], now).kind === "skip");
+  ok("other timers don't block a night", sleepAction(nightObj, [{ id: "w", tags: ["Free time"], started_at: "2026-10-31T03:00:00Z", ended_at: "2026-10-31T12:00:00Z" }], now).kind === "add");
+
+  ok("a workout you timed is linked, not doubled", workoutAction(lift, [{ id: "e", tags: ["Exercise"], started_at: "2026-10-30T12:05:00Z", ended_at: "2026-10-30T12:50:00Z" }]).kind === "link");
+  ok("an untimed workout is added", workoutAction(lift, [{ id: "e", tags: ["Study"], started_at: "2026-10-30T12:05:00Z", ended_at: "2026-10-30T12:50:00Z" }]).kind === "add");
+  const ex = exerciseEntry("u", run);
+  ok("a run's Exercise entry carries its miles", ex.exercise_kind === "run" && ex.exercise_metric === 3.1 && ex.exercise_unit === "mi" && ex.source === "watch" && ex.tags[0] === "Exercise");
+  ok("a lift's carries none", exerciseEntry("u", lift).exercise_metric === null);
+
+  ok("watch names shorten", workoutName("Traditional Strength Training") === "Strength" && workoutName("Outdoor Run") === "Run" && workoutName("High Intensity Interval") === "HIIT");
+  ok("minutes read as hours", watchMins(390) === "6h 30m" && watchMins(35) === "35m");
+  const parts = eveningWatchParts({ asleep_min: 390, deep_min: 60, rem_min: 90, steps: 8421, resting_hr: 54, hrv_ms: 61 }, [{ name: "Traditional Strength Training", minutes: 35, started_at: "2026-10-30T12:10:00Z", avg_hr: 118 }]);
+  ok("the evening line: sleep, workouts, steps, heart", parts.map((p) => p.label).join(",") === "Slept,Strength,Steps,Resting HR" && parts[0].sub === "1h 00m deep, 1h 30m REM" && parts[3].sub === "HRV 61 ms");
+  ok("nothing from the watch, no line", eveningWatchParts(null, []).length === 0);
+  ok("the key's status says what last used it", lastUsedLine({ last_used_at: new Date(Date.now() - 5 * 60000).toISOString(), last_used_by: "health" }) === "On · Health Auto Export, 5 min ago" && lastUsedLine(null) === "Off");
+  ok("the watch address carries the key", watchAddress("https://x.supabase.co/functions/v1/watch", "ab12") === "https://x.supabase.co/functions/v1/watch?key=ab12");
+
+  const week = ["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"];
+  const wk = watchWeek({ healthDays: [{ date: "2026-10-26", asleep_min: 400, deep_min: 60, rem_min: 90, steps: 8000, resting_hr: 54 }, { date: "2026-10-27", asleep_min: 380, deep_min: 70, rem_min: 80, steps: 10000, resting_hr: 56, mindful_min: 15 }, { date: "2026-11-02", steps: 99999 }], days: week, upTo: "2026-10-31" });
+  ok("the mirror's watch part counts the nights and averages", wk.lines[0].startsWith("The watch saw **2** nights, averaging **6") && wk.lines[0].includes("REM a night."), wk?.lines?.join(" | "));
+  ok("and the steps leave out days past the week", wk.lines[1].startsWith("**9,000** steps a day"), wk?.lines?.join(" | "));
+  ok("no watch rows, no part", watchWeek({ healthDays: [], days: week, upTo: "2026-10-31" }) === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
