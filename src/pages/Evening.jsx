@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight, Watch } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay, looseShots, fetchRange } from "../lib/api";
+import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay, looseShots, fetchRange, fetchHealthDays, fetchHealthWorkouts } from "../lib/api";
+import { eveningWatchParts } from "../lib/watch";
 import { buildAscent } from "../lib/ascent";
 import { buildRange } from "../lib/mark";
 import { useLoad } from "../lib/useLoad";
 import { colorFor, fmtMinutes, setCategoryColors } from "../lib/categories";
-import { todayStr, addDays, fmtDayHeading } from "../lib/planDates";
+import { todayStr, addDays, fmtDayHeading, parseDateStr } from "../lib/planDates";
 import LoadError from "../components/ui/LoadError";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import CloseOut from "../components/day/CloseOut";
@@ -36,19 +37,24 @@ import "../styles/daily.css";
 // half past midnight is still about the day you just lived.
 
 async function loadEvening(userId, date) {
-  const [archive, dayPlan, chunks, tasks, cats] = await Promise.all([
+  const quiet = (p) =>
+    p.catch((err) => {
+      console.warn(err);
+      return null;
+    });
+  const [archive, dayPlan, chunks, tasks, cats, health, workouts] = await Promise.all([
     fetchDayArchive(date),
     fetchDayPlan(userId, date),
     fetchTimeChunks(userId, date),
     fetchTasks(userId, date),
     // Only colours: the evening still opens if these don't come.
-    fetchCategories(userId).catch((err) => {
-      console.warn(err);
-      return null;
-    }),
+    quiet(fetchCategories(userId)),
+    // The watch's numbers sit beside the day; the evening opens without them.
+    quiet(fetchHealthDays(userId, date, date)),
+    quiet(fetchHealthWorkouts(userId, parseDateStr(date).toISOString(), parseDateStr(addDays(date, 1)).toISOString())),
   ]);
   if (cats) setCategoryColors(cats);
-  return { archive: archive ?? {}, dayPlan, chunks, tasks };
+  return { archive: archive ?? {}, dayPlan, chunks, tasks, watch: eveningWatchParts(health?.[0], workouts ?? []) };
 }
 
 export default function Evening() {
@@ -138,6 +144,7 @@ export default function Evening() {
         <div className="stack">
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
           <MinutesCard archive={a} />
+          <WatchLine parts={data.watch} />
           <CuratedCards slot="day" date={date} title="From your board" compact />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
           <FocusDay userId={userId} date={date} variant="evening" />
@@ -245,6 +252,28 @@ function MinutesCard({ archive }) {
           {catTotal > tracked + 0.5 && <p className="minutes-note">{OVERLAP_NOTE}</p>}
         </>
       )}
+    </div>
+  );
+}
+
+// What the watch measured, as one quiet row under the minutes: last night's
+// sleep, the day's workouts, steps, resting heart rate. Only what came.
+function WatchLine({ parts }) {
+  if (!parts?.length) return null;
+  return (
+    <div className="card watch-line" aria-label="From your watch">
+      <span className="eyebrow watch-line__head">
+        <Watch size={12} />
+        From your watch
+      </span>
+      <div className="watch-line__parts">
+        {parts.map((p, i) => (
+          <span key={i} className="watch-line__part">
+            <span className="faint">{p.label}</span> <strong className="mono">{p.value}</strong>
+            {p.sub && <span className="faint watch-line__sub">{p.sub}</span>}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

@@ -95,3 +95,17 @@
 .widget-preview__bar i { display: block; height: 100%; border-radius: 999px; }
 .widget-preview__row { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
 .widget-preview__row .truncate { flex: 1; min-width: 0; }
+
+/* On your watch. */
+.watch-get { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.watch-get .btn { gap: 8px; }
+.watch-build { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.watch-build summary { cursor: pointer; font-size: 13.5px; font-weight: 620; }
+.watch-build .phone-steps { margin-top: 10px; }
+.phone-steps code, .phone-note code { font-family: var(--font-mono); font-size: 12px; background: var(--inset); padding: 1px 5px; border-radius: 5px; }
+.watch-days { display: flex; flex-direction: column; }
+.watch-day { display: flex; flex-direction: column; gap: 2px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.watch-day:first-child { border-top: none; padding-top: 0; }
+.watch-day__date { font-weight: 620; }
+.watch-day__nums { font-size: 12px; color: var(--text-2); }
+.watch-day__workouts { font-size: 12px; color: var(--accent-text); }

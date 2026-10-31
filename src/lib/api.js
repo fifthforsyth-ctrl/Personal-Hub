@@ -2632,7 +2632,7 @@ const MIRROR_ENTRY_COLUMNS =
 export async function fetchMirrorWeek(userId, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const at = (date, time = "00:00:00") => new Date(`${date}T${time}`).toISOString();
-  const [plans, entries, winLosses, watched, focus, txns, budgets, targets, categories, weights] = await Promise.all([
+  const [plans, entries, winLosses, watched, focus, txns, budgets, targets, categories, weights, healthDays] = await Promise.all([
     supabase
       .from("day_plans")
       .select("date, alarm_at, woke_at, lights_out_at, snoozed, mood, energy, stress, stress_source, is_example")
@@ -2692,8 +2692,17 @@ export async function fetchMirrorWeek(userId, weekStart) {
       .gte("date", addDays(weekStart, -49))
       .lte("date", weekEnd)
       .order("measured_at", { ascending: true }),
+    // What the watch measured (0099). The mirror still opens without it.
+    supabase
+      .from("health_days")
+      .select(HEALTH_DAY_COLUMNS)
+      .eq("user_id", userId)
+      .gte("date", weekStart)
+      .lte("date", weekEnd)
+      .then((r) => r, (err) => ({ data: [], error: null, failed: err })),
   ]);
   for (const r of [plans, winLosses, categories, weights]) if (r.error) throw r.error;
+  if (healthDays.error) console.warn(healthDays.error);
   return {
     dayPlans: plans.data ?? [],
     entries,
@@ -2706,6 +2715,7 @@ export async function fetchMirrorWeek(userId, weekStart) {
     targets,
     categories: categories.data ?? [],
     weights: weights.data ?? [],
+    healthDays: healthDays.error ? [] : healthDays.data ?? [],
   };
 }
 
@@ -2727,6 +2737,69 @@ export async function newWidgetKey() {
 export async function deleteWidgetKey(userId) {
   const { error } = await supabase.from("widget_keys").delete().eq("user_id", userId);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Apple Watch (0099): the watch key, and what the watch measured. The key
+// works like the widget's: the row says it's on and what last used it, the
+// key itself comes back once, from newWatchKey.
+// ---------------------------------------------------------------------------
+
+export const HEALTH_DAY_COLUMNS =
+  "date, sleep_start, sleep_end, asleep_min, deep_min, rem_min, core_min, awake_min, in_bed_min, steps, active_kcal, exercise_min, stand_hours, daylight_min, mindful_min, distance_mi, flights, resting_hr, hrv_ms, avg_hr, respiratory_rate, wrist_temp_c, spo2_pct, vo2max, caffeine_mg, weight_lb, updated_at";
+
+export async function fetchWatchKey(userId) {
+  const { data, error } = await supabase.from("watch_keys").select("created_at, last_used_at, last_used_by").eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function newWatchKey() {
+  const { data, error } = await supabase.rpc("new_watch_key");
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteWatchKey(userId) {
+  const { error } = await supabase.from("watch_keys").delete().eq("user_id", userId);
+  if (error) throw error;
+}
+
+// Days of watch numbers, oldest first.
+export async function fetchHealthDays(userId, fromDate, toDate) {
+  let q = supabase.from("health_days").select(HEALTH_DAY_COLUMNS).eq("user_id", userId).gte("date", fromDate).order("date", { ascending: true });
+  if (toDate) q = q.lte("date", toDate);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Workouts that started on or after a moment, newest first.
+export async function fetchHealthWorkouts(userId, sinceISO, untilISO) {
+  let q = supabase
+    .from("health_workouts")
+    .select("id, name, started_at, ended_at, minutes, active_kcal, avg_hr, max_hr, distance, distance_unit, time_entry_id")
+    .eq("user_id", userId)
+    .gte("started_at", sinceISO)
+    .order("started_at", { ascending: false })
+    .limit(50);
+  if (untilISO) q = q.lt("started_at", untilISO);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// The last thing Health Auto Export sent: when, and what it carried.
+export async function fetchLastHealthImport(userId) {
+  const { data, error } = await supabase
+    .from("health_imports")
+    .select("received_at, summary")
+    .eq("user_id", userId)
+    .order("received_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import {
   Sparkles,
   ScanEye,
   Smartphone,
+  Watch,
   Landmark,
   AlarmClock,
   Castle,
@@ -66,6 +67,7 @@ export const MORE = [
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/wake", label: "Wake watch", Icon: AlarmClock },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
+  { to: "/watch", label: "On your watch", Icon: Watch },
 ];
 
 // "Past days" opens yesterday, the latest day that's over; today is on the

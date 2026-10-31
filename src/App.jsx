@@ -25,6 +25,7 @@ const Plans = lazy(() => import("./pages/Plans"));
 const Ask = lazy(() => import("./pages/Ask"));
 const Mirror = lazy(() => import("./pages/Mirror"));
 const Phone = lazy(() => import("./pages/Phone"));
+const WatchPage = lazy(() => import("./pages/Watch"));
 const Temple = lazy(() => import("./pages/Temple"));
 const Wake = lazy(() => import("./pages/Wake"));
 const Quests = lazy(() => import("./pages/Quests"));
@@ -65,6 +66,7 @@ export default function App() {
             <Route path="/ask" element={<Ask />} />
             <Route path="/mirror" element={<Mirror />} />
             <Route path="/phone" element={<Phone />} />
+            <Route path="/watch" element={<WatchPage />} />
             <Route path="/wake" element={<Wake />} />
             <Route path="/temple" element={<Temple />} />
             <Route path="/temple/:view" element={<Temple />} />

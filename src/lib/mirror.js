@@ -677,6 +677,46 @@ export function practiceWeek({ entries, weights, trend = [] }) {
   return { key: "practice", title: "Body and practice", lines, chart: points.length >= 2 ? { weights: points } : null };
 }
 
+// --- What the watch measured ---------------------------------------------------------------
+
+// Supporting numbers from the Apple Watch (health_days), in a line or two:
+// nights the watch saw and their average, the deep and REM in them, steps,
+// resting heart rate and HRV, mindful minutes. Workouts already count in
+// "Body and practice" (each one is an Exercise entry), so they aren't
+// repeated here. Nothing is compared against a target.
+export function watchWeek({ healthDays, days, upTo }) {
+  const rows = (healthDays ?? []).filter((h) => {
+    const d = String(h.date).slice(0, 10);
+    return d >= days[0] && d <= upTo;
+  });
+  if (!rows.length) return null;
+  const vals = (col) => rows.map((r) => r[col]).filter((v) => v != null && Number(v) > 0).map(Number);
+  const lines = [];
+
+  const slept = vals("asleep_min");
+  if (slept.length) {
+    const deep = vals("deep_min");
+    const rem = vals("rem_min");
+    const stages = deep.length && rem.length ? `, about ${b(fmtHours(mean(deep)))} deep and ${b(fmtHours(mean(rem)))} REM a night` : "";
+    lines.push(`The watch saw ${b(slept.length)} ${plural(slept.length, "night")}, averaging ${b(fmtHours(mean(slept)))} asleep${stages}.`);
+  }
+
+  const parts = [];
+  const steps = vals("steps");
+  if (steps.length) parts.push(`${b(Math.round(mean(steps)).toLocaleString("en-US"))} steps a day`);
+  const rhr = vals("resting_hr");
+  if (rhr.length) parts.push(`resting heart rate ${b(Math.round(mean(rhr)))}`);
+  const hrv = vals("hrv_ms");
+  if (hrv.length) parts.push(`HRV ${b(`${Math.round(mean(hrv))} ms`)}`);
+  if (parts.length) lines.push(`${andList(parts).replace(/^[a-z]/, (c) => c.toUpperCase())}.`);
+
+  const mindful = vals("mindful_min");
+  if (mindful.length) lines.push(`${b(fmtHours(sum(mindful)))} mindful.`);
+
+  if (!lines.length) return null;
+  return { key: "watch", title: "From your watch", lines };
+}
+
 // --- The whole mirror ---------------------------------------------------------------------------
 
 // Every part for one week, in the order it reads best: the nights and
@@ -697,6 +737,7 @@ export function buildMirror({
   targets,
   categories,
   weights,
+  healthDays,
 }) {
   const days = weekDates(weekStart);
   const upTo = today >= days[6] ? days[6] : today;
@@ -731,6 +772,7 @@ export function buildMirror({
     focusMirror({ goals, checkins, weekStart }),
     moneyWeek({ txns, budgets, weekStart, upTo }),
     practiceWeek({ entries: inWeek, weights: weekWeights, trend: readings }),
+    watchWeek({ healthDays, days, upTo }),
   ].filter(Boolean);
 
   return { weekStart, days, upTo, current: upTo < days[6], sections };
