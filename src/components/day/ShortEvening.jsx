@@ -3,7 +3,7 @@ import { Moon, Check } from "lucide-react";
 import { patchDayPlan, fetchDayPlan, fetchLastAlarm, saveJournalEntry, logPrayer, deletePrayer } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
 import { friendlyError } from "../../lib/errors";
-import { addDays } from "../../lib/planDates";
+import { addDays, todayStr } from "../../lib/planDates";
 import { eveningStamp, fmtClock, lightsOutFor, rememberedAlarm } from "../../lib/honest";
 import { Scale } from "../today/StopFollowUp";
 import { timeOf } from "../today/minutes";
@@ -86,7 +86,7 @@ export default function ShortEvening({ userId, date, dayPlan, journal, prayers, 
     run(
       "prayer",
       async () => setPrayer(await logPrayer(userId, { context: PRAYER_CONTEXT, content: "Prayed", prayedAt: eveningStamp(date).toISOString() })),
-      "Couldn't log the prayer. Try again."
+      "Couldn't log the prayer. Try again.",
     );
   }
 
@@ -125,50 +125,75 @@ export default function ShortEvening({ userId, date, dayPlan, journal, prayers, 
   return (
     <div className="card card--accent evening-checkin short-evening">
       <div className="card-head" style={{ marginBottom: 4 }}>
-        <span className="card-title"><Moon size={14} />The short evening</span>
+        <span className="card-title">
+          <Moon size={14} />
+          The short evening
+        </span>
         {busy ? <span className="faint evening-checkin__saving">Saving…</span> : null}
       </div>
-      <p className="card-note" style={{ marginBottom: 2 }}>A few taps, then bank it and get to bed. Any can stay blank.</p>
+      <p className="card-note" style={{ marginBottom: 2 }}>
+        A few taps, then bank it. Any can stay blank.
+      </p>
 
-      <div className="honest-label">Mood <span className="faint">1 low · 5 good</span></div>
+      <div className="honest-label">
+        Mood <span className="faint">1 low · 5 good</span>
+      </div>
       <Scale value={mood} onPick={pickMood} label="Mood" />
 
       <div className="honest-label">Prayer</div>
       <div className="honest-chips">
-        <button type="button" className={"name-chip" + (prayer ? " name-chip--on" : "")} aria-pressed={Boolean(prayer)} onClick={togglePrayed} disabled={busy === "prayer"}>
+        <button
+          type="button"
+          className={"name-chip" + (prayer ? " name-chip--on" : "")}
+          aria-pressed={Boolean(prayer)}
+          onClick={togglePrayed}
+          disabled={busy === "prayer"}
+        >
           {prayer && <Check size={12} />}
           Prayed
         </button>
       </div>
 
-      <div className="honest-label">Where did you see God's hand today?</div>
+      <div className="honest-label">Where did you see God's hand?</div>
       <input
         className="input"
         value={line}
         onChange={(e) => setLine(e.target.value)}
         onBlur={saveLine}
         placeholder="One line is enough"
-        aria-label="Where did you see God's hand today?"
+        aria-label="Where did you see God's hand?"
         maxLength={2000}
       />
 
-      <div className="honest-label">Tomorrow starts at</div>
-      <div className="honest-chips">
-        {choices.map((a) => (
-          <button key={a} type="button" className={"name-chip" + (alarm === a ? " name-chip--on" : "")} aria-pressed={alarm === a} onClick={() => pickAlarm(a)} disabled={!data}>
-            {fmtClock(a)}
-          </button>
-        ))}
-      </div>
-      <p className="evening-checkin__lights">
-        {lightsOut ? (
-          <>Lights out by {timeOf(lightsOut.toISOString())} for a full night. Sleep well.</>
-        ) : (
-          usual && <>Usually {fmtClock(usual)}.</>
-        )}
-      </p>
+      {/* Going back to a missed day: its "tomorrow" is already over. */}
+      {addDays(date, 1) >= todayStr() && (
+        <>
+          <div className="honest-label">Tomorrow starts at</div>
+          <div className="honest-chips">
+            {choices.map((a) => (
+              <button
+                key={a}
+                type="button"
+                className={"name-chip" + (alarm === a ? " name-chip--on" : "")}
+                aria-pressed={alarm === a}
+                onClick={() => pickAlarm(a)}
+                disabled={!data}
+              >
+                {fmtClock(a)}
+              </button>
+            ))}
+          </div>
+          <p className="evening-checkin__lights">
+            {lightsOut ? <>Lights out by {timeOf(lightsOut.toISOString())} for a full night. Sleep well.</> : usual && <>Usually {fmtClock(usual)}.</>}
+          </p>
+        </>
+      )}
 
-      {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
+      {error && (
+        <div className="form-error" style={{ marginTop: 10 }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }
