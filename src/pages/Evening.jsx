@@ -36,7 +36,7 @@ import "../styles/daily.css";
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
 //
-// Past midnight it also opens short: wins and losses, a few taps (mood,
+// Past midnight, and on any earlier day you go back to, it opens short: wins and losses, a few taps (mood,
 // prayer, God's hand in a line, tomorrow's alarm), one tap per target for
 // tonight's shots, and bank it. Same day, same records, same arrows; Full
 // switches back at any point and keeps everything tapped. ?short=1 opens it
@@ -54,7 +54,8 @@ function startShort(date, tonight, asked) {
   } catch {
     /* private window: fall through to the clock */
   }
-  return date === tonight && isLateNight();
+  // A day gone by (one you missed) opens short too; tonight only after midnight.
+  return date < tonight || (date === tonight && isLateNight());
 }
 
 async function loadEvening(userId, date) {
