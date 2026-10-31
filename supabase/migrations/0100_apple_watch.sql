@@ -5,9 +5,10 @@
 --
 --   * A Shortcut on the watch ("Hub"): win, loss, start or stop a timer,
 --     tick a Today task, say a note. It writes the same rows the app does.
---   * The iPhone: a wake-up automation (the moment you're up, for Wake
---     watch) and Health Auto Export, which sends sleep, workouts and the
---     day's numbers (steps, heart, mindful minutes...) from Apple Health.
+--   * The iPhone: a wake-up automation (the moment you're up: a running
+--     Sleep timer stops and health_days.woke_at is set) and Health Auto
+--     Export, which sends sleep, workouts and the day's numbers (steps,
+--     heart, mindful minutes...) from Apple Health.
 --
 -- Neither can sign in, so they carry a key, made in the app (More > On
 -- your watch) the same way the widget's is: only its SHA-256 is kept, it's
@@ -80,6 +81,8 @@ grant execute on function public.new_watch_key() to authenticated;
 create table if not exists public.health_days (
   user_id uuid not null references auth.users (id) on delete cascade,
   date date not null,
+  -- When the iPhone's wake-up automation said you were up.
+  woke_at timestamptz,
   -- Sleep for the night that ended this morning.
   sleep_start timestamptz,
   sleep_end timestamptz,

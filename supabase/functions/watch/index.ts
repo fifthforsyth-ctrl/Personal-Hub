@@ -15,9 +15,10 @@
 //    "task", "note", "today", "woke"), so one copy of the Shortcut can be
 //    a one-tap Win button on the watch face.
 //
-// 2. The iPhone's wake-up automation: { go: "woke" }. The moment you're up
-//    feeds Wake watch: a running Sleep timer stops (what "I'm up" does) and
-//    today's woke_at is set if it's empty.
+// 2. The iPhone's wake-up automation: { go: "woke" }. The moment you're up:
+//    a running Sleep timer stops (what "I'm up" does, so the morning
+//    check-in finds the night) and today's health_days.woke_at is set if
+//    it's empty.
 //
 // 3. Health Auto Export: { data: { metrics, workouts, ... } }. Daily numbers
 //    go to health_days; each night's sleep becomes a Sleep entry in the
@@ -379,9 +380,9 @@ async function woke(db: DB, userId: string, tz: string, date: string, hour: numb
     await db.from("time_log_entries").update({ ended_at: now, ended_by: "stop" }).eq("id", run.id);
     slept = ` Slept ${ago(run.started_at)}.`;
   }
-  const { data: plan } = await db.from("day_plans").select("woke_at").eq("user_id", userId).eq("date", date).maybeSingle();
-  if (!plan) await db.from("day_plans").insert({ user_id: userId, date, woke_at: now });
-  else if (!plan.woke_at) await db.from("day_plans").update({ woke_at: now }).eq("user_id", userId).eq("date", date);
+  const { data: day } = await db.from("health_days").select("woke_at").eq("user_id", userId).eq("date", date).maybeSingle();
+  if (!day) await db.from("health_days").insert({ user_id: userId, date, woke_at: now });
+  else if (!day.woke_at) await db.from("health_days").update({ woke_at: now, updated_at: now }).eq("user_id", userId).eq("date", date);
   const clock = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(new Date());
   return `Up at ${clock}.${slept}`;
 }

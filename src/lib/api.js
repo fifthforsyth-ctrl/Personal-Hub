@@ -2746,7 +2746,7 @@ export async function deleteWidgetKey(userId) {
 // ---------------------------------------------------------------------------
 
 export const HEALTH_DAY_COLUMNS =
-  "date, sleep_start, sleep_end, asleep_min, deep_min, rem_min, core_min, awake_min, in_bed_min, steps, active_kcal, exercise_min, stand_hours, daylight_min, mindful_min, distance_mi, flights, resting_hr, hrv_ms, avg_hr, respiratory_rate, wrist_temp_c, spo2_pct, vo2max, caffeine_mg, weight_lb, updated_at";
+  "date, woke_at, sleep_start, sleep_end, asleep_min, deep_min, rem_min, core_min, awake_min, in_bed_min, steps, active_kcal, exercise_min, stand_hours, daylight_min, mindful_min, distance_mi, flights, resting_hr, hrv_ms, avg_hr, respiratory_rate, wrist_temp_c, spo2_pct, vo2max, caffeine_mg, weight_lb, updated_at";
 
 export async function fetchWatchKey(userId) {
   const { data, error } = await supabase.from("watch_keys").select("created_at, last_used_at, last_used_by").eq("user_id", userId).maybeSingle();

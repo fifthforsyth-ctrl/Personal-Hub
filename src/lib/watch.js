@@ -33,6 +33,7 @@ export function workoutName(name) {
 // (its sleep is the night before), `workouts` the day's health_workouts.
 export function eveningWatchParts(day, workouts) {
   const parts = [];
+  if (day?.woke_at) parts.push({ label: "Up", value: clock(day.woke_at), sub: null });
   const slept = num(day?.asleep_min);
   if (slept) {
     const deep = num(day?.deep_min);

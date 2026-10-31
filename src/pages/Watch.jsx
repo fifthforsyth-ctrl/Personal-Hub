@@ -15,7 +15,7 @@ import "../styles/phone.css";
 // One address does everything (the `watch` edge function with your key in
 // it): the "Hub" Shortcut on the watch logs wins and losses, starts and
 // stops timers, ticks Today's tasks and keeps notes; a wake-up automation on
-// the iPhone tells Wake watch you're up; Health Auto Export sends sleep,
+// the iPhone records when you're up; Health Auto Export sends sleep,
 // workouts and the day's numbers from Apple Health. This page makes the
 // address, walks through each setup, and shows what has come in.
 
@@ -210,7 +210,7 @@ export default function Watch() {
           <span className="card-title"><AlarmClock size={14} />When you wake up</span>
         </div>
         <p className="phone-note" style={{ marginTop: 0 }}>
-          Tells Wake watch the moment you're up, even with the phone locked: a running Sleep timer stops and today's wake time is set.
+          Records the moment you're up, even with the phone locked: a running Sleep timer stops (so the morning check-in already has your night) and today's wake time is kept with your watch data.
         </p>
         <ol className="phone-steps">
           <li>In Shortcuts, tap <strong>Automation</strong>, then <strong>+</strong>, then <strong>Sleep</strong>. Choose <strong>Waking Up</strong> and <strong>Run Immediately</strong>, then <strong>Next</strong>.</li>
