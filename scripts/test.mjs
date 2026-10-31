@@ -38,7 +38,6 @@ import {
 } from "../src/lib/camp.js";
 import { planMove, applyRows, inPageOrder, planPinDrop, applyPinDrop, byPin } from "../src/lib/stepMoves.js";
 import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups, shades } from "../src/lib/camp.js";
-import { normalizePhone, prettyPhone, wakeClock, fillMessage, shortTime, deliveryLine, upStreak } from "../src/lib/wake.js";
 import {
   stageOf,
   buildTemple,
@@ -1798,31 +1797,14 @@ console.log("\nthe mark");
   ok("the bookmark is one piece of code with its key inside", bm.startsWith("javascript:") && parses && decodeURIComponent(bm).includes('"key":"ts_abc"'));
 }
 
-// --- Wake watch ---------------------------------------------------------------
+// --- Wake watch, removed ------------------------------------------------------
 {
-  ok("a 10-digit US number gets +1", normalizePhone("(801) 555-1234") === "+18015551234");
-  ok("an 11-digit one starting with 1 keeps it", normalizePhone("1 801 555 1234") === "+18015551234");
-  ok("a + number keeps its country code", normalizePhone("+44 20 7946 0958") === "+442079460958");
-  ok("too short is refused", normalizePhone("555-1234") === null && normalizePhone("") === null);
-  ok("a US number reads the usual way", prettyPhone("+18015551234") === "(801) 555-1234");
-  ok("the wake time reads like the text writes it", wakeClock("2026-10-20T11:23:25Z", "America/Denver") === "5:23 am");
-  ok("and in winter time too", wakeClock("2026-12-02T12:05:00Z", "America/Denver") === "5:05 am");
-  ok("{time} is filled in", fillMessage("he woke up at {time}", "2026-10-20T11:23:25Z", "America/Denver") === "he woke up at 5:23 am");
-  ok("4:35 shows without the leading zero", shortTime("04:35:00") === "4:35");
-  ok("a failed text says why", /Twilio/.test(deliveryLine({ status: "failed", error: "Twilio secrets missing" })));
-  ok("one peer is singular", deliveryLine({ status: "sent", sent_to: 1 }) === "Texted to 1 peer.");
-  ok("a streak skips this morning's wait and stops at the first miss",
-    upStreak([{ outcome: "waiting" }, { outcome: "up" }, { outcome: "up" }, { outcome: "late" }, { outcome: "up" }]) === 2);
-
-  const wm = readFileSync(new URL("../supabase/migrations/0078_wake_watch.sql", import.meta.url), "utf8")
+  const off = readFileSync(new URL("../supabase/migrations/0099_wake_watch_off.sql", import.meta.url), "utf8")
     .split("\n")
     .filter((l) => !l.trim().startsWith("--"))
     .join("\n");
-  ok("every wake table has row-level security", ["wake_watch", "wake_peers", "wake_reports"].every((t) => new RegExp(`alter table public\\.${t} enable row level security`).test(wm)));
-  ok("reports can only be read from the app, never written", !/grant[^;]*(insert|update|delete)[^;]*wake_reports/.test(wm));
-  ok("the judging functions can't be called from the app", /revoke all on function public\.wake_watch_tick\(\) from public, anon, authenticated/.test(wm) && /revoke all on function public\.trigger_wake_send\(uuid\)/.test(wm));
-  ok("the wake migration drops nothing", !/\bdrop\s+(table|column|function|policy)\b|\btruncate\b|\bdelete\s+from\b/i.test(wm));
-  ok("it starts off and in practice", /enabled boolean not null default false/.test(wm) && /live boolean not null default false/.test(wm));
+  ok("turning Wake watch off stops the morning job", /cron\.unschedule\('wake-watch'\)/.test(off));
+  ok("and keeps every logged morning", !/\bdrop\b|\btruncate\b|\bdelete\s+from\b/i.test(off));
 }
 
 {

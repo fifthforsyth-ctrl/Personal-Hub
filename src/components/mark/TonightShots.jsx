@@ -27,6 +27,10 @@ import "../../styles/mark.css";
 // `flushRef` lets Bank the day save anything still waiting (a line typed a
 // moment ago) before the arrows are loosed; `onReady` tells the page how
 // many targets are answered.
+//
+// `quick` is the short evening's version: one row per target and one tap
+// each (Yes, Some or No for the whole target, no line). The arrow, the
+// section it's filed under and the volley are exactly the full evening's.
 
 const READ_AFTER_MS = 900;
 // A line still being read when the day is banked gets this long to come
@@ -56,7 +60,7 @@ function writeLocal(date, drafts) {
   }
 }
 
-export default function TonightShots({ userId, date, entries, flushRef, onReady }) {
+export default function TonightShots({ userId, date, entries, flushRef, onReady, quick = false }) {
   const toast = useToast();
   const { data, error, loading, reload } = useLoad(() => (userId ? fetchRange(userId, date) : null), [userId, date]);
   const view = useMemo(() => (data ? buildAscent(data, date) : null), [data, date]);
@@ -246,6 +250,12 @@ export default function TonightShots({ userId, date, entries, flushRef, onReady 
     persist(t.key);
   }
 
+  // Quick: the one answer goes to every part of the target.
+  function answerAll(t, v) {
+    update(t.key, (x) => ({ ...x, values: x.values.map(() => v), pick: x.pick?.how === "yours" ? x.pick : null, readFor: null }));
+    settle(t.key);
+  }
+
   function go(key) {
     setAt(key);
     setChanging(false);
@@ -253,6 +263,63 @@ export default function TonightShots({ userId, date, entries, flushRef, onReady 
 
   if (!data && loading) return null;
   if (!targets.length && !error) return null;
+
+  if (quick) {
+    if (!askable.length && !error) return null;
+    return (
+      <div className="card mark mk-tonight mk-quick">
+        <div className="card-head" style={{ marginBottom: 8 }}>
+          <span className="card-title">
+            <Target size={14} />
+            Tonight's shots
+          </span>
+          <span className="faint mk-quick__hint">One tap each</span>
+        </div>
+        {error && <LoadError what="tonight's targets" error={error} onRetry={reload} stale={Boolean(data)} />}
+        {drafts && (
+          <>
+            <div className="mk-quick__rows">
+              {askable.map((x) => {
+                const vals = drafts[x.key]?.values ?? [];
+                const all = vals.length && vals.every((v) => v === vals[0]) ? vals[0] : undefined;
+                const mixed = all === undefined && levelFrom(vals) != null;
+                return (
+                  <div key={x.key} className="mk-quick__row">
+                    <span className="mk-quick__name">
+                      <Gear name={x.icon} size={14} />
+                      <span className="truncate">{x.short}</span>
+                      {mixed && <small className="faint">mixed</small>}
+                    </span>
+                    <div className="seg mk-shot__yn" role="group" aria-label={x.title}>
+                      {ANSWER_ORDER.map((v) => (
+                        <button key={v} type="button" className={"seg-btn" + (all === v ? " active" : "")} aria-pressed={all === v} onClick={() => answerAll(x, v)}>
+                          {ANSWERS[v]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mk-tonight__count" aria-live="polite">
+              {readyCount === askable.length ? (
+                <>
+                  <b>All {askable.length} ready.</b> They fly when you bank the day.
+                </>
+              ) : (
+                <>
+                  <b>
+                    {readyCount} of {askable.length} ready.
+                  </b>{" "}
+                  Any you leave blank get no arrow tonight.
+                </>
+              )}
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
 
   const t = targets.find((x) => x.key === at) ?? null;
   const d = t && drafts ? drafts[t.key] : null;

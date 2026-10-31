@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay, looseShots, fetchRange } from "../lib/api";
@@ -12,6 +12,7 @@ import LoadError from "../components/ui/LoadError";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import CloseOut from "../components/day/CloseOut";
 import EveningCheckin from "../components/day/EveningCheckin";
+import ShortEvening from "../components/day/ShortEvening";
 import BankedDayCard from "../components/day/BankedDayCard";
 import FocusDay from "../components/focus/FocusDay";
 import TonightShots from "../components/mark/TonightShots";
@@ -21,7 +22,7 @@ import TapEditor from "../components/today/TapEditor";
 import Swords from "../components/ui/Swords";
 import { useOutbox, withTaps, isUnnamed } from "../components/today/tapOutbox";
 import { trackedMinutes, OVERLAP_NOTE } from "../components/today/minutes";
-import { eveningDate } from "../components/today/dayParts";
+import { eveningDate, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
@@ -34,6 +35,27 @@ import "../styles/daily.css";
 //
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
+//
+// Past midnight it also opens short: wins and losses, a few taps (mood,
+// prayer, God's hand in a line, tomorrow's alarm), one tap per target for
+// tonight's shots, and bank it. Same day, same records, same arrows; Full
+// switches back at any point and keeps everything tapped. ?short=1 opens it
+// short at any hour.
+
+function shortKey(date) {
+  return `hub.evening-short.${date}`;
+}
+
+function startShort(date, tonight, asked) {
+  if (asked) return true;
+  try {
+    const kept = sessionStorage.getItem(shortKey(date));
+    if (kept != null) return kept === "1";
+  } catch {
+    /* private window: fall through to the clock */
+  }
+  return date === tonight && isLateNight();
+}
 
 async function loadEvening(userId, date) {
   const [archive, dayPlan, chunks, tasks, cats] = await Promise.all([
@@ -58,6 +80,23 @@ export default function Evening() {
   const date = dateParam ?? eveningDate();
   const tonight = eveningDate();
   const next = addDays(date, 1);
+  const [search] = useSearchParams();
+  const [short, setShortState] = useState(() => startShort(date, tonight, search.get("short") === "1"));
+  const [shortDate, setShortDate] = useState(date);
+  if (shortDate !== date) {
+    setShortDate(date);
+    setShortState(startShort(date, tonight, search.get("short") === "1"));
+  }
+  const setShort = (v) => {
+    setShortState(v);
+    try {
+      sessionStorage.setItem(shortKey(date), v ? "1" : "0");
+    } catch {
+      /* the switch still works for this visit */
+    }
+  };
+  const flushShort = useRef(null);
+  const [shortLine, setShortLine] = useState(false);
 
   const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
 
@@ -95,6 +134,16 @@ export default function Evening() {
           {/* Just after midnight, the evening you're still in is "tonight". */}
           <div className="eyebrow">{date === tonight ? "Tonight" : "Evening"} · {fmtDayHeading(date)}</div>
           <h1 className="page-title" style={{ marginTop: 3 }}>{isToday ? "How today really went" : "How the day really went"}</h1>
+          {!banked && data && (
+            <div className="seg evening-length" role="group" aria-label="How long tonight">
+              <button type="button" className={"seg-btn" + (short ? " active" : "")} aria-pressed={short} onClick={() => setShort(true)}>
+                Short
+              </button>
+              <button type="button" className={"seg-btn" + (!short ? " active" : "")} aria-pressed={!short} onClick={() => setShort(false)}>
+                Full
+              </button>
+            </div>
+          )}
           <nav className="evening-nav" aria-label="Other evenings">
             <Link to={`/evening/${addDays(date, -1)}`} className="btn-link">
               <ChevronLeft size={13} />
@@ -134,6 +183,31 @@ export default function Evening() {
           }}
           onChanged={reload}
         />
+      ) : short ? (
+        <div className="stack">
+          <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
+          <ShortEvening
+            key={`short-${date}`}
+            userId={userId}
+            date={date}
+            dayPlan={data.dayPlan}
+            journal={a.journal}
+            prayers={a.prayers ?? []}
+            flushRef={flushShort}
+            onLine={setShortLine}
+          />
+          <TonightShots key={`quick-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} flushRef={flushShots} onReady={setArrows} quick />
+          <CloseOut
+            userId={userId}
+            date={date}
+            reflectionDone={reflectionDone || shortLine}
+            onBanked={reload}
+            arrows={arrows}
+            onLoose={loose}
+            short
+            onBefore={() => flushShort.current?.()}
+          />
+        </div>
       ) : (
         <div className="stack">
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
