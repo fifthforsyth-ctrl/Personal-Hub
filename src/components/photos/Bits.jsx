@@ -17,30 +17,32 @@ export function SectionPhotos({ sectionId }) {
   return (
     <div className="ph-strip">
       {list.map((p) => (
-        <PhotoThumb key={p.id} photo={p} url={ph.urlOf(p)} pins={ph.pinsOf({ photo: p })} onOpen={() => ph.open(p)} />
+        <PhotoThumb key={p.id} photo={p} url={ph.urlOf(p)} pins={ph.pinsOf({ photo: p })} onOpen={() => ph.open(p)} onPin={ph.openPin} />
       ))}
     </div>
   );
 }
 
-function PhotoThumb({ photo, url, pins, onOpen }) {
+function PhotoThumb({ photo, url, pins, onOpen, onPin }) {
   const sketch = photo.sketch;
   const frame = useMemo(() => (sketch ? inkFrame(sketch) : null), [sketch]);
   const f = sketch ? frame ?? sketch : photo.width && photo.height ? { width: photo.width, height: photo.height } : { width: 4, height: 3 };
   const ratio = Math.min(2.2, Math.max(0.5, f.width / f.height));
   // its pins where they fall on it: a sketch fitted in whole, a photo cut to fill
   const fit = sketch ? { w: sketch.width, h: sketch.height, frame, pad: 3 } : { w: photo.width ?? 4, h: photo.height ?? 3, cover: true };
+  // the whole of it opens it up close, under its pins, which answer on their own
   return (
-    <button type="button" className={"ph-thumb" + (sketch ? " ph-thumb--sketch" : "")} style={{ aspectRatio: String(ratio) }} onClick={onOpen} aria-label={photo.caption ? `Open ${photo.caption}` : sketch ? "Open sketch" : "Open photo"}>
+    <span className={"ph-thumb" + (sketch ? " ph-thumb--sketch" : "")} style={{ aspectRatio: String(ratio) }}>
+      <button type="button" className="ph-thumb__open" onClick={onOpen} aria-label={photo.caption ? `Open ${photo.caption}` : sketch ? "Open sketch" : "Open photo"} />
       {sketch ? <SketchImage sketch={sketch} frame={frame} pad={3} minPx={1.2} /> : url ? <img src={url} alt="" loading="lazy" draggable={false} /> : <span className="ph-thumb__wait" />}
-      {pins.length > 0 && (sketch || (url && photo.width && photo.height)) && <PinDots pins={pins} fit={fit} small />}
+      {pins.length > 0 && (sketch || (url && photo.width && photo.height)) && <PinDots pins={pins} fit={fit} small onOpen={onPin} />}
       {pins.length > 0 && (
         <span className="ph-thumb__pins">
           <MapPin size={10} aria-hidden="true" />
           {pins.length}
         </span>
       )}
-    </button>
+    </span>
   );
 }
 

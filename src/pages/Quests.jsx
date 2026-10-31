@@ -53,6 +53,7 @@ import QuestMap from "../components/quests/QuestMap";
 import DoneToday from "../components/quests/DoneToday";
 import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
 import { PickBar, usePick } from "../components/camp/Today";
+import { SectionTints } from "../components/camp/Steps";
 import { SketchProvider } from "../components/sketch/Sketches";
 import { PhotoProvider, PhotoSide } from "../components/photos/Photos";
 import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
@@ -1628,6 +1629,7 @@ export default function Quests() {
   return (
     <div className="page ascent qs">
       <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
+      <SectionTints sections={campData?.sections} steps={campData?.steps}>
       <header className="qs-head">
         <div className="qs-head__name">
           <div className="eyebrow">{sel ? (sel.type === "Lesson" ? "Lesson" : "Quest") : "Quests"}</div>
@@ -1784,6 +1786,7 @@ export default function Quests() {
           onClose={() => setDoneView(null)}
         />
       )}
+      </SectionTints>
       </PhotoProvider>
     </div>
   );

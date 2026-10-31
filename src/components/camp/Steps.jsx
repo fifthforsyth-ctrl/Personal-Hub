@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, GripVertical, NotebookPen, Pencil, Plus, StickyNote } from "lucide-react";
-import { splitSteps } from "../../lib/camp";
+import { shades, splitSteps } from "../../lib/camp";
 import { fmtShortDate } from "../../lib/planDates";
 import { Rich } from "./Rich";
 import { useDragSort } from "../../lib/useDragSort";
@@ -12,6 +12,20 @@ import { PhotoButton, PinTag, SectionPhotos, ShowPin } from "../photos/Bits";
 
 // The pieces of a camp's checklist: a step with its sub-steps, the box to
 // add steps, and a section with its steps.
+
+// A section's colour on its steps (lib/camp shades). A page hands its
+// sections and steps down once; a step with no colour of its own wears the
+// one of the step it's under, or else its section's.
+const Tints = createContext(null);
+
+export function SectionTints({ sections, steps, children }) {
+  const value = useMemo(() => shades(sections, steps), [sections, steps]);
+  return <Tints.Provider value={value}>{children}</Tints.Provider>;
+}
+
+export function useSectionTints() {
+  return useContext(Tints);
+}
 
 // A textarea that grows with what's in it.
 function useGrow(value) {
@@ -114,7 +128,7 @@ export function WorkingButton({ on, onToggle }) {
 // tick, and `onKind` turns it into one or back. While selecting (`select`,
 // 0095) its box and its words select it, to move with others; carried with
 // others (`sort.group`), it says how many more come along.
-export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKind, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, select, idPrefix = "step", sections, sort, badge, computer, children }) {
+export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKind, onMove, onRemove, onMoveTo, onToday, isToday, mirror, from, pick, select, idPrefix = "step", sections, sort, badge, computer, inherited = null, children }) {
   const asNote = step.kind === "note";
   const done = !asNote && Boolean(step.done_on);
   const working = !asNote && !done && Boolean(step.working_since);
@@ -126,7 +140,8 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
   }, [step.id, step.text, step.note]);
   const textRef = useGrow(open ? text : "");
   const noteRef = useGrow(open ? note : "");
-  const tint = tintOf(step.color);
+  // its own colour, or (`inherited`, { color, from }) the one it takes on
+  const tint = tintOf(step.color ?? inherited?.color);
   const paste = usePastePicture(step.id);
 
   function saveText() {
@@ -142,6 +157,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
   return (
     <li
       id={`${idPrefix}-${step.id}`}
+      data-row={step.id}
       ref={sort?.ref}
       style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
       className={
@@ -233,7 +249,7 @@ export function StepRow({ step, open, first, last, onOpen, onDone, onSave, onKin
             <textarea ref={textRef} className="textarea camp-grow" rows={1} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} onBlur={saveText} />
           </label>
           {!asNote && <UrgencyPick value={step.urgency ?? null} onChange={(urgency) => onSave({ urgency })} />}
-          <ColorPick value={step.color ?? null} onChange={(color) => onSave({ color })} />
+          <ColorPick value={step.color ?? null} inherited={inherited} onChange={(color) => onSave({ color })} />
           {computer && <ComputerPick {...computer} />}
           {sections && (
             <label className="field">
@@ -336,7 +352,8 @@ export function DragHandle({ label, ...props }) {
 // one carried, and `onReorder` hears which one it was.
 // With `cross` (as useDragSort takes it) the list is one column among
 // others side by side, as on the clipboard.
-export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, sub = false, sortOf, carry, cross, children }) {
+export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder, onDragOut, onInto, mirror = false, idPrefix, sub = false, sortOf, carry, cross, inherit = null, children }) {
+  const tints = useContext(Tints);
   const sort = useDragSort(
     list.map((x) => x.id),
     (ids, id) => onReorder?.(list, ids, id),
@@ -357,10 +374,14 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
         const subs = hideDone ? st.subs.filter((x) => !x.done_on) : st.subs;
         const props = step(st, list);
         const open = !props.pick && openStep === st.id;
+        // the colour it takes on: the step it's under's (`inherit`), or as
+        // the page has it
+        const inherited = inherit ?? tints?.above(st) ?? null;
         return (
           <StepRow
             key={st.id}
             step={st}
+            inherited={inherited}
             open={open}
             first={i === 0}
             last={i === list.length - 1}
@@ -384,7 +405,7 @@ export function StepList({ list, openStep, hideDone, step, onAddSubs, onReorder,
             {...props}
           >
             {(subs.length > 0 || open) && (
-              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} mirror={mirror} idPrefix={idPrefix} carry={carry} sub>
+              <StepList list={subs} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} mirror={mirror} idPrefix={idPrefix} carry={carry} inherit={st.color ? { color: st.color, from: "step" } : inherit} sub>
                 {open && (
                   <li className="camp-subs__add">
                     <AddStep label="Add a sub-step" onAdd={(texts) => onAddSubs(st, texts)} />

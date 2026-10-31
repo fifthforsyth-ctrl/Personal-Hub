@@ -397,8 +397,12 @@ export function PhotoProvider({ userId, sectionIds = [], tasksOf, place, addTask
     },
     openPin,
     pinLabel: (pinId) => (numbers.has(pinId) ? `Pin ${numbers.get(pinId)}` : null),
-    // A picture's pins, numbered, with how many tasks each has.
-    pinsOf: (target) => pinsOn(target).map((p) => ({ ...p, n: numbers.get(p.id) ?? 0, count: tasksOf?.(p.id)?.length ?? 0 })),
+    // A picture's pins, numbered, with their tasks and how many.
+    pinsOf: (target) =>
+      pinsOn(target).map((p) => {
+        const tasks = tasksOf?.(p.id) ?? [];
+        return { ...p, n: numbers.get(p.id) ?? 0, count: tasks.length, tasks };
+      }),
     // pictures on rows take steps dropped on them only where they can be pinned
     drops: Boolean(attach),
     sideEl,

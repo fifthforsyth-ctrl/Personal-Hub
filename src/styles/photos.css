@@ -8,9 +8,17 @@
 /* A section's photos, small, in a row */
 .ph-strip { display: flex; gap: 8px; margin: 4px 0 10px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 2px; scrollbar-width: thin; }
 .ph-thumb {
-  position: relative; flex: 0 0 auto; height: 76px; min-width: 44px; max-width: 168px; padding: 0; border: 0; border-radius: 10px; overflow: hidden;
-  background: var(--inset); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: zoom-in;
+  position: relative; display: block; flex: 0 0 auto; height: 76px; min-width: 44px; max-width: 168px; border-radius: 10px; overflow: hidden;
+  background: var(--inset); box-shadow: inset 0 0 0 1px var(--line-strong);
 }
+/* the whole of it opens it, under its pins */
+.ph-thumb__open {
+  position: absolute; inset: 0; z-index: 1; padding: 0; border: 0; border-radius: inherit; background: none; cursor: zoom-in;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.ph-thumb__open:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ink); }
+.ph-thumb .pin-dots, .ph-thumb__pins { z-index: 2; }
+.ph-thumb__pins { pointer-events: none; }
 .ph-thumb img, .ph-thumb canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
 .ph-thumb--sketch { background: #fff; }
 .ph-thumb__wait { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, var(--inset), var(--surface), var(--inset)); }
@@ -44,6 +52,45 @@ button.pin-dot { pointer-events: auto; cursor: pointer; touch-action: manipulati
 .pin-dots--small .pin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; }
 .pin-dots--small .pin-dot__head { left: 1px; top: 1px; width: 10px; height: 10px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1.5px #fff; }
 .pin-dots--small .pin-dot__head::after { display: none; }
+/* a little dot is still a finger's worth to tap */
+.pin-dots--small button.pin-dot::before { content: ""; position: absolute; inset: -9px; border-radius: 999px; }
+@media (hover: hover) { .pin-dots--small button.pin-dot:hover .pin-dot__head { transform: scale(1.35); } }
+button.pin-dot:focus-visible { outline: none; }
+button.pin-dot:focus-visible .pin-dot__head { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
+
+/* A pin's card, over it (PinDots): what's on it, and what tapping does */
+.pin-tip {
+  position: fixed; z-index: 1200; width: max-content; max-width: min(300px, calc(100vw - 16px)); padding: 9px 11px 8px; border-radius: 12px;
+  background: var(--ink); color: #fff; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28); pointer-events: none; font-size: 13px; line-height: 1.35;
+  animation: pin-tip-in 0.12s ease-out;
+}
+@keyframes pin-tip-in { from { opacity: 0; transform: translateY(3px); } }
+.pin-tip.below { animation-name: pin-tip-in-below; }
+@keyframes pin-tip-in-below { from { opacity: 0; transform: translateY(-3px); } }
+.pin-tip__head { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font: 700 11px var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255, 255, 255, 0.7); }
+.pin-tip__n { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 9.5px; letter-spacing: 0; }
+.pin-tip__count { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.pin-tip__tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pin-tip__tasks li { display: flex; align-items: flex-start; gap: 7px; }
+.pin-tip__box { flex: 0 0 auto; width: 11px; height: 11px; margin-top: 3px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.75); }
+.pin-tip__tasks li.done .pin-tip__box { background: var(--accent); box-shadow: none; }
+.pin-tip__tasks li.done .pin-tip__text { text-decoration: line-through; color: rgba(255, 255, 255, 0.6); }
+.pin-tip__tasks li.note .pin-tip__box { border-radius: 999px; width: 5px; height: 5px; margin: 7px 3px 0; background: rgba(255, 255, 255, 0.75); box-shadow: none; }
+.pin-tip__text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.pin-tip__tasks li.more { padding-left: 18px; color: rgba(255, 255, 255, 0.6); font-size: 12px; }
+.pin-tip__note { margin: 5px 0 0; color: rgba(255, 255, 255, 0.82); font-style: italic; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.pin-tip__tasks + .pin-tip__note { padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.14); }
+.pin-tip__hint { margin: 6px 0 0; font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+
+/* A pin's tasks, lit up on the page when it's tapped */
+[data-lit] > .camp-step__row { border-radius: 12px; animation: pin-lit 2.6s ease-out; }
+@keyframes pin-lit {
+  0%, 55% { box-shadow: 0 0 0 2.5px var(--accent), 0 0 0 7px color-mix(in srgb, var(--accent) 22%, transparent); background-color: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-lit] > .camp-step__row { animation-duration: 2.6s; animation-timing-function: steps(1, end); }
+}
 .drop-mark { display: none; pointer-events: none; }
 .pin-dropping .drag-ghost, .pin-dropping .camp-step.lifted { opacity: 0.4; transition: opacity 0.12s ease; }
 .drop-mark.show { display: block; }

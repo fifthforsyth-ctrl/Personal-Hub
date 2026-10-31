@@ -185,6 +185,31 @@ export function stepsUnder(steps, id) {
   return out;
 }
 
+// The colours steps wear (Aaron, 2026-10-30: "when I change the color of a
+// section I want all the tasks to share the same color unless I change the
+// color of a specific task"). Worked out as it shows, so nothing is written
+// to the steps, and a section's new colour reaches every step at once.
+// `shades(sections, steps)` keeps what it needs; `above(step)` is the colour
+// a step takes on when it has none of its own, { color, from: "step" |
+// "section" } or null: the nearest step it's under with one, else its
+// section's. One set to "none" has none on purpose, and passes that on.
+export function shades(sections, steps) {
+  const section = new Map((sections ?? []).filter((s) => s.color).map((s) => [s.id, s.color]));
+  const byId = new Map((steps ?? []).map((x) => [x.id, x]));
+  const above = (st) => {
+    const seen = new Set([st.id]);
+    let top = st; // the step it all sits under, whose section it shows in
+    for (let up = byId.get(st.parent_id); up && !seen.has(up.id); up = byId.get(up.parent_id)) {
+      if (up.color) return { color: up.color, from: "step" };
+      seen.add(up.id);
+      top = up;
+    }
+    const c = section.get(top.section_id);
+    return c ? { color: c, from: "section" } : null;
+  };
+  return { above, of: (st) => st.color ?? above(st)?.color ?? null, section };
+}
+
 // Resolving a section (0097, Aaron 2026-10-30): it goes, so it stops
 // taking room in the camp, but the steps he finished in it are kept: their
 // bricks stay in the village and the camp still counts them as done.

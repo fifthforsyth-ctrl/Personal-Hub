@@ -70,6 +70,7 @@ export function LineRow({ line, open, first, last, onOpen, onDone, onSave, onKin
   return (
     <li
       id={`${idPrefix}-${line.id}`}
+      data-row={line.id}
       ref={sort?.ref}
       style={tint.style || sort?.style ? { ...tint.style, ...sort?.style } : undefined}
       className={

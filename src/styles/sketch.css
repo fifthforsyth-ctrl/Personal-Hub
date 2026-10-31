@@ -9,11 +9,20 @@
 .sk-strip { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 2px 0 12px 38px; }
 .qs-subs .sk-strip, .camp-subs .sk-strip { padding-left: 32px; }
 .sk-chip {
-  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 100%; min-width: 0; padding: 6px; border: 0; border-radius: 14px;
-  background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); font: inherit; text-align: left; cursor: pointer;
-  touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: box-shadow 0.15s ease, transform 0.12s ease;
+  position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 100%; min-width: 0; padding: 6px; border-radius: 14px;
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); text-align: left; cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
 }
+/* the whole chip opens it, under its pins (the picture and its title let
+   taps through to it; the pins take their own) */
+.sk-chip__open {
+  position: absolute; inset: 0; padding: 0; border: 0; border-radius: inherit; background: none; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.sk-chip__open:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ink); }
+.sk-chip__img, .sk-chip__title { pointer-events: none; }
 .sk-chip:active { transform: scale(0.97); }
+.sk-chip:has(.pin-dot:active) { transform: none; }
 @media (hover: hover) { .sk-chip:hover { box-shadow: inset 0 0 0 1px var(--ink); } }
 .sk-chip__img { position: relative; display: block; height: 170px; max-width: min(100%, 520px); min-width: 60px; border-radius: 10px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
 .sk-chip__img canvas { display: block; width: 100%; height: 100%; }

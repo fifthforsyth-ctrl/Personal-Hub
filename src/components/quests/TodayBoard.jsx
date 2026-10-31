@@ -5,7 +5,7 @@ import { useDragSort } from "../../lib/useDragSort";
 import { moved } from "../../lib/dragOrder";
 import { campColumns, computerColumns, filterOn, matchesFilter, MAX_COMPUTERS, moveKey, nextComputer, NO_FILTER, reorderShown } from "../../lib/todayBoard";
 import { dayLabel } from "../../lib/questTasks";
-import { AddStep, DragHandle, StepList, URGENCY } from "../camp/Steps";
+import { AddStep, DragHandle, StepList, URGENCY, useSectionTints } from "../camp/Steps";
 import { STEP_COLORS, tintOf } from "../camp/ColorPick";
 import { CardBadge, ComputerPick } from "../camp/ComputerPick";
 import { SketchProvider, SketchScope, useSketchScope } from "../sketch/Sketches";
@@ -161,6 +161,7 @@ export default function TodayBoard({
   const [hideDone, flipHideDone] = useHideDone();
   const colsRef = useRef(null);
   const taskScope = useSketchScope();
+  const tints = useSectionTints();
 
   const order = cards.map((c) => c.key);
   const byKey = new Map(cards.map((c) => [c.key, c]));
@@ -176,7 +177,7 @@ export default function TodayBoard({
   // What the filter asks for, and anything put on today since it was set,
   // so what's just added doesn't vanish as it's made.
   // With done hidden, a finished card is out of sight whatever the filter.
-  const matches = (c) => matchesFilter(c, filter) || Boolean(filter.since && !filter.since.has(c.key));
+  const matches = (c) => matchesFilter(c, filter, tints?.of) || Boolean(filter.since && !filter.since.has(c.key));
   const shows = (c) => !(hideDone && c.finished) && matches(c);
   const hidden = filtered ? cards.filter((c) => !(hideDone && c.finished) && !matches(c)).length : 0;
   const doneHidden = hideDone ? cards.filter((c) => c.finished).length : 0;
