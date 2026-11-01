@@ -1,0 +1,10 @@
+# Your private watch key and signing settings (setup.sh writes these).
+Shared/Secrets.swift
+Local.xcconfig
+# Made by setup.sh / XcodeGen / Xcode.
+HubWatch.xcodeproj/
+HubWatch/Info.plist
+HubWidget/Info.plist
+.tools/
+build/
+DerivedData/

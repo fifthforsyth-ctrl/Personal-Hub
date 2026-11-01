@@ -137,7 +137,9 @@ function nightFromAggregated(row, units, tz) {
     rem: m("rem"),
     core: m("core"),
     awake: m("awake"),
-    inBed: m("inBed"),
+    // The watch doesn't track time in bed, so it comes as 0: that's
+    // "not measured", not "no time in bed".
+    inBed: m("inBed") || null,
   };
 }
 

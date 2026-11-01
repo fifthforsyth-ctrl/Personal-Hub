@@ -25,11 +25,20 @@
 //    minutes log unless one is already there; each workout becomes an
 //    Exercise entry unless you logged one over it. Nothing here makes a win.
 //
+// 4. The Hub app on the watch (watch-app/ in this repo): { api, ... }.
+//    Plain JSON both ways. "today" is everything its screens show (the
+//    plan, Today's tasks, this week's focus goals, wins, minutes, the
+//    running timer, habits and categories); "glance" is the little bit the
+//    complication shows; "start", "stop", "win", "loss", "done" and "note"
+//    do what the Shortcut does and answer { ok, say }. Times go out as
+//    epoch milliseconds.
+//
 // The key comes in the x-watch-key header (or ?key= for apps that can only
 // set a URL). verify_jwt is off because none of these can sign in.
 
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, fmtMins, HEALTH_COLUMNS } from "./health.js";
+import { ms, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "./app.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -95,39 +104,45 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const url = new URL(req.url);
-  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
-  const key = (req.headers.get("x-watch-key") ?? url.searchParams.get("key") ?? (bearer && /^[0-9a-f]{48}$/i.test(bearer) ? bearer : ""))?.trim();
-  if (!key || key.length < 32) return done("No watch key. Make one in the Hub under More, On your watch.");
-
-  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-
-  const { data: found, error: keyError } = await db.from("watch_keys").select("user_id").eq("key_hash", await sha256Hex(key)).maybeSingle();
-  if (keyError) return done("The Hub didn't answer. Try again in a minute.");
-  if (!found) return done("This watch key was turned off. Make a new one in the Hub under More, On your watch.");
-  const userId = found.user_id as string;
 
   let body: Record<string, unknown> = {};
   if (req.method === "POST") {
     try {
-      body = await req.json();
+      body = (await req.json()) ?? {};
     } catch {
       body = {};
     }
   }
+  const isApp = typeof body.api === "string" && body.api !== "";
+  // The watch app reads { ok, say }; the Shortcut reads its own shape.
+  const fail = (say: string) => (isApp ? json({ ok: false, say }) : done(say));
+
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const key = (req.headers.get("x-watch-key") ?? url.searchParams.get("key") ?? (bearer && /^[0-9a-f]{48}$/i.test(bearer) ? bearer : ""))?.trim();
+  if (!key || key.length < 32) return fail("No watch key. Make one in the Hub under More, On your watch.");
+
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+
+  const { data: found, error: keyError } = await db.from("watch_keys").select("user_id").eq("key_hash", await sha256Hex(key)).maybeSingle();
+  if (keyError) return fail("The Hub didn't answer. Try again in a minute.");
+  if (!found) return fail("This watch key was turned off. Make a new one in the Hub under More, On your watch.");
+  const userId = found.user_id as string;
 
   const { data: profile } = await db.from("profiles").select("timezone").eq("id", userId).maybeSingle();
   const tz = validZone(url.searchParams.get("tz")) ?? validZone(profile?.timezone) ?? "America/Denver";
 
   const health = (body as { data?: unknown }).data;
-  const by = health && typeof health === "object" ? "health" : clean(body.go) === "woke" ? "wake" : "shortcut";
+  const by = health && typeof health === "object" ? "health" : clean(body.go) === "woke" ? "wake" : isApp ? "app" : "shortcut";
   await db.from("watch_keys").update({ last_used_at: new Date().toISOString(), last_used_by: by }).eq("user_id", userId);
 
   try {
     if (by === "health") return await importHealth(db, userId, tz, body);
+    if (by === "app") return await app(db, userId, tz, body);
     return await wrist(db, userId, tz, body);
   } catch (err) {
     console.error(err);
-    return by === "health" ? json({ error: String((err as Error)?.message ?? err) }, 500) : done("Something went wrong in the Hub. Try again.");
+    if (by === "health") return json({ error: String((err as Error)?.message ?? err) }, 500);
+    return fail("Something went wrong in the Hub. Try again.");
   }
 });
 
@@ -188,28 +203,11 @@ async function wrist(db: DB, userId: string, tz: string, body: Record<string, un
       const run = await running(db, userId);
       const cats = await categories(db, userId);
       if (!answer) return cats.length ? list(run ? `Switch from ${run.category}` : "Start", cats, "start") : text("Which category?", "start");
-      const cat = cats.find((c) => c.toLowerCase() === answer.toLowerCase()) ?? answer.slice(0, 60);
-      if (run && run.category === cat) return done(`${cat} is already running (${ago(run.started_at)}).`);
-      if (run) {
-        await db
-          .from("time_log_entries")
-          .update({ ended_at: new Date().toISOString(), ended_by: cat === "Sleep" ? "bedtime" : "stop" })
-          .eq("id", run.id);
-      }
-      const { error } = await db
-        .from("time_log_entries")
-        .insert({ user_id: userId, category: cat, tags: [cat], started_at: new Date().toISOString(), source: "watch" });
-      if (error) throw error;
-      return done(run ? `${run.category} stopped at ${ago(run.started_at)}. ${cat} started.` : `${cat} started.`);
+      return done(await startTimer(db, userId, answer, cats, run));
     }
 
-    case "stop": {
-      const run = await running(db, userId);
-      if (!run) return done("Nothing is running.");
-      const { error } = await db.from("time_log_entries").update({ ended_at: new Date().toISOString(), ended_by: "stop" }).eq("id", run.id);
-      if (error) throw error;
-      return done(isSleep(run) ? `Up. Slept ${ago(run.started_at)}.` : `${run.category} stopped. ${ago(run.started_at)}.`);
-    }
+    case "stop":
+      return done(await stopTimer(db, userId));
 
     case "task": {
       const tasks = await todayTasks(db, userId, date);
@@ -217,32 +215,12 @@ async function wrist(db: DB, userId: string, tz: string, body: Record<string, un
       if (!answer) return list("Done", tasks.map((t) => t.label), "task");
       const t = tasks.find((x) => x.label === answer);
       if (!t) return done("That one's not on Today any more.");
-      const now = new Date().toISOString();
-      const { error } =
-        t.table === "quest_tasks"
-          ? await db.from("quest_tasks").update({ done_on: date, done_at: now, working_since: null, updated_at: now }).eq("id", t.id).eq("user_id", userId)
-          : await db.from("camp_steps").update({ done_on: date, working_since: null, updated_at: now }).eq("id", t.id).eq("user_id", userId);
-      if (error) throw error;
-      const left = tasks.length - 1;
-      return done(`Done: ${t.text}. ${left ? `${left} left today.` : "Today is clear."}`);
+      return done(await markDone(db, userId, date, t, tasks.length - 1));
     }
 
     case "note": {
       if (!answer) return text("Say the note", "note");
-      const first = answer.length > 80 ? `${answer.slice(0, 77).replace(/\s+\S*$/, "")}…` : answer;
-      const { error } = await db.from("study_notes").insert({
-        user_id: userId,
-        title: first,
-        body: answer,
-        note_kind: "thought",
-        source_kind: "other",
-        source_ref: "Apple Watch",
-        studied_on: date,
-        tags: [],
-        position: 0,
-      });
-      if (error) throw error;
-      return done("Kept on your board.");
+      return done(await keepNote(db, userId, date, answer));
     }
 
     case "today":
@@ -255,9 +233,187 @@ async function wrist(db: DB, userId: string, tz: string, body: Record<string, un
 }
 
 async function logWinLoss(db: DB, userId: string, kind: "win" | "loss", label: string) {
+  return done(await saveWinLoss(db, userId, kind, label));
+}
+
+// --- What the Shortcut and the app both do -----------------------------------------------------
+// Each answers with the line to show.
+
+async function saveWinLoss(db: DB, userId: string, kind: "win" | "loss", label: string) {
   const { error } = await db.from("win_losses").insert({ user_id: userId, kind, habit_label: label.slice(0, 120) });
   if (error) throw error;
-  return done(kind === "win" ? `⚔ Win: ${label}` : `Loss logged: ${label}`);
+  return kind === "win" ? `⚔ Win: ${label}` : `Loss logged: ${label}`;
+}
+
+type Run = Awaited<ReturnType<typeof running>>;
+
+async function startTimer(db: DB, userId: string, answer: string, cats: string[], run: Run) {
+  const cat = cats.find((c) => c.toLowerCase() === answer.toLowerCase()) ?? answer.slice(0, 60);
+  if (run && run.category === cat) return `${cat} is already running (${ago(run.started_at)}).`;
+  if (run) {
+    await db
+      .from("time_log_entries")
+      .update({ ended_at: new Date().toISOString(), ended_by: cat === "Sleep" ? "bedtime" : "stop" })
+      .eq("id", run.id);
+  }
+  const { error } = await db
+    .from("time_log_entries")
+    .insert({ user_id: userId, category: cat, tags: [cat], started_at: new Date().toISOString(), source: "watch" });
+  if (error) throw error;
+  return run ? `${run.category} stopped at ${ago(run.started_at)}. ${cat} started.` : `${cat} started.`;
+}
+
+async function stopTimer(db: DB, userId: string) {
+  const run = await running(db, userId);
+  if (!run) return "Nothing is running.";
+  const { error } = await db.from("time_log_entries").update({ ended_at: new Date().toISOString(), ended_by: "stop" }).eq("id", run.id);
+  if (error) throw error;
+  return isSleep(run) ? `Up. Slept ${ago(run.started_at)}.` : `${run.category} stopped. ${ago(run.started_at)}.`;
+}
+
+async function markDone(db: DB, userId: string, date: string, t: { id: string; table: string; text: string }, left: number) {
+  const now = new Date().toISOString();
+  const { error } =
+    t.table === "quest_tasks"
+      ? await db.from("quest_tasks").update({ done_on: date, done_at: now, working_since: null, updated_at: now }).eq("id", t.id).eq("user_id", userId)
+      : await db.from("camp_steps").update({ done_on: date, working_since: null, updated_at: now }).eq("id", t.id).eq("user_id", userId);
+  if (error) throw error;
+  return `Done: ${t.text}. ${left ? `${left} left today.` : "Today is clear."}`;
+}
+
+async function keepNote(db: DB, userId: string, date: string, answer: string) {
+  const first = answer.length > 80 ? `${answer.slice(0, 77).replace(/\s+\S*$/, "")}…` : answer;
+  const { error } = await db.from("study_notes").insert({
+    user_id: userId,
+    title: first,
+    body: answer,
+    note_kind: "thought",
+    source_kind: "other",
+    source_ref: "Apple Watch",
+    studied_on: date,
+    tags: [],
+    position: 0,
+  });
+  if (error) throw error;
+  return "Kept on your board.";
+}
+
+// --- The watch app -----------------------------------------------------------------------------
+
+async function app(db: DB, userId: string, tz: string, body: Record<string, unknown>) {
+  const { date, startISO } = dayIn(tz);
+  const api = clean(body.api, 20);
+  const reply = (say: string, ok = true) => json({ ok, say });
+  const label = clean(body.label, 120) || clean(body.text, 500);
+
+  switch (api) {
+    case "today":
+      return json(await appToday(db, userId, tz, date, startISO));
+    case "glance":
+      return json(await appGlance(db, userId, tz, date, startISO));
+    case "start": {
+      const cat = clean(body.category, 60);
+      if (!cat) return reply("Pick a category.", false);
+      return reply(await startTimer(db, userId, cat, await categories(db, userId), await running(db, userId)));
+    }
+    case "stop":
+      return reply(await stopTimer(db, userId));
+    case "win":
+    case "loss":
+      if (!label) return reply("Nothing logged.", false);
+      return reply(await saveWinLoss(db, userId, api, label));
+    case "done": {
+      const id = clean(body.id, 60);
+      const tasks = await todayTasks(db, userId, date);
+      const t = tasks.find((x) => x.id === id);
+      if (!t) return reply("That one's not on Today any more.", false);
+      return reply(await markDone(db, userId, date, t, tasks.length - 1));
+    }
+    case "note": {
+      const said = clean(body.text, 2000);
+      if (!said) return reply("Nothing kept.", false);
+      return reply(await keepNote(db, userId, date, said));
+    }
+  }
+  return reply("The Hub doesn't know that yet. Update the watch app.", false);
+}
+
+// The time of day in a zone, "HH:MM".
+const clockIn = (tz: string) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+
+async function dayCounts(db: DB, userId: string, startISO: string) {
+  const [wl, entries] = await Promise.all([
+    db.from("win_losses").select("kind").eq("user_id", userId).gte("occurred_at", startISO).limit(500),
+    db
+      .from("time_log_entries")
+      .select("category, tags, started_at, ended_at, duration_minutes")
+      .eq("user_id", userId)
+      .or(`started_at.gte."${startISO}",ended_at.gte."${startISO}"`)
+      .limit(500),
+  ]);
+  if (wl.error) throw wl.error;
+  if (entries.error) throw entries.error;
+  const wins = (wl.data ?? []).filter((r: { kind: string }) => r.kind === "win").length;
+  const losses = (wl.data ?? []).length - wins;
+  type E = { category: string; tags: string[] | null; started_at: string; ended_at: string | null; duration_minutes: number | null };
+  const all = (entries.data ?? []) as E[];
+  const startedToday = all.filter((e) => Date.parse(e.started_at) >= Date.parse(startISO));
+  const minutes = Math.round(startedToday.filter((e) => e.ended_at).reduce((s, e) => s + (Number(e.duration_minutes) || 0), 0));
+  return { wins, losses, minutes, startedToday, all };
+}
+
+async function appGlance(db: DB, userId: string, tz: string, date: string, startISO: string) {
+  const [counts, run, chunks] = await Promise.all([
+    dayCounts(db, userId, startISO),
+    running(db, userId),
+    db.from("time_chunks").select("title, category, start_time, end_time").eq("user_id", userId).eq("date", date).limit(100),
+  ]);
+  const block = blockAt(planOf(chunks.data ?? []), clockIn(tz));
+  return {
+    wins: counts.wins,
+    losses: counts.losses,
+    minutes: counts.minutes,
+    running: run ? { category: run.category, startedAt: ms(run.started_at) } : null,
+    block,
+  };
+}
+
+async function appToday(db: DB, userId: string, tz: string, date: string, startISO: string) {
+  const [counts, run, chunks, tasks, focus, targets, lesson, workingLine, workingStep, habits, cats] = await Promise.all([
+    dayCounts(db, userId, startISO),
+    running(db, userId),
+    db.from("time_chunks").select("title, category, start_time, end_time").eq("user_id", userId).eq("date", date).limit(100),
+    todayTasks(db, userId, date),
+    db.from("focus_goals").select("week_start, title, position").eq("user_id", userId).lte("week_start", date).order("week_start", { ascending: false }).limit(30),
+    db.from("weekly_targets").select("label, categories, minutes, period, position, active").eq("user_id", userId).eq("active", true),
+    db.from("lessons").select("title").eq("user_id", userId).eq("status", "learning").order("position").limit(1).maybeSingle(),
+    db.from("quest_tasks").select("text, working_since").eq("user_id", userId).not("working_since", "is", null).order("working_since", { ascending: false }).limit(1).maybeSingle(),
+    db.from("camp_steps").select("text, working_since").eq("user_id", userId).not("working_since", "is", null).order("working_since", { ascending: false }).limit(1).maybeSingle(),
+    winLabels(db, userId),
+    categories(db, userId),
+  ]);
+  const plan = planOf(chunks.data ?? []);
+  const working = [workingLine.data, workingStep.data]
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b.working_since) - Date.parse(a.working_since))[0];
+  return {
+    date,
+    wins: counts.wins,
+    losses: counts.losses,
+    minutes: counts.minutes,
+    running: run ? { category: run.category, startedAt: ms(run.started_at) } : null,
+    plan,
+    block: blockAt(plan, clockIn(tz)),
+    tasks: tasks.map((t) => ({ id: t.id, text: t.text, quest: t.quest })),
+    working: working ? { text: String(working.text ?? "").replace(/\s+/g, " ").trim(), since: ms(working.working_since) } : null,
+    focus: focusWeek(focus.data ?? [], date),
+    lesson: lesson.data?.title ?? null,
+    targets: targetsToday(targets.data ?? [], counts.startedToday),
+    slept: sleptLast(counts.all, startISO),
+    habits,
+    categories: cats,
+  };
 }
 
 // Your habits first, then the wins you log most (twice or more in the last
@@ -303,7 +459,7 @@ async function categories(db: DB, userId: string) {
   return names.sort((a, b) => (n.get(b) ?? 0) - (n.get(a) ?? 0));
 }
 
-type TodayTask = { id: string; table: "quest_tasks" | "camp_steps"; text: string; label: string };
+type TodayTask = { id: string; table: "quest_tasks" | "camp_steps"; text: string; label: string; quest: string | null };
 
 // What's open on Today: steps picked for today (or in a section picked for
 // today) and quest lines picked for today or written today.
@@ -348,7 +504,7 @@ async function todayTasks(db: DB, userId: string, date: string): Promise<TodayTa
     const n = (seen.get(label) ?? 0) + 1;
     seen.set(label, n);
     if (n > 1) label = `${label} (${n})`;
-    return { id: r.id, table: r.table, text: short, label };
+    return { id: r.id, table: r.table, text: short, label, quest: quest ? String(quest) : null };
   });
 }
 
