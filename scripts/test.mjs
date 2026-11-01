@@ -3152,6 +3152,8 @@ console.log("\napple watch");
   const parts = eveningWatchParts({ asleep_min: 390, deep_min: 60, rem_min: 90, steps: 8421, resting_hr: 54, hrv_ms: 61 }, [{ name: "Traditional Strength Training", minutes: 35, started_at: "2026-10-30T12:10:00Z", avg_hr: 118 }]);
   ok("the evening line: sleep, workouts, steps, heart", parts.map((p) => p.label).join(",") === "Slept,Strength,Steps,Resting HR" && parts[0].sub === "1h 00m deep, 1h 30m REM" && parts[3].sub === "HRV 61 ms");
   ok("nothing from the watch, no line", eveningWatchParts(null, []).length === 0);
+  ok("with no wake-up automation, Up comes from when the watch saw you wake", eveningWatchParts({ sleep_end: "2026-11-01T15:54:17Z", asleep_min: 586 }, [])[0]?.label === "Up");
+  ok("the automation's moment wins over the watch's", eveningWatchParts({ woke_at: "2026-11-01T11:30:00Z", sleep_end: "2026-11-01T15:54:17Z" }, [])[0]?.value === eveningWatchParts({ woke_at: "2026-11-01T11:30:00Z" }, [])[0]?.value);
   ok("the key's status says what last used it", lastUsedLine({ last_used_at: new Date(Date.now() - 5 * 60000).toISOString(), last_used_by: "health" }) === "On · Health Auto Export, 5 min ago" && lastUsedLine(null) === "Off");
   ok("the watch address carries the key", watchAddress("https://x.supabase.co/functions/v1/watch", "ab12") === "https://x.supabase.co/functions/v1/watch?key=ab12");
 
