@@ -3211,6 +3211,11 @@ console.log("\napple watch");
   );
   ok("last night's sleep is the one that ended today", slept === 430, String(slept));
   ok("no night, no sleep line", sleptLast([], "2026-11-01T06:00:00.000Z") === null);
+  const noBed = readHealthPayload(
+    { data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [{ date: "2026-11-01", totalSleep: 9.77, core: 6.5, deep: 0.85, rem: 2.42, awake: 0.57, inBed: 0, sleepStart: "2026-10-31 23:33:52 -0600", sleepEnd: "2026-11-01 09:54:17 -0600" }] }] } },
+    "America/Denver"
+  );
+  ok("a watch night with inBed 0 leaves time in bed empty", noBed.days["2026-11-01"]?.in_bed_min == null && noBed.days["2026-11-01"]?.asleep_min === 586, JSON.stringify(noBed.days));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
