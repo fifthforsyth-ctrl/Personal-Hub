@@ -10,6 +10,7 @@
 
 import { readFileSync } from "node:fs";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
+import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
 import { eveningWatchParts, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
@@ -3159,6 +3160,57 @@ console.log("\napple watch");
   ok("the mirror's watch part counts the nights and averages", wk.lines[0].startsWith("The watch saw **2** nights, averaging **6") && wk.lines[0].includes("REM a night."), wk?.lines?.join(" | "));
   ok("and the steps leave out days past the week", wk.lines[1].startsWith("**9,000** steps a day"), wk?.lines?.join(" | "));
   ok("no watch rows, no part", watchWeek({ healthDays: [], days: week, upTo: "2026-10-31" }) === null);
+}
+
+{
+  // The Hub app on the watch.
+  const plan = planOf([
+    { title: "Exercise", category: "Exercise", start_time: "04:45:00", end_time: "05:45:00" },
+    { title: "Up and grind", category: null, start_time: "04:30:00", end_time: "04:45:00" },
+    { title: "", category: "Study", start_time: "06:00:00", end_time: "07:00:00" },
+    { title: "No time", start_time: null, end_time: null },
+  ]);
+  ok("the watch plan is in order, with clock times", plan.map((b) => `${b.start}-${b.end} ${b.title}`).join(", ") === "04:30-04:45 Up and grind, 04:45-05:45 Exercise, 06:00-07:00 Block", JSON.stringify(plan));
+  ok("the block you're in", blockAt(plan, "05:00")?.title === "Exercise" && blockAt(plan, "05:00")?.now === true);
+  ok("between blocks, the next one", blockAt(plan, "05:50")?.title === "Block" && blockAt(plan, "05:50")?.now === false);
+  ok("after the last block, nothing", blockAt(plan, "21:00") === null && blockAt([], "05:00") === null);
+  ok("clock times trim seconds", hhmm("4:30:00") === "04:30" && hhmm(null) === "");
+  ok("times go out as epoch ms", appMs("2026-11-01T16:23:18.378+00:00") === Date.parse("2026-11-01T16:23:18.378Z") && appMs(null) === null);
+
+  const goals = [
+    { week_start: "2026-11-01", title: "Wake up at 4:30", position: 2 },
+    { week_start: "2026-11-01", title: "Daily form--win by win", position: 1 },
+    { week_start: "2026-10-25", title: "Old goal", position: 0 },
+  ];
+  ok("this week's focus goals, in order", focusWeek(goals, "2026-11-03").join(" | ") === "Daily form--win by win | Wake up at 4:30");
+  ok("last week's goals still show until the new week is planned", focusWeek(goals.slice(2), "2026-10-31").join() === "Old goal");
+  ok("goals over a week old don't", focusWeek(goals.slice(2), "2026-11-02").length === 0 && focusWeek([], "2026-11-02").length === 0);
+
+  const targets = [
+    { label: "Study", categories: ["Study"], minutes: 60, period: "day", position: 0 },
+    { label: "Sleep", categories: ["Sleep"], minutes: 480, period: "day", position: 2 },
+    { label: "Exercise", categories: ["Exercise", "Run"], minutes: 60, period: "day", position: 1 },
+    { label: "Forsyth Media", categories: ["Work"], minutes: 3600, period: "week", position: 3 },
+  ];
+  const entries = [
+    { category: "Study", tags: ["Study"], ended_at: "x", duration_minutes: 25 },
+    { category: "Other", tags: ["Run"], ended_at: "x", duration_minutes: 30 },
+    { category: "Study", tags: [], ended_at: "x", duration_minutes: 10 },
+    { category: "Study", tags: ["Study"], ended_at: null, duration_minutes: null },
+  ];
+  const tt = targetsToday(targets, entries);
+  ok("daily targets count today's minutes by tag, sleep and weekly ones left out", tt.map((t) => `${t.label} ${t.done}/${t.goal}`).join(", ") === "Study 35/60, Exercise 30/60", JSON.stringify(tt));
+
+  const slept = sleptLast(
+    [
+      { category: "Sleep", tags: ["Sleep"], started_at: "2026-11-01T04:30:00Z", ended_at: "2026-11-01T11:40:00Z" },
+      { category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T05:00:00Z", ended_at: "2026-10-31T12:00:00Z" },
+      { category: "Nap", tags: ["Sleep"], started_at: "2026-11-01T20:00:00Z", ended_at: null },
+    ],
+    "2026-11-01T06:00:00.000Z"
+  );
+  ok("last night's sleep is the one that ended today", slept === 430, String(slept));
+  ok("no night, no sleep line", sleptLast([], "2026-11-01T06:00:00.000Z") === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
