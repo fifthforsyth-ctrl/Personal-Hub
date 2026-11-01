@@ -1,5 +1,6 @@
 import { addDays } from "./planDates.js";
 import { gearFor, shortGoal } from "./ascent.js";
+import { workoutName, fmtMins } from "./watch.js";
 
 // The Mark: every goal is a target (supabase/migrations/0075_the_mark.sql).
 //
@@ -327,6 +328,23 @@ export function focusMinutes(focus, entries) {
 
 function tagKey(t) {
   return String(t ?? "").trim().toLowerCase();
+}
+
+// What the watch recorded toward a focus today, in a few words ("Strength
+// 42m"), shown beside the time log's minutes so the evening's Yes comes
+// with what actually happened. Only finished entries the watch made: a
+// workout it recorded, or a timer run from the wrist. "" when none.
+export function watchSaw(focus, entries) {
+  const want = new Set((focus?.categories ?? []).map(tagKey).filter(Boolean));
+  if (!want.size) return "";
+  const bits = [];
+  for (const e of entries ?? []) {
+    if (e?.is_example || e?.source !== "watch" || !e.ended_at) continue;
+    const tags = Array.isArray(e?.tags) && e.tags.length ? e.tags : [e?.category];
+    if (!tags.some((t) => want.has(tagKey(t)))) continue;
+    bits.push(`${workoutName(e.description || e.category)} ${fmtMins(e.duration_minutes)}`);
+  }
+  return bits.join(", ");
 }
 
 // Tonight's answers for a target, in the order its aims are asked: what's

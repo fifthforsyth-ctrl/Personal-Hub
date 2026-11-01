@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Target, Check, ArrowRight } from "lucide-react";
 import { fetchRange, saveShot, readMarkLine } from "../../lib/api";
 import { buildAscent } from "../../lib/ascent";
-import { buildRange, ANSWERS, levelFrom, startingAnswers, focusMinutes, readLine, guessReason, shotFrom } from "../../lib/mark";
+import { buildRange, ANSWERS, levelFrom, startingAnswers, focusMinutes, watchSaw, readLine, guessReason, shotFrom } from "../../lib/mark";
 import { fmtMinutes } from "../../lib/categories";
 import { useLoad } from "../../lib/useLoad";
 import { useToast } from "../ui/Feedback";
@@ -388,11 +388,12 @@ export default function TonightShots({ userId, date, entries, flushRef, onReady,
                   {t.aims.map((a, j) => {
                     const focus = a.focus_id ? focusesById.get(a.focus_id) : null;
                     const mins = focus ? focusMinutes(focus, entries) : 0;
+                    const saw = focus && mins ? watchSaw(focus, entries) : "";
                     return (
                       <div key={a.id} className="mk-shot__aim">
                         <span className="mk-shot__text">
                           {a.text}
-                          {focus && <small className={mins ? "on" : undefined}>{mins ? `Time log · ${fmtMinutes(mins)}` : "Not in your time log today"}</small>}
+                          {focus && <small className={mins ? "on" : undefined}>{mins ? `Time log · ${fmtMinutes(mins)}${saw ? ` · watch: ${saw}` : ""}` : "Not in your time log today"}</small>}
                         </span>
                         <div className="seg mk-shot__yn" role="group" aria-label={a.text}>
                           {ANSWER_ORDER.map((v) => (

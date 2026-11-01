@@ -11,6 +11,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@^0.122.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
+import { watchForPrompt, WATCH_NOTE } from "./body.js";
 
 const MODEL = "claude-opus-5-5";
 
@@ -684,7 +685,8 @@ Rules:
 - Name specifics — the actual task, the actual person, the actual chapter. Never "various activities" or "several tasks".
 - Past tense, plain language, second person ("you").
 - No praise, no encouragement, no coaching, no scripture quoted back at them, no advice about tomorrow. You are writing a record, not a report card.
-- If almost nothing was recorded, say so in a sentence and stop. Do not pad.`;
+- If almost nothing was recorded, say so in a sentence and stop. Do not pad.
+- apple_watch, when given, is what their watch measured. Mention it only if it shaped the day (a short night, an early workout), never as a list of numbers.`;
 
 const SynopsisSchema = z.object({
   synopsis: z.string().describe("Three to five sentences, past tense, second person."),
@@ -692,9 +694,10 @@ const SynopsisSchema = z.object({
 });
 
 async function daySynopsis(supabase: any, anthropic: Anthropic, tz: string, date: string) {
-  const [{ data: archive, error: e1 }, { data: credit, error: e2 }] = await Promise.all([
+  const [{ data: archive, error: e1 }, { data: credit, error: e2 }, watch] = await Promise.all([
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     supabase.rpc("goal_credit", { p_start: date, p_end: date, p_tz: tz }),
+    watchDay(supabase, date, tz),
   ]);
   if (e1) throw new Error(`day_archive: ${e1.message}`);
   if (e2) throw new Error(`goal_credit: ${e2.message}`);
@@ -707,7 +710,9 @@ async function daySynopsis(supabase: any, anthropic: Anthropic, tz: string, date
     messages: [
       {
         role: "user",
-        content: `Write the synopsis for ${date}.\n\nThe day's record:\n${JSON.stringify(archive, null, 1)}\n\nWhat it fed on the goal tree:\n${JSON.stringify(credit ?? [], null, 1)}`,
+        content:
+          `Write the synopsis for ${date}.\n\nThe day's record:\n${JSON.stringify(archive, null, 1)}\n\nWhat it fed on the goal tree:\n${JSON.stringify(credit ?? [], null, 1)}` +
+          (watch ? `\n\napple_watch:\n${JSON.stringify(watch, null, 1)}` : ""),
       },
     ],
     output_config: { format: zodOutputFormat(SynopsisSchema), effort: "high" },
@@ -733,7 +738,9 @@ Ground everything in what is actually in the record: the activity they logged, t
 
 Tone: warm and direct, like a trusted friend who shares their faith. Never guilt, never a lecture, never flattery. Second person. No lists, no emoji.
 
-If the record is thin, lean on the recent evenings instead, and never invent events that aren't there.`;
+If the record is thin, lean on the recent evenings instead, and never invent events that aren't there.
+
+${WATCH_NOTE}`;
 
 const WalkSchema = z.object({
   verse_ref: z.string().describe('Standard citation, e.g. "D&C 88:63", "Mosiah 2:17", "John 15:5".'),
@@ -772,9 +779,10 @@ async function recentEvenings(supabase: any, date: string, days = 7) {
 
 // The record, trimmed to what a reflection could use. The full archive
 // carries ids, timestamps and empty arrays that only crowd the prompt.
-function dayForPrompt(archive: any) {
+function dayForPrompt(archive: any, watch: any = null) {
   const a = archive ?? {};
   return {
+    ...(watch ? { apple_watch: watch } : {}),
     time_by_category: a.time_by_category ?? [],
     activities: (a.time_entries ?? []).map((t: any) => ({
       at: t.started_at,
@@ -791,6 +799,35 @@ function dayForPrompt(archive: any) {
   };
 }
 
+// What the watch saw on `date`, with two weeks before it so "usual" means
+// something. The prompts never wait on it: no watch data, or a failed read,
+// is just no apple_watch in the record.
+async function watchDay(supabase: any, date: string, tz: string) {
+  try {
+    const from = new Date(`${date}T12:00:00Z`);
+    from.setUTCDate(from.getUTCDate() - 14);
+    const [days, workouts] = await Promise.all([
+      supabase.from("health_days").select("date, woke_at, sleep_end, asleep_min, deep_min, rem_min, steps, resting_hr").gte("date", from.toISOString().slice(0, 10)).lte("date", date),
+      supabase
+        .from("health_workouts")
+        .select("name, started_at, minutes")
+        .gte("started_at", new Date(Date.parse(`${date}T00:00:00Z`) - 86400000).toISOString())
+        .lt("started_at", new Date(Date.parse(`${date}T00:00:00Z`) + 2 * 86400000).toISOString()),
+    ]);
+    if (days.error || workouts.error) return null;
+    const rows = days.data ?? [];
+    return watchForPrompt({
+      date,
+      day: rows.find((r: any) => String(r.date).slice(0, 10) === date) ?? null,
+      history: rows,
+      workouts: workouts.data ?? [],
+      tz,
+    });
+  } catch {
+    return null;
+  }
+}
+
 const WalkPromptSchema = z.object({
   prompt: WalkSchema.shape.prompt,
 });
@@ -798,11 +835,12 @@ const WalkPromptSchema = z.object({
 async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
   const since = new Date(`${date}T00:00:00Z`);
   since.setUTCDate(since.getUTCDate() - 21);
-  const [{ data: archive, error: e1 }, evenings, { data: recent, error: e2 }, { data: current, error: e4 }] = await Promise.all([
+  const [{ data: archive, error: e1 }, evenings, { data: recent, error: e2 }, { data: current, error: e4 }, watch] = await Promise.all([
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     recentEvenings(supabase, date),
     supabase.from("daily_walk").select("verse_ref").gte("date", since.toISOString().slice(0, 10)).lt("date", date),
     supabase.from("daily_walk").select("verse_ref, verse_text, prompt").eq("date", date).maybeSingle(),
+    watchDay(supabase, date, tz),
   ]);
   if (e1) throw new Error(`day_archive: ${e1.message}`);
   if (e2) throw new Error(`daily_walk: ${e2.message}`);
@@ -810,7 +848,7 @@ async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date
 
   const now = new Date().toLocaleString("en-US", { timeZone: tz, weekday: "long", hour: "numeric", minute: "2-digit" });
   const record =
-    `It is ${now} on ${date}.\n\nToday so far:\n${JSON.stringify(dayForPrompt(archive), null, 1)}` +
+    `It is ${now} on ${date}.\n\nToday so far:\n${JSON.stringify(dayForPrompt(archive, watch), null, 1)}` +
     `\n\nThe last week of evenings, newest first:\n${JSON.stringify(evenings, null, 1)}`;
 
   // Asking again on the same day ("New prompt") keeps the day's verse and
@@ -891,9 +929,10 @@ You are writing tonight's evening reflection. They answer four cards, one at a t
 Each question is a single sentence. Don't repeat a question they were asked in the last week (those are included). Don't ask two questions in one.`;
 
 async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
-  const [{ data: archive, error }, evenings] = await Promise.all([
+  const [{ data: archive, error }, evenings, watch] = await Promise.all([
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     recentEvenings(supabase, date),
+    watchDay(supabase, date, tz),
   ]);
   if (error) throw new Error(`day_archive: ${error.message}`);
 
@@ -906,7 +945,7 @@ async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: stri
       {
         role: "user",
         content:
-          `Tonight is ${date}.\n\nThe day's record:\n${JSON.stringify(dayForPrompt(archive), null, 1)}` +
+          `Tonight is ${date}.\n\nThe day's record:\n${JSON.stringify(dayForPrompt(archive, watch), null, 1)}` +
           `\n\nThe last week of evenings, newest first (including the questions they were asked):\n${JSON.stringify(evenings, null, 1)}`,
       },
     ],
