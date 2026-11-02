@@ -1,6 +1,6 @@
 import { addDays, startOfWeek, fmtShortDate } from "./planDates.js";
 import { placement, levelAtSpot, clampSpot } from "./mark.js";
-import { normCheck, checksLevel, answerEntry } from "./checks.js";
+import { normCheck, checksLevel, answerEntry, answered, scores, markOf, legacyValue, checkRow } from "./checks.js";
 
 // Weekly focus goals: the few things a week is for, set on Sunday.
 //
@@ -196,6 +196,165 @@ export function linkedArrows(target, goals, checkins, date) {
     out.push({ goal: g, level: checkinLevel(c) });
   }
   return out;
+}
+
+// --- Landing tonight's arrow (0103) ------------------------------------------
+//
+// What the evening card and a focus's sheet need to land an arrow and keep
+// it: the week as it reads once each day lands an arrow, a day's arrow put
+// into the week the moment it's made, the answers a focus's checks start
+// from, and the bigger target it counts toward, by name.
+
+// "3 arrows this week". Every arrow counts, a miss as much as a bullseye:
+// either way you looked at the day and said where it landed. `goal` is a
+// goal as summarizeWeek gives it.
+export function arrowsLabel(goal) {
+  const n = goal?.answeredDays ?? 0;
+  if (!n) return "No arrows yet";
+  return `${n} ${n === 1 ? "arrow" : "arrows"} this week`;
+}
+
+// The week's check-ins with one day's arrow put in, in place of whatever
+// that day held, or taken out when `arrow` is null. The row reads the way
+// the database keeps it, `moved` and all, so everything that reads the week
+// sees it at once, before the save has landed.
+export function putArrow(checkins, goalId, date, arrow) {
+  const rest = (checkins ?? []).filter((c) => !(c.goal_id === goalId && String(c.date).slice(0, 10) === date));
+  if (arrow == null) return rest;
+  return [...rest, { goal_id: goalId, date, moved: Number(arrow.level) < 5, ...arrow }];
+}
+
+// A fresh read of the week, with the arrows still on their way to the
+// database laid over it. Place an arrow, then again a moment later, and the
+// week can be read between the two saves; without this it would show the
+// first spot until the second save landed, and the arrow would jump back
+// and forth under your finger. `pending` is a list of { goalId, date,
+// arrow }, the newest for each day.
+export function withPending(checkins, pending) {
+  let out = checkins ?? [];
+  for (const p of pending ?? []) out = putArrow(out, p.goalId, p.date, p.arrow);
+  return out;
+}
+
+// Whether a saved check-in is already this arrow, so nothing needs saving.
+// The database hands the answers back with their keys in its own order, so
+// they're compared field by field rather than as text.
+export function sameArrow(row, arrow) {
+  if (!row || !arrow) return !row && !arrow;
+  return arrowKey(row) === arrowKey(arrow);
+}
+
+// An arrow as one string that's the same whenever the arrow is: where it
+// is, its note, how it landed and each answer. A component can watch it to
+// know when there's something new to save.
+export function arrowKey(a) {
+  if (!a) return null;
+  const spot = (v) => (v == null || v === "" ? null : Math.round(Number(v) * 10) / 10);
+  const level = a.level == null ? null : Number(a.level);
+  return JSON.stringify([
+    level,
+    spot(a.spot_x),
+    spot(a.spot_y),
+    a.note ?? null,
+    a.lands ?? null,
+    (Array.isArray(a.answers) ? a.answers : []).map((e) => [e?.aim ?? null, e?.value ?? null, e?.v ?? null, e?.line ?? "", e?.day === true]),
+  ]);
+}
+
+// The checks this week's arrows answered on a focus. A check you take off
+// that has been answered is retired rather than deleted, so the arrows that
+// answered it still read as they were.
+export function answeredChecks(checkins, goalId) {
+  const ids = new Set();
+  for (const c of checkins ?? []) {
+    if (c.goal_id !== goalId || !Array.isArray(c.answers)) continue;
+    for (const a of c.answers) if (a?.aim) ids.add(a.aim);
+  }
+  return ids;
+}
+
+// Whether a focus's checks, as its settings sheet holds them, differ from
+// what they were: one added, taken off, moved or changed. Nothing changed,
+// nothing is saved, and the week isn't read again for no reason.
+export function checksChanged(rows, before) {
+  const key = (list) => JSON.stringify((list ?? []).map((c) => [c.id ?? null, checkRow(c)]));
+  return key(rows) !== key(before);
+}
+
+// Tonight's answers to a focus's checks, one { value, line, day } per check,
+// in order. What you answered yourself (`mine`, by check id) wins; then
+// what tonight's arrow already holds; then what the day holds (`auto`, one
+// per check: when you got up, the time log's minutes).
+//
+// An answer the day filled in is kept marked as the day's (`day`). Open a
+// focus at noon and its "Time drawing" lands with the 20 minutes logged by
+// then; by evening the log has 50, and the day's newer answer takes over,
+// where one you gave yourself would have stayed put.
+export function focusAnswers(checks, row, { auto = [], mine = {} } = {}) {
+  const saved = new Map();
+  for (const e of Array.isArray(row?.answers) ? row.answers : []) if (e?.aim) saved.set(e.aim, e);
+  return (checks ?? []).map((c, i) => {
+    const m = c.id != null ? mine?.[c.id] : undefined;
+    const s = c.id != null ? saved.get(c.id) : undefined;
+    const fresh = auto?.[i] ?? null;
+    const line = m && "line" in m ? String(m.line ?? "") : String(s?.line ?? "");
+    if (m && "value" in m) return { value: m.value ?? null, line, day: false };
+    if (s?.day === true && fresh != null) return { value: fresh, line, day: true };
+    const was = s ? legacyValue(s) : null;
+    if (s && fits(c, was)) return { value: was, line, day: s.day === true };
+    return { value: fresh, line, day: fresh != null };
+  });
+}
+
+// A saved answer still answers its check: a Some on what is now a Yes/No
+// doesn't, and starts blank.
+function fits(check, value) {
+  if (!answered(check, value)) return false;
+  return !scores(check) || markOf(check, value) != null;
+}
+
+// The arrow a focus's checks land, as checksArrow makes it, with each answer
+// the day filled in marked as the day's (see focusAnswers). Null until every
+// check that scores is answered.
+export function landedArrow(checks, answers, note = "") {
+  const arrow = checksArrow(checks, answers, note);
+  if (!arrow) return null;
+  return { ...arrow, answers: arrow.answers.map((a, i) => (answers?.[i]?.day && a.value != null ? { ...a, day: true } : a)) };
+}
+
+// The bigger targets a focus can count toward, the Mark's own: each lifetime
+// goal, each quest you're on, each lesson you're learning, from the Ascent
+// view (buildAscent), as { key, kind, id, title }.
+export function towardChoices(view) {
+  const of = (kind, list) => (list ?? []).map((x) => ({ key: `${kind}:${x.id}`, kind, id: x.id, title: String(x.title ?? "") }));
+  return [...of("goal", view?.goals), ...of("quest", view?.quests), ...of("lesson", view?.lessons)];
+}
+
+// What a focus counts toward as one string, "quest:<id>", or "" for nothing,
+// so a select can hold it; parseToward turns it back.
+export function towardKey(goal) {
+  const to = countsToward(goal);
+  return to ? `${to.kind}:${to.id}` : "";
+}
+
+export function parseToward(key) {
+  const m = /^(goal|quest|lesson):(.+)$/.exec(String(key ?? ""));
+  return m ? { kind: m[1], id: m[2] } : null;
+}
+
+// The name of what a focus counts toward, or null when it stands alone or
+// the name can't be found. Each of `sources` holds goals, quests and
+// lessons by id (the Ascent view first, then fetchAscent's own rows, which
+// still have a quest you've finished).
+export function towardTitle(goal, ...sources) {
+  const to = countsToward(goal);
+  if (!to) return null;
+  const listOf = (src) => (to.kind === "goal" ? src?.goals : to.kind === "quest" ? src?.quests : src?.lessons) ?? [];
+  for (const src of sources) {
+    const hit = listOf(src).find((x) => x?.id === to.id);
+    if (hit?.title) return String(hit.title);
+  }
+  return null;
 }
 
 // --- Notes on a focus (0101) -------------------------------------------------

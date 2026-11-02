@@ -4570,6 +4570,141 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
 // ===== Arrows on the week's focus (PR 2, part 2) =====
 // Add this part's tests directly under the line above.
+{
+  console.log("\ntonight's arrow on each focus: placed, landed by its checks, and kept");
+  const F = await import("../src/lib/focus.js");
+  const D = "2026-11-02";
+
+  // The week as it reads with arrows.
+  ok("a week reads in arrows", F.arrowsLabel({ answeredDays: 3 }) === "3 arrows this week" && F.arrowsLabel({ answeredDays: 1 }) === "1 arrow this week" && F.arrowsLabel({ answeredDays: 0 }) === "No arrows yet" && F.arrowsLabel({}) === "No arrows yet");
+  const weekRows = [
+    { goal_id: "g", date: "2026-11-01", moved: true, level: 1 },
+    { goal_id: "g", date: D, moved: true, level: 2, spot_x: 30, spot_y: 30 },
+    { goal_id: "h", date: D, moved: false, level: 5 },
+  ];
+  const placed = F.putArrow(weekRows, "g", D, { level: 5, spot_x: 0, spot_y: 90, note: "off", answers: [], lands: "placed" });
+  ok("placing again replaces that day's arrow, and only that day's", placed.length === 3 && placed.filter((c) => c.goal_id === "g" && c.date === D).length === 1 && placed.find((c) => c.goal_id === "h").level === 5 && placed.find((c) => c.date === "2026-11-01").level === 1);
+  const moved = placed.find((c) => c.goal_id === "g" && c.date === D);
+  ok("the row it puts in reads as the database keeps it, moved and all", moved.moved === false && moved.spot_y === 90 && moved.note === "off" && moved.lands === "placed");
+  ok("an arrow on the face moved it", F.putArrow([], "g", D, { level: 4 })[0].moved === true && F.putArrow([], "g", D, { level: 0 })[0].moved === true);
+  ok("taking it back leaves the day empty", F.putArrow(weekRows, "g", D, null).every((c) => !(c.goal_id === "g" && c.date === D)) && F.putArrow(weekRows, "g", D, null).length === 2);
+  ok("a date with a time on it is still that day", F.putArrow([{ goal_id: "g", date: `${D}T00:00:00`, level: 1 }], "g", D, null).length === 0);
+  ok("the week it was given is left alone", weekRows.length === 3 && weekRows[1].level === 2);
+
+  // A read of the week while saves are still out.
+  const fresh = [{ goal_id: "g", date: D, moved: true, level: 2, spot_x: 30, spot_y: 30 }];
+  const over = F.withPending(fresh, [{ goalId: "g", date: D, arrow: { level: 0, spot_x: 1, spot_y: 1, lands: "placed" } }]);
+  ok("a read that lands between two saves still shows the newest arrow", over.length === 1 && over[0].level === 0 && over[0].spot_x === 1);
+  ok("an arrow taken back stays taken back while its delete is out", F.withPending(fresh, [{ goalId: "g", date: D, arrow: null }]).length === 0);
+  ok("with nothing out, the read is the read", F.withPending(fresh, []) === fresh && F.withPending(undefined, []).length === 0);
+
+  // Nothing to save when the saved arrow already is this one.
+  const upBy = { id: "u", goal_id: "g", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+  const drew = { id: "d", goal_id: "g", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f" };
+  const twoChecks = [upBy, drew];
+  const landed = F.landedArrow(twoChecks, [{ value: "04:30", line: "", day: true }, { value: 40, line: "good", day: false }]);
+  // The database hands jsonb back with its keys in its own order, and a real spot as a float.
+  const fromDb = JSON.parse(JSON.stringify({ ...landed, goal_id: "g", date: D, moved: true, updated_at: "2026-11-02T20:00:00Z" }));
+  fromDb.answers = fromDb.answers.map((a) => Object.fromEntries(Object.entries(a).reverse()));
+  ok("a saved arrow read back is the same arrow, whatever order its keys come in", F.sameArrow(fromDb, landed) && F.arrowKey(fromDb) === F.arrowKey(landed));
+  const spotRow = { level: 2, spot_x: 10.300000190734863, spot_y: -38, note: null, answers: [], lands: "placed" };
+  ok("a spot read back as a float is the same spot", F.sameArrow(spotRow, F.placedArrow({ x: 10.3, y: -38 })));
+  ok("a new note, a new spot or a new answer is something to save", !F.sameArrow(spotRow, F.placedArrow({ x: 10.3, y: -38 }, "close")) && !F.sameArrow(spotRow, F.placedArrow({ x: 12, y: -38 })) && !F.sameArrow(fromDb, F.landedArrow(twoChecks, [{ value: "04:30", day: true }, { value: 45, line: "good" }])));
+  ok("an old yes-or-no day isn't a placed arrow yet", !F.sameArrow({ goal_id: "g", date: D, moved: true }, F.placedArrow({ x: 0, y: -22 })));
+  ok("no arrow is no arrow", F.sameArrow(null, null) && !F.sameArrow(null, spotRow) && !F.sameArrow(spotRow, null) && F.arrowKey(null) === null);
+
+  // Which checks this week's arrows answered.
+  const answeredIns = [
+    { goal_id: "g", date: "2026-11-01", answers: [{ aim: "u", v: 2 }, { aim: "d", v: 1 }] },
+    { goal_id: "g", date: D, answers: [{ aim: "u", v: 2 }, { aim: null, text: "x" }] },
+    { goal_id: "h", date: D, answers: [{ aim: "other", v: 2 }] },
+    { goal_id: "g", date: "2026-10-31", moved: true },
+  ];
+  const ans = F.answeredChecks(answeredIns, "g");
+  ok("a check this week's arrows answered is retired when it's taken off, not deleted", ans.has("u") && ans.has("d") && !ans.has("other") && ans.size === 2);
+  ok("an old yes-or-no day answered none", F.answeredChecks([{ goal_id: "g", moved: true }], "g").size === 0 && F.answeredChecks(undefined, "g").size === 0);
+
+  // What the settings sheet saves.
+  ok("checks as they were are nothing to save", !F.checksChanged([{ ...upBy }, { ...drew }], twoChecks));
+  ok("a check reworded, moved, added or taken off is", F.checksChanged([{ ...upBy, text: "Up by 4:30" }, drew], twoChecks) && F.checksChanged([drew, upBy], twoChecks) && F.checksChanged([upBy, drew, { text: "Read", kind: "yn" }], twoChecks) && F.checksChanged([upBy], twoChecks));
+  ok("and so is a new bar to pass", F.checksChanged([{ ...upBy, pass: { by: "04:30" } }, drew], twoChecks));
+
+  // Tonight's answers to a focus's checks.
+  const none = F.focusAnswers(twoChecks, null, { auto: ["04:32", 50] });
+  ok("with nothing saved, the day answers what it can, marked as the day's", none[0].value === "04:32" && none[0].day === true && none[1].value === 50 && none[1].day === true);
+  ok("and what it can't starts blank", F.focusAnswers(twoChecks, null, { auto: [null, null] }).every((a) => a.value === null && a.day === false && a.line === ""));
+  const savedRow = {
+    answers: [
+      { aim: "u", text: "Up by 4:35", kind: "time", value: "04:40", v: 1, line: "alarm", day: true },
+      { aim: "d", text: "Time drawing", kind: "minutes", value: 20, v: 1 },
+    ],
+  };
+  const later = F.focusAnswers(twoChecks, savedRow, { auto: ["04:40", 55] });
+  ok("an answer the day gave takes the day's newer one: the log caught up since noon", F.focusAnswers([drew], { answers: [{ aim: "d", value: 20, v: 1, day: true }] }, { auto: [55] })[0].value === 55);
+  ok("an answer you gave yourself stays put however the day changes", later[1].value === 20 && later[1].day === false);
+  ok("a line kept with an answer stays with it", later[0].line === "alarm" && later[0].day === true);
+  ok("the day's answer, saved, holds while the day can't be read", F.focusAnswers([upBy], { answers: [{ aim: "u", value: "04:40", v: 1, day: true }] }, { auto: [null] })[0].value === "04:40");
+  const mine = F.focusAnswers(twoChecks, savedRow, { auto: ["04:40", 55], mine: { d: { value: 35 }, u: { line: "late night" } } });
+  ok("what you answer tonight wins over both", mine[1].value === 35 && mine[1].day === false);
+  ok("a line added to the day's answer leaves the answer the day's", mine[0].value === "04:40" && mine[0].day === true && mine[0].line === "late night");
+  ok("clearing an answer clears it, even one the day could fill", F.focusAnswers([drew], null, { auto: [50], mine: { d: { value: null } } })[0].value === null);
+  const yn = { id: "y", goal_id: "g", text: "Kept the Sabbath", kind: "yn", pass: { on: "yes" } };
+  ok("an old Some on what is now a Yes/No starts blank", F.focusAnswers([yn], { answers: [{ aim: "y", v: 1 }] })[0].value === null && F.focusAnswers([yn], { answers: [{ aim: "y", v: 2 }] })[0].value === "yes");
+
+  const tonight = F.landedArrow(twoChecks, none);
+  ok("a morning up on time and the drawing logged lands a bullseye by itself", tonight.level === 0 && tonight.lands === "checks" && tonight.spot_x === null);
+  ok("each answer the day filled in is kept as the day's", tonight.answers.every((a) => a.day === true) && tonight.answers[0].aim === "u");
+  const own = F.landedArrow(twoChecks, [{ value: "04:50", day: false }, { value: 40, day: true }], " slept in ");
+  ok("one you answered isn't, and the note goes with it", own.answers[0].day === undefined && own.answers[1].day === true && own.note === "slept in" && own.level === 1);
+  ok("no arrow until every check that scores is answered", F.landedArrow(twoChecks, [{ value: "04:30", day: true }, { value: null }]) === null);
+  ok("reflection-only checks never hold it back", F.landedArrow([upBy, { id: "e", text: "Examen", kind: "note" }], [{ value: "04:30" }, { value: null }])?.level === 0);
+
+  // What a focus counts toward, by name.
+  const view = {
+    goals: [{ id: "n1", title: "Discipline" }],
+    quests: [{ id: "q1", title: "Ship the plugin" }],
+    lessons: [{ id: "l1", title: "Patience" }],
+  };
+  const choices = F.towardChoices(view);
+  ok("the choices are the Mark's targets: lifetime goals, quests, lessons", choices.map((c) => c.key).join() === "goal:n1,quest:q1,lesson:l1" && choices[1].title === "Ship the plugin" && F.towardChoices(null).length === 0);
+  ok("what a focus counts toward fits in a select and comes back out", F.towardKey({ quest_id: "q1" }) === "quest:q1" && F.towardKey({ node_id: "n1" }) === "goal:n1" && F.towardKey({}) === "" && F.parseToward("lesson:l1").kind === "lesson" && F.parseToward("lesson:l1").id === "l1" && F.parseToward("") === null && F.parseToward("nonsense") === null);
+  ok("each choice's key is what towardKey would say", choices.every((c) => F.towardKey({ [c.kind === "goal" ? "node_id" : `${c.kind}_id`]: c.id }) === c.key));
+  ok("its name, from the Ascent view", F.towardTitle({ quest_id: "q1" }, view) === "Ship the plugin" && F.towardTitle({ lesson_id: "l1" }, view) === "Patience" && F.towardTitle({ node_id: "n1" }, view) === "Discipline");
+  ok("a quest since finished is still found by name in the rows", F.towardTitle({ quest_id: "q9" }, view, { quests: [{ id: "q9", title: "Old quest" }] }) === "Old quest");
+  ok("standing alone, or not found, it has no name", F.towardTitle({}, view) === null && F.towardTitle({ node_id: "deep" }, view, {}) === null);
+  ok("a quest's id is never taken for a goal's", F.towardTitle({ node_id: "q1" }, view) === null);
+
+  // The parts on screen, read as source (they're components).
+  const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const arrowsSrc = read("../src/components/focus/FocusArrows.jsx");
+  const hookSrc = read("../src/components/focus/useFocusWeek.js");
+  const sheetSrc = read("../src/components/focus/FocusSheet.jsx");
+  const stripSrc = read("../src/components/focus/FocusStrip.jsx");
+  const settingsSrc = read("../src/components/focus/FocusSettings.jsx");
+  const weekSrc = read("../src/components/focus/FocusWeek.jsx");
+  ok("the evening card takes the props the evening hands it", /export default function FocusArrows\(\{ userId, date, entries, dayPlan, quick = false, flushRef \}\)/.test(arrowsSrc));
+  ok("its flush saves what's waiting on every focus, then waits for every save", /for \(const flush of \[\.\.\.flushers\.current\]\) flush\(\);\s*await settled\(\);/.test(arrowsSrc));
+  ok("the card says what it's for", arrowsSrc.includes("This week's focus") && arrowsSrc.includes("Put the arrow where today landed, or let its checks land it."));
+  ok("a placed arrow saves where you put it, with its note", /fw\.arrow\(goal\.id, date, placedArrow\(\{ x, y \}, noteRef\.current\)\)/.test(arrowsSrc) && /Take tonight's arrow back/.test(arrowsSrc));
+  ok("an arrow landed by checks saves only when it's ready and new", /if \(next && !sameArrow\(rowRef\.current, next\)\) arrowRef\.current\(goal\.id, date, next\)/.test(arrowsSrc));
+  ok("a waiting note or answer saves when the sheet or card goes", /useEffect\(\(\) => \(\) => flush\(\), \[flush\]\)/.test(arrowsSrc));
+  ok("the short evening has no settings, no lines and no note", /onSettings=\{quick \? null :/.test(arrowsSrc) && /onLine=\{quick \? undefined :/.test(arrowsSrc) && /const noteBox = !quick &&/.test(arrowsSrc));
+  ok("saves for one goal and day go in line, and only the newest announces", /\(chains\.current\.get\(key\) \?\? Promise\.resolve\(\)\)\.then\(run\)/.test(hookSrc) && /if \(last\) announceChange\(\);/.test(hookSrc));
+  ok("a fresh read of the week keeps the arrows still on their way", /withPending\(d\.checkins, \[\.\.\.pending\.current\.values\(\)\]\)/.test(hookSrc));
+  ok("a failed save reads the week again and says so", /reload\(\);\s*toast\.error\(err, "Couldn't save that arrow\."\);/.test(hookSrc));
+  ok("the old yes-or-no still saves, as an arrow", /setFocusCheckin\(userId, goalId, date, moved\)/.test(hookSrc) && /level: moved \? 1 : 5/.test(hookSrc));
+  ok("checks this week answered are retired, today", /answered: answeredChecks\(data\?\.checkins, goalId\), today: todayStr\(\)/.test(hookSrc));
+  ok("a focus's sheet lands today's arrow instead of asking Moved it or Not today", !/Moved it today|Not today/.test(sheetSrc) && /<GoalArrow/.test(sheetSrc) && /onSettings=\{\(\) => setSettings\(true\)\}/.test(sheetSrc));
+  ok("the sheet's imports stay one line each, the way its tests read them", sheetSrc.split("\n").filter((l) => l.startsWith("import ")).every((l) => l.endsWith(";")));
+  ok("the strip speaks in arrows", !/moved it|not today/i.test(stripSrc.replace(/^\/\/.*$/gm, "")) && /arrowsLabel\(g\)/.test(stripSrc) && /fw=\{fw\}/.test(stripSrc));
+  ok("settings only send what changed, checks before how it lands", /if \(how === "checks" && checksChanged\(checks, before\)\) await fw\.saveChecks/.test(settingsSrc) && settingsSrc.indexOf("fw.saveChecks") < settingsSrc.indexOf("fw.saveSettings"));
+  ok("an old link that isn't one of the choices stays a choice", /keepLinked && <option value=\{linked\}>/.test(settingsSrc));
+  ok("Week links a focus to the wheel without breaking the one-link rule", /\{ node_id: nodeId, quest_id: null, lesson_id: null \}/.test(weekSrc) && /<FocusSettings/.test(weekSrc));
+  ok("Sunday's carry still leaves a quest or lesson link to addFocusGoal", /const row = await add\(title, goal\.node_id, goal\.id\);/.test(weekSrc));
+  const css = read("../src/styles/focus.css");
+  ok("what a focus counts toward gives up its end before it widens the card", /\.focus-arrow__toward \{ max-width: 100%; min-width: 0; overflow: hidden;/.test(css));
+  ok("the strip's measurements are still the first the stylesheet has", css.indexOf("--focus-gap:") < css.indexOf(".focus-arrow") && (css.match(/repeat\(auto-fill, minmax\(/g) ?? []).length === 1 && (css.match(/-webkit-line-clamp: 2;/g) ?? []).length === 0);
+}
 
 // (end of arrows on the week's focus)
 // ---------------------------------------------------------------------------
