@@ -159,7 +159,7 @@ export default function Watch() {
           <span className="card-title"><WatchIcon size={14} />The Hub on your wrist</span>
         </div>
         <p className="phone-note" style={{ marginTop: 0 }}>
-          A Shortcut called <strong>Hub</strong>. Tap it on your watch and pick: <strong>Win</strong> (your usual wins in a list, or say a new one), <strong>Loss</strong>, <strong>Start</strong>, <strong>Switch</strong> or <strong>Stop</strong> a timer, <strong>Task done</strong> (today's list from Quests), <strong>Note</strong> (lands on your board), or <strong>Today</strong> at a glance.
+          A Shortcut called <strong>Hub</strong>. Tap it on your watch and pick: <strong>Win</strong> (your usual wins in a list, or say a new one), <strong>Loss</strong>, <strong>Start</strong>, <strong>Switch</strong> or <strong>Stop</strong> a timer, <strong>Task done</strong> (today's list from your quests), <strong>Note</strong> (lands on your board), or <strong>Today</strong> at a glance.
         </p>
 
         {SHORTCUTS.length > 0 && (

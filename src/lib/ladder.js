@@ -1,6 +1,6 @@
 import { addDays, fmtShortDate } from "./planDates.js";
 import { shortGoal, gearFor } from "./ascent.js";
-import { shortTarget, answersOf } from "./mark.js";
+import { LEVELS, shortTarget, answersOf } from "./mark.js";
 import { countsToward, LINEAGE_WEEKS } from "./focus.js";
 
 // The Targets tab: the whole ladder in one place, biggest to smallest. The
@@ -41,9 +41,13 @@ export function pathOf(kind, id) {
 //   a quest's id                   that quest (on, done or set aside)
 //   a lesson's mountain's id       the lesson
 //   a lesson's id, or lesson-<id>  the lesson (learning, learned or set aside)
-//   a week's focus id              the newest week of that focus
+//   a week's focus id              the newest week of that focus, up to
+//                                  this one
 // `data` holds the rows: { goals (the lifetime goals), edges ({ parent_id,
-// child_id }, optional), quests, lessons, focusGoals }.
+// child_id }, optional), quests, lessons, focusGoals }, and `upTo`, this
+// week's focus week_start ("YYYY-MM-DD", optional): a focus he has already
+// kept into next week still opens on this week's row, where today's arrow
+// lands.
 export function resolveRef(ref, data) {
   const raw = String(ref ?? "").trim();
   if (!raw) return null;
@@ -61,7 +65,7 @@ export function resolveRef(ref, data) {
   if (q) return q.lesson_id ? lesson(q.lesson_id) : { kind: "quest", id, key: id };
   const l = lesson(id);
   if (l) return l;
-  const f = newestInLine(id, data?.focusGoals);
+  const f = newestInLine(id, data?.focusGoals, data?.upTo);
   if (f) return { kind: "focus", id: f, key: f };
   const root = rootGoalOf(id, data?.goals, data?.edges);
   if (root) return { kind: "goal", id: root, key: root };
@@ -71,8 +75,11 @@ export function resolveRef(ref, data) {
 // The newest week of a focus: follow the rows carried from it forward, week
 // by week, to the one nothing was carried from yet. Null when the id isn't a
 // focus. If two rows were carried from one (there shouldn't be), the later
-// week wins. Stops at a loop and after a year.
-export function newestInLine(id, focusGoals) {
+// week wins. Stops at a loop and after a year. With `upTo` (a week_start),
+// it never steps into a week after that one: planning next week early
+// carries this week's rows forward, but this week is still the one he's
+// living. A link straight to a later week's row still opens that row.
+export function newestInLine(id, focusGoals, upTo = null) {
   const rows = focusGoals ?? [];
   if (!rows.some((g) => g?.id === id)) return null;
   const later = (a, b) =>
@@ -82,6 +89,7 @@ export function newestInLine(id, focusGoals) {
   const next = new Map();
   for (const g of rows) {
     if (!g?.carried_from) continue;
+    if (upTo && String(g.week_start ?? "") > upTo) continue;
     const had = next.get(g.carried_from);
     if (!had || later(g, had) > 0) next.set(g.carried_from, g);
   }
@@ -166,6 +174,8 @@ export function crumbsFor(target, rows) {
 // One pill per quest he's on and lesson he's learning, in their order:
 //   [{ key, kind, name, short, camps, today, done }]
 // `key` is the page's address (a lesson's own id, never its mountain's).
+// `short` is the one word a pill shows, unless two pills would show the
+// same word: then both show their full names, so he can tell them apart.
 // `camps` counts the camps still ahead and reached; `today` the things on
 // today's list there not yet done, `done` the ones finished today.
 // `items` are today's quest items (todayPlan's questItemsForToday), each
@@ -194,7 +204,10 @@ export function questPills({ quests = [], lessons = [], camps = [], items = [] }
     .sort(byPos)
     .map((q) => pill("quest", q.id, q.title, q.id));
   for (const l of lessons.filter((x) => x.status === "learning").sort(byPos)) out.push(pill("lesson", l.id, l.title, mountain.get(l.id)?.id ?? null));
-  return out;
+  const word = (p) => p.short.toLowerCase();
+  const uses = new Map();
+  for (const p of out) uses.set(word(p), (uses.get(word(p)) ?? 0) + 1);
+  return out.map((p) => (uses.get(word(p)) > 1 ? { ...p, short: p.name } : p));
 }
 
 // "3 camps · 2 today", "1 camp", "4 today", or "".
@@ -229,7 +242,7 @@ export const REFLECT_PROMPTS = {
   ],
   quest: [
     "What was supposed to happen, and what actually happened?",
-    "Why was there a difference?",
+    "Where did it go differently from what you planned, and why?",
     "What will you keep doing, and what will you do differently next time?",
     "What one thing would move it most this week?",
     "What are you putting off on it, and what's the smallest first step?",
@@ -283,26 +296,39 @@ export function noteDraftKey(target) {
 // --- The notes on a page -----------------------------------------------------------
 
 // What the evening said about a target, read only: each loosed shot's line,
-// and each check's own line, as timeline rows.
-export function eveningLines(shots) {
+// and each check's own line, as timeline rows. Each row also says where
+// that arrow landed and, on a miss, what got in the way, as the target's
+// own list of lines used to: `ring` is "Outer · Distracted", "Bullseye",
+// or null. `reasons` are the target's own (mark_targets.reasons).
+export function eveningLines(shots, reasons = []) {
   const out = [];
   for (const s of shots ?? []) {
     if (!s?.date) continue;
     const at = s.loosed_at ?? s.created_at ?? `${s.date}T23:59:00`;
+    const ring = ringOf(s, reasons);
     const note = String(s.note ?? "").trim();
-    if (note) out.push({ id: `shot:${s.id}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: note, prompt: null });
+    if (note) out.push({ id: `shot:${s.id}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: note, prompt: null, ring });
     answersOf(s).forEach((a, i) => {
       const line = a.line.trim();
-      if (line) out.push({ id: `shot:${s.id}:${i}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: line, prompt: a.text || null });
+      if (line) out.push({ id: `shot:${s.id}:${i}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: line, prompt: a.text || null, ring });
     });
   }
   return out;
 }
 
+// "Outer · Distracted": the ring's name, and on a miss its reason.
+function ringOf(shot, reasons) {
+  const level = Number.isInteger(shot?.level) ? LEVELS[shot.level] : null;
+  if (!level) return null;
+  const why = shot.level > 0 && shot.reason != null ? String((reasons ?? [])[shot.reason] ?? "").trim() : "";
+  return why ? `${level.name} · ${why}` : level.name;
+}
+
 // Everything written about a target, newest first, grouped by day:
 //   [{ date, label, items: [{ id, source, kind, date, created_at, text, prompt }] }]
 // `notes` are target_notes rows, `focusNotes` focus_notes rows (a focus's
-// notes from Today), `evening` what eveningLines gives.
+// notes from Today), `evening` what eveningLines gives (its rows keep
+// their `ring`).
 export function notesTimeline({ notes = [], focusNotes = [], evening = [] } = {}, today) {
   const rows = [
     ...notes.map((n) => ({ id: n.id, source: "target", kind: n.kind === "reflection" ? "reflection" : "note", date: n.date, created_at: n.created_at, text: n.text, prompt: n.prompt ?? null })),

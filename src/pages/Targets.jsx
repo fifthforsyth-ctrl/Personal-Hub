@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, BookOpen, Plus } from "lucide-react";
 import { fetchQuestPills } from "../lib/api";
@@ -8,7 +8,7 @@ import { LEVELS } from "../lib/mark";
 import { useLoad } from "../lib/useLoad";
 import LoadError from "../components/ui/LoadError";
 import TargetFace from "../components/mark/TargetFace";
-import { useLadder } from "../components/targets/useLadder";
+import { useLadder, FRESH_PATCH_KEY } from "../components/targets/useLadder";
 import { useScrollTop } from "../components/targets/useScrollTop";
 import { MissionCard, FaceRow, ClimbRows, NO_MARKS, keepDashes, markWords } from "../components/targets/OverviewTiers";
 import { BowCard } from "../components/targets/OverviewBow";
@@ -55,8 +55,25 @@ export default function Targets() {
       if (to && alive.current) navigate(to);
     },
   });
-  const { userId, today, view, range, error, loading, reload, focusWeek, open, freshPatch, overlay } = ladder;
+  const { userId, today, view, range, error, loading, reload, focusWeek, open, overlay } = ladder;
   useScrollTop("targets");
+
+  // A patch just earned on its quest's page: "Behind you" opens on it and
+  // it springs in, this once.
+  const [fresh] = useState(() => {
+    try {
+      return sessionStorage.getItem(FRESH_PATCH_KEY);
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(FRESH_PATCH_KEY);
+    } catch {
+      // no storage, nothing waiting
+    }
+  }, []);
 
   // How many camps each quest and lesson has and what's on today's list
   // there. A tick or a line written elsewhere shows here too.
@@ -171,7 +188,7 @@ export default function Targets() {
 
           <aside className="ov-side" aria-label="Your bow, and what's behind you">
             <BowCard bullseyes={range?.bullseyes ?? 0} />
-            <BehindYou view={view} fresh={freshPatch} />
+            <BehindYou view={view} fresh={fresh} />
           </aside>
         </div>
       )}

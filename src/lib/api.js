@@ -2717,7 +2717,9 @@ export function repictureQuotes() {
 // mission down to the week's focus. A target is named by `ref`, which is
 // { mission: true } or { goal_id }, { quest_id }, { lesson_id },
 // { focus_goal_id } (ladder.js refOf). A focus reads back through the
-// earlier weeks it was carried from: pass their ids as `focusLineage`.
+// earlier weeks it was carried from, and a lifetime goal through the goals
+// under it on the wheel (one moved under it keeps what was written on it):
+// pass those ids as `lineage`.
 // ---------------------------------------------------------------------------
 
 const TARGET_NOTE = "id, mission, goal_id, quest_id, lesson_id, focus_goal_id, kind, prompt, date, text, created_at, updated_at";
@@ -2731,10 +2733,11 @@ function refEntry(ref) {
   return [column, value];
 }
 
-// Rows on the target, filtered by its column (a focus by its whole line).
-function onRef(query, ref, focusLineage) {
+// Rows on the target, filtered by its column (a focus by its whole line, a
+// lifetime goal with the goals under it). Any other target is only itself.
+function onRef(query, ref, lineage) {
   const [column, value] = refEntry(ref);
-  if (column === "focus_goal_id" && focusLineage?.length) return query.in("focus_goal_id", [...new Set([value, ...focusLineage])]);
+  if ((column === "goal_id" || column === "focus_goal_id") && lineage?.length) return query.in(column, [...new Set([value, ...lineage])]);
   return query.eq(column, value);
 }
 
@@ -2766,9 +2769,9 @@ export async function fetchGoalEdges() {
 }
 
 // Notes and reflections on a target, newest first.
-export async function fetchTargetNotes(userId, ref, { focusLineage } = {}) {
+export async function fetchTargetNotes(userId, ref, { lineage } = {}) {
   return selectAllPages(() =>
-    onRef(supabase.from("target_notes").select(TARGET_NOTE).eq("user_id", userId), ref, focusLineage)
+    onRef(supabase.from("target_notes").select(TARGET_NOTE).eq("user_id", userId), ref, lineage)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
   );
@@ -2834,25 +2837,29 @@ export async function fetchQuoteLibrary(userId) {
 }
 
 // His own written-down quotes: thoughts that record someone's words (an
-// excerpt, or a person they're filed under). Newest first.
+// excerpt, or a person they're filed under). Newest first, every one, a
+// page at a time: the picker searches them on the phone, so one left out
+// could never be found.
 export async function fetchOwnQuotes(userId) {
-  const { data, error } = await supabase
-    .from("study_notes")
-    .select("id, title, body, excerpt, essence, source_ref, shelf_people, image_url, image_path, image_credit, created_at")
-    .eq("user_id", userId)
-    .or("excerpt.not.is.null,shelf_people.neq.{}")
-    .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) throw error;
-  return (data ?? []).filter((n) => String(n.excerpt ?? "").trim() || (n.shelf_people ?? []).length);
+  const rows = await selectAllPages(() =>
+    supabase
+      .from("study_notes")
+      .select("id, title, body, excerpt, essence, source_ref, shelf_people, image_url, image_path, image_credit, created_at")
+      .eq("user_id", userId)
+      .or("excerpt.not.is.null,shelf_people.neq.{}")
+      .order("created_at", { ascending: false })
+      .order("id")
+  );
+  return rows.filter((n) => String(n.excerpt ?? "").trim() || (n.shelf_people ?? []).length);
 }
 
 // The quotes linked to a target, in order, each with its quote (or his own
-// note) along. A focus reads its whole line: a quote linked in two weeks of
-// it shows once, with `linkIds` holding every row, so Unlink takes them all.
-export async function fetchQuoteLinks(userId, ref, { focusLineage } = {}) {
+// note) along. A focus reads its whole line, and a lifetime goal the goals
+// under it: a quote linked in two of them shows once, with `linkIds`
+// holding every row, so Unlink takes them all.
+export async function fetchQuoteLinks(userId, ref, { lineage } = {}) {
   const rows = await selectAllPages(() =>
-    onRef(supabase.from("quote_links").select(QUOTE_LINK).eq("user_id", userId), ref, focusLineage)
+    onRef(supabase.from("quote_links").select(QUOTE_LINK).eq("user_id", userId), ref, lineage)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true })
       .order("id")
