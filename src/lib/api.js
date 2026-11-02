@@ -6,6 +6,7 @@ import { planRows } from "./camp";
 import { byPin } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
 import { lineageIds, cleanNote } from "./focus";
+import { checkRow, sameCheck } from "./checks";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -980,6 +981,11 @@ export async function saveJournalEntry(userId, dateStr, fields) {
     qSuccess: "q_success",
     qSavior: "q_savior",
     qLearn: "q_learn",
+    // The evening's notes (0103): any communication with God, and a line on
+    // the mood and the stress.
+    godNote: "god_note",
+    moodNote: "mood_note",
+    stressNote: "stress_note",
   };
   const row = { user_id: userId, date: dateStr, updated_at: new Date().toISOString() };
   for (const [key, column] of Object.entries(columns)) {
@@ -2385,38 +2391,105 @@ export async function deleteReceipt(receipt) {
 // starts on.
 // ---------------------------------------------------------------------------
 
-const FOCUS_COLUMNS = "id, week_start, title, node_id, carried_from, review, reviewed_at, position, created_at";
+const FOCUS_COLUMNS = "id, week_start, title, node_id, carried_from, review, reviewed_at, position, created_at, lands_by, quest_id, lesson_id";
+// A day's arrow on a focus (0103 added where it landed and how).
+const FOCUS_CHECKIN = "goal_id, date, moved, level, spot_x, spot_y, note, answers, lands, updated_at";
+const FOCUS_CHECK = "id, goal_id, text, kind, options, pass, unit, auto, counts, focus_id, position, retired_on, created_at";
 
-// The week's goals and every answer given about them that week.
+// The week's goals, every arrow landed on them that week, and each goal's
+// checks (retired ones too, so old answers still read as they were).
 export async function fetchFocusWeek(userId, weekStart) {
   const [goals, checkins] = await Promise.all([
     supabase.from("focus_goals").select(FOCUS_COLUMNS).eq("user_id", userId).eq("week_start", weekStart),
     supabase
       .from("focus_checkins")
-      .select("goal_id, date, moved")
+      .select(FOCUS_CHECKIN)
       .eq("user_id", userId)
       .gte("date", weekStart)
       .lte("date", addDays(weekStart, 6)),
   ]);
   if (goals.error) throw goals.error;
   if (checkins.error) throw checkins.error;
-  const ids = new Set((goals.data ?? []).map((g) => g.id));
-  return { goals: goals.data ?? [], checkins: (checkins.data ?? []).filter((c) => ids.has(c.goal_id)) };
+  const ids = (goals.data ?? []).map((g) => g.id);
+  const idSet = new Set(ids);
+  let checks = [];
+  if (ids.length) {
+    const res = await supabase.from("focus_checks").select(FOCUS_CHECK).eq("user_id", userId).in("goal_id", ids).order("position");
+    if (res.error) throw res.error;
+    checks = res.data ?? [];
+  }
+  return { goals: goals.data ?? [], checkins: (checkins.data ?? []).filter((c) => idSet.has(c.goal_id)), checks };
 }
 
-export async function addFocusGoal(userId, { weekStart, title, nodeId = null, carriedFrom = null, position = 0 }) {
+// A new goal for the week. Kept from last week (`carriedFrom`), it keeps how
+// its arrows land, what they count toward and its checks, unless you say
+// otherwise: the checks are copied onto the new week's row, so last week's
+// answers stay with last week's.
+export async function addFocusGoal(userId, { weekStart, title, nodeId = null, carriedFrom = null, position = 0, landsBy, questId, lessonId }) {
+  let from = null;
+  let fromChecks = [];
+  if (carriedFrom) {
+    const [g, c] = await Promise.all([
+      supabase.from("focus_goals").select("lands_by, quest_id, lesson_id").eq("user_id", userId).eq("id", carriedFrom).maybeSingle(),
+      supabase.from("focus_checks").select(FOCUS_CHECK).eq("user_id", userId).eq("goal_id", carriedFrom).is("retired_on", null).order("position"),
+    ]);
+    if (g.error) throw g.error;
+    if (c.error) throw c.error;
+    from = g.data ?? null;
+    fromChecks = c.data ?? [];
+  }
+  const link = { node_id: nodeId, quest_id: questId !== undefined ? questId : from?.quest_id ?? null, lesson_id: lessonId !== undefined ? lessonId : from?.lesson_id ?? null };
+  // One bigger target at most (focus_goals_one_link): what you named wins.
+  if (link.node_id) {
+    link.quest_id = null;
+    link.lesson_id = null;
+  } else if (link.quest_id) link.lesson_id = null;
   const { data, error } = await supabase
     .from("focus_goals")
-    .insert({ user_id: userId, week_start: weekStart, title, node_id: nodeId, carried_from: carriedFrom, position })
+    .insert({
+      user_id: userId,
+      week_start: weekStart,
+      title,
+      ...link,
+      carried_from: carriedFrom,
+      position,
+      lands_by: landsBy ?? from?.lands_by ?? "placed",
+    })
     .select(FOCUS_COLUMNS)
     .single();
   if (error) throw error;
+  // Two writes, so the goal goes again if its checks can't follow it: the
+  // caller says it didn't add, and Keep tapped again mustn't make a second
+  // copy of the focus (the first one landing by checks it doesn't have).
+  if (fromChecks.length) {
+    const { error: cErr } = await supabase
+      .from("focus_checks")
+      .insert(fromChecks.map((c, i) => ({ user_id: userId, goal_id: data.id, ...checkRow(c), position: i })));
+    if (cErr) {
+      const { error: undoErr } = await supabase.from("focus_goals").delete().eq("id", data.id);
+      if (undoErr) console.warn(undoErr);
+      throw cErr;
+    }
+  }
   return data;
 }
 
 export async function updateFocusGoal(goalId, fields) {
   const { error } = await supabase.from("focus_goals").update(fields).eq("id", goalId);
   if (error) throw error;
+}
+
+// How a focus's arrows land ('placed' or 'checks') and what they count
+// toward: { kind: 'goal' | 'quest' | 'lesson', id } or null. One at most.
+export async function saveFocusSettings(goalId, { landsBy, toward }) {
+  const fields = {};
+  if (landsBy !== undefined) fields.lands_by = landsBy === "checks" ? "checks" : "placed";
+  if (toward !== undefined) {
+    fields.node_id = toward?.kind === "goal" ? toward.id : null;
+    fields.quest_id = toward?.kind === "quest" ? toward.id : null;
+    fields.lesson_id = toward?.kind === "lesson" ? toward.id : null;
+  }
+  await updateFocusGoal(goalId, fields);
 }
 
 // Its check-ins go with it.
@@ -2431,17 +2504,52 @@ export async function reviewFocusGoal(goalId, review) {
   await updateFocusGoal(goalId, { review, reviewed_at: review ? new Date().toISOString() : null });
 }
 
-// "Did today move it?" true, false, or null to clear the answer.
-export async function setFocusCheckin(userId, goalId, date, moved) {
-  if (moved === null) {
+// A day's arrow on a focus, as placedArrow or checksArrow (focus.js) make
+// it, or null to take it back. `moved` is still written (anything on the
+// face moved it) for everything that reads it.
+export async function setFocusArrow(userId, goalId, date, arrow) {
+  if (arrow === null) {
     const { error } = await supabase.from("focus_checkins").delete().eq("goal_id", goalId).eq("date", date);
     if (error) throw error;
-    return;
+    return null;
   }
-  const { error } = await supabase
+  const level = Number(arrow.level);
+  const { data, error } = await supabase
     .from("focus_checkins")
-    .upsert({ user_id: userId, goal_id: goalId, date, moved }, { onConflict: "goal_id,date" });
+    .upsert(
+      {
+        user_id: userId,
+        goal_id: goalId,
+        date,
+        moved: level < 5,
+        level,
+        spot_x: arrow.spot_x ?? null,
+        spot_y: arrow.spot_y ?? null,
+        note: arrow.note ?? null,
+        answers: arrow.answers ?? [],
+        lands: arrow.lands ?? "placed",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "goal_id,date" }
+    )
+    .select(FOCUS_CHECKIN)
+    .single();
   if (error) throw error;
+  return data;
+}
+
+// "Did today move it?" true, false, or null to clear the answer: the arrow
+// from before you placed them, in the inner ring or out in the miss band.
+export async function setFocusCheckin(userId, goalId, date, moved) {
+  if (moved === null) return setFocusArrow(userId, goalId, date, null);
+  return setFocusArrow(userId, goalId, date, { level: moved ? 1 : 5, lands: "placed" });
+}
+
+// A focus's checks as its sheet holds them, in order (each a check row; no
+// id for a new one). One gone is deleted if no arrow ever answered it, and
+// retired otherwise.
+export async function saveFocusChecks(userId, goalId, rows, before, { answered = new Set(), today } = {}) {
+  await saveCheckList("focus_checks", { goal_id: goalId }, userId, rows, before, { answered, today });
 }
 
 // The focus and every earlier week it was carried from, newest first, as
@@ -3414,7 +3522,7 @@ async function insertSteps(userId, rows) {
 // ---------------------------------------------------------------------------
 
 const MARK_TARGET = "id, goal_id, quest_id, lesson_id, reasons, created_at";
-const MARK_AIM = "id, target_id, text, focus_id, position, retired_on, created_at";
+const MARK_AIM = "id, target_id, text, focus_id, position, retired_on, created_at, kind, options, pass, unit, auto, counts";
 const MARK_SHOT = "id, target_id, date, answers, level, reason, reason_how, note, loosed_at, created_at";
 
 export async function fetchRange(userId, today) {
@@ -3445,41 +3553,78 @@ export async function ensureTarget(userId, ref, reasons = []) {
 }
 
 // A target's four sections and what a bullseye takes, as its sheet holds
-// them (`aims` in order, each { id, text, focus_id }; no id for a new one).
-// An aim that's gone is deleted if no shot ever answered it, and otherwise
-// retired, so it stops being asked while old shots still read as they were.
+// them (`aims` in order, each a check: { id, text, kind, options, pass,
+// unit, auto, counts, focus_id }; no id for a new one). An aim that's gone
+// is deleted if no shot ever answered it, and otherwise retired, so it stops
+// being asked while old shots still read as they were.
 export async function saveTargetSetup(userId, ref, { reasons, aims }, before, { answered = new Set(), today } = {}) {
   const targetId = await ensureTarget(userId, ref, reasons);
   const { error: rErr } = await supabase.from("mark_targets").update({ reasons }).eq("id", targetId);
   if (rErr) throw rErr;
+  await saveCheckList("mark_aims", { target_id: targetId }, userId, aims, before, { answered, today });
+  return targetId;
+}
 
-  const ordered = aims.map((a, i) => ({ ...a, position: i }));
+// A list of checks under one parent (a target's aims, a focus's checks),
+// saved to match `rows` in order. Only what changed is written.
+//
+// Safe to run again with the same rows and `before` after it failed part
+// way, which is what a second tap on Save does (both sheets stay open with
+// what you set, new checks still without an id). The deletes and updates
+// land the same twice. The insert wouldn't: the first try may already have
+// put a new check in, so the parent's checks are read first, and one that
+// wasn't there as the sheet opened and matches a new check exactly is taken
+// as that check, already in, rather than asked twice every evening.
+async function saveCheckList(table, parent, userId, rows, before, { answered = new Set(), today } = {}) {
+  const ordered = (rows ?? []).map((a, i) => ({ ...a, position: i }));
   const keep = new Set(ordered.filter((a) => a.id).map((a) => a.id));
   const gone = (before ?? []).filter((a) => !keep.has(a.id));
   const drop = gone.filter((a) => !answered.has(a.id)).map((a) => a.id);
-  const retire = gone.filter((a) => answered.has(a.id)).map((a) => a.id);
+  const retire = gone.filter((a) => answered.has(a.id) && !a.retired_on).map((a) => a.id);
   if (drop.length) {
-    const { error } = await supabase.from("mark_aims").delete().in("id", drop);
+    const { error } = await supabase.from(table).delete().in("id", drop);
     if (error) throw error;
   }
   if (retire.length) {
-    const { error } = await supabase.from("mark_aims").update({ retired_on: today }).in("id", retire);
+    const { error } = await supabase.from(table).update({ retired_on: today }).in("id", retire);
     if (error) throw error;
   }
-  const fresh = ordered.filter((a) => !a.id);
+  const wasRow = new Map((before ?? []).filter((b) => b.id).map((b) => [b.id, b]));
+  const nowRow = new Map();
+  let fresh = ordered.filter((a) => !a.id);
   if (fresh.length) {
-    const { error } = await supabase
-      .from("mark_aims")
-      .insert(fresh.map((a) => ({ user_id: userId, target_id: targetId, text: a.text, focus_id: a.focus_id || null, position: a.position })));
+    const [column, value] = Object.entries(parent)[0];
+    const { data: now, error: readErr } = await supabase
+      .from(table)
+      .select("id, text, kind, options, pass, unit, auto, counts, focus_id, position")
+      .eq("user_id", userId)
+      .eq(column, value)
+      .is("retired_on", null)
+      .order("position");
+    if (readErr) throw readErr;
+    for (const r of now ?? []) nowRow.set(r.id, r);
+    const spare = (now ?? []).filter((r) => !wasRow.has(r.id) && !keep.has(r.id));
+    fresh = fresh.filter((a) => {
+      const same = spare.filter((r) => sameCheck(r, a));
+      const r = same.find((x) => x.position === a.position) ?? same[0];
+      if (!r) return true;
+      spare.splice(spare.indexOf(r), 1);
+      a.id = r.id;
+      return false;
+    });
+  }
+  if (fresh.length) {
+    const { error } = await supabase.from(table).insert(fresh.map((a) => ({ user_id: userId, ...parent, ...checkRow(a), position: a.position })));
     if (error) throw error;
   }
+  // A row is left alone when you didn't change it (it's as the sheet opened)
+  // or it already holds what you set (the first try got that far).
+  const holds = (r, a) => Boolean(r) && sameCheck(r, a) && r.position === a.position;
   for (const a of ordered.filter((x) => x.id)) {
-    const was = (before ?? []).find((b) => b.id === a.id);
-    if (was && was.text === a.text && (was.focus_id ?? null) === (a.focus_id || null) && was.position === a.position) continue;
-    const { error } = await supabase.from("mark_aims").update({ text: a.text, focus_id: a.focus_id || null, position: a.position }).eq("id", a.id);
+    if (holds(wasRow.get(a.id), a) || holds(nowRow.get(a.id), a)) continue;
+    const { error } = await supabase.from(table).update({ ...checkRow(a), position: a.position }).eq("id", a.id);
     if (error) throw error;
   }
-  return targetId;
 }
 
 // Tonight's shot at one target, saved as it's answered (one per target per
@@ -3501,16 +3646,39 @@ export async function saveShot(userId, ref, targetId, date, shot, reasons) {
 
 // Banking the day: every shot answered for it flies. Returns the ones that
 // were still in hand.
-export async function looseShots(userId, date) {
-  const { data, error } = await supabase
+//
+// `keep` is targets whose shot the evening tried to take back and couldn't
+// (no signal): those stay in hand rather than fly an arrow the evening
+// shows as blank.
+export async function looseShots(userId, date, keep = []) {
+  const skip = [...new Set((keep ?? []).filter(Boolean))];
+  let q = supabase
     .from("mark_shots")
     .update({ loosed_at: new Date().toISOString() })
     .eq("user_id", userId)
     .eq("date", date)
-    .is("loosed_at", null)
-    .select(MARK_SHOT);
+    .is("loosed_at", null);
+  if (skip.length) q = q.not("target_id", "in", `(${skip.join(",")})`);
+  const { data, error } = await q.select(MARK_SHOT);
   if (error) throw error;
   return data ?? [];
+}
+
+// Tonight's shot at one target, taken back while it's still in hand: the
+// evening's answers no longer give it a ring (a typed answer cleared, the
+// arrow of the focus that fed it taken back), so it mustn't fly when the
+// day is banked. Only a shot not yet loosed: an arrow already on the target
+// stays where it landed.
+export async function deleteTonightShot(userId, targetId, date) {
+  if (!targetId) return;
+  const { error } = await supabase
+    .from("mark_shots")
+    .delete()
+    .eq("user_id", userId)
+    .eq("target_id", targetId)
+    .eq("date", date)
+    .is("loosed_at", null);
+  if (error) throw error;
 }
 
 // What a line says got in the way: the index of one of the four sections,

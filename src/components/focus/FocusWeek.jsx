@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react";
-import { Target, Plus, GitBranch, X, Check, Pencil } from "lucide-react";
+import { Target, Plus, GitBranch, X, Check, Pencil, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { addFocusGoal, updateFocusGoal, deleteFocusGoal, reviewFocusGoal, fetchFocusWeek, fetchGoalPaths } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
 import { todayStr, parseDateStr } from "../../lib/planDates";
-import { previousWeek, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, summarizeWeek, focusWeekOf } from "../../lib/focus";
+import { previousWeek, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, summarizeWeek, focusWeekOf, towardTitle } from "../../lib/focus";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import GoalPicker from "../GoalPicker";
 import { announceChange } from "../today/announce";
-import { useFocusWeek } from "./useFocusWeek";
+import { useFocusWeek, useAscentView } from "./useFocusWeek";
+import FocusSettings from "./FocusSettings";
 import "../../styles/focus.css";
 
 // What the week is for, at the top of the Week tab.
@@ -31,7 +32,12 @@ export default function FocusWeek({ anchorDate }) {
   const reviewOn = showsReview(weekStart, today);
   const lastStart = previousWeek(weekStart);
 
-  const { data, week, error, loading, reload, mutate } = useFocusWeek(userId, weekStart);
+  const fw = useFocusWeek(userId, weekStart);
+  const { data, week, error, loading, reload, mutate } = fw;
+  // A focus counting toward a quest or a lesson (set in its settings) shows
+  // that one's name, so the Ascent view is read only when one does.
+  const ascent = useAscentView(userId, today, Boolean(data?.goals.some((g) => g.quest_id || g.lesson_id)));
+  const [settingsFor, setSettingsFor] = useState(null);
   const last = useLoad(() => (userId && reviewOn ? fetchFocusWeek(userId, lastStart) : null), [userId, lastStart, reviewOn]);
   const paths = useLoad(() => (userId ? fetchGoalPaths(userId) : null), [userId]);
   const pathById = useMemo(() => new Map((paths.data ?? []).map((p) => [p.id, p.path])), [paths.data]);
@@ -87,10 +93,15 @@ export default function FocusWeek({ anchorDate }) {
     }
   }
 
+  // A focus counts toward one bigger thing at most (focus_goals_one_link),
+  // so linking it to the wheel lets go of any quest or lesson it counted
+  // toward.
   async function setLink(id, nodeId) {
-    mutate((d) => (d ? { ...d, goals: d.goals.map((g) => (g.id === id ? { ...g, node_id: nodeId } : g)) } : d));
+    const fields = nodeId ? { node_id: nodeId, quest_id: null, lesson_id: null } : { node_id: null };
+    mutate((d) => (d ? { ...d, goals: d.goals.map((g) => (g.id === id ? { ...g, ...fields } : g)) } : d));
     try {
-      await updateFocusGoal(id, { node_id: nodeId });
+      await updateFocusGoal(id, fields);
+      announceChange();
     } catch (err) {
       reload();
       toast.error(err, "Couldn't change the link.");
@@ -198,6 +209,15 @@ export default function FocusWeek({ anchorDate }) {
                     {g.title}
                     <Pencil size={11} className="focus-week__pencil" aria-hidden="true" />
                   </button>
+                  <button
+                    type="button"
+                    className="btn-icon focus-week__settings"
+                    aria-label={`How “${g.title}” lands, and what it counts toward`}
+                    title="How it lands"
+                    onClick={() => setSettingsFor(g.id)}
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
                   <button type="button" className="btn-icon focus-week__remove" aria-label={`Remove “${g.title}”`} title="Remove" onClick={() => remove(g)}>
                     <X size={15} />
                   </button>
@@ -220,7 +240,15 @@ export default function FocusWeek({ anchorDate }) {
               </div>
 
               <div className="focus-week__link">
-                {g.node_id ? (
+                {g.quest_id || g.lesson_id ? (
+                  <>
+                    <Target size={12} aria-hidden="true" />
+                    <span className="truncate">
+                      Counts toward {towardTitle(g, ascent.view, ascent.data) ?? (g.quest_id ? "a quest" : "a lesson")}
+                    </span>
+                    <button type="button" className="btn-link" onClick={() => setSettingsFor(g.id)}>Change</button>
+                  </>
+                ) : g.node_id ? (
                   <>
                     <GitBranch size={12} aria-hidden="true" />
                     <span className="truncate">{pathById.get(g.node_id) ?? "A goal on the wheel"}</span>
@@ -278,6 +306,17 @@ export default function FocusWeek({ anchorDate }) {
             setPicking(false);
             setLinking(null);
           }}
+        />
+      )}
+
+      {settingsFor && data?.goals.some((g) => g.id === settingsFor) && (
+        <FocusSettings
+          userId={userId}
+          goal={data.goals.find((g) => g.id === settingsFor)}
+          date={today}
+          fw={fw}
+          ascent={ascent}
+          onClose={() => setSettingsFor(null)}
         />
       )}
     </div>

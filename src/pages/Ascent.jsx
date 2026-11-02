@@ -25,6 +25,7 @@ import {
 import { buildAscent } from "../lib/ascent";
 import { campProgress, stepsLine } from "../lib/camp";
 import { buildRange, bowLine, bowProgress, tierOf, TIERS, LEVELS } from "../lib/mark";
+import { focusWeekOf, countsToward, orderGoals } from "../lib/focus";
 import { todayStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import { playClink } from "../lib/clink";
@@ -39,6 +40,7 @@ import TargetFace from "../components/mark/TargetFace";
 import TargetSheet from "../components/mark/TargetSheet";
 import TargetView from "../components/mark/TargetView";
 import Bow, { BowRack } from "../components/mark/Bow";
+import { useFocusWeek } from "../components/focus/useFocusWeek";
 import "../styles/ascent.css";
 import "../styles/mark.css";
 import "../styles/camp.css";
@@ -72,6 +74,19 @@ export default function Ascent() {
   const categories = useLoad(() => (userId ? fetchCategories(userId) : NO_ROWS), [userId]);
   const tally = useLoad(() => (userId ? Promise.all([fetchStepTally(userId), fetchSectionTally(userId)]) : NO_ROWS), [userId]);
   const progress = useMemo(() => campProgress(tally.data?.[0], tally.data?.[1]), [tally.data]);
+  // This week's focus: one that counts toward a target is one more check in
+  // its shot each evening, so a target it feeds can stand on no checks.
+  const { data: focusWeek } = useFocusWeek(userId, focusWeekOf(today));
+  const fedByOf = useCallback(
+    (t) =>
+      t
+        ? orderGoals(focusWeek?.goals).filter((g) => {
+            const to = countsToward(g);
+            return to && to.kind === t.kind && to.id === t.key;
+          })
+        : NO_ROWS,
+    [focusWeek]
+  );
 
   const [sheet, setSheet] = useState(null); // { kind, ...what it edits }
   const [ceremony, setCeremony] = useState(null);
@@ -258,8 +273,12 @@ export default function Ascent() {
 
   // What a bullseye takes, and the four sections. An aim a shot already
   // answered is retired rather than deleted, so that day still reads true.
+  // Every shot counts, loosed or still in hand: tonight's arrow, answered
+  // but not yet flown, keeps its checks' answers just the same (t.shots holds
+  // only the loosed ones, so the raw rows are read here).
   const saveTargetFrom = (t) => (v) => {
-    const answered = new Set(t.shots.flatMap((s) => (Array.isArray(s.answers) ? s.answers.map((a) => a?.aim) : [])).filter(Boolean));
+    const shots = t.targetId ? (data?.marks?.shots ?? []).filter((s) => s.target_id === t.targetId) : NO_ROWS;
+    const answered = new Set(shots.flatMap((s) => (Array.isArray(s.answers) ? s.answers.map((a) => a?.aim) : [])).filter(Boolean));
     const refCol = t.kind === "goal" ? { goal_id: t.key } : t.kind === "quest" ? { quest_id: t.key } : { lesson_id: t.key };
     return write(() => saveTargetSetup(userId, refCol, v, t.aims, { answered, today }), "Couldn't save that target.", "Saved");
   };
@@ -319,7 +338,9 @@ export default function Ascent() {
           onClose={close}
         />
       )}
-      {sheet?.kind === "target" && <TargetSheet target={sheet.target} focuses={focuses} onSave={saveTargetFrom(sheet.target)} onClose={close} />}
+      {sheet?.kind === "target" && (
+        <TargetSheet target={sheet.target} focuses={focuses} fedBy={fedByOf(sheet.target)} onSave={saveTargetFrom(sheet.target)} onClose={close} />
+      )}
     </>
   );
 
@@ -344,6 +365,7 @@ export default function Ascent() {
             target={target}
             today={today}
             focusesById={focusesById}
+            fedBy={fedByOf(target)}
             onSetup={() => setSheet({ kind: "target", target })}
             onEditGoal={() => setSheet({ kind: "goal", goal: target.goal })}
             onFocus={(f) => setSheet({ kind: "focus", focus: f })}

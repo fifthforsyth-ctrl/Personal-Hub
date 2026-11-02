@@ -3,13 +3,15 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, Pencil, Plus } from "lucide-react";
 import Gear from "../ascent/Gear";
 import TargetFace from "./TargetFace";
-import { LEVELS, ANSWERS, RANGES, DEFAULT_RANGE, inRange, average, missCounts, fullest, answersOf } from "../../lib/mark";
+import { LEVELS, RANGES, DEFAULT_RANGE, inRange, average, missCounts, fullest, answersOf, answerText, quickOf, WHOLE } from "../../lib/mark";
+import { normCheck, passText, kindLabel } from "../../lib/checks";
 import { fmtShortDate, parseDateStr } from "../../lib/planDates";
 
 // One target: every day it was shot at as a mark, how close they come on
 // average, where the misses gather, and what you answered and wrote on any
-// day you tap. Below that, what a bullseye takes and the four sections,
-// which are yours to reword.
+// day you tap. Below that, what a bullseye takes (its checks, each with what
+// passes) and the four sections, which are yours to reword. `fedBy` is this
+// week's focuses that count toward it, each one more check every evening.
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -30,7 +32,7 @@ function readRange(id) {
   }
 }
 
-export default function TargetView({ range: all, target: t, today, focusesById, onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson }) {
+export default function TargetView({ range: all, target: t, today, focusesById, fedBy = [], onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson }) {
   const [range, setRange] = useState(() => readRange(t.key));
   const [picked, setPicked] = useState(null);
   const tabs = useRef(null);
@@ -166,17 +168,24 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
                 <Pencil size={14} />
               </button>
             </div>
-            {t.aims.length ? (
+            {t.aims.length > 0 && (
               <ul className="mk-aims">
                 {t.aims.map((a) => (
                   <li key={a.id}>
                     <span>{a.text}</span>
-                    {a.focus_id && focusesById.get(a.focus_id) && <small>Time log: {focusesById.get(a.focus_id).name}</small>}
+                    <small>{checkLine(a, focusesById)}</small>
                   </li>
                 ))}
               </ul>
-            ) : (
-              <button type="button" className="btn btn--sm btn--accent" onClick={onSetup}>
+            )}
+            {fedBy.length > 0 && (
+              <p className="ascent-mini mk-fed-by">
+                {fedBy.length === 1 ? "This week's focus counts toward it: " : "This week's focuses count toward it: "}
+                <b>{fedBy.map((g) => g.title).join(", ")}</b>
+              </p>
+            )}
+            {!t.aims.length && (
+              <button type="button" className="btn btn--sm btn--accent mk-setup__first" onClick={onSetup}>
                 Say what a bullseye takes
               </button>
             )}
@@ -252,10 +261,28 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
   );
 }
 
-// One day's shot: where it landed, what you answered, what got in the way,
-// and your line.
+// A check as the setup card lists it: what passes, and what answers it
+// when it isn't you. "1 to 10 · 7 or more", "By 4:35 am · From when you got
+// up", "Yes passes · Time log: Drawing", "Reflection only".
+function checkLine(a, focusesById) {
+  const c = normCheck(a);
+  const bits = [passText(c)];
+  if (c.kind === "scale" || c.kind === "choice") bits.unshift(kindLabel(c.kind));
+  if (c.kind === "time" && c.auto === "wake") bits.push("From when you got up");
+  const focus = c.focus_id ? focusesById?.get(c.focus_id) : null;
+  if (focus) bits.push(`Time log: ${focus.name}`);
+  return bits.join(" · ");
+}
+
+const TONE = ["no", "some", "yes"];
+
+// One day's shot: where it landed, what each check was answered (with its
+// own line), what got in the way, and your line. A short evening's tap reads
+// as the day as a whole; a weekly focus that counted, as the ring its arrow
+// landed in. Reflection-only answers are shown, marked as not counted.
 function DayCard({ target: t, shot: s }) {
   const answers = answersOf(s);
+  const tapped = quickOf(s) != null;
   return (
     <section className="card mk-day" aria-live="polite" aria-label={`${dayLong(s.date)}, ${LEVELS[s.level].name}`}>
       <div className="mk-day__when">
@@ -266,13 +293,27 @@ function DayCard({ target: t, shot: s }) {
       </div>
       {answers.length > 0 && (
         <ul className="mk-did">
-          {answers.map((a, i) => (
-            <li key={a.aim ?? i} className={`mk-did--${a.v == null ? "skip" : ANSWERS[a.v].toLowerCase()}`}>
-              <i aria-hidden="true" />
-              <span>{a.text}</span>
-              <small>{a.v == null ? "Skipped" : ANSWERS[a.v]}</small>
-            </li>
-          ))}
+          {answers.map((a, i) => {
+            const whole = tapped && !a.aim && !a.focus_goal && a.text === WHOLE;
+            const words = a.kind === "note";
+            const said = words ? "" : answerText(a);
+            const tone = !a.counts ? "free" : a.v == null ? "skip" : TONE[a.v];
+            return (
+              <li key={a.aim ?? a.focus_goal ?? `at-${i}`} className={`mk-did--${tone}`}>
+                <i aria-hidden="true" />
+                <span className="mk-did__t">
+                  {whole ? WHOLE : a.text}
+                  {a.kind === "focus" && <em className="mk-did__sub">This week's focus</em>}
+                  {words && a.value && <span className="mk-did__words">{String(a.value)}</span>}
+                  {a.line && <em className="mk-did__sub">{a.line}</em>}
+                </span>
+                <small>
+                  {said || (a.counts ? (a.v == null ? "Skipped" : "Written") : "")}
+                  {!a.counts && <span className="mk-did__free">Not counted</span>}
+                </small>
+              </li>
+            );
+          })}
         </ul>
       )}
       {s.level > 0 && s.reason != null && (

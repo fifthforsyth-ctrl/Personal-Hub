@@ -1,13 +1,15 @@
 import { addDays } from "./planDates.js";
 import { gearFor, shortGoal } from "./ascent.js";
 import { workoutName, fmtMins } from "./watch.js";
+import { normCheck, answered, allAnswered, markOf, scores, autoValue, answerEntry, focusEntry, checksLevel, shareOfLevel, legacyValue, valueText } from "./checks.js";
 
 // The Mark: every goal is a target (supabase/migrations/0075_the_mark.sql).
 //
 // Sin, chata in Hebrew and hamartia in Greek, means to miss the mark. Each
 // lifetime goal, the quest and each lesson is a target, and each evening
 // takes one shot at each. He never aims: he answers what a bullseye takes,
-// Yes, Some or No, and the share of it he did puts the arrow in its ring.
+// its checks (checks.js: Yes or No, 1 to 10, minutes, a time and the rest),
+// and the share of them he passed puts the arrow in its ring.
 // A miss lands in the section of what got in the way, so over the weeks the
 // misses gather where the reason is. A miss is a mark, not a mark against
 // you: nothing here turns red.
@@ -287,13 +289,37 @@ export function buildRange(ascentView, marks, today) {
 }
 
 // The answers on a shot, in the order they were asked, with what each was
-// called that day.
+// called that day. A check's answer keeps its kind and value (0103); an
+// older shot's answers were all Yes, Some or No and read that way. A weekly
+// focus that counted toward the target (`focus_goal`) carries the ring its
+// own arrow landed in.
 export function answersOf(shot) {
-  return (Array.isArray(shot?.answers) ? shot.answers : []).map((a) => ({
-    aim: a?.aim ?? null,
-    text: String(a?.text ?? ""),
-    v: a?.v === 0 || a?.v === 1 || a?.v === 2 ? a.v : null,
-  }));
+  return (Array.isArray(shot?.answers) ? shot.answers : []).map((a) => {
+    const focusGoal = a?.focus_goal ?? null;
+    const kind = focusGoal ? "focus" : a?.kind ?? "ysn";
+    const level = Number.isInteger(a?.level) && a.level >= 0 && a.level <= 5 ? a.level : null;
+    return {
+      aim: a?.aim ?? null,
+      focus_goal: focusGoal,
+      text: String(a?.text ?? ""),
+      kind,
+      value: focusGoal ? null : legacyValue(a),
+      unit: a?.unit ?? null,
+      v: a?.v === 0 || a?.v === 1 || a?.v === 2 ? a.v : null,
+      level,
+      line: String(a?.line ?? ""),
+      counts: a?.counts !== false,
+      // Filled in by the day (the time log, when you got up), not by him.
+      day: a?.day === true,
+    };
+  });
+}
+
+// What one saved answer reads as: "Yes", "7/10", "4:32 am", or the ring a
+// focus's arrow landed in.
+export function answerText(entry) {
+  if (entry?.kind === "focus") return entry.level != null ? LEVELS[entry.level].name : "";
+  return valueText({ kind: entry?.kind, unit: entry?.unit }, entry?.value);
 }
 
 // An arrow is on the target once the day it's for has been banked.
@@ -349,15 +375,57 @@ export function watchSaw(focus, entries) {
   return bits.join(", ");
 }
 
-// Tonight's answers for a target, in the order its aims are asked: what's
-// already saved, else Yes where the time log saw the aim's focus, else blank.
-export function startingAnswers(target, { focusesById, entries } = {}) {
-  const saved = new Map(answersOf(target?.tonight).map((a) => [a.aim, a.v]));
+// Tonight's answers for a target, one { value, line, day } per check in the
+// order they're asked: what's already saved, else what the day holds (the
+// time log's minutes for a check with a focus, when you got up for "Up by"),
+// else blank. A saved answer that no longer fits its check (a Some on what
+// is now a Yes/No, a choice that's been taken out) starts blank.
+//
+// `day` says the answer is still the day's to give: it filled it in, or
+// nobody has answered it yet. One the day gave is saved marked as the day's,
+// so it never freezes: open the evening at six and "Time drawing" starts
+// with the 20 minutes logged by then; open it again at ten with 60 in the
+// log and the day's newer answer takes over. One he gave himself always
+// stays put. The focus side does the same (focus.js, focusAnswers).
+export function startingAnswers(target, { focusesById, entries, dayPlan, date } = {}) {
+  const saved = new Map(answersOf(target?.tonight).filter((a) => a.aim).map((a) => [a.aim, a]));
   return (target?.aims ?? []).map((a) => {
-    if (saved.has(a.id) && saved.get(a.id) != null) return saved.get(a.id);
-    const focus = a.focus_id ? focusesById?.get(a.focus_id) : null;
-    return focus && focusMinutes(focus, entries) > 0 ? 2 : null;
+    const s = saved.get(a.id);
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes, date });
+    const line = s?.line ?? "";
+    if (s?.day === true && fresh != null) return { value: fresh, line, day: true };
+    if (s && fits(a, s.value)) return { value: s.value, line, day: s.day === true };
+    return { value: fresh, line, day: true };
   });
+}
+
+function fits(check, value) {
+  if (!answered(check, value)) return false;
+  // A choice whose option has since been taken out (Calm renamed Peaceful
+  // on The Range) isn't an answer to the check as it is now, even on one
+  // that only asks: no chip would light for it.
+  const c = normCheck(check);
+  if (c.kind === "choice" && !c.options.includes(String(value))) return false;
+  return !scores(c) || markOf(c, value) != null;
+}
+
+// Tonight's answers with the day's newer ones in, while the evening is
+// open: a timer stopped from the capture sheet, a wake time logged late.
+// An answer still the day's (`day`) takes what the day holds now; one he
+// gave himself stays put, and so does the day's when it now has nothing.
+// The same list comes back when nothing changed, so the evening knows not
+// to save again.
+export function freshAnswers(target, answers, { focusesById, entries, dayPlan, date } = {}) {
+  let changed = false;
+  const next = (target?.aims ?? []).map((a, i) => {
+    const x = answers?.[i];
+    if (!x || x.day !== true) return x;
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes, date });
+    if (fresh == null || fresh === x.value) return x;
+    changed = true;
+    return { ...x, value: fresh, day: true };
+  });
+  return changed ? next : answers;
 }
 
 // What a line says got in the way, when the reader can't be reached: the
@@ -417,14 +485,28 @@ export function guessReason(target, today) {
   return k >= 0 ? k : 0;
 }
 
-// The shot tonight's answers make, ready to save: null until every aim is
-// answered. A bullseye has no section.
-export function shotFrom(target, values, { line = "", reason = null, how = null } = {}) {
-  const level = levelFrom(values);
+// The ring tonight's answers put a target's arrow in, or null until every
+// check that scores is answered. `linked` is the week's focuses that count
+// toward this target and landed an arrow tonight ({ goal, level }): each
+// counts as one more check, and none ever holds the arrow back.
+export function tonightLevel(target, answers, linked = []) {
+  const aims = target?.aims ?? [];
+  const values = aims.map((_, i) => answers?.[i]?.value ?? null);
+  return checksLevel(aims, values, (linked ?? []).map((l) => shareOfLevel(l.level)));
+}
+
+// The shot tonight's answers make, ready to save: null until every check
+// that scores is answered. A bullseye has no section. An answer the day
+// filled in is saved marked as the day's (`day`, see startingAnswers).
+export function shotFrom(target, answers, { line = "", reason = null, how = null, linked = [] } = {}) {
+  const level = tonightLevel(target, answers, linked);
   if (level == null) return null;
   const note = String(line ?? "").trim();
   return {
-    answers: (target?.aims ?? []).map((a, i) => ({ aim: a.id, text: a.text, v: values[i] })),
+    answers: [
+      ...(target?.aims ?? []).map((a, i) => dayMarked(answerEntry(a, answers?.[i]?.value ?? null, answers?.[i]?.line), answers?.[i])),
+      ...(linked ?? []).map((l) => focusEntry(l.goal, l.level)),
+    ],
     level,
     reason: level === 0 ? null : reason,
     reason_how: level === 0 ? null : how,
@@ -432,3 +514,356 @@ export function shotFrom(target, values, { line = "", reason = null, how = null 
   };
 }
 
+// A saved answer, marked as the day's when the day gave it. Only one with a
+// value: a blank one is nobody's yet.
+function dayMarked(entry, answer) {
+  return answer?.day === true && entry.value != null ? { ...entry, day: true } : entry;
+}
+
+// The checks on a target, cleaned, as the sheet edits them and the evening
+// asks them.
+export function checksOf(target) {
+  return (target?.aims ?? []).map((a) => ({ ...a, ...normCheck(a) }));
+}
+
+// --- Placing an arrow yourself ------------------------------------------------
+
+// The ring a spot on the face is in, from where you tapped (target units,
+// the center at 0,0). Past the face is a miss.
+export function levelAtSpot(x, y) {
+  const r = Math.hypot(Number(x) || 0, Number(y) || 0);
+  for (let k = 0; k < RINGS.length; k++) if (r <= RINGS[k]) return k;
+  return 5;
+}
+
+// A tap, kept on the target: anything past the miss band comes back inside
+// it, so an arrow is always somewhere you can see it.
+export function clampSpot(x, y) {
+  const nx = Number(x) || 0;
+  const ny = Number(y) || 0;
+  const r = Math.hypot(nx, ny);
+  const max = MISS_BAND - 4;
+  if (r <= max) return { x: round1(nx), y: round1(ny) };
+  return { x: round1((nx / r) * max), y: round1((ny / r) * max) };
+}
+
+// The middle of a ring, straight up: where the ring buttons (for a keyboard
+// or a screen reader) put an arrow.
+export function ringSpot(level) {
+  if (level === 0) return { x: 0, y: 0 };
+  const inner = RINGS[level - 1] ?? FACE;
+  const outer = RINGS[level] ?? MISS_BAND;
+  return { x: 0, y: round1(-(inner + outer) / 2) };
+}
+
+// --- The short evening ------------------------------------------------------
+
+// One tap for a whole target: Yes (2), Some (1) or No (0) for the day as a
+// whole, the way the short evening has always asked, landing a bullseye,
+// the middle or a miss. Checks the day already answered (the time log,
+// when you got up) are kept with it for the record, but the tap is what
+// sets the ring: the short evening never makes up an answer for a check.
+export const WHOLE = "The day as a whole";
+
+export function quickShot(target, v, answers = [], { reason = null, how = null } = {}) {
+  if (v !== 0 && v !== 1 && v !== 2) return null;
+  const level = levelFrom([v]);
+  const known = (target?.aims ?? [])
+    .map((a, i) => ({ a, value: answers?.[i]?.value ?? null, line: answers?.[i]?.line, x: answers?.[i] }))
+    .filter((x) => answered(x.a, x.value))
+    .map((x) => ({ ...dayMarked(answerEntry(x.a, x.value, x.line), x.x), counts: false }));
+  return {
+    answers: [{ aim: null, text: WHOLE, kind: "ysn", value: ANSWER_VALUES[v], v, counts: true, whole: true }, ...known],
+    level,
+    reason: level === 0 ? null : reason,
+    reason_how: level === 0 ? null : how,
+    note: null,
+  };
+}
+
+const ANSWER_VALUES = ["no", "some", "yes"];
+
+// The one tap a saved shot was, when it was a short evening's: 2, 1, 0, or
+// null when it was answered check by check.
+export function quickOf(shot) {
+  const w = (Array.isArray(shot?.answers) ? shot.answers : []).find((a) => a?.whole);
+  return w && (w.v === 0 || w.v === 1 || w.v === 2) ? w.v : null;
+}
+
+// --- Tonight's checks, as the evening shows them ----------------------------
+
+// Where an answer the day filled in came from, said under the check: the
+// time log's minutes for a check with a focus (and what the watch saw, so
+// the answer comes with what actually happened), or when you got up for an
+// "Up by". Null for a check only you answer.
+export function checkHint(check, { focusesById, entries, dayPlan, date } = {}) {
+  const c = normCheck(check);
+  if (c.kind === "time" && c.auto === "wake") return autoValue(c, { dayPlan, entries, date }) ? "From when you got up" : "No wake time in your log";
+  const focus = c.focus_id ? focusesById?.get?.(c.focus_id) : null;
+  if (!focus) return null;
+  const mins = focusMinutes(focus, entries);
+  if (!mins) return "Not in your time log today";
+  const saw = watchSaw(focus, entries);
+  return `Time log · ${fmtMins(mins)}${saw ? ` · watch: ${saw}` : ""}`;
+}
+
+// Tonight's answers with what a draft on this device was in the middle of,
+// laid over where the evening starts. `mine` is { [check id]: { value,
+// line, day } }. A draft is only ever a convenience, so anything in it that
+// doesn't fit its check as it is now (a Some on what's become a Yes/No, a
+// word where a number goes, a choice that's been taken out) is passed over,
+// and a broken or old-shaped draft changes nothing. An answer the draft
+// holds as the day's (`day`) takes the day's newer one when there is one,
+// the way a saved one does in startingAnswers; one he gave himself wins.
+export function restoreAnswers(target, starting, mine) {
+  const ok = mine && typeof mine === "object" && !Array.isArray(mine);
+  return (target?.aims ?? []).map((a, i) => {
+    const base = starting?.[i] ?? { value: null, line: "", day: true };
+    const m = ok && a?.id ? mine[a.id] : null;
+    if (!m || typeof m !== "object" || Array.isArray(m)) return base;
+    const line = typeof m.line === "string" ? m.line.slice(0, 500) : base.line;
+    if (m.day === true && base.day === true && base.value != null) return { ...base, line };
+    // Cleared on purpose: blank, whatever was saved before.
+    if (m.value == null && m.day === false) return { value: null, line, day: false };
+    if (fitsKind(a, m.value)) return { value: m.value, line, day: m.day === true };
+    return { ...base, line };
+  });
+}
+
+// What this device keeps of one target's evening, the draft tonightDraft
+// reads back: each answer given or with a line, by check id, with `day` on
+// the ones the day filled in so the next visit takes the day's newer one;
+// the line about the day; and `base`, the shot saved under it (shotKey), so
+// an edit that hasn't saved yet still wins over that shot next time.
+export function localDraft(target, draft, savedShot) {
+  const answers = {};
+  (target?.aims ?? []).forEach((a, i) => {
+    const x = draft?.answers?.[i];
+    // An answer he cleared himself is kept too (no value, not the day's), so
+    // a shot saved before he cleared it can't bring the old answer back.
+    if (x && (x.value != null || x.line || x.day === false)) answers[a.id] = { value: x.value ?? null, line: x.line ?? "", day: x.day === true };
+  });
+  return { answers, line: draft?.line ?? "", base: shotKey(savedShot) };
+}
+
+// A shot as one string, for telling whether tonight's saved shot is still
+// the one a draft on this device was laid over: the same fields sameShot
+// compares, with the answers' keys in order. Null for no shot.
+export function shotKey(shot) {
+  if (!shot) return null;
+  return canon({ level: shot.level ?? null, reason: shot.reason ?? null, reason_how: shot.reason_how ?? null, note: shot.note ?? null, answers: shot.answers ?? [] });
+}
+
+// Where one target's evening starts: { answers, line, quick, pick, readFor,
+// reading }. Tonight's saved shot comes first (its answers through
+// startingAnswers, its line, its tap if it was a short evening's, and the
+// section it was filed under). A draft this device kept (`mine`, { answers:
+// { [check id]: { value, line, day } }, line, base }) is laid over it when
+// it's newer: there's no shot saved yet, or the shot saved is still the one
+// the draft was laid over (`base`, its shotKey). That's an edit made the
+// moment before leaving the page, or one whose save didn't go through:
+// kept, never put back to what was saved before it. When the shot saved has
+// moved on since (the desk finished what the phone started), the shot wins.
+// A draft of any other shape, an old one from before checks had kinds
+// included, is simply not used.
+export function tonightDraft(target, { focusesById, entries, dayPlan, date, mine } = {}) {
+  const shot = target?.tonight ?? null;
+  const kept = mine && typeof mine === "object" && !Array.isArray(mine) ? mine : null;
+  const newer = Boolean(kept && (!shot || (typeof kept.base === "string" && kept.base === shotKey(shot))));
+  let answers = startingAnswers(target, { focusesById, entries, dayPlan, date });
+  let line = String(shot?.note ?? "");
+  if (newer) {
+    answers = restoreAnswers(target, answers, kept.answers);
+    if (typeof kept.line === "string") line = kept.line.slice(0, 2000);
+  }
+  const filed = Boolean(shot && shot.level > 0 && shot.reason != null);
+  const savedLine = String(shot?.note ?? "").trim();
+  return {
+    answers,
+    line,
+    quick: quickOf(shot),
+    pick: filed ? { k: shot.reason, how: shot.reason_how ?? "guess" } : null,
+    // The saved line was already read (or read and found to say nothing),
+    // so it isn't sent to the reader again; a newer one from the draft is.
+    readFor: filed && shot.reason_how !== "yours" && savedLine ? savedLine : null,
+    reading: false,
+  };
+}
+
+// Whether a value is the kind of answer a check takes at all.
+function fitsKind(check, value) {
+  if (value == null || (typeof value !== "string" && typeof value !== "number")) return false;
+  const c = normCheck(check);
+  switch (c.kind) {
+    case "yn":
+      return value === "yes" || value === "no";
+    case "ysn":
+      return value === "yes" || value === "some" || value === "no";
+    case "scale":
+      return Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10;
+    case "number":
+    case "minutes":
+      return answered(c, value) && Number(value) >= 0;
+    case "time":
+      return /^\d{1,2}:\d{2}$/.test(String(value));
+    case "choice":
+      return c.options.includes(String(value));
+    default:
+      return typeof value === "string";
+  }
+}
+
+// What the line's reader is told about tonight. The reader (the `mark`
+// function) takes up to eight { text, v } and reads each v as Yes, Some or
+// No, so a check whose answer isn't a plain Yes or No carries it in its
+// text ("Did I do my best to listen (6/10)", "Drank caffeine (No)") with its
+// mark as v. A reflection-only check, or one not answered, isn't sent: the
+// reader would drop it anyway. A weekly focus that counts toward the target
+// goes as one more, with the ring its arrow landed in.
+export function readAnswers(target, answers, linked = []) {
+  const out = [];
+  (target?.aims ?? []).forEach((a, i) => {
+    const value = answers?.[i]?.value ?? null;
+    const v = markOf(a, value);
+    if (v == null) return;
+    const c = normCheck(a);
+    const plain = (c.kind === "yn" || c.kind === "ysn") && c.pass.on === "yes";
+    out.push({ text: withSaid(c.text, plain ? "" : valueText(c, value)), v });
+  });
+  for (const l of linked ?? []) {
+    const e = focusEntry(l.goal, l.level);
+    if (e.v == null) continue;
+    out.push({ text: withSaid(`This week's focus, ${e.text}`, LEVELS[l.level]?.name.toLowerCase() ?? ""), v: e.v });
+  }
+  return out.slice(0, 8);
+}
+
+// "Text (what was said)" inside the reader's 120 characters, cutting the
+// text rather than the answer.
+function withSaid(text, said) {
+  const tail = said ? ` (${said})` : "";
+  const room = 120 - tail.length;
+  const t = String(text ?? "");
+  return (t.length > room ? `${t.slice(0, Math.max(0, room - 1))}…` : t) + tail;
+}
+
+// Whether two shots land the same: ring, section, line and every answer.
+// One read back from the database has its answers' keys in another order
+// (jsonb keeps its own), so answers are compared key by key, not as text.
+// The evening saves only when this says something changed, which is what
+// keeps a re-save from ever looping.
+export function sameShot(a, b) {
+  if (!a || !b) return false;
+  if (a.level !== b.level) return false;
+  if ((a.reason ?? null) !== (b.reason ?? null) || (a.reason_how ?? null) !== (b.reason_how ?? null)) return false;
+  if ((a.note ?? null) !== (b.note ?? null)) return false;
+  return canon(a.answers ?? []) === canon(b.answers ?? []);
+}
+
+function canon(v) {
+  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+  if (v && typeof v === "object") {
+    const keys = Object.keys(v)
+      .filter((k) => v[k] !== undefined)
+      .sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+// Where tonight's answers put the arrow, in a few words under the checks.
+const LANDS = ["All passed: a bullseye.", "Lands in the inner ring.", "Lands in the middle ring.", "Lands in the outer ring.", "Lands on the edge.", "A miss this time."];
+
+export function landsText(level) {
+  return LANDS[level] ?? "";
+}
+
+// Tonight's ring for a target as it stands: the short evening's one tap
+// when there's been one (it sets the ring until the checks are answered in
+// the full evening), else the ring the checks and any weekly focus that
+// counts toward it make. `label` says where a ring with no tap came from,
+// for the short evening's row: "Inner, from your checks", or "Inner, from
+// Win by win" when a focus is all it has. Nothing is made up: no tap and
+// not every check answered is no ring.
+export function tonightRing(target, { answers, quick } = {}, linked = []) {
+  if (quick === 0 || quick === 1 || quick === 2) return { level: levelFrom([quick]), tap: quick, label: null };
+  const level = tonightLevel(target, answers, linked);
+  if (level == null) return { level: null, tap: null, label: null };
+  const name = LEVELS[level].name;
+  if ((target?.aims ?? []).some((a) => scores(a))) return { level, tap: null, label: `${name}, from your checks` };
+  const titles = (linked ?? []).map((l) => String(l.goal?.title ?? "").trim()).filter(Boolean);
+  return { level, tap: null, label: titles.length ? `${name}, from ${titles.join(" and ")}` : name };
+}
+
+// The shot one target's evening makes, ready to save, or null while it has
+// no ring. `draft` is the evening's { answers, line, quick, pick }. A miss
+// is filed where you put it or where your line was read to point, else
+// where recent misses gather (guessReason). A short evening's tap keeps a
+// line written in the full one, so switching to Short never loses it.
+export function tonightShot(target, draft, { linked = [], today } = {}) {
+  const d = draft ?? {};
+  const level = tonightRing(target, d, linked).level;
+  if (level == null) return null;
+  const pick = level > 0 ? d.pick ?? { k: guessReason(target, today), how: "guess" } : null;
+  const opts = { reason: pick?.k ?? null, how: pick?.how ?? null };
+  if (d.quick != null) {
+    const s = quickShot(target, d.quick, d.answers, opts);
+    const note = String(d.line ?? "").trim();
+    return s && { ...s, note: note ? note.slice(0, 2000) : null };
+  }
+  return shotFrom(target, d.answers, { ...opts, line: d.line, linked });
+}
+
+// What saving one target does now, given the shot last saved for it
+// (`was`): { shot } to save, { takeBack: true } to take tonight's saved
+// shot back, or null when there's nothing to do. A target that has lost its
+// ring (a typed answer cleared, the arrow of the focus that fed it taken
+// back) has its shot taken back, or the arrow would fly at bank while the
+// evening shows it blank. Not while the week is still unread (`weekRead`: a
+// focus may be what gives it its ring), and never one already loosed, which
+// stays where it landed. Only a real change is saved, which is what keeps a
+// re-save from ever looping.
+export function shotChange(target, draft, was, { linked = [], today, weekRead = true } = {}) {
+  const shot = tonightShot(target, draft, { linked, today });
+  // Before the week is read, only a target whose own scoring checks are
+  // unfinished is sure to have lost its ring (a focus can add to a ring,
+  // never finish its checks for it).
+  const aims = target?.aims ?? [];
+  const sure = weekRead || (aims.some((a) => scores(a)) && !allAnswered(aims, (draft?.answers ?? []).map((x) => x?.value ?? null)));
+  if (!shot) return was && !isLoosed(was) && sure ? { takeBack: true } : null;
+  return was && sameShot(was, shot) ? null : { shot };
+}
+
+// What the evening says by the boxes on a target with no ring tonight. A
+// shot is its ring (mark_shots.level is never empty), so answers and lines
+// on a target without one have nowhere to be saved yet: they stay in this
+// phone's draft until it has an arrow, and the evening says so plainly
+// rather than let them look kept. A target whose checks are all reflection
+// only can only get its arrow from a focus that counts toward it, and it
+// says which, or that it has none. `feeds` is this week's focuses that
+// count toward it, `level` tonight's ring as it stands. Null when there's
+// nothing to say: it has its ring, or nothing's been given on it yet.
+export function keptText(target, draft, { level = null, feeds = [] } = {}) {
+  const aims = target?.aims ?? [];
+  const names = (feeds ?? []).map((g) => String(g?.title ?? "").trim()).filter(Boolean);
+  const from = names.length ? names.join(" and ") : "this week's focus";
+  if (aims.length && !aims.some((a) => scores(a))) {
+    if (!feeds?.length) {
+      return level != null
+        ? null
+        : "These are all reflection only, so there's no ring to land in tonight, and what you write here isn't kept once you bank the day. Make one count on The Range to give it an arrow.";
+    }
+    const why = `These are all reflection only, so its arrow comes from ${from}.`;
+    return level != null ? why : `${why} What you write here stays only on this phone until that arrow lands, and isn't kept if you bank the day without it.`;
+  }
+  if (level != null || !gaveAny(draft)) return null;
+  if (!aims.length) return feeds?.length ? `Your line stays only on this phone until ${from} lands its arrow, and isn't kept if you bank the day without it.` : null;
+  return "What you've answered and written stays only on this phone until every check that counts is answered. Then it's saved with its arrow. Bank the day before that and it isn't kept.";
+}
+
+// Whether he's given anything on a target himself: a line, or an answer the
+// day didn't fill in.
+function gaveAny(draft) {
+  if (String(draft?.line ?? "").trim()) return true;
+  return (draft?.answers ?? []).some((x) => String(x?.line ?? "").trim() || (x?.value != null && x.value !== "" && x.day !== true));
+}

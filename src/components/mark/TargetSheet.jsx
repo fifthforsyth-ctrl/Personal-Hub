@@ -1,38 +1,38 @@
 import { useState } from "react";
-import { ArrowUp, ArrowDown, X, Plus } from "lucide-react";
 import Sheet from "../ascent/Sheet";
+import CheckEditor, { editRows, blankRow, cleanRows, rowsProblem } from "../checks/CheckEditor";
+import { scores } from "../../lib/checks";
 
-// What a bullseye takes on one target, and the names of its four sections.
-// Saving hands { reasons, aims } to `onSave`, which resolves to whether it
-// worked; the sheet stays open with what you typed if not.
+// What a bullseye takes on one target, as checks (checks.js: Yes or No,
+// 1 to 10, minutes, a time and the rest), and the names of its four
+// sections. Saving hands { reasons, aims } to `onSave`, `aims` being the
+// checks in order, each with its id when it was already saved; it resolves
+// to whether it worked, and the sheet stays open with what you typed if not.
+//
+//   focuses   lifetime focuses, for a check the time log answers
+//   fedBy     this week's focuses that count toward this target. With one,
+//             the target can stand on no checks of its own: its arrow lands
+//             where the focus's does. Without one, a target needs a check
+//             that counts, or no evening could ever give it a ring.
 
 const MAX_AIMS = 6;
 const CORNERS = ["Top right", "Bottom right", "Bottom left", "Top left"];
 
-export default function TargetSheet({ target, focuses, onSave, onClose }) {
-  const [rows, setRows] = useState(() =>
-    target.aims.length
-      ? target.aims.map((a) => ({ key: a.id, id: a.id, text: a.text, focus_id: a.focus_id ?? "" }))
-      : [{ key: "new-0", id: null, text: "", focus_id: "" }]
-  );
+export default function TargetSheet({ target, focuses = [], fedBy = [], onSave, onClose }) {
+  const [rows, setRows] = useState(() => (target.aims.length ? editRows(target.aims) : [blankRow(0)]));
   const [reasons, setReasons] = useState(() => [...target.reasons]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(null);
-
-  const setRow = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  const move = (i, by) =>
-    setRows((rs) => {
-      const next = [...rs];
-      const [r] = next.splice(i, 1);
-      next.splice(i + by, 0, r);
-      return next;
-    });
+  const fed = fedBy.map((g) => String(g.title ?? "").trim()).filter(Boolean);
 
   async function submit(e) {
     e.preventDefault();
-    const aims = rows.map((r) => ({ id: r.id, text: r.text.trim(), focus_id: r.focus_id || null })).filter((r) => r.text);
+    const aims = cleanRows(rows);
     const names = reasons.map((r) => r.trim());
-    if (!aims.length) return setProblem("Name at least one thing a bullseye takes.");
+    const wrong = rowsProblem(rows);
+    if (wrong) return setProblem(wrong);
+    if (!fed.length && !aims.length) return setProblem("Add at least one check.");
+    if (!fed.length && !aims.some((a) => scores(a))) return setProblem("Make at least one check count, so the arrow has a ring to land in.");
     if (names.some((n) => !n)) return setProblem("Name all four sections.");
     setProblem(null);
     setBusy(true);
@@ -43,55 +43,26 @@ export default function TargetSheet({ target, focuses, onSave, onClose }) {
   return (
     <Sheet title={target.title} onClose={onClose}>
       <form onSubmit={submit}>
-        <p className="card-note ascent-sheet__lede">Each evening you answer these Yes, Some or No. All Yes is a bullseye.</p>
+        <p className="card-note ascent-sheet__lede">Each evening asks these. The share you pass puts the arrow in its ring; all passed is a bullseye.</p>
 
         <div className="field">
           <span>What a bullseye takes</span>
-          <ol className="mk-aims-edit">
-            {rows.map((r, i) => (
-              <li key={r.key}>
-                <div className="mk-aims-edit__row">
-                  <input
-                    className="input"
-                    value={r.text}
-                    onChange={(e) => setRow(r.key, { text: e.target.value })}
-                    maxLength={120}
-                    placeholder={i === 0 ? "Exercised" : "Another thing it takes"}
-                    aria-label={`Thing ${i + 1}`}
-                  />
-                  <button type="button" className="btn-icon" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" title="Move up">
-                    <ArrowUp size={15} />
-                  </button>
-                  <button type="button" className="btn-icon" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down" title="Move down">
-                    <ArrowDown size={15} />
-                  </button>
-                  <button type="button" className="btn-icon" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} aria-label="Remove" title="Remove">
-                    <X size={15} />
-                  </button>
-                </div>
-                {focuses.length > 0 && (
-                  <label className="mk-aims-edit__log">
-                    <span>Your time log answers it</span>
-                    <select className="input input--sm" value={r.focus_id} onChange={(e) => setRow(r.key, { focus_id: e.target.value })}>
-                      <option value="">No, you do</option>
-                      {focuses.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          When {f.name} is logged
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </li>
-            ))}
-          </ol>
-          {rows.length < MAX_AIMS && (
-            <button type="button" className="btn btn--sm btn--on-page" onClick={() => setRows((rs) => [...rs, { key: `new-${Date.now()}-${rs.length}`, id: null, text: "", focus_id: "" }])}>
-              <Plus size={14} />
-              Add one
-            </button>
+          <CheckEditor rows={rows} onChange={setRows} focuses={focuses} max={MAX_AIMS} />
+          <p className="card-note ascent-sheet__note">Two to four plain checks works best. Old shots keep what they were asked.</p>
+          {fed.length > 0 && (
+            <p className="card-note ascent-sheet__note">
+              {fed.length === 1 ? (
+                <>
+                  <b>{fed[0]}</b>, this week's focus, counts toward it as one more check each evening.
+                </>
+              ) : (
+                <>
+                  <b>{fed.slice(0, -1).join(", ")}</b> and <b>{fed[fed.length - 1]}</b>, this week's focuses, each count toward it as one more check each evening.
+                </>
+              )}
+              {cleanRows(rows).length ? "" : ` With no checks of its own, its arrow lands where ${fed.length === 1 ? "the focus's does" : "theirs do"}.`}
+            </p>
           )}
-          <p className="card-note ascent-sheet__note">Two to four plain things works best. Old shots keep what they were asked.</p>
         </div>
 
         <div className="field">

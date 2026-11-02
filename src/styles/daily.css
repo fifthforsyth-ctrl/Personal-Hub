@@ -628,3 +628,138 @@ a.quote-card__source:hover { text-decoration: underline; }
 /* Short or full: past midnight the evening opens short. */
 .evening-length { margin-top: 10px; }
 .evening-length .seg-btn { padding: 6px 16px; font-size: 13px; }
+
+/* --- One to ten (src/components/ui/Slider.jsx) ----------------------------- */
+
+/* Ten steps on a track a thumb can find: the steps fill in ink up to the
+   number, a white knob sits on it with one small orange dot, and the
+   number itself shows big beside the label. Nothing filled until it's set. */
+.slider { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.slider__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.slider__label { font-size: 13px; font-weight: 600; color: var(--text); }
+.slider__value {
+  min-width: 2ch;
+  text-align: right;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.slider--unset .slider__value { font-size: 12.5px; font-weight: 550; color: var(--text-2); }
+
+.slider__track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  align-items: center;
+  height: 44px;
+  padding: 0 2px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  outline: none;
+  /* Up and down still scroll the page; sideways is the slider's. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.slider__track:focus-visible { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--ink); }
+.slider__step {
+  display: block;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: background 0.12s;
+}
+.slider__step.is-on { background: var(--ink); box-shadow: none; }
+.slider__thumb {
+  position: absolute;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  transition: left 0.08s ease-out, transform 0.12s;
+}
+.slider__thumb::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--accent); }
+.slider__track.is-down .slider__thumb { transform: scale(1.1); }
+.slider__ends { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--text-2); }
+.slider--off .slider__track { cursor: default; opacity: 0.6; }
+@media (prefers-reduced-motion: reduce) {
+  .slider__thumb, .slider__step { transition: none; }
+}
+
+/* --- Before you bank it (EveningCheckin, ShortEvening) --------------------- */
+
+.evening-feel { margin-top: 14px; }
+.evening-feel + .evening-feel { margin-top: 16px; }
+/* Two classes deep, so these hold whichever order the sheets load in. */
+.input.evening-feel__note { width: 100%; margin-top: 6px; padding: 8px 12px; font-size: 13px; }
+.honest-label + .input.evening-feel__note { margin-top: 0; }
+
+/* Any communication with God: one note of his own, in a quiet inset. */
+.evening-god { margin-top: 16px; padding: 12px; border-radius: var(--r); background: var(--inset); }
+.evening-god__q { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
+.input.evening-god__note {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 9px 12px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: var(--card);
+}
+.evening-god__sunday { margin-top: 10px; }
+.evening-god__sunday .name-chip { display: inline-flex; align-items: center; gap: 5px; }
+
+.evening-checkin__retry { min-height: 36px; padding: 0 2px; color: var(--accent-text); }
+
+/* A banked day's notes keep his line breaks and never push the card wide. */
+.banked-line--words { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* --- What got done (EveningTasks) ------------------------------------------ */
+
+.evening-tasks__count { flex-shrink: 0; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.evening-tasks__error { margin-bottom: 8px; }
+.evening-tasks__group + .evening-tasks__group { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.evening-tasks__head { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 30px; }
+.evening-tasks__title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.evening-tasks__time { flex-shrink: 0; font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.evening-tasks__why {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 36px;
+  margin: -6px 0 -8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+@media (hover: hover) { .evening-tasks__why:hover { color: var(--text); } }
+/* The chips sit under the words, clear of the box. */
+.evening-tasks__reasons { padding: 0 0 10px 29px; }
+.evening-tasks__reasons .honest-add { flex-basis: 100%; }
+
+/* While Short and Full swap, the card being left has already saved what it
+   holds: nothing on it can be changed until the other one opens. */
+.evening__switching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+.evening-length[aria-busy="true"] .seg-btn { cursor: progress; }
+.evening-length[aria-busy="true"] .seg-btn:not(.active) { opacity: 0.6; }

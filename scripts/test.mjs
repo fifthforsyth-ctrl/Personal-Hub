@@ -84,7 +84,8 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
-import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, watchSaw, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, watchSaw, startingAnswers, readLine, guessReason, shotFrom, answerText, tonightLevel, levelAtSpot, clampSpot, ringSpot, quickShot, quickOf, WHOLE } from "../src/lib/mark.js";
+import { normCheck as ckNorm, markOf as ckMark, clockDiff as ckClock, scores as ckScores, answered as ckAnswered, allAnswered as ckAll, checksLevel as ckLevel, shareOf as ckShare, shareOfLevel as ckShareOfLevel, levelOfShare as ckLevelOfShare, passText as ckPassText, valueText as ckValueText, clockText as ckClockText, answerEntry as ckEntry, legacyValue as ckLegacy, autoValue as ckAuto, wokeAt as ckWoke, toFive as ckToFive, tenOf as ckTenOf } from "../src/lib/checks.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -170,7 +171,7 @@ import {
   overnightProblem,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
-import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay } from "../src/lib/focus.js";
+import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay, landsBy as fLandsBy, checkinLevel as fCheckinLevel, placedArrow as fPlaced, checksArrow as fChecksArrow, checksFor as fChecksFor, countsToward as fToward, linkedArrows as fLinked } from "../src/lib/focus.js";
 import {
   buildMirror,
   lastWeekStart,
@@ -1526,11 +1527,17 @@ console.log("\nthe mark");
     tonight: null,
   };
   const byId = new Map([["f1", exercise]]);
-  ok("the time log answers Yes for a focus it saw; the rest wait for you", startingAnswers(tDisc, { focusesById: byId, entries }).join() === "2,");
-  ok("it never answers No for you", startingAnswers(tDisc, { focusesById: byId, entries: [] }).every((v) => v === null));
+  const vals = (list) => list.map((a) => a.value ?? "").join();
+  ok("the time log answers Yes for a focus it saw; the rest wait for you", vals(startingAnswers(tDisc, { focusesById: byId, entries })) === "yes,");
+  ok("it never answers No for you", startingAnswers(tDisc, { focusesById: byId, entries: [] }).every((a) => a.value === null));
   ok(
     "what's already saved wins over the time log",
-    startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a1", text: "Exercised", v: 1 }, { aim: "a2", text: "In bed on time", v: 0 }] } }, { focusesById: byId, entries }).join() === "1,0"
+    vals(startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a1", text: "Exercised", v: 0 }, { aim: "a2", text: "In bed on time", v: 2 }] } }, { focusesById: byId, entries })) === "no,yes"
+  );
+  ok(
+    "an old Some on what is now a Yes/No starts again",
+    vals(startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a2", text: "In bed on time", v: 1, line: "close" }] } }, { focusesById: byId, entries })) === "yes," &&
+      startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a2", text: "In bed on time", v: 1, line: "close" }] } }, { focusesById: byId, entries })[1].line === "close"
   );
 
   const why = ["Tired", "Late night", "Phone", "Overbooked"];
@@ -1542,12 +1549,13 @@ console.log("\nthe mark");
   ok("with nothing to read, the guess is where the last 30 days of misses gather", guessReason(tGuess, today) === 3);
   ok("and the first section when there are none", guessReason({ shots: [] }, today) === 0);
 
-  const half = shotFrom(tDisc, [2, 0], { line: "  Stayed up late. ", reason: 1, how: "read" });
+  const half = shotFrom(tDisc, [{ value: "yes" }, { value: "no", line: "11:40" }], { line: "  Stayed up late. ", reason: 1, how: "read" });
   ok("a shot keeps each answer with what it was called", half.answers.map((a) => `${a.aim}:${a.text}:${a.v}`).join() === "a1:Exercised:2,a2:In bed on time:0");
+  ok("and its kind, its value and its own line", half.answers[1].kind === "yn" && half.answers[1].value === "no" && half.answers[1].line === "11:40" && half.answers[0].line === undefined);
   ok("half done lands in the middle, in the section read from the line", half.level === 2 && half.reason === 1 && half.reason_how === "read" && half.note === "Stayed up late.");
-  const bull = shotFrom(tDisc, [2, 2], { line: "", reason: 1, how: "guess" });
+  const bull = shotFrom(tDisc, [{ value: "yes" }, { value: "yes" }], { line: "", reason: 1, how: "guess" });
   ok("a bullseye has no section and an empty line is no note", bull.level === 0 && bull.reason === null && bull.reason_how === null && bull.note === null);
-  ok("nothing to save until every aim is answered", shotFrom(tDisc, [2, null]) === null);
+  ok("nothing to save until every aim is answered", shotFrom(tDisc, [{ value: "yes" }, { value: null }]) === null);
 
   const mk = readFileSync(new URL("../supabase/migrations/0075_the_mark.sql", import.meta.url), "utf8")
     .split("\n")
@@ -4296,6 +4304,1111 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("and the watch function says so where it explains putting back", /hand_ended_at stays empty/.test(healthSrc) && /0102_watch_corrects\.sql/.test(healthSrc) && /0102_watch_corrects\.sql/.test(watchFn.slice(0, watchFn.indexOf("import "))));
 }
 
+
+{
+  console.log("\nevening checks (0103)");
+  const C = (kind, pass = {}, extra = {}) => ({ id: `c-${kind}`, text: kind, kind, pass, ...extra });
+  ok("an aim from before checks is a Yes/No that counts", (() => {
+    const c = ckNorm({ id: "a", text: " Exercised " });
+    return c.kind === "yn" && c.pass.on === "yes" && c.counts === true && c.text === "Exercised";
+  })());
+  ok("a note is reflection only unless you say", ckNorm({ text: "x", kind: "note" }).counts === false && ckNorm({ text: "x", kind: "note", counts: true, pass: { words: true } }).counts === true);
+  ok("Yes/No: the passing answer is passed, the other not", ckMark(C("yn"), "yes") === 2 && ckMark(C("yn"), "no") === 0);
+  ok("a No can be what passes (no caffeine)", ckMark(C("yn", { on: "no" }), "no") === 2 && ckMark(C("yn", { on: "no" }), "yes") === 0);
+  ok("Some is always partly", ckMark(C("ysn"), "some") === 1 && ckMark(C("ysn", { on: "no" }), "some") === 1);
+  ok("Some isn't an answer to a plain Yes/No", ckMark(C("yn"), "some") === null);
+  ok("1 to 10: the bar passes, two under is partly, lower is not", ckMark(C("scale", { min: 7 }), 7) === 2 && ckMark(C("scale", { min: 7 }), 5) === 1 && ckMark(C("scale", { min: 7 }), 4) === 0);
+  ok("a number at least: the amount passes, any is partly, none is not", ckMark(C("number", { min: 20 }), 25) === 2 && ckMark(C("number", { min: 20 }), 5) === 1 && ckMark(C("number", { min: 20 }), 0) === 0);
+  ok("a number at most: under passes, up to half again over is partly", ckMark(C("number", { max: 2 }), 2) === 2 && ckMark(C("number", { max: 2 }), 3) === 1 && ckMark(C("number", { max: 2 }), 4) === 0);
+  ok("minutes: the full amount passes, any time is partly", ckMark(C("minutes", { min: 30 }), 45) === 2 && ckMark(C("minutes", { min: 30 }), 10) === 1 && ckMark(C("minutes", { min: 30 }), 0) === 0);
+  ok("minutes with no amount: any time passes", ckMark(C("minutes"), 1) === 2 && ckMark(C("minutes"), 0) === 0);
+  ok("a time: by it passes, 15 minutes late is partly", ckMark(C("time", { by: "04:35" }), "04:32") === 2 && ckMark(C("time", { by: "04:35" }), "04:50") === 1 && ckMark(C("time", { by: "04:35" }), "05:30") === 0);
+  ok("times read round the clock: 12:20 am is late for by 10:30 pm", ckMark(C("time", { by: "22:30" }), "00:20") === 0 && ckMark(C("time", { by: "22:30" }), "22:10") === 2 && ckMark(C("time", { by: "23:50" }), "00:02") === 1);
+  ok("clockDiff is early negative, late positive", ckClock("04:30", "04:35") === -5 && ckClock("00:20", "22:30") === 110 && ckClock("21:00", "04:35") < 0);
+  ok("a time with no 'by' never scores", ckMark(C("time"), "04:30") === null && !ckScores(C("time")));
+  ok("pick one: a passing choice passes, the rest don't", ckMark(C("choice", { on: ["Home"] }, { options: ["Home", "Out"] }), "Home") === 2 && ckMark(C("choice", { on: ["Home"] }, { options: ["Home", "Out"] }), "Out") === 0);
+  ok("a choice with nothing passing is reflection only", !ckScores(C("choice", { on: [] }, { options: ["A", "B"] })));
+  ok("a passing choice that isn't one of the choices is dropped", ckNorm(C("choice", { on: ["Gone"] }, { options: ["A"] })).pass.on.length === 0);
+  ok("a note that counts passes once written", ckMark({ text: "n", kind: "note", counts: true, pass: { words: true } }, "Saw it") === 2 && ckMark({ text: "n", kind: "note", counts: true, pass: { words: true } }, "  ") === null);
+  ok("a blank answer is no answer", !ckAnswered(C("number"), null) && !ckAnswered(C("number"), "") && ckAnswered(C("number"), 0) && !ckAnswered(C("yn"), ""));
+
+  const three = [C("yn"), C("scale", { min: 7 }), { id: "r", text: "Examen", kind: "note" }];
+  ok("reflection-only checks never hold the arrow back", ckAll(three, ["yes", 8, null]) && ckLevel(three, ["yes", 8, null]) === 0);
+  ok("every check that scores must be answered", ckLevel(three, ["yes", null, "words"]) === null);
+  ok("the ring is the share passed", ckLevel([C("yn"), C("yn")], ["yes", "no"]) === 2 && ckLevel([C("ysn"), C("yn")], ["some", "yes"]) === 1);
+  ok("nothing that scores, no ring", ckLevel([{ text: "n", kind: "note" }], ["x"]) === null && ckLevel([], []) === null);
+  ok("a focus that counts toward it is one more check", ckLevel([C("yn")], ["yes"], [0]) === 2 && ckShare([C("yn")], ["no"], [1]) === 0.5);
+  ok("a target with no checks of its own takes the focus's ring", ckLevel([], [], [ckShareOfLevel(1)]) === 1 && ckLevel([], [], [ckShareOfLevel(0)]) === 0);
+  ok("each ring's share lands back in that ring", [0, 1, 2, 3, 4, 5].every((k) => ckLevelOfShare(ckShareOfLevel(k)) === k));
+  ok("the old Yes/Some/No thresholds hold", ckLevelOfShare(0.75) === 1 && ckLevelOfShare(0.5) === 2 && ckLevelOfShare(0.25) === 3 && ckLevelOfShare(0.01) === 4 && ckLevelOfShare(0) === 5);
+
+  ok("what passes reads plainly", ckPassText(C("scale", { min: 7 })) === "7 or more" && ckPassText(C("time", { by: "04:35" })) === "By 4:35 am" && ckPassText(C("yn", { on: "no" })) === "No passes" && ckPassText({ text: "n", kind: "note" }) === "Reflection only");
+  ok("and so do answers", ckValueText(C("scale"), 8) === "8/10" && ckValueText(C("time"), "22:05") === "10:05 pm" && ckValueText(C("number", {}, { unit: "pages" }), 12) === "12 pages" && ckValueText(C("yn"), "yes") === "Yes");
+  ok("midnight and noon read right", ckClockText("00:15") === "12:15 am" && ckClockText("12:00") === "12:00 pm");
+
+  const entryRow = ckEntry(C("number", { min: 10 }, { unit: "pages" }), "12", " good ");
+  ok("a saved answer keeps kind, value, mark, unit and line", entryRow.kind === "number" && entryRow.value === 12 && entryRow.v === 2 && entryRow.unit === "pages" && entryRow.line === "good" && entryRow.counts === true);
+  ok("an old answer reads as the Yes/Some/No it was", ckLegacy({ v: 2 }) === "yes" && ckLegacy({ v: 1 }) === "some" && ckLegacy({ v: 0 }) === "no" && ckLegacy({ value: 7, v: 2 }) === 7);
+  const read = answersOf({ answers: [{ aim: "a", text: "Ex", v: 1 }, { aim: "b", text: "Up by", kind: "time", value: "04:40", v: 1, line: "late" }, { focus_goal: "fg", text: "Win by win", level: 1, v: 1 }] });
+  ok("a shot's answers read old and new alike", read[0].kind === "ysn" && read[0].value === "some" && read[1].value === "04:40" && read[1].line === "late" && read[2].kind === "focus" && read[2].level === 1);
+  ok("and say what they were", answerText(read[0]) === "Some" && answerText(read[1]) === "4:40 am" && answerText(read[2]) === "Inner");
+
+  const local = new Date(2026, 10, 2, 4, 32);
+  ok("Up by fills from I'm up", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { dayPlan: { woke_at: local.toISOString() } }) === "04:32");
+  ok("or from the night's sleep the time log has", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 4, 50).toISOString() }, { category: "Sleep", tags: ["Sleep"], is_nap: true, ended_at: new Date(2026, 10, 2, 11, 0).toISOString() }]) === "04:50");
+  ok("an afternoon nap isn't when you got up", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 15, 0).toISOString() }]) === null);
+  {
+    // The evening's log can hold the night ahead (a sleep started tonight and
+    // ended tomorrow morning): with the day given, only that morning counts.
+    const nights = [
+      { category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 4, 40).toISOString() },
+      { category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 3, 4, 31).toISOString() },
+    ];
+    ok("the day's own morning, not the next one", ckWoke(null, nights, "2026-11-02") === "04:40");
+    ok("only the next morning logged: no wake time for this day", ckWoke(null, [nights[1]], "2026-11-02") === null);
+    ok("with no day given, the latest morning still counts", ckWoke(null, nights) === "04:31");
+    ok("autoValue passes the day on", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { entries: [nights[1]], date: "2026-11-02" }) === null);
+    ok("and takes it from the day plan when it isn't given", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { entries: nights, dayPlan: { date: "2026-11-02" } }) === "04:40");
+  }
+  const drawFocus = { id: "f2", categories: ["Drawing"] };
+  const drawLog = [{ tags: ["Drawing"], duration_minutes: 40 }];
+  ok("minutes with a focus fill from the time log", ckAuto({ text: "Drew", kind: "minutes", focus_id: "f2" }, { focusesById: new Map([["f2", drawFocus]]), entries: drawLog, focusMinutes }) === 40);
+  ok("nothing logged leaves it blank, never zero", ckAuto({ text: "Drew", kind: "minutes", focus_id: "f2" }, { focusesById: new Map([["f2", drawFocus]]), entries: [], focusMinutes }) === null);
+
+  ok("a tap's ring comes from how far out it is", levelAtSpot(0, 0) === 0 && levelAtSpot(0, -20) === 1 && levelAtSpot(30, 30) === 2 && levelAtSpot(40, 40) === 3 && levelAtSpot(0, 79) === 4 && levelAtSpot(0, 90) === 5);
+  ok("a tap past the miss band comes back onto it", Math.hypot(clampSpot(200, 0).x, clampSpot(200, 0).y) <= 92.01 && clampSpot(10, 5).x === 10);
+  ok("a ring button's spot is in that ring", [0, 1, 2, 3, 4, 5].every((k) => levelAtSpot(ringSpot(k).x, ringSpot(k).y) === k));
+  ok("1–10 keeps a 1–5 for every older reader", ckToFive(1) === 1 && ckToFive(2) === 1 && ckToFive(7) === 4 && ckToFive(10) === 5 && ckToFive(null) === null);
+  ok("an older day's 1–5 shows on the 1–10", ckTenOf({ mood: 3 }, "mood") === 6 && ckTenOf({ mood: 3, mood_10: 5 }, "mood") === 5 && ckTenOf({}, "stress") === null);
+
+  console.log("\narrows on the week's focus (0103)");
+  ok("a focus's arrow is placed unless it lands by checks", fLandsBy({}) === "placed" && fLandsBy({ lands_by: "checks" }) === "checks");
+  ok("an old check-in reads as moved or not", fCheckinLevel({ moved: true }) === 1 && fCheckinLevel({ moved: false }) === 5 && fCheckinLevel(true) === 1);
+  ok("a new one by its ring", fCheckinLevel({ moved: true, level: 3 }) === 3 && fCheckinLevel({ moved: true, level: 0 }) === 0);
+  const placedShot = checkinShot("g", "2026-11-02", { level: 2, spot_x: 10, spot_y: -38, note: "close" });
+  ok("an arrow you placed sits where you put it", placedShot.x === 10 && placedShot.y === -38 && placedShot.level === 2 && placedShot.note === "close");
+  ok("one landed by checks gets a steady spot in its ring", (() => {
+    const s = checkinShot("g", "2026-11-02", { level: 2 });
+    return JSON.stringify({ x: s.x, y: s.y }) === JSON.stringify(placement("g:2026-11-02", 2, null));
+  })());
+  const arrow = fPlaced({ x: 0, y: -22 }, "  pretty good ");
+  ok("placing makes the ring from the spot and keeps a note", arrow.level === 1 && arrow.spot_y === -22 && arrow.note === "pretty good" && arrow.lands === "placed");
+  ok("a placed spot past the band is pulled in", Math.hypot(fPlaced({ x: 0, y: 300 }).spot_x, fPlaced({ x: 0, y: 300 }).spot_y) <= 92.01 && fPlaced({ x: 0, y: 300 }).level === 5);
+  const upBy = [{ id: "u", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" }];
+  const byChecks = fChecksArrow(upBy, [{ value: "04:30" }]);
+  ok("a focus that lands by checks: up at 4:30 is a bullseye", byChecks.level === 0 && byChecks.lands === "checks" && byChecks.spot_x === null && byChecks.answers[0].value === "04:30");
+  ok("and waits until its checks are answered", fChecksArrow(upBy, [{ value: null }]) === null);
+  ok("its checks come in order, retired ones left out", fChecksFor("g", [{ goal_id: "g", id: "2", text: "b", position: 1 }, { goal_id: "g", id: "1", text: "a", position: 0 }, { goal_id: "g", id: "x", text: "x", retired_on: "2026-11-01" }, { goal_id: "h", id: "h", text: "h" }]).map((c) => c.id).join() === "1,2");
+  ok("what a focus counts toward", fToward({ node_id: "n" })?.kind === "goal" && fToward({ quest_id: "q" })?.kind === "quest" && fToward({ lesson_id: "l" })?.id === "l" && fToward({}) === null);
+  const weekGoals = [
+    { id: "w1", title: "Win by win", node_id: "disc", position: 0 },
+    { id: "w2", title: "Draw daily", node_id: "skill", position: 1 },
+    { id: "w3", title: "Plugin hours", quest_id: "plugin", position: 2 },
+  ];
+  const weekIns = [
+    { goal_id: "w1", date: "2026-11-02", moved: true, level: 1 },
+    { goal_id: "w2", date: "2026-11-01", moved: true, level: 0 },
+    { goal_id: "w3", date: "2026-11-02", moved: false, level: 5 },
+  ];
+  const disc = { kind: "goal", ref: { id: "disc" } };
+  ok("a target picks up tonight's arrow from a focus that counts toward it", (() => {
+    const l = fLinked(disc, weekGoals, weekIns, "2026-11-02");
+    return l.length === 1 && l[0].goal.id === "w1" && l[0].level === 1;
+  })());
+  ok("but not another day's, nor another target's", fLinked({ kind: "goal", ref: { id: "skill" } }, weekGoals, weekIns, "2026-11-02").length === 0 && fLinked({ kind: "quest", ref: { id: "disc" } }, weekGoals, weekIns, "2026-11-02").length === 0);
+  ok("a quest's focus counts toward the quest, miss and all", fLinked({ kind: "quest", ref: { id: "plugin" } }, weekGoals, weekIns, "2026-11-02")[0]?.level === 5);
+  const tgt = { aims: [{ id: "a1", text: "Exercised" }] };
+  const withFocus = shotFrom(tgt, [{ value: "yes" }], { linked: [{ goal: weekGoals[0], level: 1 }] });
+  ok("the focus's arrow is saved in the shot, after the checks", withFocus.answers.length === 2 && withFocus.answers[1].focus_goal === "w1" && withFocus.answers[1].level === 1 && withFocus.level === 1);
+  ok("and never holds the shot back", tonightLevel(tgt, [{ value: null }], [{ goal: weekGoals[0], level: 0 }]) === null);
+  ok("a target of only a focus lands where the focus did", tonightLevel({ aims: [] }, [], [{ goal: weekGoals[0], level: 2 }]) === 2);
+
+  const qs = quickShot({ aims: [{ id: "u", text: "Up by", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { id: "d", text: "Drew", kind: "yn" }] }, 1, [{ value: "04:20" }, { value: null }], { reason: 2, how: "guess" });
+  ok("the short evening's one tap sets the ring for the whole target", qs.level === 2 && qs.answers[0].whole && qs.answers[0].text === WHOLE && qs.answers[0].value === "some" && quickOf(qs) === 1);
+  ok("and keeps what the day answered, without counting it or making the rest up", qs.answers.length === 2 && qs.answers[1].aim === "u" && qs.answers[1].counts === false);
+  ok("a quick bullseye has no section; no tap, no shot", quickShot({ aims: [] }, 2, [], { reason: 1 }).reason === null && quickShot({ aims: [] }, null) === null && quickOf({ answers: [{ aim: "a", v: 2 }] }) === null);
+  const sql = readFileSync(new URL("../supabase/migrations/0103_evening_checks.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok("0103 only adds: nothing dropped, deleted or rewritten", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b|\balter\s+column\b|\brename\b/i.test(sql));
+  ok("0103 adds columns only with if not exists", (sql.match(/add column(?! if not exists)/g) ?? []).length === 0);
+  ok("existing aims become Yes/No checks that count", /add column if not exists kind text not null default 'yn'/.test(sql) && /add column if not exists counts boolean not null default true/.test(sql));
+  ok("a focus's checks are yours, on your own goal", /alter table public\.focus_checks enable row level security/.test(sql) && /g\.id = goal_id and g\.user_id = auth\.uid\(\)/.test(sql) && /revoke all on public\.focus_checks from anon/.test(sql));
+  ok("a focus's quest and lesson must be yours", /as restrictive\s+for insert/.test(sql) && /as restrictive\s+for update/.test(sql) && (sql.match(/q\.user_id = auth\.uid\(\)/g) ?? []).length === 2);
+  ok("a check-in's spot stays on the target", /spot_x \* spot_x \+ spot_y \* spot_y <= 97 \* 97/.test(sql));
+  ok("the 1–10 feelings and the notes", ["mood_10", "stress_10"].every((c) => sql.includes(`add column if not exists ${c} smallint`)) && ["god_note", "mood_note", "stress_note"].every((c) => sql.includes(`add column if not exists ${c} text`)));
+}
+
+
+// ===== Review fixes, batch A =====
+// Tonight's shots on each target: taken back when the ring goes, the day's
+// answers never frozen, an edit made just before leaving kept, what can't
+// be saved yet said plainly, and a removed choice dropped.
+{
+  console.log("\nreview fixes, batch A: tonight's shots");
+  const M = await import("../src/lib/mark.js");
+  const today = "2026-11-02";
+  const shipIt = { id: "w1", title: "Ship settings" };
+  const asRow = (shot) => ({ id: "row", target_id: "t1", date: today, loosed_at: null, ...shot, answers: shot.answers.map((a) => Object.fromEntries(Object.entries(a).reverse())) });
+
+  // --- #1, #7, #13: a shot whose ring goes back to none is taken back --------
+  const plugin = { key: "q1", kind: "quest", ref: { id: "q1" }, targetId: "t1", aims: [], shots: [], reasons: ["a", "b", "c", "d"] };
+  const placed = { answers: [], line: "", quick: null, pick: null };
+  const fedShot = M.shotChange(plugin, placed, null, { linked: [{ goal: shipIt, level: 1 }], today });
+  ok("a target fed only by a focus saves the ring the focus landed", fedShot?.shot?.level === 1 && fedShot.shot.answers[0].focus_goal === "w1");
+  const fedRow = asRow(fedShot.shot);
+  ok("and saves nothing more while that arrow stays", M.shotChange(plugin, placed, fedRow, { linked: [{ goal: shipIt, level: 1 }], today }) === null);
+  ok("taking the focus's arrow back takes the target's shot back too", M.shotChange(plugin, placed, fedRow, { linked: [], today })?.takeBack === true);
+  const pages = { key: "g1", kind: "goal", ref: { id: "g1" }, targetId: "t1", shots: [], reasons: ["a", "b", "c", "d"], aims: [{ id: "p", text: "Pages read", kind: "number", pass: { min: 10 } }, { id: "x", text: "Exercised", kind: "yn" }] };
+  const bull = M.shotChange(pages, { answers: [{ value: 12, line: "" }, { value: "yes", line: "" }], line: "" }, null, { today });
+  const cleared = { answers: [{ value: null, line: "", day: false }, { value: "yes", line: "" }], line: "" };
+  ok("so does clearing a typed answer it was landed by", bull?.shot?.level === 0 && M.shotChange(pages, cleared, asRow(bull.shot), { today })?.takeBack === true);
+  ok("nothing saved, nothing to take back", M.shotChange(pages, cleared, null, { today }) === null);
+  ok("an arrow already loosed stays where it landed", M.shotChange(pages, cleared, { ...asRow(bull.shot), loosed_at: "2026-11-02T22:00:00Z" }, { today }) === null);
+  ok("and nothing is taken back before the week's been read: a focus may be what gives it its ring", M.shotChange(plugin, placed, fedRow, { linked: [], today, weekRead: false }) === null);
+  const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
+  ok(
+    "the evening sends a ring that's gone through the same per-target chain, and takes the shot back there",
+    /if \(level == null\) \{\s*persist\(key\);\s*return;\s*\}/.test(shotsSrc) &&
+      /change\.takeBack/.test(shotsSrc) &&
+      /await deleteTonightShot\(userId, was\.target_id \?\? t\.targetId, date\);\s*saved\.current\.delete\(key\);/.test(shotsSrc) &&
+      /\(chains\.current\.get\(key\) \?\? Promise\.resolve\(\)\)\.then\(run\)/.test(shotsSrc)
+  );
+  const apiSrc = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
+  const delFrom = apiSrc.indexOf("export async function deleteTonightShot");
+  ok("deleteTonightShot sits right after looseShots", delFrom > apiSrc.indexOf("export async function looseShots") && delFrom < apiSrc.indexOf("export async function readMarkLine"));
+  const delSrc = apiSrc.slice(delFrom, apiSrc.indexOf("\n}\n", delFrom) + 2).replace(/^export /, "");
+  const calls = [];
+  const fakeDb = {
+    from: (table) => {
+      const q = { table, ops: [] };
+      calls.push(q);
+      const chain = {
+        delete: () => (q.ops.push(["delete"]), chain),
+        eq: (c, v) => (q.ops.push(["eq", c, v]), chain),
+        is: (c, v) => (q.ops.push(["is", c, v]), chain),
+        then: (res) => res({ error: null }),
+      };
+      return chain;
+    },
+  };
+  const deleteTonightShot = new Function("supabase", `${delSrc}; return deleteTonightShot;`)(fakeDb);
+  await deleteTonightShot("u1", "t1", today);
+  await deleteTonightShot("u1", null, today);
+  const ops = JSON.stringify(calls[0]?.ops);
+  ok(
+    "and deletes only that target's shot for the day, only while it's still in hand",
+    calls.length === 1 && calls[0].table === "mark_shots" && ops === JSON.stringify([["delete"], ["eq", "user_id", "u1"], ["eq", "target_id", "t1"], ["eq", "date", today], ["is", "loosed_at", null]]),
+    ops
+  );
+
+  // --- #3, #12: an answer the day filled in takes the day's newer one --------
+  const drawing = { id: "f-draw", categories: ["Drawing"] };
+  const byId = new Map([[drawing.id, drawing]]);
+  const log = (mins) => [{ tags: ["Drawing"], duration_minutes: mins }];
+  const drew = { key: "g2", kind: "goal", ref: { id: "g2" }, shots: [], reasons: ["a", "b", "c", "d"], tonight: null, aims: [{ id: "m", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f-draw" }, { id: "k", text: "Kept it", kind: "yn" }] };
+  const at6 = M.tonightDraft(drew, { focusesById: byId, entries: log(20) });
+  const kept6 = M.localDraft(drew, at6, null);
+  ok("the time log's minutes are kept on this phone marked as the day's", kept6.answers.m?.value === 20 && kept6.answers.m.day === true && !("k" in kept6.answers));
+  const at10 = M.tonightDraft(drew, { focusesById: byId, entries: log(60), mine: kept6 });
+  ok("so reopening later takes the day's newer number, not the one from six o'clock", at10.answers[0].value === 60 && at10.answers[0].day === true);
+  at10.answers[1] = { value: "yes", line: "", day: false };
+  ok("and the shot lands where the day really put it", M.tonightShot(drew, at10, { today })?.level === 0);
+  const mineKept = M.localDraft(drew, { ...at6, answers: [{ value: 25, line: "", day: false }, at6.answers[1]] }, null);
+  ok("a number he typed himself stays put however the log moves", M.tonightDraft(drew, { focusesById: byId, entries: log(60), mine: mineKept }).answers[0].value === 25);
+  const savedDay = M.shotFrom(drew, [{ value: 20, line: "", day: true }, { value: "yes", line: "", day: false }]);
+  ok("a saved shot marks the day's answer as the day's, and only that one", savedDay.answers[0].day === true && savedDay.answers[1].day === undefined);
+  const fromSavedDay = M.startingAnswers({ ...drew, tonight: asRow(savedDay) }, { focusesById: byId, entries: log(60) });
+  ok("and the day's newer answer wins over it, his own still his", fromSavedDay[0].value === 60 && fromSavedDay[0].day === true && fromSavedDay[1].value === "yes" && fromSavedDay[1].day === false);
+  const savedMine = M.shotFrom(drew, [{ value: 20, line: "", day: false }, { value: "yes", line: "" }]);
+  ok("a saved answer he gave himself is never replaced by the day's", M.startingAnswers({ ...drew, tonight: asRow(savedMine) }, { focusesById: byId, entries: log(60) })[0].value === 20);
+  ok("the day with nothing now keeps the answer it gave", M.startingAnswers({ ...drew, tonight: asRow(savedDay) }, { focusesById: byId, entries: [] })[0].value === 20);
+  const running = [{ value: 1, line: "", day: true }, { value: null, line: "", day: true }];
+  const stopped = M.freshAnswers(drew, running, { focusesById: byId, entries: log(45) });
+  ok("while the evening is open, a timer stopped since gives the day's answer its real minutes", stopped !== running && stopped[0].value === 45 && stopped[0].day === true && stopped[1] === running[1]);
+  ok("and nothing new gives back the very same answers, so nothing saves again", M.freshAnswers(drew, stopped, { focusesById: byId, entries: log(45) }) === stopped);
+  ok("one he gave himself is left alone", M.freshAnswers(drew, [{ value: 10, line: "", day: false }, running[1]], { focusesById: byId, entries: log(45) })[0].value === 10);
+  ok(
+    "the evening marks his own answers as his and takes the day's newer ones while it's open",
+    /\{ \.\.\.a, value, day: false \}/.test(shotsSrc) && /freshAnswers\(t, x\.answers, \{ focusesById, entries, dayPlan, date \}\)/.test(shotsSrc) && /localDraft\(t, d, saved\.get\(t\.key\)\)/.test(shotsSrc)
+  );
+
+  // --- The quick card and the full card still agree, with no save loop -------
+  const quickSaved = M.quickShot(drew, 1, [{ value: 20, line: "", day: true }, { value: null, line: "", day: true }], { reason: 0, how: "guess" });
+  ok("a quick tap keeps the day's answer marked as the day's", quickSaved.answers[1].aim === "m" && quickSaved.answers[1].day === true && quickSaved.answers[1].counts === false);
+  const fullOnQuick = M.tonightDraft({ ...drew, tonight: asRow(quickSaved) }, { focusesById: byId, entries: log(20) });
+  ok("the full card opens on the quick card's tap, and re-making it saves nothing", fullOnQuick.quick === 1 && M.shotChange(drew, fullOnQuick, asRow(quickSaved), { today }) === null);
+  const fullSaved = M.tonightShot(drew, { answers: [{ value: 20, line: "", day: true }, { value: "no", line: "", day: false }], line: "late", pick: { k: 1, how: "read" } }, { today });
+  const quickOnFull = M.tonightDraft({ ...drew, tonight: asRow(fullSaved) }, { focusesById: byId, entries: log(20) });
+  ok("the quick card opens on the full card's answers, and saves nothing until it's tapped", quickOnFull.quick === null && M.shotChange(drew, quickOnFull, asRow(fullSaved), { today }) === null);
+  ok("a newer day's minutes save once, then rest", (() => {
+    const moved = { ...quickOnFull, answers: M.freshAnswers(drew, quickOnFull.answers, { focusesById: byId, entries: log(50) }) };
+    const once = M.shotChange(drew, moved, asRow(fullSaved), { today });
+    return once?.shot?.answers[0].value === 50 && M.shotChange(drew, moved, asRow(once.shot), { today }) === null;
+  })());
+
+  // --- #4, #15: an edit made just before leaving isn't put back -------------
+  const scripture = { key: "l1", kind: "lesson", ref: { id: "l1" }, shots: [], reasons: ["a", "b", "c", "d"], aims: [{ id: "s", text: "Minutes in scripture", kind: "minutes", pass: { min: 20 } }] };
+  const s15 = asRow(M.shotFrom(scripture, [{ value: 15, line: "" }], { line: "rushed", reason: 0, how: "read" }));
+  const typed30 = M.localDraft(scripture, { answers: [{ value: 30, line: "", day: false }], line: "slow and good" }, s15);
+  ok("the draft remembers the saved shot it sits on, whatever order its keys come back in", typed30.base === M.shotKey(s15) && M.shotKey(asRow(s15)) === M.shotKey(s15) && M.shotKey(null) === null);
+  const back30 = M.tonightDraft({ ...scripture, tonight: s15 }, { mine: typed30 });
+  ok("so a 30 typed a moment before leaving wins over the 15 still saved", back30.answers[0].value === 30 && back30.line === "slow and good");
+  ok("and the new line is read again, the saved one already was", back30.readFor === "rushed" && back30.pick.k === 0);
+  const s20 = asRow(M.shotFrom(scripture, [{ value: 20, line: "" }]));
+  ok("once the shot saved has moved on since (the desk finished it), the shot wins", M.tonightDraft({ ...scripture, tonight: s20 }, { mine: typed30 }).answers[0].value === 20);
+  ok(
+    "leaving the card settles what was waiting instead of dropping it, and the draft is written again once a save lands",
+    /settleRef\.current\(key, \{ now: true \}\)/.test(shotsSrc) && /return \(\) => \{\s*alive\.current = false;/.test(shotsSrc) && (shotsSrc.match(/keepLocal\(\);/g) ?? []).length === 2
+  );
+
+  // --- #11: what can't be saved yet says so, and stays in the draft ----------
+  const examen = { key: "l2", kind: "lesson", ref: { id: "l2" }, shots: [], tonight: null, reasons: ["a", "b", "c", "d"], aims: [{ id: "e", text: "The Examen", kind: "note" }] };
+  const wrote = { answers: [{ value: "Where I saw God today", line: "", day: false }], line: "a long day", quick: null };
+  ok("an Examen-only target has no shot to save it in", M.tonightShot(examen, wrote, { today }) === null);
+  const examenKept = M.localDraft(examen, wrote, null);
+  ok("so it's kept in the draft, and comes back next time", M.tonightDraft(examen, { mine: examenKept }).answers[0].value === "Where I saw God today" && M.tonightDraft(examen, { mine: examenKept }).line === "a long day");
+  const alone = M.keptText(examen, wrote, { level: null, feeds: [] });
+  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /The Range/.test(alone), alone);
+  const fedNotYet = M.keptText(examen, wrote, { level: null, feeds: [shipIt] });
+  ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands, and isn't kept if you bank the day without it/.test(fedNotYet), fedNotYet);
+  ok("once that arrow has landed it only says where the arrow came from", M.keptText(examen, wrote, { level: 1, feeds: [shipIt] }) === "These are all reflection only, so its arrow comes from Ship settings.");
+  const half = { answers: [{ value: null, line: "only 4 pages", day: true }, { value: "yes", line: "", day: false }], line: "", quick: null };
+  ok("a target still short of an answer says what it holds stays here until every check that counts is answered", /until every check that counts is answered/.test(M.keptText(pages, half, { level: null }) ?? ""));
+  ok("but says nothing before anything's been given, or once it has its ring", M.keptText(pages, { answers: [{ value: null, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null && M.keptText(pages, half, { level: 2 }) === null);
+  ok("nor for what only the day filled in", M.keptText(drew, { answers: [{ value: 20, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null);
+  ok("a target fed only by a focus says the line waits on it", /until Ship settings lands its arrow, and isn't kept if you bank the day without it/.test(M.keptText(plugin, { answers: [], line: "good day" }, { level: null, feeds: [shipIt] }) ?? ""));
+  const allSaid = [alone, fedNotYet, M.keptText(pages, half, { level: null }), M.keptText(plugin, { answers: [], line: "x" }, { level: null, feeds: [shipIt] })];
+  ok("in plain words, no dashes", allSaid.every((s) => typeof s === "string" && !/[—–]/.test(s)));
+  const markCss = readFileSync(new URL("../src/styles/mark.css", import.meta.url), "utf8");
+  ok("the evening shows it by the boxes", /keptText\(t, d, \{ level, feeds: tFeeds \}\)/.test(shotsSrc) && /className="card-note mk-shot__kept"/.test(shotsSrc) && /\.mk-shot__kept \{/.test(markCss) && shotsSrc.indexOf("mk-shot__kept") < shotsSrc.indexOf("mk-shot__line"));
+
+  // --- #16: a choice whose option was taken out starts blank -----------------
+  const how = { aims: [{ id: "h", text: "How I met the evening", kind: "choice", options: ["Peaceful", "Rushed"], pass: { on: ["Peaceful"] } }] };
+  const calm = { answers: [{ aim: "h", text: "How I met the evening", kind: "choice", value: "Calm", v: 2 }] };
+  ok("a saved choice whose option has been taken out starts blank", M.startingAnswers({ ...how, tonight: calm }, {})[0].value === null);
+  ok("one still there is kept", M.startingAnswers({ ...how, tonight: { answers: [{ ...calm.answers[0], value: "Rushed" }] } }, {})[0].value === "Rushed");
+  ok("even on a choice that only asks", M.startingAnswers({ aims: [{ ...how.aims[0], pass: { on: [] } }], tonight: calm }, {})[0].value === null);
+
+  {
+    // Recheck of batch A: a cleared answer stays cleared, the week-unread
+    // guard only where a focus could matter.
+    const pages = { id: "p", text: "Pages", kind: "number", pass: { min: 10 } };
+    const t1 = { aims: [pages], tonight: { answers: [{ aim: "p", text: "Pages", kind: "number", value: 12, v: 2 }] } };
+    const cleared = M.localDraft(t1, { answers: [{ value: null, line: "", day: false }], line: "" }, t1.tonight);
+    ok("a cleared answer is kept in the phone's draft", cleared.answers.p && cleared.answers.p.value === null && cleared.answers.p.day === false);
+    ok("and reads back blank over the shot saved before", M.restoreAnswers(t1, [{ value: 12, line: "", day: false }], cleared.answers)[0].value === null);
+    const was = { target_id: "T", level: 0, answers: t1.tonight.answers, loosed_at: null };
+    ok("before the week is read, a target whose own check was cleared is still taken back", M.shotChange(t1, { answers: [{ value: null }], line: "" }, was, { weekRead: false })?.takeBack === true);
+    ok("one with nothing of its own to finish waits for the week", M.shotChange({ aims: [] }, { answers: [], line: "" }, was, { weekRead: false }) === null);
+  }
+}
+
+// (end of review fixes, batch A)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+
+// ===== Review fixes, batch B =====
+// What's typed on a focus tonight is kept until an arrow holds it (#6, #10,
+// #14, #17, #18, #23), a checks-landed arrow whose save failed is tried
+// again and says it isn't saved (#5), and a choice taken off a focus's
+// check no longer reads as answered (#16, focus.js).
+{
+  console.log("\nreview fixes, batch B: a focus's arrow keeps what you typed");
+  const F = await import("../src/lib/focus.js");
+  const D = "2026-11-02";
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const energy = { id: "e", goal_id: "g", text: "Energy on waking", kind: "scale", pass: { min: 7 } };
+  const bed = { id: "b", goal_id: "g", text: "In bed by 9", kind: "time", pass: { by: "21:00" } };
+  const up = { id: "u", goal_id: "g", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+  const three = F.checksFor("g", [energy, bed, up]);
+
+  // #16: a choice taken off the list starts blank, so no miss is saved for it.
+  const met = { id: "m", goal_id: "g", text: "How I met the evening", kind: "choice", options: ["Peaceful", "Tense"], pass: { on: ["Peaceful"] } };
+  const calmRow = { answers: [{ aim: "m", text: "How I met the evening", kind: "choice", value: "Calm", v: 2 }], level: 0, lands: "checks" };
+  ok("#16 a saved choice that's been taken off the list starts blank", F.focusAnswers([met], calmRow)[0].value === null);
+  ok("#16 so the arrow waits for an answer rather than landing a miss", F.landedArrow([met], F.focusAnswers([met], calmRow)) === null);
+  ok("#16 a choice still on the list is kept", F.focusAnswers([met], { answers: [{ aim: "m", value: "Tense", v: 0 }] })[0].value === "Tense");
+
+  // The draft, kept on this phone.
+  const s1 = store();
+  ok("a focus's draft is kept by day, one entry per focus", (() => {
+    F.keepArrowDraft(D, "g", { mine: { e: { value: 7 } }, note: "Felt strong", at: 1 }, s1);
+    F.keepArrowDraft(D, "h", { mine: {}, note: "other", at: 2 }, s1);
+    const raw = JSON.parse(s1.getItem(F.arrowDraftKey(D)));
+    return F.arrowDraftKey(D) === `hub.focus.draft.${D}` && raw.g.note === "Felt strong" && raw.h.note === "other" && F.readArrowDraft(D, "g", s1).mine.e.value === 7;
+  })());
+  ok("clearing one focus leaves the others, and the day's key goes once it's empty", (() => {
+    F.keepArrowDraft(D, "g", null, s1);
+    const kept = F.readArrowDraft(D, "g", s1) === null && F.readArrowDraft(D, "h", s1)?.note === "other";
+    F.keepArrowDraft(D, "h", null, s1);
+    return kept && s1.getItem(F.arrowDraftKey(D)) === null;
+  })());
+  ok("a broken draft, or no storage at all, gives nothing and never throws", (() => {
+    const bad = store();
+    bad.setItem(F.arrowDraftKey(D), "{not json");
+    const boom = { getItem() { throw new Error("off"); }, setItem() { throw new Error("off"); }, removeItem() { throw new Error("off"); } };
+    F.keepArrowDraft(D, "g", { note: "x", at: 1 }, boom);
+    return F.readArrowDraft(D, "g", bad) === null && F.readArrowDraft(D, "g", boom) === null && F.readArrowDraft(D, "g", store()) === null;
+  })());
+
+  // What a draft gives back.
+  const restored = F.restoreMine(three, { e: { value: 7, line: "Slept well for once" }, b: { value: null }, gone: { value: "yes" }, u: { value: "half past" } });
+  ok("a draft's answers come back for checks still asked", restored.e.value === 7 && restored.e.line === "Slept well for once" && !("gone" in restored));
+  ok("an answer you cleared stays cleared", "b" in restored && restored.b.value === null);
+  ok("an answer that no longer fits its check is passed over", !("u" in restored));
+  ok("a choice taken off the list is passed over, its line kept", (() => {
+    const r = F.restoreMine([met], { m: { value: "Calm", line: "a quiet one" } });
+    return !("value" in r.m) && r.m.line === "a quiet one";
+  })());
+  ok("a broken draft gives no answers", Object.keys(F.restoreMine(three, null)).length === 0 && Object.keys(F.restoreMine(three, [1, 2])).length === 0 && Object.keys(F.restoreMine(three, { e: "7" })).length === 0);
+
+  // #17 / #14 / #6: two answers of three and a note, then Short and Full (or a reload).
+  const s2 = store();
+  const partial = { mine: { e: { value: 7, line: "Slept well for once" } }, note: "Felt strong all morning", at: Date.parse("2026-11-02T21:00:00Z") };
+  F.keepArrowDraft(D, "g", partial, s2);
+  const back = F.arrowStart(three, null, F.readArrowDraft(D, "g", s2));
+  const backAnswers = F.focusAnswers(three, null, { auto: [null, null, "04:30"], mine: back.mine });
+  ok("#17 half-answered checks and the note come back when the focus opens again", back.note === "Felt strong all morning" && backAnswers[0].value === 7 && backAnswers[0].line === "Slept well for once" && backAnswers[2].value === "04:30" && !back.drop);
+  ok("#17 and still no arrow lands until the last check is answered", F.landedArrow(three, backAnswers, back.note) === null);
+  ok("#14 with nothing typed there's no draft, and the saved note is where it starts", (() => {
+    const st = F.arrowStart(three, { note: "saved", updated_at: "2026-11-02T20:00:00Z" }, null);
+    return st.note === "saved" && Object.keys(st.mine).length === 0 && !st.drop;
+  })());
+
+  // Which wins: the draft or the saved arrow.
+  const savedRow = (at, extra = {}) => ({ goal_id: "g", date: D, level: 1, note: "from the laptop", answers: [], lands: "checks", updated_at: at, ...extra });
+  ok("a saved arrow older than the draft gives way to it", F.arrowStart(three, savedRow("2026-11-02T20:00:00Z"), partial).note === "Felt strong all morning");
+  ok("a saved arrow newer than the draft wins, and the draft can go", (() => {
+    const st = F.arrowStart(three, savedRow("2026-11-02T22:00:00Z"), partial);
+    return st.note === "from the laptop" && Object.keys(st.mine).length === 0 && st.drop;
+  })());
+  ok("a draft the saved arrow already holds can go", (() => {
+    const held = F.landedArrow(three, [{ value: 7, line: "Slept well for once" }, { value: "20:45" }, { value: "04:30", day: true }], "Felt strong all morning");
+    const st = F.arrowStart(three, { ...held, updated_at: "2026-11-02T20:00:00Z" }, partial);
+    return st.drop && st.note === "Felt strong all morning";
+  })());
+  ok("an arrow still on its way (no updated_at yet) never outranks the draft", F.arrowStart(three, savedRow(undefined), partial).note === "Felt strong all morning");
+
+  // When a saved arrow holds the draft.
+  const all = F.landedArrow(three, [{ value: 7, line: "Slept well for once" }, { value: "20:45" }, { value: "04:30", day: true }], "Felt strong all morning");
+  ok("an arrow with every answer, line and the note holds the draft", F.draftHeld(three, partial, all));
+  ok("one with a different note, answer or line doesn't", !F.draftHeld(three, partial, { ...all, note: "other" }) && !F.draftHeld(three, { ...partial, mine: { e: { value: 8 } } }, all) && !F.draftHeld(three, { ...partial, mine: { e: { value: 7, line: "new line" } } }, all));
+  ok("no arrow holds a draft with something in it; an empty one is held by anything", !F.draftHeld(three, partial, null) && F.draftHeld(three, { mine: {}, note: "  ", at: 1 }, null) && F.draftHeld(three, null, null));
+  ok("a draft's note is compared as it would be kept", F.draftHeld(three, { mine: {}, note: "  Felt strong all morning  " }, all));
+
+  // Once an arrow saves.
+  const s3 = store();
+  F.keepArrowDraft(D, "g", partial, s3);
+  F.settleArrowDraft(D, "g", three, all, s3);
+  ok("an arrow that saves holding the draft clears it", F.readArrowDraft(D, "g", s3) === null);
+  F.keepArrowDraft(D, "g", { ...partial, mine: { ...partial.mine, b: { value: "20:50" } } }, s3);
+  F.settleArrowDraft(D, "g", three, all, s3, 5e12);
+  ok("one that doesn't hold all of it (typed while it saved) keeps it, stamped newer than the save", F.readArrowDraft(D, "g", s3)?.at === 5e12 && F.readArrowDraft(D, "g", s3).mine.b.value === "20:50");
+
+  // #18: a note typed before placing, and one left after taking the arrow back.
+  const s4 = store();
+  F.keepArrowDraft(D, "w", { mine: {}, note: "Held my temper twice", at: 10 }, s4);
+  ok("#18 a note typed before an arrow is placed comes back with the focus", F.arrowStart([], null, F.readArrowDraft(D, "w", s4)).note === "Held my temper twice");
+  F.settleArrowDraft(D, "w", [], null, s4, 20);
+  ok("#18 taking the arrow back keeps the note on this phone, not just in the box", F.readArrowDraft(D, "w", s4)?.note === "Held my temper twice" && F.readArrowDraft(D, "w", s4).at === 20);
+  F.settleArrowDraft(D, "w", [], F.placedArrow({ x: 0, y: -20 }, "Held my temper twice"), s4);
+  ok("#18 placing the arrow saves the note with it and the draft goes", F.readArrowDraft(D, "w", s4) === null);
+
+  // #10: a note on a focus whose checks aren't all answered goes onto the arrow already there.
+  const landedRow = { goal_id: "g", date: D, moved: true, ...all, note: null, updated_at: "2026-11-02T20:00:00Z" };
+  const withNote = F.arrowWithNote(landedRow, "  Rough night with the kids ");
+  ok("#10 the arrow already there takes the note, just as it is otherwise", withNote.note === "Rough night with the kids" && withNote.level === landedRow.level && withNote.lands === "checks" && withNote.answers === landedRow.answers && !("updated_at" in withNote) && !("goal_id" in withNote));
+  ok("#10 an old yes-or-no day keeps the ring it reads as", F.arrowWithNote({ moved: true }, "x").level === 1 && F.arrowWithNote({ moved: false }, "x").level === 5);
+  ok("#10 with a check left unanswered, a new note is what's saved", F.arrowKey(F.arrowToSave(landedRow, null, "Rough night with the kids")) === F.arrowKey(withNote));
+  ok("#10 and nothing is saved when the note hasn't changed, or there's no arrow yet", F.arrowToSave(landedRow, null, "  ") === null && F.arrowToSave({ ...landedRow, note: "same" }, null, " same ") === null && F.arrowToSave(null, null, "a note") === null);
+
+  // #5: a checks-landed arrow whose save failed.
+  const old = { ...landedRow, level: 3, answers: [], note: null };
+  ok("#5 a ready arrow that isn't what's saved is saved", F.arrowToSave(old, all, all.note) === all && F.arrowToSave(null, all, all.note) === all);
+  ok("#5 one that is, isn't, unless its last save failed", F.arrowToSave({ ...all, updated_at: "x" }, all, all.note) === null && F.arrowToSave(all, all, all.note, F.arrowKey(all)) === all);
+  ok("#5 after a failed save the card says Not saved, even while the week still shows it", F.arrowNotSaved(all, { goal_id: "g", ...all }, { failed: F.arrowKey(all) }) && F.arrowNotSaved(all, old, { failed: F.arrowKey(all) }) && F.arrowNotSaved(all, null, { failed: F.arrowKey(all) }));
+  ok("#5 or when the week holds another arrow with nothing on its way", F.arrowNotSaved(all, old) && F.arrowNotSaved(all, null));
+  ok("#5 never while a save is waiting or on its way, nor once it's read back saved", !F.arrowNotSaved(all, old, { pending: true }) && !F.arrowNotSaved(all, { goal_id: "g", ...all }) && !F.arrowNotSaved(all, { ...all, updated_at: "2026-11-02T22:00:00Z" }, { failed: F.arrowKey(all) }) && !F.arrowNotSaved(null, old));
+
+  // The card, read as source.
+  const src = readFileSync(new URL("../src/components/focus/FocusArrows.jsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  ok("GoalArrow starts from the draft this phone kept", /useState\(\(\) => arrowStart\(checks, row, readArrowDraft\(date, goal\.id\)\)\)/.test(src) && /useState\(start\.note\)/.test(src) && /useState\(start\.mine\)/.test(src));
+  ok("every answer, line and note is kept on this phone as it's typed", /setMine\(next\);\s*keep\(\);/.test(src) && /noteRef\.current = text;\s*keep\(\);/.test(src));
+  ok("taking the arrow back keeps the note before the arrow goes", /cancel\(\);\s*keep\(\);\s*save\(null\);/.test(src));
+  ok("each save clears the draft once it holds it, and remembers a failure", /if \(saved\) settleArrowDraft\(date, goal\.id, checksRef\.current, next\);\s*else if \(next\) setFailedKey\(arrowKey\(next\)\);/.test(src));
+  ok("#5 flush with nothing waiting tries again", /if \(!job\) \{\s*retry\.current\?\.\(\);/.test(src) && /retry\.current =\s*mode === "checks"\s*\? saveChecks/.test(src));
+  ok("#5 the card says Not saved, with a way to try again", /else if \(ready && unsaved\) words = "Not saved\.";/.test(src) && /focus-arrow__retry/.test(src) && /Try again/.test(src) && /\.focus-arrow__retry \{/.test(css));
+  ok("#10 a note typed on a focus with an arrow saves whichever way it lands", /if \(rowRef\.current\) later\(mode === "placed" \? saveNote : saveChecks, NOTE_MS\);/.test(src));
+  ok("#18 #23 a note with no arrow yet says plainly it isn't kept", src.includes("Place the arrow to keep this note.") && src.includes("Answer its checks to keep this note.") && /\.focus-arrow__keep \{/.test(css) && /\.focus-arrow__note-box \{ align-self: stretch;/.test(css));
+  ok("the card's words have no em-dashes", !src.replace(/^\s*\/\/.*$/gm, "").includes("—"));
+}
+
+// (end of review fixes, batch B)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+
+// ===== Review fixes, batch C =====
+{
+  console.log("\nreview fixes: the reflection's draft, Short and Full, saving checks twice, the check editor");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  // A component's own helpers, built with what it imports swapped for
+  // stand-ins, except the modules `keep` names (the FocusSheet pattern above).
+  const helpersOf = async (rel, keep = null) => {
+    const path = fileURLToPath(new URL(`../${rel}`, import.meta.url));
+    const text = readFileSync(path, "utf8");
+    const built = await esbuildBundle({
+      entryPoints: [path],
+      bundle: true,
+      write: false,
+      format: "esm",
+      jsx: "transform",
+      logLevel: "silent",
+      plugins: [
+        {
+          name: "stand-ins",
+          setup(b) {
+            b.onResolve({ filter: /.*/ }, (a) => (a.importer === path && !(keep && keep.test(a.path)) ? { path: a.path, namespace: "stand-in" } : undefined));
+            b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+              const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const names = (text.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+              return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+            });
+          },
+        },
+      ],
+    });
+    return import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  };
+
+  // --- #0 The reflection's draft and the notes below it -------------------------
+  const { mergeDraft } = await helpersOf("src/components/day/ReflectionFlow.jsx");
+  const blank = { godsHand: "", qSavior: "", qLearn: "", thoughts: "" };
+  const typed = Date.parse("2026-11-02T22:00:30-07:00");
+  const noteAt = Date.parse("2026-11-02T22:01:10-07:00");
+  // Card 3 written without tapping Next; then a stress note autosaves and stamps the journal row.
+  const kept = { ...blank, godsHand: "At dinner" };
+  const draft = { answers: { ...kept, qLearn: "A whole paragraph" }, base: kept, at: typed };
+  ok("a note saved after the reflection was typed doesn't throw the reflection's draft away", mergeDraft(kept, draft, noteAt).qLearn === "A whole paragraph" && mergeDraft(kept, draft, noteAt).godsHand === "At dinner");
+  const failed = { answers: { ...blank, qSavior: "Kept on this phone" }, base: blank, at: typed };
+  ok("nor words a failed save left on the phone, once a God note saves later", mergeDraft(blank, failed, noteAt).qSavior === "Kept on this phone");
+  const elsewhere = { answers: { ...blank, godsHand: "Phone's old words", thoughts: "New here" }, base: { ...blank, godsHand: "Phone's old words" }, at: noteAt };
+  const fromLaptop = mergeDraft({ ...blank, godsHand: "Rewritten on the laptop" }, elsewhere, typed);
+  ok("an answer saved elsewhere since stands over one the draft never touched, however new the draft", fromLaptop.godsHand === "Rewritten on the laptop" && fromLaptop.thoughts === "New here", JSON.stringify(fromLaptop));
+  ok("a box you cleared here stays cleared", mergeDraft({ ...blank, thoughts: "Old" }, { answers: { ...blank, thoughts: "" }, base: { ...blank, thoughts: "Old" }, at: typed }, noteAt).thoughts === "");
+  const both = (at, mine, now) => mergeDraft({ ...blank, qLearn: now }, { answers: { ...blank, qLearn: mine }, base: blank, at }, Date.parse("2026-11-02T22:00:00-07:00")).qLearn;
+  ok("both changed: the newer one, or the draft when it only adds to what's saved", both(typed, "Phone", "Laptop") === "Phone" && both(Date.parse("2026-11-02T21:00:00-07:00"), "Phone", "Laptop") === "Laptop" && both(Date.parse("2026-11-02T21:00:00-07:00"), "Laptop, and more", "Laptop") === "Laptop, and more");
+  // A draft written before drafts said where they started: { answers, at }.
+  const old = { answers: { godsHand: "Older words", qSavior: "", qLearn: "Only here", thoughts: "" }, at: typed };
+  const fromOld = mergeDraft({ ...blank, godsHand: "Saved since", qSavior: "Saved too" }, old, noteAt);
+  ok("an old draft still loads: what's only on the phone is kept, a newer saved answer stands, a blank never blanks one", fromOld.qLearn === "Only here" && fromOld.godsHand === "Saved since" && fromOld.qSavior === "Saved too", JSON.stringify(fromOld));
+  ok("and where the old draft is newer, it wins as it did", mergeDraft({ ...blank, godsHand: "Saved" }, { ...old, at: noteAt }, typed).godsHand === "Older words");
+  ok("no draft, or one that isn't one, starts from what's saved", mergeDraft(kept, null, 0) === kept && mergeDraft(kept, { answers: "x" }, 0) === kept && mergeDraft(kept, { answers: { qLearn: 5 } }, 0).qLearn === "");
+  const flowSrc = read("src/components/day/ReflectionFlow.jsx");
+  ok("the draft is written with what the Hub held, and again once a save moves that", /writeDraft\(userId, date, answers, saved\.current, typedAt\.current\)/.test(flowSrc) && /if \(same\(latest\.current, saved\.current\)\) clearDraft\(userId, date\);\s*else writeDraft\(userId, date, latest\.current, saved\.current, typedAt\.current\);/.test(flowSrc));
+  ok("the journal row's updated_at alone no longer throws a draft away", !/draft\.at > savedAt\) return/.test(flowSrc) && /mergeDraft\(saved, draft, savedAt\)/.test(flowSrc));
+
+  // --- #2, #4, #15 Switching Short and Full -----------------------------------------
+  const evening = read("src/pages/Evening.jsx");
+  const sw = evening.slice(evening.indexOf("const setShort = async"), evening.indexOf("// A win captured"));
+  ok("switching waits for the focus arrows, then every other card being left, tonight's shots included", /await flushFocus\.current\?\.\(\);\s*await Promise\.all\(leaving\.map\(\(flush\) => flush\?\.\(\)\)\);/.test(sw) && /short \? \[flushShots\.current, flushShort\.current\] : \[flushShots\.current, flushTasks\.current, flushCheckin\.current\]/.test(sw), sw.slice(0, 400));
+  ok("a save that fails keeps you on the card, and says so", !/allSettled/.test(sw) && sw.indexOf("saved = false") > 0 && sw.indexOf("if (!saved) {") < sw.indexOf("setShortState(v)") && /didn't save yet, so this stays open/.test(sw));
+  ok("the other card opens only once the day is read again", sw.indexOf("await reload()") > sw.indexOf("Promise.all(leaving") && sw.indexOf("setShortState(v)") > sw.indexOf("await reload()") && /if \(!fresh\) \{/.test(sw));
+  ok("one switch at a time, and the toggle says it's busy", /if \(v === short \|\| switchingRef\.current\) return;/.test(sw) && (evening.match(/disabled=\{switching\}/g) ?? []).length === 2);
+  ok("the switch's words have no dashes in them", !/—|–/.test(sw.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n")));
+
+  // --- #8, #24, #9, #25 Saving checks twice, and a kept focus -----------------------
+  const apiPath = fileURLToPath(new URL("../src/lib/api.js", import.meta.url));
+  const apiBuilt = await esbuildBundle({
+    entryPoints: [apiPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-in client",
+        setup(b) {
+          b.onResolve({ filter: /^\.\/supabaseClient$/ }, (a) => (a.importer === apiPath ? { path: "client", namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, () => ({
+            contents: `import { PostgrestClient } from "@supabase/postgrest-js";
+export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch: (...a) => globalThis.__batchCFetch(...a) });`,
+            loader: "js",
+            resolveDir: fileURLToPath(new URL("../src/lib", import.meta.url)),
+          }));
+        },
+      },
+    ],
+  });
+  const api = await import(`data:text/javascript;base64,${Buffer.from(apiBuilt.outputFiles[0].text).toString("base64")}`);
+  // A small database: the rows each table holds, filtered the way PostgREST does.
+  let db = {};
+  let next = 0;
+  let failWhen = () => false;
+  const sent = [];
+  const matches = (row, [col, expr]) => {
+    const [op, ...rest] = expr.split(".");
+    const v = rest.join(".");
+    if (op === "eq") return String(row[col]) === v;
+    if (op === "is") return v === "null" ? row[col] == null : String(row[col]) === v;
+    if (op === "in") return v.replace(/^\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(row[col]));
+    return true;
+  };
+  globalThis.__batchCFetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const table = url.pathname.split("/").pop();
+    const method = init.method ?? "GET";
+    const body = init.body ? JSON.parse(init.body) : null;
+    sent.push({ table, method, body });
+    const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+    if (failWhen({ table, method, body })) return json(500, { message: "dropped", code: "XX000" });
+    const filters = [...url.searchParams].filter(([k]) => !["select", "order", "limit", "offset", "on_conflict", "columns"].includes(k));
+    const rows = (db[table] ??= []);
+    const hit = rows.filter((r) => filters.every((f) => matches(r, f)));
+    let out = [];
+    if (method === "GET") out = [...hit].sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+    else if (method === "POST") {
+      out = (Array.isArray(body) ? body : [body]).map((r) => ({ id: `new${++next}`, retired_on: null, ...r }));
+      rows.push(...out);
+    } else if (method === "PATCH") {
+      for (const r of hit) Object.assign(r, body);
+      out = hit;
+    } else if (method === "DELETE") {
+      db[table] = rows.filter((r) => !hit.includes(r));
+      out = hit;
+    }
+    const one = (new Headers(init.headers).get("Accept") ?? "").includes("vnd.pgrst.object");
+    return json(200, one ? out[0] ?? null : out);
+  };
+  const check = (id, parent, text, position, more = {}) => ({ id, user_id: "u", ...parent, text, kind: "yn", options: [], pass: { on: "yes" }, unit: null, auto: null, counts: true, focus_id: null, position, retired_on: null, ...more });
+  const live = (table, col, id) => (db[table] ?? []).filter((r) => r[col] === id && !r.retired_on).sort((x, y) => x.position - y.position);
+  const says = (list) => JSON.stringify(list.map((r) => [r.text, r.position]));
+  const pages = { id: null, text: "Pages read", kind: "number", options: [], pass: { min: 10 }, unit: "pages", auto: null, counts: true, focus_id: null };
+
+  // FocusSettings: a new check above "Up by 4:35". The insert lands, then
+  // moving "Up by" down doesn't (or Save's next step, the settings, fails).
+  db = { focus_checks: [check("c1", { goal_id: "g1" }, "Up by 4:35", 0, { kind: "time", pass: { by: "04:35" }, auto: "wake" })] };
+  let before = db.focus_checks.map((r) => ({ ...r }));
+  let rows = [{ ...pages }, { ...before[0] }];
+  failWhen = ({ table, method }) => table === "focus_checks" && method === "PATCH";
+  const first = await api.saveFocusChecks("u", "g1", rows, before).then(() => null, (err) => err);
+  ok("(a focus's first Save fails after its insert)", Boolean(first) && live("focus_checks", "goal_id", "g1").length === 2);
+  failWhen = () => false;
+  sent.length = 0;
+  await api.saveFocusChecks("u", "g1", rows, before);
+  ok("Save tapped again asks the new check once, in its place", says(live("focus_checks", "goal_id", "g1")) === '[["Pages read",0],["Up by 4:35",1]]', says(live("focus_checks", "goal_id", "g1")));
+  ok("and inserts nothing the second time", !sent.some((s) => s.method === "POST"), JSON.stringify(sent.map((s) => s.method)));
+  sent.length = 0;
+  await api.saveFocusChecks("u", "g1", rows, before);
+  ok("a third tap, after the checks all saved and the settings didn't, writes nothing new", says(live("focus_checks", "goal_id", "g1")) === '[["Pages read",0],["Up by 4:35",1]]' && !sent.some((s) => s.method === "POST" || s.method === "PATCH"), JSON.stringify(sent.map((s) => s.method)));
+  // Two of the same new check in one Save, and one more added before the retry.
+  db = { focus_checks: [] };
+  rows = [{ ...pages }, { ...pages }];
+  failWhen = ({ method }) => method === "PATCH";
+  await api.saveFocusChecks("u", "g2", rows, []);
+  rows = [{ ...pages }, { ...pages }, { ...pages, text: "Glasses of water", unit: null }];
+  await api.saveFocusChecks("u", "g2", rows, []);
+  ok("each copy you asked for is one row, and a check added since still goes in", says(live("focus_checks", "goal_id", "g2")) === '[["Pages read",0],["Pages read",1],["Glasses of water",2]]', says(live("focus_checks", "goal_id", "g2")));
+  failWhen = () => false;
+  // Taken off and added again in the same Save: the old one goes, the new one is in.
+  db = { focus_checks: [check("c9", { goal_id: "g3" }, "Pages read", 0, { kind: "number", pass: { min: 10 }, unit: "pages" })] };
+  await api.saveFocusChecks("u", "g3", [{ ...pages }], db.focus_checks.map((r) => ({ ...r })));
+  ok("a check taken off and written again is one new row, not the old one kept", says(live("focus_checks", "goal_id", "g3")) === '[["Pages read",0]]' && live("focus_checks", "goal_id", "g3")[0].id !== "c9");
+  // One you didn't touch, changed on another device while the sheet was open, is still left alone.
+  db = { focus_checks: [check("c5", { goal_id: "g4" }, "Exercised", 0)] };
+  before = db.focus_checks.map((r) => ({ ...r }));
+  db.focus_checks[0].text = "Exercised 20 min";
+  await api.saveFocusChecks("u", "g4", [{ ...before[0] }, { ...pages }], before);
+  ok("a check you didn't touch here isn't written over", says(live("focus_checks", "goal_id", "g4")) === '[["Exercised 20 min",0],["Pages read",1]]', says(live("focus_checks", "goal_id", "g4")));
+  // TargetSheet: the same, through the target's setup.
+  db = { mark_targets: [{ id: "t1", user_id: "u", goal_id: "G", reasons: ["a", "b", "c", "d"] }], mark_aims: [check("a1", { target_id: "t1" }, "Exercised", 0)] };
+  before = db.mark_aims.map((r) => ({ ...r }));
+  const aims = [{ ...pages, text: "Prayed", kind: "yn", pass: { on: "yes" }, unit: null }, { ...before[0] }];
+  failWhen = ({ table, method }) => table === "mark_aims" && method === "PATCH";
+  await api.saveTargetSetup("u", { goal_id: "G" }, { reasons: ["a", "b", "c", "d"], aims }, before).catch(() => null);
+  failWhen = () => false;
+  await api.saveTargetSetup("u", { goal_id: "G" }, { reasons: ["a", "b", "c", "d"], aims }, before);
+  ok("a target's Save tapped again after a failure asks each check once", says(live("mark_aims", "target_id", "t1")) === '[["Prayed",0],["Exercised",1]]', says(live("mark_aims", "target_id", "t1")));
+
+  // Keep on Sunday: the goal lands, its checks don't.
+  db = { focus_goals: [{ id: "last", user_id: "u", lands_by: "checks", quest_id: null, lesson_id: null }], focus_checks: [check("k1", { goal_id: "last" }, "Up by 4:35", 0)] };
+  failWhen = ({ table, method }) => table === "focus_checks" && method === "POST";
+  const kept1 = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Up early", carriedFrom: "last" }).then(() => null, (err) => err);
+  ok("a kept focus whose checks can't follow it isn't left half added", Boolean(kept1) && (db.focus_goals ?? []).length === 1 && db.focus_goals[0].id === "last", JSON.stringify(db.focus_goals));
+  failWhen = () => false;
+  const kept2 = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Up early", carriedFrom: "last" });
+  ok("so Keep tapped again makes the one copy, with its checks", db.focus_goals.length === 2 && live("focus_checks", "goal_id", kept2.id).length === 1 && kept2.lands_by === "checks");
+  failWhen = ({ table, method }) => table === "focus_checks" || (table === "focus_goals" && method === "DELETE");
+  const undoFailed = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Again", carriedFrom: "last" }).then(() => null, (err) => err);
+  ok("if taking it back fails too, the add still says it didn't go through", Boolean(undoFailed) && /dropped/.test(undoFailed?.message ?? ""));
+  failWhen = () => false;
+  delete globalThis.__batchCFetch;
+
+  // --- #19, #21 The check editor ---------------------------------------------------------
+  const E = await helpersOf("src/components/checks/CheckEditor.jsx", /\/lib\/checks$/);
+  const editorSrc = read("src/components/checks/CheckEditor.jsx");
+  const scale = { key: "k", id: "a", text: "Did I do my best to be present", kind: "scale", options: [], pass: { min: null }, unit: null, auto: null, counts: true, focus_id: null };
+  ok("a cleared 1 to 10 box saves as 7, and 78 typed into it saves as 10", E.cleanRows([scale])[0].pass.min === 7 && E.cleanRows([{ ...scale, pass: { min: 78 } }])[0].pass.min === 10 && E.cleanRows([{ ...scale, pass: { min: 8 } }])[0].pass.min === 8);
+  ok("the number boxes hold what you type, and nothing while empty", /value=\{r\.pass\.min \?\? ""\} placeholder="7" onChange=\{\(e\) => set\(\{ pass: \{ min: typed\(e\) \} \}\)\}/.test(editorSrc) && /const typed = \(e\) => \(e\.target\.value === "" \? null : Number\(e\.target\.value\)\);/.test(editorSrc) && !/\? 7 : Number|\? 0 : Number/.test(editorSrc));
+  const num = { ...scale, text: "Pages read", kind: "number", pass: { min: null }, unit: "pages" };
+  ok("a cleared count saves at its default, and an emptied at-most asks rather than flipping to at least", E.cleanRows([num])[0].pass.min === 1 && E.rowsProblem([num]) === null && /at most/.test(E.rowsProblem([{ ...num, pass: { max: null } }]) ?? "") && E.rowsProblem([{ ...num, pass: { max: 3 } }]) === null && E.rowsProblem([{ ...num, pass: { max: null }, counts: false }]) === null);
+  ok("an emptied at-most box stays at most while you type", /const most = atMost\(r\);/.test(editorSrc) && /hasOwnProperty\.call\(r\.pass, "max"\)/.test(editorSrc));
+  const yn = { ...scale, kind: "yn", pass: { on: "yes" } };
+  const roundTrip = E.rekind(E.rekind(yn, "note"), "yn");
+  ok("A few words and back counts again", E.rekind(yn, "note").counts === false && roundTrip.counts === true);
+  ok("a check's own Reflection only stays as set when its kind changes", E.rekind({ ...yn, counts: false }, "scale").counts === false);
+  const logged = { ...scale, kind: "minutes", pass: { min: 30 }, focus_id: "f-kids" };
+  ok("a kind the time log can't answer drops the time log", E.rekind(logged, "scale").focus_id === null && E.rekind(logged, "number").focus_id === null && E.rekind(logged, "yn").focus_id === "f-kids");
+  ok("and only a time keeps Fill from when I got up, a number its unit, a pick one its choices", E.rekind({ ...yn, kind: "time", auto: "wake" }, "yn").auto === null && E.rekind({ ...yn, kind: "time", auto: "wake" }, "time").auto === "wake" && E.cleanRows([E.rekind(num, "minutes")])[0].unit === null && E.cleanRows([E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn")])[0].options.length === 0);
+  ok("trying another kind and coming back keeps the choices and the unit", E.rekind(E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn"), "choice").options.join() === "Calm,Short" && E.rekind(E.rekind(num, "minutes"), "number").unit === num.unit);
+  ok("the kind picker goes through it", /onChange=\{\(e\) => set\(r\.key, \{ \.\.\.rekind\(r, e\.target\.value\), key: r\.key, id: r\.id \}\)\}/.test(editorSrc));
+
+  // --- #20, #22 The editor's checkboxes inside a .field, and long words -------------------
+  const checksCss = read("src/styles/checks.css");
+  const rule = (sel) => checksCss.slice(checksCss.indexOf(sel), checksCss.indexOf("}", checksCss.indexOf(sel)));
+  const box = rule('.ck-edit .ck-edit__toggle input[type="checkbox"] {');
+  ok("the editor's checkbox outweighs .field input: its own size, no fill, beside its words", checksCss.includes('.ck-edit .ck-edit__toggle input[type="checkbox"] {') && /width: auto;/.test(box) && /background: none;/.test(box) && /padding: 0;/.test(box));
+  ok("and its labels outweigh .field label", /\.ck-edit \.ck-edit__grid label,\s*\.ck-edit \.ck-edit__toggle \{ display: inline-flex;[^}]*margin: 0;/.test(checksCss));
+  ok("a question that's one long link wraps instead of running off the card", /\.ck-row__text \{[^}]*overflow-wrap: anywhere;/.test(checksCss) && /\.ck-choices \.chip,\s*\.ck-edit__opts \.chip \{ white-space: normal; overflow-wrap: anywhere;/.test(checksCss));
+}
+
+// (end of review fixes, batch C)
+// ---------------------------------------------------------------------------
+
+
+// ===== Tonight's checks on each target (PR 2, part 1) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntonight's checks on each target");
+  // Imported here rather than up top, so this part's names stay in this part.
+  const M = await import("../src/lib/mark.js");
+  const at = (h, m) => new Date(2026, 10, 2, h, m).toISOString();
+  const drawing = { id: "f-draw", name: "Drawing", categories: ["Drawing"] };
+  const byId = new Map([[drawing.id, drawing]]);
+  const logged = [
+    { tags: ["Drawing"], duration_minutes: 25, ended_at: at(18, 25) },
+    { tags: ["Drawing"], category: "Drawing", description: "Drawing", duration_minutes: 20, source: "watch", ended_at: at(19, 20) },
+  ];
+  const drew = { id: "m", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f-draw" };
+  const upBy = { id: "u", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+
+  const hint = M.checkHint(drew, { focusesById: byId, entries: logged });
+  ok("a check the time log answers says how much it saw, and what the watch did", hint.startsWith("Time log · 45m") && hint.includes(" · watch: "), hint);
+  ok("and says so when the log has nothing", M.checkHint(drew, { focusesById: byId, entries: [] }) === "Not in your time log today");
+  ok("Up by says it came from when you got up", M.checkHint(upBy, { dayPlan: { woke_at: at(4, 32) } }) === "From when you got up" && M.checkHint(upBy, { entries: [] }) === "No wake time in your log");
+  ok("a check only you answer has no hint", M.checkHint({ id: "a", text: "Exercised", kind: "yn" }, { focusesById: byId, entries: logged }) === null);
+
+  const T = {
+    key: "g1",
+    aims: [
+      { id: "a", text: "Exercised", kind: "yn" },
+      { id: "b", text: "Did I do my best to listen", kind: "scale", pass: { min: 7 } },
+      { id: "c", text: "Pages", kind: "number", pass: { min: 10 }, unit: "pages" },
+      { id: "d", text: "Where", kind: "choice", options: ["Home", "Out"], pass: { on: ["Home"] } },
+      { id: "e", text: "Examen", kind: "note" },
+    ],
+  };
+  const blank = T.aims.map(() => ({ value: null, line: "" }));
+  const back = M.restoreAnswers(T, blank, { a: { value: "yes", line: "ran" }, b: { value: 6 }, c: { value: 12 }, d: { value: "Home" }, e: { value: "the walk" } });
+  ok("a draft on this device fills tonight back in, a line and all", back.map((x) => x.value).join() === "yes,6,12,Home,the walk" && back[0].line === "ran");
+  const misfit = M.restoreAnswers(T, blank, { a: { value: "some" }, b: { value: 11 }, c: { value: "lots" }, d: { value: "Gone" }, e: { value: 5 } });
+  ok("anything in it that doesn't fit its check now is passed over", misfit.every((x) => x.value === null));
+  ok("a draft of any other shape changes nothing", [null, "x", [1, 2], { a: "yes" }, { a: [1] }, { a: { value: { v: 2 } } }].every((m) => JSON.stringify(M.restoreAnswers(T, blank, m)) === JSON.stringify(blank)));
+  ok("it's matched by check, not by place, so reordered checks keep their answers", M.restoreAnswers({ aims: [T.aims[2], T.aims[0]] }, [{ value: null, line: "" }, { value: null, line: "" }], { a: { value: "no" }, c: { value: 3 } }).map((x) => x.value).join() === "3,no");
+  ok("a cleared answer falls back to what the day knows", M.restoreAnswers({ aims: [upBy] }, [{ value: "04:32", line: "" }], { u: { value: null, line: "" } })[0].value === "04:32");
+
+  // What a draft looked like before checks had kinds: Yes/Some/No by place.
+  const oldShape = { values: [2, 1, 0, 2, 2], line: "old line" };
+  const fromOld = M.tonightDraft(T, { mine: oldShape });
+  ok("an old-shaped draft never gets an answer in", fromOld.answers.every((x) => x.value === null) && fromOld.quick === null && fromOld.pick === null);
+  const savedShot = { level: 2, reason: 1, reason_how: "read", note: "phone", answers: [{ aim: "a", text: "Exercised", kind: "yn", value: "yes", v: 2 }] };
+  const fromSaved = M.tonightDraft({ ...T, tonight: savedShot }, { mine: { answers: { a: { value: "no" } }, line: "draft" } });
+  ok("tonight's saved shot wins over a draft, with its section and its line already read", fromSaved.answers[0].value === "yes" && fromSaved.line === "phone" && fromSaved.pick.k === 1 && fromSaved.readFor === "phone");
+  const fromTap = M.tonightDraft({ ...T, tonight: M.quickShot(T, 1, [], { reason: 0, how: "guess" }) });
+  ok("a short evening's tap comes back as the tap", fromTap.quick === 1 && fromTap.pick.k === 0 && fromTap.readFor === null);
+
+  const R = {
+    aims: [
+      { id: "a", text: "Exercised", kind: "yn" },
+      { id: "n", text: "Drank caffeine", kind: "yn", pass: { on: "no" } },
+      { id: "b", text: "Did I do my best to listen", kind: "scale", pass: { min: 7 } },
+      { id: "e", text: "Examen", kind: "note" },
+      upBy,
+    ],
+  };
+  const win = { id: "w1", title: "Win by win" };
+  const heard = M.readAnswers(R, [{ value: "yes" }, { value: "no" }, { value: 6 }, { value: "the walk" }, { value: null }], [{ goal: win, level: 1 }]);
+  ok(
+    "the line's reader hears each answer as it reads Yes, Some or No",
+    heard.length === 4 &&
+      heard[0].text === "Exercised" &&
+      heard[0].v === 2 &&
+      heard[1].text === "Drank caffeine (No)" &&
+      heard[1].v === 2 &&
+      heard[2].text === "Did I do my best to listen (6/10)" &&
+      heard[2].v === 1 &&
+      heard[3].text === "This week's focus, Win by win (inner)" &&
+      heard[3].v === 1,
+    JSON.stringify(heard)
+  );
+  ok("reflection-only and unanswered checks aren't sent", !heard.some((a) => a.text.startsWith("Examen") || a.text.startsWith("Up by")));
+  // The reader's own filter (supabase/functions/mark/index.ts), as it stands.
+  const readerKeeps = (list) =>
+    list
+      .slice(0, 8)
+      .map((a) => ({ text: String(a?.text ?? "").slice(0, 120), v: Number(a?.v) }))
+      .filter((a) => a.text && [0, 1, 2].includes(a.v));
+  const many = { aims: Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, text: `${"A long way of asking it ".repeat(7)}${i}`, kind: "scale", pass: { min: 7 } })) };
+  const loud = M.readAnswers(many, many.aims.map((_, i) => ({ value: (i % 10) + 1 })));
+  ok("and what it's sent passes the reader untouched: eight at most, the answer kept inside 120 characters", loud.length === 8 && JSON.stringify(readerKeeps(loud)) === JSON.stringify(loud) && loud.every((a) => a.text.length <= 120 && /…\s\(\d+\/10\)$/.test(a.text)));
+  const markFn = readFileSync(new URL("../supabase/functions/mark/index.ts", import.meta.url), "utf8");
+  ok("the reader still takes { text, v } with v of 0, 1 or 2, so it needs no redeploy", /\.slice\(0, 8\)/.test(markFn) && /\[0, 1, 2\]\.includes\(a\.v\)/.test(markFn) && /String\(a\?\.text \?\? ""\)\.slice\(0, 120\)/.test(markFn));
+
+  const S = { key: "g", kind: "goal", ref: { id: "g" }, shots: [], aims: [{ id: "a", text: "Exercised", kind: "yn" }, { id: "p", text: "Pages", kind: "number", pass: { min: 10 }, unit: "pages" }] };
+  const mine = M.shotFrom(S, [{ value: "yes", line: "ran" }, { value: 9 }], { line: "good", reason: 1, how: "read" });
+  const readBack = { id: "row", target_id: "t", date: "2026-11-02", loosed_at: null, note: "good", reason_how: "read", reason: 1, level: mine.level, answers: mine.answers.map((a) => Object.fromEntries(Object.entries(a).reverse())) };
+  ok("a shot read back with its keys in another order is the same shot", mine.level === 1 && M.sameShot(readBack, mine));
+  ok(
+    "a different answer, line, section or ring is not",
+    !M.sameShot(readBack, M.shotFrom(S, [{ value: "yes", line: "ran" }, { value: 8 }], { line: "good", reason: 1, how: "read" })) &&
+      !M.sameShot(readBack, M.shotFrom(S, [{ value: "yes" }, { value: 9 }], { line: "good", reason: 1, how: "read" })) &&
+      !M.sameShot(readBack, { ...mine, note: "better" }) &&
+      !M.sameShot(readBack, { ...mine, reason: 2 }) &&
+      !M.sameShot(readBack, { ...mine, level: 2 })
+  );
+  ok("nothing saved yet is never the same", !M.sameShot(null, mine) && !M.sameShot(mine, null));
+  ok("where it lands reads plainly", M.landsText(0) === "All passed: a bullseye." && M.landsText(1) === "Lands in the inner ring." && M.landsText(4) === "Lands on the edge." && M.landsText(5) === "A miss this time." && M.landsText(null) === "");
+
+  ok("the short evening's tap sets the ring, whatever the checks say", (() => {
+    const r = M.tonightRing(S, { answers: [{ value: "yes" }, { value: 12 }], quick: 0 });
+    return r.level === 5 && r.tap === 0 && r.label === null;
+  })());
+  ok("with no tap, checks all answered say so", M.tonightRing(S, { answers: [{ value: "yes" }, { value: 9 }] }).label === "Inner, from your checks");
+  ok("a target fed only by a focus says which", M.tonightRing({ aims: [] }, { answers: [] }, [{ goal: win, level: 2 }]).label === "Middle, from Win by win");
+  ok(
+    "and nothing answered is no ring, never a made-up one",
+    M.tonightRing(S, { answers: [{ value: "yes" }, { value: null }] }).level === null && M.tonightRing({ aims: [{ id: "e", text: "Examen", kind: "note" }] }, { answers: [{ value: "the walk" }] }).level === null
+  );
+
+  const full = M.tonightShot(S, { answers: [{ value: "no" }, { value: 12 }], line: "  tired  ", pick: null }, { linked: [{ goal: win, level: 0 }], today: "2026-11-02" });
+  ok(
+    "tonight's shot counts the focus as one more check, guesses a section with nothing to go on, and keeps the line",
+    full.level === 2 && full.reason === 0 && full.reason_how === "guess" && full.note === "tired" && full.answers.length === 3 && full.answers[2].focus_goal === "w1"
+  );
+  const tapped = M.tonightShot(S, { answers: [{ value: "no" }, { value: null }], line: "written in the full evening", quick: 1, pick: { k: 2, how: "yours" } }, { today: "2026-11-02" });
+  ok(
+    "a short evening's tap keeps a line from the full one and the section you picked",
+    tapped.level === 2 && tapped.note === "written in the full evening" && tapped.reason === 2 && tapped.reason_how === "yours" && M.quickOf(tapped) === 1 && tapped.answers.length === 2 && tapped.answers[1].counts === false
+  );
+  ok(
+    "a bullseye has no section, and no tap with a check unanswered is no shot",
+    M.tonightShot(S, { answers: [{ value: "yes" }, { value: 12 }], line: "", pick: { k: 3, how: "yours" } }).reason === null && M.tonightShot(S, { answers: [{ value: "yes" }, { value: null }], line: "" }) === null
+  );
+
+  const ascentSrc = readFileSync(new URL("../src/pages/Ascent.jsx", import.meta.url), "utf8");
+  const saveFrom = ascentSrc.slice(ascentSrc.indexOf("const saveTargetFrom"), ascentSrc.indexOf("saveTargetSetup(userId"));
+  ok("taking out a check answered only tonight retires it: every shot counts, loosed or not", /data\?\.marks\?\.shots/.test(saveFrom) && !/t\.shots\.flatMap/.test(saveFrom));
+  const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
+  ok("tonight's draft has a key of its own, and the old one is only ever cleared", /hub\.mark\.checks\.\$\{date\}/.test(shotsSrc) && /removeItem\(`hub\.mark\.tonight\.\$\{date\}`\)/.test(shotsSrc) && !/getItem\(`hub\.mark\.tonight/.test(shotsSrc));
+}
+
+// (end of tonight's checks)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+// ===== Arrows on the week's focus (PR 2, part 2) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntonight's arrow on each focus: placed, landed by its checks, and kept");
+  const F = await import("../src/lib/focus.js");
+  const D = "2026-11-02";
+
+  // The week as it reads with arrows.
+  ok("a week reads in arrows", F.arrowsLabel({ answeredDays: 3 }) === "3 arrows this week" && F.arrowsLabel({ answeredDays: 1 }) === "1 arrow this week" && F.arrowsLabel({ answeredDays: 0 }) === "No arrows yet" && F.arrowsLabel({}) === "No arrows yet");
+  const weekRows = [
+    { goal_id: "g", date: "2026-11-01", moved: true, level: 1 },
+    { goal_id: "g", date: D, moved: true, level: 2, spot_x: 30, spot_y: 30 },
+    { goal_id: "h", date: D, moved: false, level: 5 },
+  ];
+  const placed = F.putArrow(weekRows, "g", D, { level: 5, spot_x: 0, spot_y: 90, note: "off", answers: [], lands: "placed" });
+  ok("placing again replaces that day's arrow, and only that day's", placed.length === 3 && placed.filter((c) => c.goal_id === "g" && c.date === D).length === 1 && placed.find((c) => c.goal_id === "h").level === 5 && placed.find((c) => c.date === "2026-11-01").level === 1);
+  const moved = placed.find((c) => c.goal_id === "g" && c.date === D);
+  ok("the row it puts in reads as the database keeps it, moved and all", moved.moved === false && moved.spot_y === 90 && moved.note === "off" && moved.lands === "placed");
+  ok("an arrow on the face moved it", F.putArrow([], "g", D, { level: 4 })[0].moved === true && F.putArrow([], "g", D, { level: 0 })[0].moved === true);
+  ok("taking it back leaves the day empty", F.putArrow(weekRows, "g", D, null).every((c) => !(c.goal_id === "g" && c.date === D)) && F.putArrow(weekRows, "g", D, null).length === 2);
+  ok("a date with a time on it is still that day", F.putArrow([{ goal_id: "g", date: `${D}T00:00:00`, level: 1 }], "g", D, null).length === 0);
+  ok("the week it was given is left alone", weekRows.length === 3 && weekRows[1].level === 2);
+
+  // A read of the week while saves are still out.
+  const fresh = [{ goal_id: "g", date: D, moved: true, level: 2, spot_x: 30, spot_y: 30 }];
+  const over = F.withPending(fresh, [{ goalId: "g", date: D, arrow: { level: 0, spot_x: 1, spot_y: 1, lands: "placed" } }]);
+  ok("a read that lands between two saves still shows the newest arrow", over.length === 1 && over[0].level === 0 && over[0].spot_x === 1);
+  ok("an arrow taken back stays taken back while its delete is out", F.withPending(fresh, [{ goalId: "g", date: D, arrow: null }]).length === 0);
+  ok("with nothing out, the read is the read", F.withPending(fresh, []) === fresh && F.withPending(undefined, []).length === 0);
+
+  // Nothing to save when the saved arrow already is this one.
+  const upBy = { id: "u", goal_id: "g", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+  const drew = { id: "d", goal_id: "g", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f" };
+  const twoChecks = [upBy, drew];
+  const landed = F.landedArrow(twoChecks, [{ value: "04:30", line: "", day: true }, { value: 40, line: "good", day: false }]);
+  // The database hands jsonb back with its keys in its own order, and a real spot as a float.
+  const fromDb = JSON.parse(JSON.stringify({ ...landed, goal_id: "g", date: D, moved: true, updated_at: "2026-11-02T20:00:00Z" }));
+  fromDb.answers = fromDb.answers.map((a) => Object.fromEntries(Object.entries(a).reverse()));
+  ok("a saved arrow read back is the same arrow, whatever order its keys come in", F.sameArrow(fromDb, landed) && F.arrowKey(fromDb) === F.arrowKey(landed));
+  const spotRow = { level: 2, spot_x: 10.300000190734863, spot_y: -38, note: null, answers: [], lands: "placed" };
+  ok("a spot read back as a float is the same spot", F.sameArrow(spotRow, F.placedArrow({ x: 10.3, y: -38 })));
+  ok("a new note, a new spot or a new answer is something to save", !F.sameArrow(spotRow, F.placedArrow({ x: 10.3, y: -38 }, "close")) && !F.sameArrow(spotRow, F.placedArrow({ x: 12, y: -38 })) && !F.sameArrow(fromDb, F.landedArrow(twoChecks, [{ value: "04:30", day: true }, { value: 45, line: "good" }])));
+  ok("an old yes-or-no day isn't a placed arrow yet", !F.sameArrow({ goal_id: "g", date: D, moved: true }, F.placedArrow({ x: 0, y: -22 })));
+  ok("no arrow is no arrow", F.sameArrow(null, null) && !F.sameArrow(null, spotRow) && !F.sameArrow(spotRow, null) && F.arrowKey(null) === null);
+
+  // Which checks this week's arrows answered.
+  const answeredIns = [
+    { goal_id: "g", date: "2026-11-01", answers: [{ aim: "u", v: 2 }, { aim: "d", v: 1 }] },
+    { goal_id: "g", date: D, answers: [{ aim: "u", v: 2 }, { aim: null, text: "x" }] },
+    { goal_id: "h", date: D, answers: [{ aim: "other", v: 2 }] },
+    { goal_id: "g", date: "2026-10-31", moved: true },
+  ];
+  const ans = F.answeredChecks(answeredIns, "g");
+  ok("a check this week's arrows answered is retired when it's taken off, not deleted", ans.has("u") && ans.has("d") && !ans.has("other") && ans.size === 2);
+  ok("an old yes-or-no day answered none", F.answeredChecks([{ goal_id: "g", moved: true }], "g").size === 0 && F.answeredChecks(undefined, "g").size === 0);
+
+  // What the settings sheet saves.
+  ok("checks as they were are nothing to save", !F.checksChanged([{ ...upBy }, { ...drew }], twoChecks));
+  ok("a check reworded, moved, added or taken off is", F.checksChanged([{ ...upBy, text: "Up by 4:30" }, drew], twoChecks) && F.checksChanged([drew, upBy], twoChecks) && F.checksChanged([upBy, drew, { text: "Read", kind: "yn" }], twoChecks) && F.checksChanged([upBy], twoChecks));
+  ok("and so is a new bar to pass", F.checksChanged([{ ...upBy, pass: { by: "04:30" } }, drew], twoChecks));
+
+  // Tonight's answers to a focus's checks.
+  const none = F.focusAnswers(twoChecks, null, { auto: ["04:32", 50] });
+  ok("with nothing saved, the day answers what it can, marked as the day's", none[0].value === "04:32" && none[0].day === true && none[1].value === 50 && none[1].day === true);
+  ok("and what it can't starts blank", F.focusAnswers(twoChecks, null, { auto: [null, null] }).every((a) => a.value === null && a.day === false && a.line === ""));
+  const savedRow = {
+    answers: [
+      { aim: "u", text: "Up by 4:35", kind: "time", value: "04:40", v: 1, line: "alarm", day: true },
+      { aim: "d", text: "Time drawing", kind: "minutes", value: 20, v: 1 },
+    ],
+  };
+  const later = F.focusAnswers(twoChecks, savedRow, { auto: ["04:40", 55] });
+  ok("an answer the day gave takes the day's newer one: the log caught up since noon", F.focusAnswers([drew], { answers: [{ aim: "d", value: 20, v: 1, day: true }] }, { auto: [55] })[0].value === 55);
+  ok("an answer you gave yourself stays put however the day changes", later[1].value === 20 && later[1].day === false);
+  ok("a line kept with an answer stays with it", later[0].line === "alarm" && later[0].day === true);
+  ok("the day's answer, saved, holds while the day can't be read", F.focusAnswers([upBy], { answers: [{ aim: "u", value: "04:40", v: 1, day: true }] }, { auto: [null] })[0].value === "04:40");
+  const mine = F.focusAnswers(twoChecks, savedRow, { auto: ["04:40", 55], mine: { d: { value: 35 }, u: { line: "late night" } } });
+  ok("what you answer tonight wins over both", mine[1].value === 35 && mine[1].day === false);
+  ok("a line added to the day's answer leaves the answer the day's", mine[0].value === "04:40" && mine[0].day === true && mine[0].line === "late night");
+  ok("clearing an answer clears it, even one the day could fill", F.focusAnswers([drew], null, { auto: [50], mine: { d: { value: null } } })[0].value === null);
+  const yn = { id: "y", goal_id: "g", text: "Kept the Sabbath", kind: "yn", pass: { on: "yes" } };
+  ok("an old Some on what is now a Yes/No starts blank", F.focusAnswers([yn], { answers: [{ aim: "y", v: 1 }] })[0].value === null && F.focusAnswers([yn], { answers: [{ aim: "y", v: 2 }] })[0].value === "yes");
+
+  const tonight = F.landedArrow(twoChecks, none);
+  ok("a morning up on time and the drawing logged lands a bullseye by itself", tonight.level === 0 && tonight.lands === "checks" && tonight.spot_x === null);
+  ok("each answer the day filled in is kept as the day's", tonight.answers.every((a) => a.day === true) && tonight.answers[0].aim === "u");
+  const own = F.landedArrow(twoChecks, [{ value: "04:50", day: false }, { value: 40, day: true }], " slept in ");
+  ok("one you answered isn't, and the note goes with it", own.answers[0].day === undefined && own.answers[1].day === true && own.note === "slept in" && own.level === 1);
+  ok("no arrow until every check that scores is answered", F.landedArrow(twoChecks, [{ value: "04:30", day: true }, { value: null }]) === null);
+  ok("reflection-only checks never hold it back", F.landedArrow([upBy, { id: "e", text: "Examen", kind: "note" }], [{ value: "04:30" }, { value: null }])?.level === 0);
+
+  // What a focus counts toward, by name.
+  const view = {
+    goals: [{ id: "n1", title: "Discipline" }],
+    quests: [{ id: "q1", title: "Ship the plugin" }],
+    lessons: [{ id: "l1", title: "Patience" }],
+  };
+  const choices = F.towardChoices(view);
+  ok("the choices are the Mark's targets: lifetime goals, quests, lessons", choices.map((c) => c.key).join() === "goal:n1,quest:q1,lesson:l1" && choices[1].title === "Ship the plugin" && F.towardChoices(null).length === 0);
+  ok("what a focus counts toward fits in a select and comes back out", F.towardKey({ quest_id: "q1" }) === "quest:q1" && F.towardKey({ node_id: "n1" }) === "goal:n1" && F.towardKey({}) === "" && F.parseToward("lesson:l1").kind === "lesson" && F.parseToward("lesson:l1").id === "l1" && F.parseToward("") === null && F.parseToward("nonsense") === null);
+  ok("each choice's key is what towardKey would say", choices.every((c) => F.towardKey({ [c.kind === "goal" ? "node_id" : `${c.kind}_id`]: c.id }) === c.key));
+  ok("its name, from the Ascent view", F.towardTitle({ quest_id: "q1" }, view) === "Ship the plugin" && F.towardTitle({ lesson_id: "l1" }, view) === "Patience" && F.towardTitle({ node_id: "n1" }, view) === "Discipline");
+  ok("a quest since finished is still found by name in the rows", F.towardTitle({ quest_id: "q9" }, view, { quests: [{ id: "q9", title: "Old quest" }] }) === "Old quest");
+  ok("standing alone, or not found, it has no name", F.towardTitle({}, view) === null && F.towardTitle({ node_id: "deep" }, view, {}) === null);
+  ok("a quest's id is never taken for a goal's", F.towardTitle({ node_id: "q1" }, view) === null);
+
+  // The parts on screen, read as source (they're components).
+  const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const arrowsSrc = read("../src/components/focus/FocusArrows.jsx");
+  const hookSrc = read("../src/components/focus/useFocusWeek.js");
+  const sheetSrc = read("../src/components/focus/FocusSheet.jsx");
+  const stripSrc = read("../src/components/focus/FocusStrip.jsx");
+  const settingsSrc = read("../src/components/focus/FocusSettings.jsx");
+  const weekSrc = read("../src/components/focus/FocusWeek.jsx");
+  ok("the evening card takes the props the evening hands it", /export default function FocusArrows\(\{ userId, date, entries, dayPlan, quick = false, flushRef \}\)/.test(arrowsSrc));
+  ok("its flush saves what's waiting on every focus, then waits for every save", /for \(const flush of \[\.\.\.flushers\.current\]\) flush\(\);[\s\S]{0,400}const done = await settled\(\);\s*if \(done\.includes\(false\)\) throw/.test(arrowsSrc));
+  ok("the card says what it's for", arrowsSrc.includes("This week's focus") && arrowsSrc.includes("Put the arrow where today landed, or let its checks land it."));
+  ok("a placed arrow saves where you put it, with its note", /save\(placedArrow\(\{ x, y \}, noteRef\.current\)\)/.test(arrowsSrc) && /arrowRef\.current\(goal\.id, date, next\)\.then/.test(arrowsSrc) && /Take tonight's arrow back/.test(arrowsSrc));
+  ok("an arrow landed by checks saves only when it's ready and new (or its last save failed)", /const next = arrowToSave\(rowRef\.current, readyRef\.current, noteRef\.current, failedRef\.current\);\s*if \(next\) save\(next\);/.test(arrowsSrc));
+  ok("a waiting note or answer saves when the sheet or card goes", /useEffect\(\(\) => \(\) => flush\(\), \[flush\]\)/.test(arrowsSrc));
+  ok("the short evening has no settings, no lines and no note", /onSettings=\{quick \? null :/.test(arrowsSrc) && /onLine=\{quick \? undefined :/.test(arrowsSrc) && /const noteBox = !quick &&/.test(arrowsSrc));
+  ok("saves for one goal and day go in line, and only the newest announces", /\(chains\.current\.get\(key\) \?\? Promise\.resolve\(\)\)\.then\(run\)/.test(hookSrc) && /if \(last\) announceChange\(\);/.test(hookSrc));
+  ok("a fresh read of the week keeps the arrows still on their way", /withPending\(d\.checkins, \[\.\.\.pending\.current\.values\(\)\]\)/.test(hookSrc));
+  ok("a failed save reads the week again and says so", /reload\(\);\s*toast\.error\(err, "Couldn't save that arrow\."\);/.test(hookSrc));
+  ok("the old yes-or-no still saves, as an arrow", /setFocusCheckin\(userId, goalId, date, moved\)/.test(hookSrc) && /level: moved \? 1 : 5/.test(hookSrc));
+  ok("checks this week answered are retired, today", /answered: answeredChecks\(data\?\.checkins, goalId\), today: todayStr\(\)/.test(hookSrc));
+  ok("a focus's sheet lands today's arrow instead of asking Moved it or Not today", !/Moved it today|Not today/.test(sheetSrc) && /<GoalArrow/.test(sheetSrc) && /onSettings=\{\(\) => setSettings\(true\)\}/.test(sheetSrc));
+  ok("the sheet's imports stay one line each, the way its tests read them", sheetSrc.split("\n").filter((l) => l.startsWith("import ")).every((l) => l.endsWith(";")));
+  ok("the strip speaks in arrows", !/moved it|not today/i.test(stripSrc.replace(/^\/\/.*$/gm, "")) && /arrowsLabel\(g\)/.test(stripSrc) && /fw=\{fw\}/.test(stripSrc));
+  ok("settings only send what changed, checks before how it lands", /if \(how === "checks" && checksChanged\(checks, before\)\) await fw\.saveChecks/.test(settingsSrc) && settingsSrc.indexOf("fw.saveChecks") < settingsSrc.indexOf("fw.saveSettings"));
+  ok("an old link that isn't one of the choices stays a choice", /keepLinked && <option value=\{linked\}>/.test(settingsSrc));
+  ok("Week links a focus to the wheel without breaking the one-link rule", /\{ node_id: nodeId, quest_id: null, lesson_id: null \}/.test(weekSrc) && /<FocusSettings/.test(weekSrc));
+  ok("Sunday's carry still leaves a quest or lesson link to addFocusGoal", /const row = await add\(title, goal\.node_id, goal\.id\);/.test(weekSrc));
+  const css = read("../src/styles/focus.css");
+  ok("what a focus counts toward gives up its end before it widens the card", /\.focus-arrow__toward \{ max-width: 100%; min-width: 0; overflow: hidden;/.test(css));
+  ok("the strip's measurements are still the first the stylesheet has", css.indexOf("--focus-gap:") < css.indexOf(".focus-arrow") && (css.match(/repeat\(auto-fill, minmax\(/g) ?? []).length === 1 && (css.match(/-webkit-line-clamp: 2;/g) ?? []).length === 0);
+}
+
+// (end of arrows on the week's focus)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+// ===== Before you bank it (PR 2, part 3) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\nbefore you bank it (0103)");
+  const src = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+  // --- The push sees each focus's arrows -------------------------------------
+  const focusAim = (checkins, weekFocus = [{ id: "w1", title: "Win by win", position: 0 }]) => aimForPrompt({ date: "2026-11-02", weekFocus, checkins });
+  const rings = focusAim([
+    { goal_id: "w1", date: "2026-11-02", moved: false, level: 5, note: null },
+    { goal_id: "w1", date: "2026-11-01", moved: true, level: 1, note: "up at 4:40, one snooze" },
+    { goal_id: "w1", date: "2026-10-31", moved: true, level: 0 },
+  ]).this_weeks_focus[0];
+  ok(
+    "each focus's arrows by day, oldest first, ring and his line",
+    JSON.stringify(rings.arrows_this_week) === JSON.stringify(["2026-10-31 bullseye", "2026-11-01 inner ring: up at 4:40, one snooze", "2026-11-02 missed"]),
+    JSON.stringify(rings)
+  );
+  ok("and the moved and not days still count, from the rings", rings.days_moved === 2 && rings.days_not === 1);
+  const old = focusAim([
+    { goal_id: "w1", date: "2026-10-28", moved: true },
+    { goal_id: "w1", date: "2026-10-29", moved: false, level: null },
+  ]).this_weeks_focus[0];
+  ok("a day from before the rings reads as moved or didn't move", JSON.stringify(old.arrows_this_week) === JSON.stringify(["2026-10-28 moved", "2026-10-29 didn't move"]) && old.days_moved === 1 && old.days_not === 1, JSON.stringify(old));
+  ok("the ring wins over moved when a row has both", focusAim([{ goal_id: "w1", date: "2026-11-01", moved: true, level: 3 }]).this_weeks_focus[0].arrows_this_week[0] === "2026-11-01 outer ring");
+  ok(
+    "a check-in from outside the week, or another focus's, stays out",
+    focusAim([
+      { goal_id: "w1", date: "2026-10-20", moved: true, level: 0 },
+      { goal_id: "other", date: "2026-11-01", moved: true, level: 0 },
+    ]).this_weeks_focus[0].arrows_this_week === undefined
+  );
+  ok("a long line is cut, never the whole page", focusAim([{ goal_id: "w1", date: "2026-11-01", moved: true, level: 2, note: "x".repeat(400) }]).this_weeks_focus[0].arrows_this_week[0].length < 200);
+  ok("a focus with no arrows yet still shows, with nothing made up", (() => {
+    const f = focusAim([]).this_weeks_focus[0];
+    return f.focus === "Win by win" && f.days_moved === 0 && f.days_not === 0 && !("arrows_this_week" in f);
+  })());
+  ok("the push never grades what he wrote about God", /never grade it/.test(PUSH_TONE) && /god_note/.test(PUSH_TONE) && /don't speak for God/i.test(PUSH_TONE));
+
+  // --- What the AI is told about the new columns ------------------------------
+  const askDoc = src("supabase/functions/ask/index.ts");
+  const asstDoc = src("supabase/functions/assistant/index.ts");
+  for (const [name, doc] of [
+    ["Ask", askDoc],
+    ["the assistant", asstDoc],
+  ]) {
+    ok(`${name}'s schema notes know the 1–10 feelings and the notes`, ["mood_10 smallint 1-10", "stress_10 smallint 1-10", "god_note text", "mood_note text", "stress_note text"].every((s) => doc.includes(s)));
+    ok(`${name}'s schema notes say the 1–5 is derived since 2026-11-02`, /since 2026-11-02 they are derived from mood_10 and stress_10 \(half, rounded up\)|derived from the 1-10 \(half, rounded up\)/.test(doc));
+    ok(`${name}'s schema notes know a check's kinds and what passes`, doc.includes("kind text 'yn'|'ysn'|'scale'|'number'|'minutes'|'time'|'choice'|'note'") && doc.includes("counts boolean") && doc.includes("auto 'wake'"));
+    ok(`${name}'s schema notes know the focus's arrows and checks`, ["focus_checks(id, goal_id", "lands_by text 'placed'|'checks'", "quest_id uuid, lesson_id uuid", "level smallint, spot_x real, spot_y real, note text, answers jsonb"].every((s) => doc.includes(s)));
+    ok(`${name}'s schema notes know the new shot answers`, /kind, value/.test(doc) && /line \(his/.test(doc) && /focus_goal/.test(doc) && /whole true/.test(doc));
+    ok(`${name}'s schema notes say the old evening questions stopped`, /aren't asked (from|after) 2026-11-02/.test(doc));
+  }
+  ok("Ask's notes still know the older columns", ["mood smallint", "stress smallint", "stress_source", "off_plan_reason", "had_prompting", "sabbath_note", "fast_sunday"].every((s) => askDoc.includes(s)) && askDoc.includes("focus_notes(id, goal_id, date date, text text"));
+  const evenings = asstDoc.slice(asstDoc.indexOf("async function recentEvenings"), asstDoc.indexOf("function dayForPrompt"));
+  ok("the last week of evenings carries the notes and the 1–10 feelings", /god_note, mood_note, stress_note/.test(evenings) && /mood_10, stress_10/.test(evenings) && /mood_of_5/.test(evenings));
+  ok("and still opens before 0103 is in", /r\.error \? journal\(EVENING_COLUMNS\) : r/.test(evenings) && /plans\.error \? \[\]/.test(evenings));
+  const aim = asstDoc.slice(asstDoc.indexOf("async function aimDay"), asstDoc.indexOf("const WalkPromptSchema"));
+  ok("the aim reads only this week's focus arrows, with their ring and line", /select\("goal_id, date, moved, level, note"\)/.test(aim) && /\.gte\("date", weekStart\)/.test(aim) && /\.lte\("date", date\)/.test(aim));
+
+  // --- Before you bank it -------------------------------------------------------
+  // The code without its comments, which still name what went.
+  const code = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+  const checkin = code(src("src/components/day/EveningCheckin.jsx"));
+  ok("mood and stress save on 1–10 with the 1–5 beside them", /patchDayPlan\(userId, date, \{ mood_10: n, mood: toFive\(n\) \}\)/.test(checkin) && /patchDayPlan\(userId, date, \{ stress_10: n, stress: toFive\(n\) \}\)/.test(checkin));
+  ok("and open where the day already sits on 1–10", /useFollow\(tenOf\(dayPlan, "mood"\)\)/.test(checkin) && /useFollow\(tenOf\(dayPlan, "stress"\)\)/.test(checkin));
+  ok("each feeling has its note, and God has one", /\{ moodNote: t \}/.test(checkin) && /\{ stressNote: t \}/.test(checkin) && /\{ godNote: t \}/.test(checkin) && /journal\?\.god_note/.test(checkin) && checkin.includes("Any communication with God today?") && checkin.includes("What's behind it?"));
+  ok("Fast Sunday is in the God card, on Sundays only", /\{sunday && \(\s*<div className="evening-god__sunday">/.test(checkin) && /fast_sunday: next/.test(checkin));
+  ok("tomorrow's alarm is only asked tonight", /const tonight = date >= eveningDate\(\);/.test(checkin) && /\{tonight && \(/.test(checkin));
+  const gone = ["stress_source", "off_plan_reason", "sabbath_note", "had_prompting", "logPrayer", "logExperience", "LeftUndone", "STRESS_SOURCES", "OFF_PLAN_REASONS", "Prayed"];
+  ok("the chips, the prayer tap, the prompting and the Sabbath line are gone", gone.every((s) => !checkin.includes(s)), gone.filter((s) => checkin.includes(s)).join());
+  ok("tapping what's chosen never takes it back", !/=== n \? null/.test(checkin) && !/alarm === a \? null/.test(checkin) && /if \(n === mood && !saves\.waiting\("mood"\)\) return;/.test(checkin));
+  ok("saves go one at a time, so a tap while one saves still goes", /if \(loop\.current\) return loop\.current;/.test(checkin) && /wanted\.current\.set\(key, \{ run \}\)/.test(checkin));
+  ok("a save that fails stays waiting and says so", /if \(wanted\.current\.get\(key\) === job\) failed\.add\(key\)/.test(checkin) && checkin.includes("Not saved, retry") && /useBackOnline\(retry, status\.failed > 0\)/.test(checkin));
+  ok("flushing saves every note still typed, and fails loudly", /for \(const n of notes\.current\) n\.saveNow\(\);/.test(checkin) && /throw plainError\("A note or tap in Before you bank it didn't save\./.test(checkin));
+  ok("the em dash stays out of what he reads", !/>[^<{]*—[^<{]*</.test(checkin) && !/placeholder="[^"]*—/.test(checkin));
+
+  const short = code(src("src/components/day/ShortEvening.jsx"));
+  ok("the short evening: mood on the slider, no note for it", /<Slider label="Mood"/.test(short) && !/moodNote/.test(short) && /mood_10: n, mood: toFive\(n\)/.test(short));
+  ok("the God note in place of the Prayed tap", /\{ godNote: t \}/.test(short) && !/logPrayer|deletePrayer|Prayed/.test(short));
+  ok("God's hand still finishes the reflection, and a blank never blanks it", /\{ godsHand: t, completed: true \}/.test(short) && /keepBlank: true/.test(short) && /flushRef\.current = async/.test(short));
+  ok("and the alarm is only tonight's", /\{date >= eveningDate\(\) && \(/.test(short));
+
+  // --- What got done --------------------------------------------------------------
+  const tasksSrc = src("src/components/day/EveningTasks.jsx");
+  const ticks = src("src/components/today/usePlanTicks.js");
+  const blocks = src("src/components/today/PlanBlocks.jsx");
+  ok("every task and quest pick for the day, examples left out", /usePlanTicks\(userId, date, \{ clearReason: true \}\)/.test(tasksSrc) && /filter\(\(t\) => !t\.is_example\)/.test(tasksSrc) && /planForToday\(/.test(tasksSrc));
+  ok("an open task still asks why, with the old chips", /reasonChips\(pastReasons, 7, TASK_REASONS\)/.test(tasksSrc) && /fetchTaskReasons/.test(tasksSrc) && /onReason\(item\.id/.test(tasksSrc));
+  ok("ticking a task done at night clears why it was left", /const sent = done \? \{ \.\.\.fields, left_reason: null \} : fields;/.test(ticks) && /updateTask\(item\.id, sent\)/.test(ticks));
+  ok("Today's plan ticks the way it always has", /usePlanTicks\(userId, date\);/.test(blocks) && /toggleTask\(item\.id, done\)/.test(ticks) && !/clearReason/.test(blocks));
+  ok("a reason waits for the row's tick, never races it", /ahead \? ahead\.catch\(\(\) => \{\}\)\.then\(run\) : run\(\)/.test(ticks));
+  const night = planForToday({
+    chunks: [
+      { id: "m", start_time: "08:00:00", end_time: "10:00:00", title: "Morning" },
+      { id: "s", start_time: "21:30:00", end_time: "04:30:00", title: "Sleep" },
+    ],
+    tasks: [
+      { id: "a", title: "Inbox", time_chunk_id: "m", status: true },
+      { id: "b", title: "Lay out clothes", time_chunk_id: "s", status: false },
+      { id: "c", title: "Call the bank", time_chunk_id: null, status: false },
+    ],
+    nowMin: 2 * 24 * 60,
+    date: "2026-11-02",
+  });
+  ok("in the evening every block is behind you, even one past midnight, and nothing hides", night.blocks.every((b) => b.state === "past") && night.total === 3 && night.done === 1 && night.loose.planned[0]?.id === "c");
+
+  // --- The page --------------------------------------------------------------------
+  const page = src("src/pages/Evening.jsx");
+  const full = page.slice(page.indexOf(") : (\n        <div className={\"stack\""), page.indexOf("{volley &&"));
+  const order = ["<WinsAndLosses", "<MinutesCard", "<WatchLine", "<CuratedCards", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningTasks", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
+  ok("the full evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
+  const quick = page.slice(page.indexOf(") : short ? ("), page.indexOf(") : (\n        <div className={\"stack\""));
+  const qOrder = ["<WinsAndLosses", "<ShortEvening", "<FocusArrows", "<TonightShots", "<CloseOut"].map((t) => quick.indexOf(t));
+  ok("and the short one too", qOrder.every((i, k) => i >= 0 && (k === 0 || i > qOrder[k - 1])) && /quick\s*\/>/.test(quick.slice(quick.indexOf("<FocusArrows"))), qOrder.join());
+  ok("FocusDay is gone from the evening", !/FocusDay/.test(page));
+  ok("the focus arrows and the shots get the day's plan", (page.match(/dayPlan=\{data\.dayPlan\}/g) ?? []).length >= 5 && (page.match(/<FocusArrows[^>]*flushRef=\{flushFocus\}/g) ?? []).length === 2);
+  const before = page.slice(page.indexOf("const beforeBank"), page.indexOf("const a = data?.archive"));
+  ok("banking saves the focus arrows before tonight's checks", before.indexOf("flushFocus") < before.indexOf("flushCheckin") && /onBefore=\{beforeBank\}/.test(page) && /onBefore=\{beforeShortBank\}/.test(page) && /flushShort\.current/.test(before));
+
+  // --- The banked day -----------------------------------------------------------------
+  const banked = src("src/components/day/BankedDayCard.jsx");
+  const line = banked.slice(banked.indexOf("function DayInALine"), banked.indexOf("function TaskLine"));
+  ok("the banked day shows mood and stress out of 10", /tenOf\(p, "mood"\)/.test(line) && /`mood \$\{mood\}\/10`/.test(line) && /`stress \$\{stress\}\/10/.test(line));
+  ok("and the God note and a fast Sunday", /j\.god_note \? `With God: \$\{j\.god_note\}`/.test(line) && /fast Sunday/.test(line) && /<DayInALine plan=\{plan\} journal=\{journal\} \/>/.test(banked));
+  ok("the older questions show only on days that have them", /p\.stress_source \?/.test(line) && /if \(p\.off_plan_reason\)/.test(line) && /p\.sabbath_note \?/.test(line));
+
+  // --- The slider ------------------------------------------------------------------------
+  const slider = src("src/components/ui/Slider.jsx");
+  ok("the slider says what it is to a screen reader", /role="slider"/.test(slider) && /aria-valuemin=\{SLIDER_MIN\}/.test(slider) && /aria-valuemax=\{SLIDER_MAX\}/.test(slider) && /aria-valuenow=\{set \?\? undefined\}/.test(slider));
+  ok("and takes the keys a slider takes", ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"].every((k) => slider.includes(`"${k}"`)));
+  ok("unset until the first touch, and says so", slider.includes('"Tap to set"') && /value == null \? null/.test(slider));
+  ok("it saves once you lift your thumb, and a scroll isn't a pick", /function onPointerUp/.test(slider) && /settle\(n\)/.test(slider) && /onPointerCancel=\{onPointerCancel\}/.test(slider));
+  const daily = src("src/styles/daily.css");
+  const track = daily.slice(daily.indexOf(".slider__track {"), daily.indexOf("}", daily.indexOf(".slider__track {")));
+  ok("the track is thumb-sized, keeps vertical scrolling, and fits a phone", /height: 44px/.test(track) && /touch-action: pan-y/.test(track) && /repeat\(10, minmax\(0, 1fr\)\)/.test(track));
+}
+
+// (end of before you bank it)
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

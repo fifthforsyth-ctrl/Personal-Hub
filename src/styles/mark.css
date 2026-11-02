@@ -128,6 +128,20 @@
 .mk-did--no i { box-shadow: inset 0 0 0 1.4px var(--text-3); }
 .mk-did--no span, .mk-did--skip span { color: var(--text-2); }
 .mk-did small { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+/* Since 0103 an answer can come with a line of its own, a few written words,
+   or be reflection only (asked, never counted: a dashed ring). */
+.mk-did li { align-items: start; }
+.mk-did i { margin-top: 4px; }
+.mk-did small { padding-top: 2px; max-width: 46vw; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; text-align: right; overflow-wrap: anywhere; }
+.mk-did__t { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.mk-did__sub { font-style: italic; font-size: 12px; color: var(--text-2); }
+.mk-did__words { font-family: var(--font-serif); font-size: 14px; line-height: 1.4; color: var(--text); }
+.mk-did__free { font-size: 9px; color: var(--text-3); }
+.mk-did--free i { box-shadow: none; border: 1.4px dashed var(--text-3); }
+.mk-did--free > span:not(.mk-did__words) { color: var(--text-2); }
+.mk-fed-by { margin: 0; }
+.mk-fed-by b { color: var(--text); font-weight: 600; }
+.mk-setup__first { align-self: flex-start; }
 .mk-why { color: var(--accent-text); font-weight: 650; }
 .mk-line { margin: 0; padding-left: 11px; border-left: 2px solid var(--accent); font-family: var(--font-serif); font-style: italic; font-size: 15px; line-height: 1.45; }
 .mk-line::before { content: "\201C"; }
@@ -191,6 +205,29 @@
 
 .mk-tonight__count { margin: 12px 0 0; font-size: 13px; color: var(--text-2); line-height: 1.45; }
 .mk-tonight__count b { color: var(--text); font-weight: 650; }
+
+/* Tonight's checks (0103): each check answered its own way, a line under
+   each that wants one, and the week's focus that counts toward it. */
+.mk-tonight__lede { margin: 0 0 12px; }
+.mk-shot__checks .ck-row + .ck-row { border-top: 1px solid var(--line); padding-top: 12px; }
+.mk-shot__lands { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.mk-shot__quick { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.mk-shot__quick p { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.45; }
+.mk-shot__quick b { color: var(--text); font-weight: 650; }
+.mk-shot__by { min-height: 36px; padding: 0 2px; }
+.mk-fed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mk-shot__checks + .mk-fed { border-top: 1px solid var(--line); padding-top: 12px; }
+.mk-fed li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.4; color: var(--text-2); min-width: 0; }
+.mk-fed li > span { min-width: 0; overflow-wrap: anywhere; }
+.mk-fed b { color: var(--text); font-weight: 600; }
+.mk-fed i { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed var(--text-3); transform: translateY(1px); }
+.mk-fed li.on i { border: 0; background: var(--accent); }
+/* Said by the boxes on a target with no ring yet: what's written there
+   stays on this phone until it has one. Set apart, never alarming. */
+.mk-shot__kept { margin: 0; padding-left: 10px; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
+.mk-quick__name { flex: 1; }
+.mk-quick__txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mk-quick__txt small { color: var(--text-3); line-height: 1.3; }
 
 /* ---------------------------------------------------------------------------
    The volley: the day banked, every arrow flies
@@ -298,3 +335,7 @@
 .mk-quick__name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; font-weight: 550; }
 .mk-quick__name svg { flex-shrink: 0; }
 .mk-quick__name small { font-size: 11px; font-weight: 400; }
+
+/* The four section names sit straight on the sheet: white boxes with a
+   line, so they read as fields. */
+.mk-reasons-edit .input { background: var(--card); border-color: var(--line-strong); }

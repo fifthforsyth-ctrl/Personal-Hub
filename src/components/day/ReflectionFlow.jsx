@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
-import { friendlyError } from "../../lib/errors";
+import { friendlyError, plainError } from "../../lib/errors";
 
 // The evening's four cards.
 //
@@ -110,9 +110,11 @@ function readDraft(userId, date) {
   }
 }
 
-function writeDraft(userId, date, answers) {
+// `base` is what the Hub held for each answer when the draft was written,
+// and `at` when you last typed in it.
+function writeDraft(userId, date, answers, base, at) {
   try {
-    localStorage.setItem(draftKey(userId, date), JSON.stringify({ answers, at: Date.now() }));
+    localStorage.setItem(draftKey(userId, date), JSON.stringify({ answers, base, at }));
   } catch (err) {
     console.warn(err);
   }
@@ -126,15 +128,48 @@ function clearDraft(userId, date) {
   }
 }
 
-// A draft only wins over the saved answers when it was written after them
-// (an older draft from this phone mustn't undo what you saved elsewhere).
+// The draft laid over the saved answers, one answer at a time. The journal
+// row's updated_at can't decide it: a mood or God note saved further down
+// the evening stamps the same row, and that says nothing about the
+// reflection. So the draft remembers what the Hub held for each answer when
+// you typed it (`base`):
+//
+// - the Hub still holds that, so nothing has changed it since: your draft
+//   is the newer word, even when it's a box you cleared on purpose.
+// - you never touched it here and the Hub's has changed: the Hub's stands
+//   (an older draft from this phone mustn't undo what you saved elsewhere).
+// - both changed (another device saved over the same answer), or a draft
+//   from before drafts said where they started: the draft wins when it
+//   only adds to what's saved, when the saved box is empty, or when you
+//   typed it after the row last changed. An empty draft box never blanks
+//   a saved answer here.
+export function mergeDraft(saved, draft, savedAt = 0) {
+  if (!draft?.answers || typeof draft.answers !== "object") return saved;
+  const base = draft.base && typeof draft.base === "object" ? draft.base : null;
+  const out = { ...saved };
+  for (const k of KEYS) {
+    const mine = draft.answers[k];
+    if (typeof mine !== "string") continue;
+    const now = saved[k] ?? "";
+    if (mine === now) continue;
+    if (base) {
+      const from = typeof base[k] === "string" ? base[k] : "";
+      if (now === from) {
+        out[k] = mine;
+        continue;
+      }
+      if (mine === from) continue;
+    }
+    if (mine.trim() && (!now.trim() || mine.startsWith(now) || Number(draft.at) > savedAt)) out[k] = mine;
+  }
+  return out;
+}
+
 function startingAnswers(userId, date, journal) {
   const saved = toState(journal);
   const draft = readDraft(userId, date);
-  const savedAt = journal?.updated_at ? Date.parse(journal.updated_at) : 0;
-  if (draft?.answers && draft.at > savedAt) return { ...saved, ...draft.answers };
-  if (draft) clearDraft(userId, date);
-  return saved;
+  const savedAt = journal?.updated_at ? Date.parse(journal.updated_at) || 0 : 0;
+  return { answers: mergeDraft(saved, draft, savedAt), typedAt: Number(draft?.at) || Date.now() };
 }
 
 // `moments` are the times you noted God's hand during the day (from the
@@ -142,10 +177,13 @@ function startingAnswers(userId, date, journal) {
 // can start from them.
 //
 // Mount this only once the day has loaded, keyed by the date: what it starts
-// from is then the saved answers (or a newer draft), and nothing that arrives
-// later can wipe what's being typed.
-export default function ReflectionFlow({ userId, date, journal, moments = [], onSaved }) {
-  const [answers, setAnswers] = useState(() => startingAnswers(userId, date, journal));
+// from is then the saved answers with this phone's draft laid over them
+// (mergeDraft), and nothing that arrives later can wipe what's being typed.
+export default function ReflectionFlow({ userId, date, journal, moments = [], onSaved, flushRef }) {
+  const [opening] = useState(() => startingAnswers(userId, date, journal));
+  const [answers, setAnswers] = useState(opening.answers);
+  // When you last typed here, kept with the draft. Only your typing moves it.
+  const typedAt = useRef(opening.typedAt);
   const [questions, setQuestions] = useState(null);
   const [step, setStep] = useState(0);
   const [running, setRunning] = useState(false);
@@ -164,8 +202,25 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
 
   useEffect(() => {
     if (same(answers, saved.current)) clearDraft(userId, date);
-    else writeDraft(userId, date, answers);
+    else writeDraft(userId, date, answers, saved.current, typedAt.current);
   }, [answers, userId, date]);
+
+  // Before the evening switches to Short, or the day is banked: whatever is
+  // typed on a card and not yet sent (no Next tapped) goes now, so it's on
+  // the server before anything else can save over the journal. A save that
+  // fails throws, which keeps the page where it is.
+  const saveRef = useRef(null);
+  saveRef.current = save;
+  useEffect(() => {
+    if (!flushRef) return;
+    flushRef.current = async () => {
+      const ok = await saveRef.current?.();
+      if (ok === false) throw plainError("Your reflection didn't save. It's kept on this phone; try again in a moment.");
+    };
+    return () => {
+      flushRef.current = null;
+    };
+  }, [flushRef]);
 
   // Words left on this phone by a save that didn't go through are sent as
   // soon as the evening opens again.
@@ -217,7 +272,9 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     try {
       await saveJournalEntry(userId, date, { ...changed, completed: finish });
       saved.current = { ...saved.current, ...changed };
+      // What's still only on the phone now starts from what just saved.
       if (same(latest.current, saved.current)) clearDraft(userId, date);
+      else writeDraft(userId, date, latest.current, saved.current, typedAt.current);
       setError(null);
       return true;
     } catch (err) {
@@ -341,7 +398,10 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         key={card.key}
         className="textarea"
         value={answers[card.key]}
-        onChange={(e) => setAnswers((a) => ({ ...a, [card.key]: e.target.value }))}
+        onChange={(e) => {
+          typedAt.current = Date.now();
+          setAnswers((a) => ({ ...a, [card.key]: e.target.value }));
+        }}
         placeholder={card.placeholder}
         aria-label={card.question}
         style={{ minHeight: 148, fontFamily: "var(--font-serif)", fontSize: 15 }}

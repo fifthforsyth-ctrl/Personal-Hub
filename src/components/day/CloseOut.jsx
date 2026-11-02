@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Archive, Check, Circle, Sparkles } from "lucide-react";
 import { bankDay, writeDaySynopsis } from "../../lib/api";
-import { friendlyError } from "../../lib/errors";
+import { friendlyError, isOffline } from "../../lib/errors";
 import { primeAudio } from "../../lib/thunk";
 import { useToast } from "../ui/Feedback";
 
@@ -43,7 +43,8 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
         setStage("Saving…");
         await onBefore();
       } catch (err) {
-        setError(friendlyError(err, "Couldn't save your line. Try again."));
+        // Say which thing didn't save, when the card it came from said so.
+        setError(err?.plain && !isOffline(err) ? err.message : friendlyError(err, "Couldn't save your line. Try again."));
         setBusy(false);
         setStage(null);
         return;
