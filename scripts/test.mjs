@@ -6204,6 +6204,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const why = H.createElement(H.Fragment, null, "Counts toward ", H.createElement("a", { href: "/targets/g1" }, "Skilled"), H.createElement("span", { className: "tg-why__week" }, " · Week of Oct 25"));
   ok("a focus's why stays one line of words", /<div class="tg-why"><p class="tg-why__text">Counts toward <a href="\/targets\/g1">Skilled<\/a><span class="tg-why__week"> · Week of Oct 25<\/span><\/p><\/div>/.test(drawHead({ why })));
   ok("while a quest's target is coming, its row keeps its place", /<div class="tg-mark" aria-hidden="true"><\/div>/.test(drawHead({ markWaiting: true })) && !/tg-mark/.test(drawHead({})));
+
+  // --- Target.jsx: a #history, #notes or #quotes link waits on the lists -----------
+  ok(
+    "a quest's or lesson's page looks for #history, #notes or #quotes once its lists have answered, not under the header while they load",
+    /const listsIn = !\(resolved\?\.kind === "quest" \|\| resolved\?\.kind === "lesson"\) \|\| !board\.loading;/.test(page) &&
+      /useScrollToPlace\(key && key === ref && listsIn \? key : null, location\.hash\);/.test(page) &&
+      page.indexOf("const listsIn =") < page.indexOf("useScrollToPlace(key") &&
+      (page.match(/useScrollToPlace\(/g) ?? []).length === 2
+  );
 }
 // (end of review fix 1)
 

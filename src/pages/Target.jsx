@@ -90,7 +90,11 @@ export default function Target({ onCanonical = null }) {
   }, [key, ref]);
 
   useScrollTop(key);
-  useScrollToPlace(key && key === ref ? key : null, location.hash);
+  // A quest's or lesson's history, notes and quotes are drawn under its
+  // header while its lists load, then move below them, so the page looks
+  // for its part once the lists have answered (or failed), where it stays.
+  const listsIn = !(resolved?.kind === "quest" || resolved?.kind === "lesson") || !board.loading;
+  useScrollToPlace(key && key === ref && listsIn ? key : null, location.hash);
 
   // What's open on this target's page; a new target starts afresh.
   const [ui, setUi] = useState(() => freshUi(key, location.hash));
