@@ -4428,5 +4428,24 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 
+// ===== Tonight's checks on each target (PR 2, part 1) =====
+// Add this part's tests directly under the line above.
+
+// (end of tonight's checks)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+// ===== Arrows on the week's focus (PR 2, part 2) =====
+// Add this part's tests directly under the line above.
+
+// (end of arrows on the week's focus)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+// ===== Before you bank it (PR 2, part 3) =====
+// Add this part's tests directly under the line above.
+
+// (end of before you bank it)
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -3,6 +3,9 @@
 // STUB. Built out in this same change; the props below are final.
 //
 //   userId, date   whose evening, and which day
+//   entries        the day's time entries (day_archive's time_entries), for
+//                  checks the time log answers
+//   dayPlan        the day's plan row, for "Up by" (woke_at)
 //   quick          the short evening's version: smaller faces, no notes
 //   flushRef       set to an async () => void that saves anything still
 //                  waiting (a note typed a moment ago) before the day is
