@@ -17,7 +17,6 @@ import {
   Watch,
   Landmark,
   Castle,
-  ListChecks,
   RotateCw,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -26,10 +25,12 @@ import { refreshApp } from "../lib/refresh";
 
 // Five places you go, one thing you do from anywhere.
 //
-// The tabs are the places you actually spend time: Today, Week, Quests,
-// Board and Money. Quests sits among them because the camps were too far
-// down the More menu to reach in the middle of a working day. The ＋ opens
-// capture from wherever you are, and everything else lives under More.
+// The tabs are the places you actually spend time: Today, Week, Targets,
+// Board and Money. Targets holds the whole ladder, biggest to smallest: the
+// mission, the lifetime goals, the quests and lessons with their camps, and
+// the week's focus, each with a page of its own. It took the place of both
+// the Quests tab and the Range. The ＋ opens capture from wherever you are,
+// and everything else lives under More.
 //
 // The evening isn't a tab. You go to it from the big black "Evening
 // reflection" button on Today, which is where the day ends anyway, so one
@@ -37,7 +38,7 @@ import { refreshApp } from "../lib/refresh";
 export const NAV = [
   { to: "/", label: "Today", Icon: Sun, end: true },
   { to: "/plan", label: "Week", Icon: CalendarRange },
-  { to: "/quests", label: "Quests", Icon: ListChecks },
+  { to: "/targets", label: "Targets", Icon: Target },
   { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
 ];
@@ -52,14 +53,15 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // been used since August, and tender mercies are kept from the Walk with God
 // card now. Both pages and everything in them are still there, at /work and
 // /spirit, for the day they're wanted again. The same goes for the goal
-// wheel: the Range took its place, and the wheel is still at /tree.
+// wheel: the Targets tab took its place (its lifetime goals are the wheel's
+// top goals), and the wheel itself is still at /tree, a tap from a goal's
+// edit sheet.
 //
 // Past days went the same way: you weren't opening it. Any day is still one
 // tap away from the week strip on Today, the Week page and the evening, and
 // /day/<date> still works.
 export const MORE = [
   { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
-  { to: "/ascent", label: "The Range", Icon: Target },
   { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
@@ -231,8 +233,10 @@ export function TopBar() {
 
 // Round icons with their names under them: the icon is quick once you know
 // it, and the word is there until you do. Five tabs and the ＋ have to fit a
-// 360px phone, so the ＋ sits after the first three (Today, Week, Quests:
-// the ones you're in all day) rather than dead centre.
+// 360px phone, so the ＋ sits after the first three (Today, Week, Targets:
+// the ones you're in all day) rather than dead centre. A tab stays lit on
+// every page under it, so Targets shows as the place you are on a quest's
+// page, a camp or a plan too (/targets/...).
 export function BottomTabs() {
   const capture = useCapture();
   const tab = ({ to, label, Icon, end }) => (

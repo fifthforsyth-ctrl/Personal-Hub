@@ -14,10 +14,10 @@ import { usePlanTicks } from "./usePlanTicks";
 // Every block you laid out for today is listed, in the order you'll live
 // it. The one you're in now is marked and open, and so is each one ahead,
 // with what you'll do in it: the tasks you planned into it on the day page,
-// and what you picked for today on Quests when the block is tied to that
-// quest or camp (src/lib/todayPlan.js decides which block takes what). A
-// note you picked on Quests with tasks under it is a small heading over
-// them. Blocks behind you shrink to one line with how much of them got
+// and what you picked for today on a quest's page when the block is tied
+// to that quest or camp (src/lib/todayPlan.js decides which block takes
+// what). A note you picked there with tasks under it is a small heading
+// over them. Blocks behind you shrink to one line with how much of them got
 // done; a tap opens one to tick something you finished late.
 //
 // A tick saves straight away and shows before it's saved, and it holds until
@@ -132,7 +132,8 @@ function Block({ block: b, open, onFlip, onToggle }) {
 }
 
 // What's not tied to any block: tasks planned with no time, then each
-// quest's, under its name (a way into that quest).
+// quest's, under its name (a way into that quest's page; a lesson's work
+// is kept on its mountain, and that id opens the lesson's page).
 function Loose({ loose, date, onToggle }) {
   const many = loose.quests.length > 1;
   return (
@@ -142,7 +143,7 @@ function Loose({ loose, date, onToggle }) {
       {loose.quests.map((g) => (
         <div key={g.questId ?? "none"} className="plan-blocks__group">
           {g.questId ? (
-            <Link to={`/quests/${g.questId}`} className="plan-blocks__group-title">
+            <Link to={`/targets/${g.questId}`} className="plan-blocks__group-title">
               <span className="truncate">{g.title}</span>
               <ArrowRight size={13} />
             </Link>
