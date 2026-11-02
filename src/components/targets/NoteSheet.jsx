@@ -185,7 +185,8 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
   const [problem, setProblem] = useState(null);
   const box = useRef(null);
   // A sheet closed while it saved has nothing to close when the save lands;
-  // the sheet open by then may be a new one.
+  // the sheet open by then may be a new one. That one closes itself when
+  // the words land, if it holds nothing of his (below).
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
@@ -193,6 +194,8 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
       live.current = false;
     };
   }, []);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   // Kept as he types, and a reflection's question with its words, for as
   // long as there are words.
@@ -206,10 +209,16 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
   // sent them: this one, or one closed before they saved. Saved, a box
   // still holding just them empties; not saved, they come back into the
   // box (with their question, into a box left empty) and the sheet says so.
+  // A sheet opened again while they saved (or opened afresh as the page
+  // around it redrew) starts with an empty box, and its sender is gone, so
+  // once they've saved it closes, as the sender's would have; anything he
+  // has typed in it keeps it open. The sender's own box still holds them,
+  // and it closes itself.
   const shown = useRef(text);
   shown.current = text;
   useEffect(() => {
     const heard = ({ sent, question, saved }) => {
+      if (saved && !shown.current.trim()) closeRef.current();
       if (!saved) {
         if (question && !shown.current.trim()) setAsk((a) => keptQuestion(kind, question, a?.turn ?? 0));
         setProblem("Couldn't save that. Your words are still here.");

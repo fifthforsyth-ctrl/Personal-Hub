@@ -6196,6 +6196,10 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the sheet saves through sendNote, which keeps the words on their way by draft key", /const inFlight = new Map\(\);/.test(sheetSrc) && /sendNote\(\{ key: draftKey, sent, question: prompt, save:/.test(sheetSrc));
   ok("a sheet closed mid-save doesn't close the one open when it lands", /if \(live\.current\) onClose\(\);/.test(sheetSrc));
   ok(
+    "a sheet opened while the words saved, with nothing typed in it, closes once they land",
+    /const closeRef = useRef\(onClose\);\s*closeRef\.current = onClose;/.test(sheetSrc) && /const heard = \(\{ sent, question, saved \}\) => \{\s*if \(saved && !shown\.current\.trim\(\)\) closeRef\.current\(\);/.test(sheetSrc)
+  );
+  ok(
     "an open sheet hears its words land, a target note's or a focus note's",
     /return onNoteSent\(\(landed\) => landed\.key === draftKey && heard\(landed\)\);/.test(sheetSrc) && /onNoteLanded\(\(\{ goalId, sent, row \}\) => goalId === focusId/.test(sheetSrc)
   );
@@ -6203,7 +6207,11 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   // --- 17: an inline edit isn't thrown away by a tap on another note ---------
   ok(
     "a tap on another note is ignored while an edit is changed or saving",
-    /if \(editing && editBox\.current && \(editing\.busy \|\| editing\.text !== editing\.orig\)\) \{/.test(notesSrc) && /setEditing\(\{ id: item\.id, text: item\.text, orig: item\.text, busy: false \}\)/.test(notesSrc)
+    /if \(editing && \(editing\.busy \|\| editing\.text !== editing\.orig\)\) \{\s*if \(editBox\.current\) \{\s*editBox\.current\.focus\(\);\s*return;\s*\}/.test(notesSrc) && /setEditing\(\{ id: item\.id, text: item\.text, orig: item\.text, busy: false \}\)/.test(notesSrc)
+  );
+  ok(
+    "a changed edit pushed out of the first notes is shown again, while its note is still there",
+    /if \(groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.id === editing\.id\)\)\) \{\s*setAll\(true\);\s*return;\s*\}/.test(notesSrc)
   );
   ok("every note's text opens through that check", /onClick=\{\(\) => startEdit\(item\)\}/.test(notesSrc) && (notesSrc.match(/setEditing\(\{ id: /g) ?? []).length === 1);
   ok("the box being edited is the one the tap goes back to", /ref=\{editBox\}/.test(notesSrc));

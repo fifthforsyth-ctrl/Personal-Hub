@@ -139,12 +139,20 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
 
   // A tap on another note while he's changed the one he's in, or while it
   // saves, would throw his change away; the tap takes him back to his box.
-  // (Only while that box is on screen: one pushed out of the first `limit`
-  // by a new note can't be got back to, so it doesn't hold the rest.)
+  // A new note can push that box out of the first `limit`: then the tap
+  // shows them all again, and the box focuses itself as it comes back. (A
+  // note gone from the timeline, deleted on another device, has no box to
+  // go back to, so it doesn't hold the rest.)
   function startEdit(item) {
-    if (editing && editBox.current && (editing.busy || editing.text !== editing.orig)) {
-      editBox.current.focus();
-      return;
+    if (editing && (editing.busy || editing.text !== editing.orig)) {
+      if (editBox.current) {
+        editBox.current.focus();
+        return;
+      }
+      if (groups.some((g) => g.items.some((i) => i.id === editing.id))) {
+        setAll(true);
+        return;
+      }
     }
     setEditing({ id: item.id, text: item.text, orig: item.text, busy: false });
   }
