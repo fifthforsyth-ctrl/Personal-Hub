@@ -5980,6 +5980,41 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 // (end of targets tab, part 4)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 5: the parts together) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: the parts together");
+  const { readdirSync, statSync } = await import("node:fs");
+  const root = fileURLToPath(new URL("../src/", import.meta.url));
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`.replace(/\/+/g, "/");
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(jsx?|tsx?)$/.test(name)) files.push(full);
+    }
+  };
+  walk(root.replace(/\/$/, ""));
+  const old = files.filter((f) => !f.endsWith("/App.jsx")).filter((f) => /["'`]\/(quests|ascent)\b/.test(readFileSync(f, "utf8")));
+  ok("no link anywhere in the app goes to the old Quests or Range addresses (only App.jsx's redirects name them)", old.length === 0, old.join(", "));
+  ok("the old pages are gone", !files.some((f) => /\/pages\/(Quests|Ascent)\.jsx$/.test(f)));
+  const range = files.filter((f) => /The Range\b/.test(readFileSync(f, "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("nothing he reads calls it the Range any more", range.length === 0, range.join(", "));
+
+  const ladder = readFileSync(new URL("../src/components/targets/useLadder.jsx", import.meta.url), "utf8");
+  const lessonSave = ladder.slice(ladder.indexOf("const saveLessonFrom"), ladder.indexOf("async function removeLesson"));
+  ok("saving a lesson never deletes its mountain (its daily list and clipboard live there)", lessonSave.length > 0 && !/deleteQuest\(/.test(lessonSave));
+  const sheets = readFileSync(new URL("../src/components/ascent/Sheets.jsx", import.meta.url), "utf8");
+  const remove = sheets.slice(sheets.indexOf("async function remove(r)"), sheets.indexOf("setRows((rs) => rs.filter((x) => x.key !== r.key));"));
+  ok("taking off any saved camp asks first, clipboard and all", /r\.id &&\s*!\(await confirm\(/.test(remove) && /clipboard, photos and sketches/.test(remove));
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  ok("each target's page starts fresh", /<Target key=\{pathname\} \/>/.test(app) && (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2);
+}
+
+// (end of targets tab, part 5)
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
