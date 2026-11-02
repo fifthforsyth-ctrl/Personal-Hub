@@ -3824,7 +3824,9 @@ export function fetchQuestTasks(userId, questId) {
 //   quest, for names and order.
 // Done ones come too, so a tick on Today doesn't make a row vanish; which
 // section steps were finished before the day is todayPlan's to decide.
-// Notes aren't things to do, so they stay out.
+// Notes on today come too, with the tasks under them: a note isn't a thing
+// to do, but a note picked for today ("Meeting with the team") can hold a
+// dozen that are, and todayPlan shows it as a heading over them.
 export async function fetchTodayQuestWork(userId, date) {
   const [sections, camps, quests] = await Promise.all([
     selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, title, today_on, clipboard, position").eq("user_id", userId).order("id")),
@@ -3835,19 +3837,20 @@ export async function fetchTodayQuestWork(userId, date) {
   const picked = sections.filter((s) => s.today_on === date).map((s) => s.id);
   const stepFilter = picked.length ? `today_on.eq.${date},section_id.in.(${picked.join(",")})` : `today_on.eq.${date}`;
   const [steps, lines] = await Promise.all([
-    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).neq("kind", "note").or(stepFilter).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).or(stepFilter).order("id")),
     selectAllPages(() =>
-      supabase.from("quest_tasks").select(QUEST_TASK).eq("user_id", userId).eq("kind", "task").or(`today_on.eq.${date},and(day.eq.${date},ongoing.is.false)`).order("id")
+      supabase.from("quest_tasks").select(QUEST_TASK).eq("user_id", userId).or(`today_on.eq.${date},and(day.eq.${date},ongoing.is.false)`).order("id")
     ),
   ]);
 
   // What's under them. A section's own steps came with it; a step picked
-  // on its own brings its sub-steps, as deep as they go. A line's sub-tasks
-  // are one level.
+  // on its own (a note too) brings its sub-steps, as deep as they go, and
+  // through a note further down to the tasks under it. A line's sub-tasks
+  // are one level, and a note line brings its sub-tasks the same way.
   const stepIds = new Set(steps.map((s) => s.id));
   let reach = steps.filter((s) => !picked.includes(s.section_id)).map((s) => s.id);
   for (let depth = 0; reach.length && depth < 4; depth++) {
-    const kids = (await rowsUnder("camp_steps", CAMP_STEP, userId, reach)).filter((s) => !stepIds.has(s.id));
+    const kids = (await rowsUnder("camp_steps", CAMP_STEP, userId, reach, { notes: true })).filter((s) => !stepIds.has(s.id));
     for (const s of kids) stepIds.add(s.id);
     steps.push(...kids);
     reach = kids.map((s) => s.id);
@@ -3859,17 +3862,19 @@ export async function fetchTodayQuestWork(userId, date) {
   return { sections, steps, lines, camps: camps.data ?? [], quests: quests.data ?? [] };
 }
 
-// The rows under these (by parent_id), notes left out, a hundred parents
-// at a time so the request stays short.
-async function rowsUnder(table, columns, userId, parentIds) {
+// The rows under these (by parent_id), a hundred parents at a time so the
+// request stays short. Notes are left out unless `notes` asks for them (to
+// reach the tasks under a note further down).
+async function rowsUnder(table, columns, userId, parentIds, { notes = false } = {}) {
   const out = [];
   for (let i = 0; i < parentIds.length; i += 100) {
-    const { data, error } = await supabase
+    let q = supabase
       .from(table)
       .select(columns)
       .eq("user_id", userId)
-      .in("parent_id", parentIds.slice(i, i + 100))
-      .neq("kind", "note");
+      .in("parent_id", parentIds.slice(i, i + 100));
+    if (!notes) q = q.neq("kind", "note");
+    const { data, error } = await q;
     if (error) throw error;
     out.push(...(data ?? []));
   }

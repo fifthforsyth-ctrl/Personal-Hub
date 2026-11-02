@@ -3609,5 +3609,90 @@ console.log("\napple watch");
   ok("today's reading is set beside the 4 weeks before today", minutesWatch([...month.slice(0, -1), { date: "2026-11-01", resting_hr: 58 }], "2026-11-01").find((p) => p.label === "Resting HR")?.sub === "your normal 55");
 }
 
+{
+  console.log("\ntoday's plan: notes from Quests over their tasks");
+  const D = "2026-11-02";
+  const at = (h, m = 0) => h * 60 + m;
+  const chunks = [
+    { id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Plugin", quest_id: "q1", camp_id: null },
+    { id: "c2", start_time: "10:00:00", end_time: "12:00:00", title: "Multicam", quest_id: "q1", camp_id: "k1" },
+  ];
+  const line = (id, fields) => ({ id, quest_id: "q1", parent_id: null, kind: "task", text: id, day: D, ongoing: false, today_on: null, done_on: null, position: 0, ...fields });
+  const step = (id, fields) => ({ id, camp_id: "k1", section_id: null, parent_id: null, kind: "task", text: id, today_on: null, done_on: null, position: 0, ...fields });
+  const work = {
+    quests: [{ id: "q1", title: "Plugin", status: "on", position: 0 }],
+    camps: [
+      { id: "k1", quest_id: "q1", title: "Multicam", position: 0 },
+      { id: "k2", quest_id: "q1", title: "Audio", position: 1 },
+    ],
+    sections: [{ id: "sA", camp_id: "k2", title: "Mixer", today_on: D, position: 0 }],
+    lines: [
+      // picked for today from the ongoing list, its tasks left where they were
+      line("m1", { kind: "note", text: "Meeting with the team", day: "2026-10-26", ongoing: true, today_on: D }),
+      line("m1a", { parent_id: "m1", day: "2026-10-26", ongoing: true }),
+      line("m1b", { parent_id: "m1", day: "2026-10-26", ongoing: true, done_on: D, position: 1 }),
+      line("m1c", { parent_id: "m1", kind: "note", text: "Sam ran it", day: "2026-10-26", ongoing: true, position: 2 }),
+      // written on today's own list
+      line("m2", { kind: "note", text: "Ideas from the call", position: 1 }),
+      line("m2a", { parent_id: "m2" }),
+      line("m3", { kind: "note", text: "Just a thought", position: 2 }),
+      // not on today, though a task under it carries today's day
+      line("m4", { kind: "note", text: "Old note", day: "2026-10-20", ongoing: true, position: 3 }),
+      line("m4a", { parent_id: "m4" }),
+      line("m5a", { parent_id: "gone" }),
+    ],
+    steps: [
+      // a note step picked on its own, with steps under it
+      step("n1", { kind: "note", text: "Camera checklist", today_on: D }),
+      step("n1a", { parent_id: "n1" }),
+      step("n1b", { parent_id: "n1", position: 1 }),
+      // a picked task step with a note under it, and a task under that
+      step("t1", { text: "Rig the cameras", today_on: D, position: 1 }),
+      step("t1n", { parent_id: "t1", kind: "note", text: "How it went" }),
+      step("t1na", { parent_id: "t1n", text: "Order a second clamp" }),
+      // notes in a section picked for today
+      step("n2", { camp_id: "k2", section_id: "sA", kind: "note", text: "Mixer notes" }),
+      step("n2a", { camp_id: "k2", section_id: "sA", parent_id: "n2" }),
+      step("n3", { camp_id: "k2", section_id: "sA", kind: "note", text: "Finished last week", position: 1 }),
+      step("n3a", { camp_id: "k2", section_id: "sA", parent_id: "n3", done_on: "2026-10-29" }),
+    ],
+  };
+  const ids = (items) => items.map((i) => i.id);
+  const everyId = (p) => {
+    const walk = (items) => items.flatMap((i) => [i.id, ...walk(i.subs)]);
+    return [...p.blocks.flatMap((b) => walk(b.items)), ...walk(p.loose.planned), ...p.loose.quests.flatMap((g) => walk(g.items))];
+  };
+  const p = planForToday({ chunks, tasks: [], questWork: work, nowMin: at(9), date: D });
+  const c1 = p.blocks.find((b) => b.id === "c1");
+  const c2 = p.blocks.find((b) => b.id === "c2");
+  const find = (block, id) => block.items.find((i) => i.id === id);
+
+  const m1 = find(c1, "m1");
+  ok("a note picked for today heads its tasks, in the quest's block", m1?.heading === true && ids(m1.subs).join() === "m1a,m1b", JSON.stringify(m1));
+  ok("the note has no box to tick; the tasks under it do", m1?.done === false && m1.subs.every((s) => s.kind === "line" && !s.heading) && m1.subs[1]?.done === true, JSON.stringify(m1?.subs));
+  ok("the note says which quest it's from", m1?.from === "Plugin");
+  ok("a note under the note is words, not a thing to do", !everyId(p).includes("m1c"), JSON.stringify(everyId(p)));
+  const m2 = find(c1, "m2");
+  ok("a note written on today's own list heads its tasks too", m2?.heading === true && ids(m2.subs).join() === "m2a", JSON.stringify(m2));
+  ok("a note with nothing to tick under it stays on Quests", !everyId(p).includes("m3"));
+  ok("tasks under a note that isn't on today stay off it, as any sub-task does", !everyId(p).includes("m4") && !everyId(p).includes("m4a") && !everyId(p).includes("m5a"), JSON.stringify(everyId(p)));
+
+  const n1 = find(c2, "n1");
+  ok("a note step picked on its own heads its steps, in its camp's block", n1?.heading === true && ids(n1.subs).join() === "n1a,n1b" && n1.subs.every((s) => s.kind === "step"), JSON.stringify(n1));
+  ok("the tasks under a note further down come up under the step above it", ids(find(c2, "t1")?.subs ?? []).join() === "t1na" && !everyId(p).includes("t1n"), JSON.stringify(find(c2, "t1")));
+  const n2 = find(c1, "n2");
+  ok("a note in a section picked for today heads its steps, shown once", n2?.heading === true && ids(n2.subs).join() === "n2a" && everyId(p).filter((x) => x === "n2a").length === 1, JSON.stringify(everyId(p)));
+  ok("a note in a picked section whose steps were all done before today is left out", !everyId(p).includes("n3") && !everyId(p).includes("n3a"));
+  ok("a note takes its place in the quests' order, like a task there", ids(questItemsForToday(work, D)).join() === "n1,t1,n2,m1,m2", JSON.stringify(ids(questItemsForToday(work, D))));
+
+  ok("a block counts the tasks under a note, not the note", c1.done === 1 && c1.total === 4 && c2.done === 0 && c2.total === 4, JSON.stringify([c1.done, c1.total, c2.done, c2.total]));
+  ok("a count leaves a heading out", JSON.stringify(tallyItems([{ heading: true, done: false, subs: [{ done: true, subs: [] }, { done: false, subs: [] }] }])) === JSON.stringify({ done: 1, total: 2 }));
+  const bare = planForToday({ chunks: [], tasks: [], questWork: work, nowMin: at(9), date: D });
+  ok("with no block for it, a note and its tasks wait in the quest's group", bare.loose.quests.length === 1 && bare.loose.quests[0].items.some((i) => i.id === "m1" && i.heading && i.subs.length === 2), JSON.stringify(bare.loose.quests));
+  const iso = "2026-11-02T18:00:00.000Z";
+  const ticked = withFields({ tasks: [], work }, "line", "m1a", doneFields("line", true, D, iso));
+  ok("a tick under a note shows before it's saved", find(planForToday({ chunks, tasks: [], questWork: ticked.work, nowMin: at(9), date: D }).blocks.find((b) => b.id === "c1"), "m1")?.subs[0]?.done === true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
