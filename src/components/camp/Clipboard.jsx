@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ClipboardList, Pencil, Pin, PinOff, Plus } from "lucide-react";
+import { ClipboardList, Pencil, Pin, PinOff, Plus, X } from "lucide-react";
 import { AddStep, StepList } from "./Steps";
 import { NewSectionSheet } from "./Select";
 import { PhotoButton, SectionPhotos } from "../photos/Bits";
@@ -19,6 +19,11 @@ import "../../styles/clipboard.css";
 // sections on the left. Each column is a camp section with `clipboard` on,
 // so dragging works the way it does between sections: its box is a
 // [data-drop] (with data-clip and the camp it's in).
+//
+// On Quests (Aaron, 2026-11-02) a thought ticked off leaves the clipboard
+// (`cleared`: done steps aren't shown or counted, and nothing says they're
+// hidden; they stay done in the camp, so their bricks stay laid), and the
+// whole clipboard can be closed (`onClose`) down to a small button.
 
 export default function Clipboard({
   cols,
@@ -27,6 +32,7 @@ export default function Clipboard({
   openStep,
   step,
   hideDone = false,
+  cleared = false,
   onAdd,
   onAddSubs,
   onReorder,
@@ -39,10 +45,11 @@ export default function Clipboard({
   pinned = null,
   onPin,
   picking = false,
+  onClose,
 }) {
   const [making, setMaking] = useState(false);
   const colsRef = useRef(null);
-  const count = cols.reduce((n, c) => n + countOf(c.section.steps), 0);
+  const count = cols.reduce((n, c) => n + countOf(c.section.steps, cleared), 0);
   // side by side, a step carried sideways leaves its column
   const cross = layout === "row" ? { scroller: () => colsRef.current } : {};
   return (
@@ -61,6 +68,11 @@ export default function Clipboard({
             <span>{pinned ? "Unpin" : "Pin to the right"}</span>
           </button>
         )}
+        {onClose && (
+          <button type="button" className="btn-icon clip-close" onClick={onClose} aria-label="Close the clipboard" title="Close the clipboard">
+            <X size={16} />
+          </button>
+        )}
       </div>
       {!cols.length && <p className="today-hint clip-empty">Jot down everything here as it comes, in columns you make, and sort it into sections later.</p>}
       <div className="clip-cols" ref={colsRef} data-drag-clip="">
@@ -71,7 +83,8 @@ export default function Clipboard({
             showCamp={(camps?.length ?? 0) > 1}
             openStep={openStep}
             step={step}
-            hideDone={hideDone}
+            hideDone={hideDone || cleared}
+            cleared={cleared}
             onAdd={onAdd}
             onAddSubs={onAddSubs}
             onReorder={onReorder}
@@ -106,9 +119,9 @@ export default function Clipboard({
   );
 }
 
-const countOf = (list) => (list ?? []).reduce((n, st) => n + 1 + countOf(st.subs), 0);
+const countOf = (list, open = false) => (list ?? []).reduce((n, st) => n + (open && st.done_on ? 0 : 1 + countOf(st.subs, open)), 0);
 
-function ClipColumn({ col, showCamp, openStep, step, hideDone, onAdd, onAddSubs, onReorder, onDragOut, onInto, carry, cross, onEdit, picking }) {
+function ClipColumn({ col, showCamp, openStep, step, hideDone, cleared, onAdd, onAddSubs, onReorder, onDragOut, onInto, carry, cross, onEdit, picking }) {
   const s = col.section;
   const shown = hideDone ? s.steps.filter((st) => !st.done_on) : s.steps;
   const tint = tintOf(s.color);
@@ -119,7 +132,9 @@ function ClipColumn({ col, showCamp, openStep, step, hideDone, onAdd, onAddSubs,
           {showCamp && col.camp && <small className="clip-col__camp">{col.camp.title}</small>}
           <h3>{s.title}</h3>
         </div>
-        {s.total > 0 && <small className="clip-col__count">{s.done ? `${s.done} of ${s.total}` : s.total}</small>}
+        {cleared
+          ? shown.length > 0 && <small className="clip-col__count">{shown.length}</small>
+          : s.total > 0 && <small className="clip-col__count">{s.done ? `${s.done} of ${s.total}` : s.total}</small>}
         {onEdit && (
           <button type="button" className="btn-icon" onClick={() => onEdit(s)} aria-label={`Rename or remove ${s.title}`} title="Rename or remove">
             <Pencil size={13} />
@@ -130,7 +145,7 @@ function ClipColumn({ col, showCamp, openStep, step, hideDone, onAdd, onAddSubs,
       {shown.length > 0 && (
         <StepList list={shown} openStep={openStep} hideDone={hideDone} step={step} onAddSubs={onAddSubs} onReorder={onReorder} onDragOut={onDragOut} onInto={onInto} carry={carry} cross={cross} />
       )}
-      {s.steps.length > shown.length && <p className="ascent-mini camp-hidden">{s.steps.length - shown.length} done, hidden</p>}
+      {!cleared && s.steps.length > shown.length && <p className="ascent-mini camp-hidden">{s.steps.length - shown.length} done, hidden</p>}
       <AddStep label="Jot it down" hidden={picking} onAdd={(texts) => onAdd(s, texts)} extra={<PhotoButton sectionId={s.id} title={s.title} />} />
     </section>
   );

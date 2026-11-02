@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Castle, Plus } from "lucide-react";
+import { Castle, ClipboardList, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   addCamps,
@@ -47,7 +47,7 @@ import { playClink } from "../lib/clink";
 import { useConfirm, useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
 import Sheet from "../components/ascent/Sheet";
-import FloatingBuild, { BuildMini, buildNow } from "../components/quests/FloatingBuild";
+import FloatingBuild, { buildNow } from "../components/quests/FloatingBuild";
 import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
 import QuestMap from "../components/quests/QuestMap";
 import DoneToday from "../components/quests/DoneToday";
@@ -101,6 +101,15 @@ import "../styles/quests.css";
 // between columns or into a camp's sections, or makes a section of them.
 
 const EARLIER_SHOWN = 10;
+// The clipboard closed down to a small button (Aaron, 2026-11-02), remembered.
+const CLIP_SHUT_KEY = "hub:clip-closed";
+function readClipShut() {
+  try {
+    return localStorage.getItem(CLIP_SHUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 // A quest task's own columns, for putting one back as it was.
 const QUEST_TASK_COLS = ["id", "quest_id", "parent_id", "kind", "text", "note", "urgency", "color", "day", "ongoing", "today_on", "computer", "working_since", "pin_id", "done_on", "done_at", "position", "created_at", "updated_at"];
 
@@ -278,11 +287,10 @@ export default function Quests() {
   const [openKey, setOpenKey] = useState(null);
   const [unfolded, setUnfolded] = useState({});
   const [allEarlier, setAllEarlier] = useState(false);
-  const [away, setAway] = useState(false);
+  const [clipShut, setClipShut] = useState(readClipShut);
   const [newQuest, setNewQuest] = useState(false);
   const [note, setNote] = useState("");
   const [noteSaved, setNoteSaved] = useState(false);
-  const onAway = useCallback((v) => setAway(v), []);
 
   useEffect(() => {
     setOpenId(null);
@@ -1199,7 +1207,16 @@ export default function Quests() {
       setOpenStep(null);
       setOpenClip((o) => (o === st.id ? null : st.id));
     },
-    onDone: () => toggleStepDone(st),
+    // Ticked off, it leaves the clipboard (Aaron, 2026-11-02), with a
+    // moment to take it back.
+    onDone: () => {
+      const finishing = !st.done_on;
+      toggleStepDone(st);
+      if (finishing) {
+        if (openClip === st.id) setOpenClip(null);
+        toast.show("Done, off the clipboard", { actionLabel: "Undo", onAction: () => toggleStepDone({ ...(rawStep(st.id) ?? st), done_on: today }) });
+      }
+    },
     onSave: (fields) => saveStep(st, fields),
     onKind: () => saveStep(st, kindFields(st)),
     onRemove: () => removeClipStep(st),
@@ -1600,15 +1617,29 @@ export default function Quests() {
       onEditColumn={(sec) => setColSheet(sec)}
       tools={clipCols.length && !viewing ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null}
       picking={picker.on}
+      cleared
+      onClose={viewing ? undefined : () => shutClip(true)}
     />
   );
-  const clipCard =
-    sel && sortedCamps.length > 0 ? (
-      <SketchProvider kind="step" userId={userId} scopeId={sortedCamps.map((c) => c.id)} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
-        {clipboardOf(false)}
-        <PhotoSide>{clipboardOf(true)}</PhotoSide>
-      </SketchProvider>
-    ) : null;
+  const hasClip = Boolean(sel) && sortedCamps.length > 0;
+  const clipOpen = hasClip && !clipShut;
+  const clipCard = hasClip ? (
+    <SketchProvider kind="step" userId={userId} scopeId={sortedCamps.map((c) => c.id)} about={(sid) => rawStep(sid)?.text} onAddToNote={addToStepNote}>
+      {clipOpen && clipboardOf(false)}
+      <PhotoSide>{clipboardOf(true)}</PhotoSide>
+    </SketchProvider>
+  ) : null;
+  // Closed, the clipboard is a small button by the Village link.
+  const clipOpenCount = clipCols.reduce((n, c) => n + c.section.steps.filter((st) => !st.done_on).length, 0);
+  function shutClip(shut) {
+    if (shut && select.on) select.stop();
+    setClipShut(shut);
+    try {
+      localStorage.setItem(CLIP_SHUT_KEY, shut ? "1" : "0");
+    } catch {
+      /* private window: it just won't be remembered */
+    }
+  }
   const todayCard = sel ? (
     <>
       {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
@@ -1642,6 +1673,13 @@ export default function Quests() {
             </span>
           )}
         </div>
+        {hasClip && clipShut && (
+          <button type="button" className="btn btn--sm btn--on-page qs-head__clip" onClick={() => shutClip(false)} aria-label={`Open the clipboard${clipOpenCount ? ` (${clipOpenCount})` : ""}`} title="Open the clipboard">
+            <ClipboardList size={14} />
+            Clipboard
+            {clipOpenCount > 0 && <small>{clipOpenCount}</small>}
+          </button>
+        )}
         <Link to="/village" className="btn btn--sm btn--on-page qs-head__village">
           <Castle size={14} />
           Village
@@ -1653,10 +1691,10 @@ export default function Quests() {
       {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
 
       <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => (lines ?? []).find((x) => x.id === id)?.text} onAddToNote={addToNote}>
-        <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipCard ? " qs-grid--clip" : "")}>
+        <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "")}>
           <div className="qs-rail">
             <div className="qs-rail__build">
-              <FloatingBuild village={village} today={today} onAway={onAway} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
+              <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
             </div>
 
             {sel && (
@@ -1683,8 +1721,6 @@ export default function Quests() {
           </div>
 
           <div className={"qs-main" + (picker.on || select.on ? " picking" : "")}>
-            <BuildMini village={village} today={today} show={away} />
-
             {!sel ? (
               <section className="card qs-empty">
                 <p>No quests on yet. Start one, and its list lives here: what you'll do for it each day, ticked off, with notes on what you did.</p>
@@ -1699,9 +1735,8 @@ export default function Quests() {
                     (spread or not, it's CSS that moves it), so what's
                     open or focused in it stays so as it moves. */}
                 <div className="qs-today">{todayCard}</div>
-                {clipCard && <div className="qs-clip">{clipCard}</div>}
-
-                <div className="qs-rest">
+                {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
+                <div className="qs-ongoing">
                   <OngoingList
                     key={sel.key}
                     list={ongoing}
@@ -1722,7 +1757,10 @@ export default function Quests() {
                     {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
                     <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
                   </OngoingList>
+                </div>
+                {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
 
+                <div className="qs-rest">
                   {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
                   {earlierShown.map((d) => (
                     <DayList
