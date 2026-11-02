@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
 import { watchForPrompt } from "../supabase/functions/assistant/body.js";
+import { PUSH_TONE, aimForPrompt } from "../supabase/functions/assistant/tone.js";
 import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
@@ -3270,6 +3271,48 @@ console.log("\napple watch");
   ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
   ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
   ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
+}
+
+{
+  console.log("\nthe push: tone and aim (Nov 2026)");
+  ok("the tone never soothes", /Never soothe/.test(PUSH_TONE) && /it's okay/.test(PUSH_TONE));
+  ok("the tone never speaks for God", /don't speak for God/i.test(PUSH_TONE) && /what God expects/.test(PUSH_TONE));
+  ok("the tone grounds the push in evidence and forbids invention", /real person/.test(PUSH_TONE) && /research/.test(PUSH_TONE) && /Never invent a figure/.test(PUSH_TONE));
+  ok("the tone keeps reflection and God at the centre", /walk with God at the centre/.test(PUSH_TONE));
+  const index = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+  ok("the old soft tone line is gone from the spirit prompts", !/warm and direct, like a trusted friend/.test(index));
+  ok("walk and reflection both read the aim", (index.match(/aimDay\(supabase, date\)/g) ?? []).length === 2);
+
+  ok("no rows is no aim", aimForPrompt({ date: "2026-11-02" }) === null);
+  const aim = aimForPrompt({
+    date: "2026-11-02",
+    mission: { statement: "To become a trusted servant", summit: "An Exalted Servant" },
+    goals: [{ id: "g1", title: "Highly skilled" }, { id: "g2", title: "Highly educated" }],
+    focuses: [{ id: "f1", goal_id: "g1", name: "Draw", categories: ["Art"] }],
+    entries: [
+      { category: "Art", tags: [], duration_minutes: 30, started_at: "2026-11-01T14:00:00Z" },
+      { category: "Work", tags: ["art"], duration_minutes: 10, started_at: "2026-10-31T14:00:00Z" },
+      { category: "Art", tags: [], duration_minutes: 99, started_at: "2026-10-20T14:00:00Z" },
+    ],
+    weekFocus: [{ id: "w2", title: "No artificial meals", position: 2 }, { id: "w1", title: "Up at 4:30", position: 1 }],
+    checkins: [{ goal_id: "w1", date: "2026-11-01", moved: true }, { goal_id: "w1", date: "2026-11-02", moved: false }],
+    targets: [{ id: "t1", goal_id: "g1" }, { id: "t2", quest_id: "q1" }, { id: "t3", lesson_id: "l1" }],
+    shots: [
+      { target_id: "t1", date: "2026-11-01", level: 0, note: "an hour of gesture drawing" },
+      { target_id: "t1", date: "2026-10-30", level: 5, note: null },
+      { target_id: "t1", date: "2026-10-01", level: 0, note: "old" },
+      { target_id: "t2", date: "2026-11-02", level: 2, note: null },
+    ],
+    quests: [{ id: "q1", title: "Premiere plugin", status: "on" }, { id: "q9", title: "Done one", status: "done" }],
+    lessons: [{ id: "l1", title: "More integrity", status: "learning" }, { id: "l2", title: "Learned", status: "learned" }],
+  });
+  ok("the mission and summit come through", aim.mission === "To become a trusted servant" && aim.summit === "An Exalted Servant");
+  ok("a focus counts its category and tags, only in the last week", aim.lifetime_goals[0].focuses[0].minutes_last_7_days === 40, JSON.stringify(aim.lifetime_goals[0]));
+  ok("a goal with no focus says so", aim.lifetime_goals[1].focuses === "none set yet");
+  ok("arrows are this week's only, oldest first, with their notes", JSON.stringify(aim.lifetime_goals[0].arrows_last_7_days) === JSON.stringify(["2026-10-30 missed", "2026-11-01 bullseye: an hour of gesture drawing"]), JSON.stringify(aim.lifetime_goals[0].arrows_last_7_days));
+  ok("this week's focus is in his order with moved and not days", aim.this_weeks_focus[0].focus === "Up at 4:30" && aim.this_weeks_focus[0].days_moved === 1 && aim.this_weeks_focus[0].days_not === 1);
+  ok("only quests still on, with their arrows", aim.quests.length === 1 && aim.quests[0].arrows_last_7_days[0] === "2026-11-02 middle ring", JSON.stringify(aim.quests));
+  ok("only lessons still being learned", aim.lessons.length === 1 && aim.lessons[0].lesson === "More integrity");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

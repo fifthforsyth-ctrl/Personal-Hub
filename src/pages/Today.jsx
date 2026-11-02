@@ -11,7 +11,7 @@ import WinHero from "../components/today/WinHero";
 import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
 import WeekStrip from "../components/today/WeekStrip";
-import FocusDay from "../components/focus/FocusDay";
+import FocusStrip from "../components/focus/FocusStrip";
 import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
 import TempleTrip from "../components/today/TempleTrip";
@@ -28,14 +28,20 @@ import { lastWeekStart } from "../lib/mirror";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
-// Today: wins, minutes, and your walk with God.
+// Today: wins, minutes, your plan, and your walk with God.
 //
-// The page you open dozens of times a day, so it carries exactly the three
-// things you said the Hub is for, in that order, with the blocks planned
-// for today beside them (what you're in now, what's next), then this week's
-// focus goals, and one action that matters most (Win) sits at the top where a
-// thumb finds it. Below the fold: a quote chosen for this week, the
-// curator's cards, and a one-line note about purchases to sort.
+// The page you open dozens of times a day. This week's focus sits at the
+// very top as a row of small targets, the smallest ones you aim at, so the
+// week is in view before the day is. Then the one action that matters most
+// (Win) where a thumb finds it, the minutes, and right under them the day's
+// plan: every block, with the ones still ahead opened up to show their
+// tasks. Beside them (under them on a phone) the walk with God. Below the
+// fold: a quote chosen for this week, the curator's cards, and a one-line
+// note about purchases to sort.
+//
+// The evening reflection is reached from here and only here: a big black
+// button. On a computer it heads the right-hand column all day. On a phone
+// it waits under the plan during the day and moves to the top after seven.
 //
 // Two things are asked here at the right moment and only then: a timer
 // that ran away (at the very top, once), and in the morning, how last night
@@ -115,6 +121,8 @@ export default function Today() {
         <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
       </div>
 
+      <FocusStrip userId={userId} date={date} />
+
       <WeekStrip date={date} />
 
       {error && <LoadError what="today" error={error} onRetry={reload} stale={Boolean(data)} className="today__error" />}
@@ -124,7 +132,7 @@ export default function Today() {
       <div className="today-grid">
         <div className="stack">
           {yesterdayOpen && lateNight && <YesterdayBanner date={yesterday} urgent />}
-          {(evening || banked) && <EveningBanner banked={banked} date={date} className="today-evening--phone" />}
+          {(evening || banked) && !(yesterdayOpen && lateNight) && <EveningButton banked={banked} evening={evening} className="today-evening--phone" />}
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
           {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
@@ -133,19 +141,22 @@ export default function Today() {
           )}
           {/* Sunday: last week in the mirror, before the new one is planned. */}
           {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
-          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} />
+          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} />
+          {/* The day's plan, right under the minutes it turns into. */}
+          {data?.chunks && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
           {/* Old timers that ran through the night, offered once, under the
               minutes they'd otherwise keep inflating. */}
           {userId && data && !runaway && <OldRunaways userId={userId} />}
+          {/* On a phone during the day, the way into the evening waits here,
+              at the end of the day's own cards. */}
+          {!evening && !banked && !(yesterdayOpen && lateNight) && <EveningButton className="today-evening--phone" />}
         </div>
         <div className="stack">
           {/* Just after midnight the yesterday banner is the way in; a second
               link to the same evening would only compete with it. */}
-          {!(yesterdayOpen && lateNight) && <EveningBanner banked={banked} date={date} className="today-evening--desk" quiet={!evening} />}
-          {data?.chunks && <PlanBlocks date={date} chunks={data.chunks} />}
+          {!(yesterdayOpen && lateNight) && <EveningButton banked={banked} evening={evening} className="today-evening--desk" />}
           <WalkWithGod userId={userId} date={date} />
           <TempleTrip userId={userId} date={date} />
-          <FocusDay userId={userId} date={date} />
         </div>
       </div>
 
@@ -159,10 +170,13 @@ export default function Today() {
   );
 }
 
-function EveningBanner({ banked, date, className, quiet = false }) {
+// The one way into the evening. Always the big black button until the day
+// is banked; then a quiet card that still opens it, since the banked evening
+// is where you'd go to look back at it or open it again.
+function EveningButton({ banked = false, evening = false, className }) {
   if (banked) {
     return (
-      <Link to={`/day/${date}`} className={`evening-banner evening-banner--done ${className}`}>
+      <Link to="/evening" className={`evening-banner evening-banner--done ${className}`}>
         <Archive size={16} />
         <span style={{ flex: 1 }}>Today is banked</span>
         <ArrowRight size={15} />
@@ -170,10 +184,13 @@ function EveningBanner({ banked, date, className, quiet = false }) {
     );
   }
   return (
-    <Link to="/evening" className={`evening-banner${quiet ? " evening-banner--quiet" : ""} ${className}`}>
-      <Moon size={16} />
-      <span style={{ flex: 1 }}>{quiet ? "Evening reflection" : "Time to reflect on today"}</span>
-      <ArrowRight size={15} />
+    <Link to="/evening" className={`evening-banner ${className}`}>
+      <Moon size={18} />
+      <span className="evening-banner__words">
+        <span className="evening-banner__title">Evening reflection</span>
+        <span className="evening-banner__sub">{evening ? "Time to look back on today, then bank it" : "Reflect on the day and bank it"}</span>
+      </span>
+      <ArrowRight size={16} />
     </Link>
   );
 }
