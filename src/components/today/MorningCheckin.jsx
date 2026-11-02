@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Sunrise, Check } from "lucide-react";
 import {
   fetchSleepEntries,
@@ -29,7 +29,7 @@ import {
   fmtClock,
   fmtDuration,
 } from "../../lib/honest";
-import { morningWatchLine } from "../../lib/watch";
+import { morningWatchLine, watchSlept } from "../../lib/watch";
 import { Scale } from "./StopFollowUp";
 import { timeOf } from "./minutes";
 import { announceChange } from "./announce";
@@ -39,7 +39,8 @@ import "../../styles/honest.css";
 //
 // It sits on Today from three until noon. Almost everything is filled in
 // already: when you woke and when the lights went out come from the Sleep
-// timer, and the alarm is the one you used last. What's left is a few taps:
+// timer (or from your watch, once it has set the night's times), and the
+// alarm is the one you used last. What's left is a few taps:
 // how well you slept, your energy, whether you snoozed, whether the phone
 // was off by lights-out. If Sleep is still running, the first tap is "I'm
 // up", which ends it.
@@ -49,10 +50,35 @@ import "../../styles/honest.css";
 // reason, as plain information, and shows with tonight's losses.
 //
 // Once it's done it folds to one line, and after noon it's gone either way.
+// When the watch has last night, that line's sleep is the watch's (the
+// same "slept 6h 52m" the Minutes card shows), not lights-out to wake.
 
 const ALARMS = ["04:30", "06:00"];
 const PHONE_OFF = "Phone off by lights-out";
 const skipKey = (date) => `hub.morning-skip.${date}`;
+
+// Whether the check-in is on Today showing last night (its form, or its
+// one line once done, when that line says when you were up or how long you
+// slept), so the watch row under the minutes can leave out Slept and Up
+// instead of saying them a second time a few lines down. Null while that
+// isn't known (the check-in still loading) and once it's off the page.
+// Today tells the Minutes card whether the check-in is on the page at all,
+// and only then does the card go by this (or, while it's null, by the
+// check-in's hours).
+let nightShown = null;
+const nightListeners = new Set();
+function setNightShown(v) {
+  if (nightShown === v) return;
+  nightShown = v;
+  for (const f of nightListeners) f();
+}
+function onNightShown(f) {
+  nightListeners.add(f);
+  return () => nightListeners.delete(f);
+}
+export function useCheckinShowsNight() {
+  return useSyncExternalStore(onNightShown, () => nightShown, () => null);
+}
 
 function noonBefore(date) {
   const d = parseDateStr(addDays(date, -1));
@@ -82,6 +108,7 @@ async function loadMorning(userId, date) {
   ]);
   return {
     watchLine: morningWatchLine(watchDays[0]),
+    watchSlept: watchSlept(watchDays[0]),
     sleep: lastNightSleep(sleeps, date),
     lastAlarm,
     watched,
@@ -106,23 +133,44 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   });
 
   // Sleep stopped from the timer, or a runaway fixed: read the night again.
+  // And when you come back to the app, since the watch sends the night in
+  // the background, often after the check-in has loaded or been done; then
+  // its sleep is the one the one line shows.
   useEffect(() => {
+    const onShow = () => document.visibilityState === "visible" && reload();
     window.addEventListener("hub:changed", reload);
-    return () => window.removeEventListener("hub:changed", reload);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("hub:changed", reload);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [reload]);
 
   const done = Boolean(dayPlan?.morning_at);
+  const asleep = Boolean(running && isSleep(running));
+  // What the returns below show, for the Minutes card: the night (the form,
+  // or the one line when it has Up or the sleep in it), not the night
+  // (nothing, the I'm up button, or a line with neither), or not known yet.
+  const showsNight =
+    !isMorning() && !editing ? false : !data ? null : done && !editing ? nightParts(dayPlan, data.watchSlept).length > 0 : skipped && !editing ? false : !asleep;
+  useEffect(() => {
+    setNightShown(showsNight);
+  }, [showsNight]);
+  useEffect(() => () => setNightShown(null), []);
+
   if (!isMorning() && !editing) return null;
   if (!data) return null;
-  if (done && !editing) return <Summary plan={dayPlan} onEdit={() => setEditing(true)} />;
+  if (done && !editing) return <Summary plan={dayPlan} slept={data.watchSlept} onEdit={() => setEditing(true)} />;
   if (skipped && !editing) return null;
 
   // Still asleep, as far as the timer knows: one tap ends it.
-  if (running && isSleep(running)) {
+  if (asleep) {
     async function imUp() {
       setWaking(true);
       setWakeError(null);
       try {
+        // If the watch ended Sleep after this page loaded, this changes
+        // nothing (its wake time stays) and the reload shows the night.
         await stopTimeEntry(running.id);
         announceChange();
         await Promise.all([reload(), onChanged?.()]);
@@ -173,10 +221,20 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   );
 }
 
-function Summary({ plan, onEdit }) {
+// What the one line says of the night: when you were up, and how long you
+// slept. `slept` is the watch's sleep for the night ("6h 52m"), or null
+// without one; then it's lights-out to wake, as you gave them. Empty when
+// it has neither, and then the Minutes card says them instead.
+export function nightParts(plan, slept) {
   const parts = [];
   if (plan.woke_at) parts.push(`Up ${timeOf(plan.woke_at)}`);
-  if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtDuration((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
+  if (slept) parts.push(`slept ${slept}`);
+  else if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtDuration((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
+  return parts;
+}
+
+function Summary({ plan, slept, onEdit }) {
+  const parts = nightParts(plan, slept);
   if (plan.sleep_quality) parts.push(`quality ${plan.sleep_quality}`);
   if (plan.energy) parts.push(`energy ${plan.energy}`);
   return (
@@ -203,6 +261,10 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
   const [lights, setLights] = useState(() =>
     plan?.lights_out_at ? hhmm(new Date(plan.lights_out_at)) : sleep ? hhmm(new Date(sleep.started_at)) : ""
   );
+  // The two times as the form opened, so saving an answer about something
+  // else doesn't put older times back over the ones your watch set.
+  const [opened] = useState(() => ({ woke, lights }));
+  const fromWatch = Boolean(sleep && (sleep.watch_fixed_at || sleep.source === "watch"));
   const [alarm, setAlarm] = useState(() => rememberedAlarm(plan?.alarm_at, data.lastAlarm));
   const [otherAlarm, setOtherAlarm] = useState(() => !ALARMS.includes(rememberedAlarm(plan?.alarm_at, data.lastAlarm)));
   const [quality, setQuality] = useState(plan?.sleep_quality ?? null);
@@ -241,12 +303,17 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
     try {
       // The Sleep timer follows what you say: it ends when you woke and
       // starts when the lights went out. With no Sleep timer at all, these
-      // two answers become one.
+      // two answers become one. Once the watch has set the night, a time
+      // goes over it only when you change that time here; then yours wins,
+      // and the watch won't move it again.
       if (sleep) {
+        const set = Boolean(sleep.watch_fixed_at);
+        const wokeSaid = !set || woke !== opened.woke;
+        const lightsSaid = !set || lights !== opened.lights;
         const fields = {};
-        if (wokeDate && (!sleep.ended_at || Math.abs(new Date(sleep.ended_at) - wokeDate) >= 60000)) fields.ended_at = wokeDate.toISOString();
+        if (wokeSaid && wokeDate && (!sleep.ended_at || Math.abs(new Date(sleep.ended_at) - wokeDate) >= 60000)) fields.ended_at = wokeDate.toISOString();
         if (wokeDate && !sleep.ended_at) fields.ended_by = "stop";
-        if (lightsDate && Math.abs(new Date(sleep.started_at) - lightsDate) >= 60000) fields.started_at = lightsDate.toISOString();
+        if (lightsSaid && lightsDate && Math.abs(new Date(sleep.started_at) - lightsDate) >= 60000) fields.started_at = lightsDate.toISOString();
         if (Object.keys(fields).length) await updateTimeEntry(sleep.id, fields);
       } else if (wokeDate && lightsDate && slept > 0) {
         await logPastTimeEntry(userId, { categories: ["Sleep"], minutes: Math.round(slept), startedAt: lightsDate.toISOString() });
@@ -304,7 +371,7 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
       </div>
       {slept != null && slept > 0 && (
         <p className="morning__slept">
-          {fmtDuration(slept)} of sleep{(fromSleep.woke || fromSleep.lights) && ", from your Sleep timer"}
+          {fmtDuration(slept)} of sleep{(fromSleep.woke || fromSleep.lights) && (fromWatch ? ", from your watch" : ", from your Sleep timer")}
         </p>
       )}
       {data.watchLine && <p className="morning__slept morning__watch">{data.watchLine}</p>}

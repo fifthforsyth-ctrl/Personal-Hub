@@ -12,6 +12,7 @@ import { zodOutputFormat } from "npm:@anthropic-ai/sdk@^0.122.0/helpers/zod";
 import { z } from "npm:zod@^4.4.3";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 import { watchForPrompt, WATCH_NOTE } from "./body.js";
+import { PUSH_TONE, aimForPrompt } from "./tone.js";
 
 const MODEL = "claude-opus-5-5";
 
@@ -726,19 +727,20 @@ async function daySynopsis(supabase: any, anthropic: Anthropic, tz: string, date
 // walk_with_god and reflection_questions — the two places the app speaks to
 // the spiritual side of the day.
 //
-// Both read the same material: the day so far, and the last week of what
-// was written in the evenings. Both are kept once written (the walk card in
+// Both read the same material: the day so far, the last week of what was
+// written in the evenings, and where you're headed (the mission, lifetime
+// goals, this week's focus, how the week's arrows landed). Both are kept once written (the walk card in
 // daily_walk, the evening questions on the journal row) so they don't shift
 // under you each time a page opens.
 // ---------------------------------------------------------------------------
 
 const SPIRIT_CONTEXT = `The person is a member of The Church of Jesus Christ of Latter-day Saints. This app is where they track their minutes, wins and losses through the day, and reflect each evening. Its purpose, in their words, is to help them see how life is really going and to stay in tune with God.
 
-Ground everything in what is actually in the record: the activity they logged, the wins they named, what they wrote in recent evenings. A question that could have been asked of anyone on any day is a failure. Name the real thing — the person, the task, the hour — when the record has it.
+Ground everything in what is actually in the record: the activity they logged, the wins they named, what they wrote in recent evenings, and where they say they are headed ("aim": their mission, lifetime goals and focuses with the week's minutes, this week's focus, how their arrows landed, the quests and lessons they're on). A question that could have been asked of anyone on any day is a failure. Name the real thing — the person, the task, the hour, the focus — when the record has it.
 
-Tone: warm and direct, like a trusted friend who shares their faith. Never guilt, never a lecture, never flattery. Second person. No lists, no emoji.
+${PUSH_TONE}
 
-If the record is thin, lean on the recent evenings instead, and never invent events that aren't there.
+If the record is thin, lean on the recent evenings and the aim instead, and never invent events that aren't there.
 
 ${WATCH_NOTE}`;
 
@@ -747,7 +749,7 @@ const WalkSchema = z.object({
   verse_text: z.string().describe("The verse text exactly as it reads in the Church's edition of the scriptures (KJV for the Bible)."),
   prompt: z
     .string()
-    .describe("One or two sentences inviting them to notice God's hand in this specific day. Usually ends in a question."),
+    .describe("One or two sentences that send them into this specific day: name what it holds against their goals or this week's focus, and ask them to watch for God's hand in it. Usually ends in a question."),
 });
 
 const WALK_SYSTEM = `${SPIRIT_CONTEXT}
@@ -761,8 +763,9 @@ The verse:
 - Never one of the verses listed as recently shown.
 
 The prompt:
-- Helps them find God's hand in the ordinary parts of today, from what the record shows so far.
-- If it is early and little is logged, point them toward what's ahead of them today or something from a recent evening.`;
+- Sends them into today with their aim in view: the planned block, task or focus that matters most today, or the gap the week so far shows, and asks them to watch for God's hand in it.
+- Later in the day, holds them to what the record shows so far, plainly, and turns them to where God's hand was in it.
+- If it is early and little is logged, point them at what's ahead of them today, measured against this week's focus.`;
 
 async function recentEvenings(supabase: any, date: string, days = 7) {
   const since = new Date(`${date}T00:00:00Z`);
@@ -828,6 +831,58 @@ async function watchDay(supabase: any, date: string, tz: string) {
   }
 }
 
+// Where they're headed, for the push: the mission, the lifetime goals with
+// their focuses and the last week's minutes, the targets' arrows this week,
+// this week's focus and its check-ins, and the quests and lessons they're
+// on. Like the watch, it never holds a prompt up: a failed read is no aim.
+async function aimDay(supabase: any, date: string, tz: string) {
+  try {
+    // A day further back than the week, so no time zone can cut off its
+    // first local day; aimForPrompt keeps only the seven local days.
+    const since = new Date(`${date}T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - 8);
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const ws = new Date(`${date}T12:00:00Z`);
+    ws.setUTCDate(ws.getUTCDate() - dow);
+    const weekStart = ws.toISOString().slice(0, 10);
+    const sinceDay = since.toISOString().slice(0, 10);
+    const [mission, targets, focuses, entries, weekFocus, shots, quests, lessons] = await Promise.all([
+      supabase.from("missions").select("statement, summit").maybeSingle(),
+      supabase.from("mark_targets").select("id, goal_id, quest_id, lesson_id"),
+      supabase.from("focuses").select("id, goal_id, name, categories"),
+      supabase.from("time_log_entries").select("category, tags, duration_minutes, started_at").gte("started_at", since.toISOString()).not("ended_at", "is", null).limit(1000),
+      supabase.from("focus_goals").select("id, title, position").eq("week_start", weekStart),
+      supabase.from("mark_shots").select("target_id, date, level, note").gte("date", sinceDay).lte("date", date),
+      supabase.from("quests").select("id, title, status"),
+      supabase.from("lessons").select("id, title, status"),
+    ]);
+    // The lifetime goals are the goals that have a target on The Range.
+    const goalIds = (targets.data ?? []).map((t: any) => t.goal_id).filter(Boolean);
+    const [goals, checkins] = await Promise.all([
+      goalIds.length ? supabase.from("nodes").select("id, title").in("id", goalIds) : { data: [] },
+      (weekFocus.data ?? []).length
+        ? supabase.from("focus_checkins").select("goal_id, date, moved").in("goal_id", weekFocus.data.map((f: any) => f.id))
+        : { data: [] },
+    ]);
+    return aimForPrompt({
+      date,
+      tz,
+      mission: mission.data ?? null,
+      goals: goals.data ?? [],
+      focuses: focuses.data ?? [],
+      entries: entries.data ?? [],
+      weekFocus: weekFocus.data ?? [],
+      checkins: checkins.data ?? [],
+      targets: targets.data ?? [],
+      shots: shots.data ?? [],
+      quests: quests.data ?? [],
+      lessons: lessons.data ?? [],
+    });
+  } catch {
+    return null;
+  }
+}
+
 const WalkPromptSchema = z.object({
   prompt: WalkSchema.shape.prompt,
 });
@@ -835,12 +890,13 @@ const WalkPromptSchema = z.object({
 async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
   const since = new Date(`${date}T00:00:00Z`);
   since.setUTCDate(since.getUTCDate() - 21);
-  const [{ data: archive, error: e1 }, evenings, { data: recent, error: e2 }, { data: current, error: e4 }, watch] = await Promise.all([
+  const [{ data: archive, error: e1 }, evenings, { data: recent, error: e2 }, { data: current, error: e4 }, watch, aim] = await Promise.all([
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     recentEvenings(supabase, date),
     supabase.from("daily_walk").select("verse_ref").gte("date", since.toISOString().slice(0, 10)).lt("date", date),
     supabase.from("daily_walk").select("verse_ref, verse_text, prompt").eq("date", date).maybeSingle(),
     watchDay(supabase, date, tz),
+    aimDay(supabase, date, tz),
   ]);
   if (e1) throw new Error(`day_archive: ${e1.message}`);
   if (e2) throw new Error(`daily_walk: ${e2.message}`);
@@ -849,6 +905,7 @@ async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date
   const now = new Date().toLocaleString("en-US", { timeZone: tz, weekday: "long", hour: "numeric", minute: "2-digit" });
   const record =
     `It is ${now} on ${date}.\n\nToday so far:\n${JSON.stringify(dayForPrompt(archive, watch), null, 1)}` +
+    `\n\nWhere they're headed (aim):\n${JSON.stringify(aim ?? "not set", null, 1)}` +
     `\n\nThe last week of evenings, newest first:\n${JSON.stringify(evenings, null, 1)}`;
 
   // Asking again on the same day ("New prompt") keeps the day's verse and
@@ -912,10 +969,10 @@ const ReflectionSchema = z.object({
     .describe("One short sentence under the fixed God's-hand question, pointing at a specific moment in today's record worth looking at."),
   savior_question: z
     .string()
-    .describe("One question, drawn from today, that helps them draw closer to Jesus Christ."),
+    .describe("One question, drawn from today, that helps them draw closer to Jesus Christ and become more like Him."),
   learn_question: z
     .string()
-    .describe("One question, drawn from today, about what today's experiences can teach them."),
+    .describe("One hard question, drawn from today and measured against their goals or this week's focus, about what today teaches them and what they will do differently."),
 });
 
 const REFLECTION_SYSTEM = `${SPIRIT_CONTEXT}
@@ -923,16 +980,17 @@ const REFLECTION_SYSTEM = `${SPIRIT_CONTEXT}
 You are writing tonight's evening reflection. They answer four cards, one at a time:
 1. "Where did you see God's hand today?" — fixed. You write only a one-sentence nudge under it, pointing at a specific moment in the record worth looking at again.
 2. A question toward the Savior — you write it. It should help them draw closer to Jesus Christ through something that actually happened today: a choice, a person, a struggle, a moment of service. Not a quiz about doctrine.
-3. A question about learning from today — you write it. What can the day's experiences, patterns or surprises teach them about how they live? Concrete enough that they could answer it in a few sentences.
+3. A question about learning from today — you write it. Hold the day up against their aim: where they hit, where they missed and why, and what they will do differently tomorrow. Concrete enough that they could answer it in a few sentences, and pointed enough that a vague answer won't do.
 4. "Anything else" — fixed, nothing to write.
 
 Each question is a single sentence. Don't repeat a question they were asked in the last week (those are included). Don't ask two questions in one.`;
 
 async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: string, date: string, userId: string) {
-  const [{ data: archive, error }, evenings, watch] = await Promise.all([
+  const [{ data: archive, error }, evenings, watch, aim] = await Promise.all([
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     recentEvenings(supabase, date),
     watchDay(supabase, date, tz),
+    aimDay(supabase, date, tz),
   ]);
   if (error) throw new Error(`day_archive: ${error.message}`);
 
@@ -946,6 +1004,7 @@ async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: stri
         role: "user",
         content:
           `Tonight is ${date}.\n\nThe day's record:\n${JSON.stringify(dayForPrompt(archive, watch), null, 1)}` +
+          `\n\nWhere they're headed (aim):\n${JSON.stringify(aim ?? "not set", null, 1)}` +
           `\n\nThe last week of evenings, newest first (including the questions they were asked):\n${JSON.stringify(evenings, null, 1)}`,
       },
     ],

@@ -56,7 +56,9 @@ const SHELF_SIZE = 6;
 // A shelf still pending after this long was abandoned; asking again restarts it.
 const PENDING_GIVES_UP_MS = 5 * 60_000;
 
-const WHO = `They are a member of The Church of Jesus Christ of Latter-day Saints, trying to press on in their discipleship, their family, their work and their goals.`;
+// Each person's own mission comes in their week ("mission"), read from
+// their own row, so nothing here speaks for one account.
+const WHO = `They are a member of The Church of Jesus Christ of Latter-day Saints, pressing toward the mission they wrote for themselves (under "mission" in their week, when they have one) through their discipleship, their family, their work and their goals. Choose words that call them higher toward it, from people whose lives backed the words up.`;
 
 const SOURCES = `Where quotes come from:
 - Leaders of The Church of Jesus Christ of Latter-day Saints: prophets, apostles, other General Authorities and general officers, past and present. General conference talks and Church magazines are the best sources.
@@ -81,7 +83,7 @@ ${CONFIRM}
 
 Write your answer in plain prose, either:
 - BRING BACK <id>, and one sentence on why it fits this week; or
-- the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"), and one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
+- the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"), and one sentence, addressed to them, on why it fits this week: name the actual thing in their week and push them on it, using what the speaker actually did where it helps; no comfort, no moralizing, nothing you can't confirm.`;
 
 const SHELF_SYSTEM = `You gather quotes for one shelf of a person's cork board. ${WHO}
 
@@ -104,7 +106,7 @@ ${CONFIRM}
 - Always give the full number asked for. If your searches run out first, fill the rest with quotes you are certain of, word for word, and leave their URL empty.
 - Choose different quotes from one another: different talks or books, different angles on the shelf, and a different picture for each.
 
-Write your answer in plain prose, one quote after another. For each: the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, and two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"). For the "top" shelf only, add one sentence, addressed to them, on why it fits this week (name the actual thing in their week).`;
+Write your answer in plain prose, one quote after another. For each: the quote word for word, who said it, whether they are a Church leader or a historical figure, the talk, book or occasion with its year, the URL where you confirmed it, the exact title of the speaker's English Wikipedia article if they have one, and two to five plain words for a photograph that stands for the quote the way a symbol would (an object, a place or a scene, never a person: "lighthouse in a storm", "worn leather boots", "seedling through concrete"). For the "top" shelf only, add one sentence, addressed to them, on why it fits this week: name the actual thing in their week and push them on it, using what the speaker actually did where it helps; no comfort, no moralizing, nothing you can't confirm.`;
 
 const QuoteFields = {
   text: z.string().describe("The quote word for word."),
@@ -140,11 +142,17 @@ type Context = Record<string, unknown>;
 type Found = z.infer<typeof ShelfSchema>["quotes"][number];
 
 async function weekContext(db: any, userId: string, tz: string, date: string): Promise<Context> {
-  const { data, error } = await db.rpc("curate_context", { p_user_id: userId, p_tz: tz, p_date: date });
+  const [{ data, error }, mission] = await Promise.all([
+    db.rpc("curate_context", { p_user_id: userId, p_tz: tz, p_date: date }),
+    // Their own mission, when they've written one. A failed read is no
+    // mission, never a failed quote.
+    db.from("missions").select("statement, summit").eq("user_id", userId).maybeSingle(),
+  ]);
   if (error) throw new Error(`curate_context: ${error.message}`);
   // The quote needs the week, not the whole shelf of cards.
   const { cards: _cards, past_feedback: _feedback, ...week } = data ?? {};
-  return week;
+  const statement = mission?.data?.statement?.trim();
+  return statement ? { ...week, mission: statement.slice(0, 400) } : week;
 }
 
 async function quoteHistory(db: any, userId: string, date: string) {

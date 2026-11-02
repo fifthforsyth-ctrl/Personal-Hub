@@ -23,7 +23,13 @@
 // 3. Health Auto Export: { data: { metrics, workouts, ... } }. Daily numbers
 //    go to health_days; each night's sleep becomes a Sleep entry in the
 //    minutes log unless one is already there; each workout becomes an
-//    Exercise entry unless you logged one over it. Nothing here makes a win.
+//    Exercise entry unless you logged one over it. A Sleep or Exercise
+//    entry you logged by hand takes the watch's times, once, and keeps
+//    yours beside them (hand_started_at, hand_ended_at); after that your
+//    edits stay. A Sleep timer still running when its night arrives had no
+//    end of yours, so only its start is kept (hand_ended_at stays empty),
+//    and putting it back (the SQL in 0102_watch_corrects.sql) keeps the
+//    watch's end. Nothing here makes a win.
 //
 // 4. The Hub app on the watch (watch-app/ in this repo): { api, ... }.
 //    Plain JSON both ways. "today" is everything its screens show (the
@@ -545,10 +551,61 @@ async function woke(db: DB, userId: string, tz: string, date: string, hour: numb
 
 // --- Health Auto Export ------------------------------------------------------------------------
 
+// What sleepAction and workoutAction read of the entries around a night or
+// a workout.
+const AROUND = "id, category, tags, started_at, ended_at, is_nap, source, watch_fixed_at";
+type Around = { id: string; started_at: string; ended_at: string | null };
+
+// An entry you logged by hand takes the watch's times. Your times are kept
+// beside them, and the stamp means the watch never moves it again. The
+// update only lands if the entry is still as it was read a moment ago, so
+// an edit you make in between wins.
+async function fitEntry(db: DB, userId: string, old: Around, start: string, end: string) {
+  const { data, error } = await db
+    .from("time_log_entries")
+    .update({ started_at: start, ended_at: end, hand_started_at: old.started_at, hand_ended_at: old.ended_at, watch_fixed_at: new Date().toISOString() })
+    .eq("id", old.id)
+    .eq("user_id", userId)
+    .is("watch_fixed_at", null)
+    .eq("started_at", old.started_at)
+    .eq("ended_at", old.ended_at)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+// A Sleep timer still running from a night the watch has: it ends when the
+// watch saw you wake, starts at the watch's bedtime when sleepAction says
+// so, and is stamped in the same update, so a time you change afterwards
+// in the morning check-in is yours and the next send leaves it alone. When
+// the start moves, the start you gave is kept beside it; hand_ended_at
+// stays empty because you never gave an end, so 0102's put-back SQL puts
+// the start back and keeps this end. sleepAction only says "end" once the
+// night ended 45 minutes ago or more. The update only lands while
+// the timer is still running (and still starts where it was read, when the
+// start moves), so an "I'm up" or an edit in between wins.
+async function endSleep(db: DB, userId: string, old: Around | undefined, at: string | undefined, start: string | null | undefined) {
+  if (!old || !at) return false;
+  const patch: Record<string, unknown> = { ended_at: at, ended_by: "stop", watch_fixed_at: new Date().toISOString() };
+  if (start) Object.assign(patch, { started_at: start, hand_started_at: old.started_at, hand_ended_at: null });
+  let q = db.from("time_log_entries").update(patch).eq("id", old.id).eq("user_id", userId).is("ended_at", null);
+  if (start) q = q.eq("started_at", old.started_at);
+  const { data, error } = await q.select("id");
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+// Already within 5 minutes of the watch: nothing moves, but it's marked as
+// checked so a time you change later isn't pulled back.
+async function stampChecked(db: DB, userId: string, id: string) {
+  const { error } = await db.from("time_log_entries").update({ watch_fixed_at: new Date().toISOString() }).eq("id", id).eq("user_id", userId).is("watch_fixed_at", null);
+  if (error) throw error;
+}
+
 async function importHealth(db: DB, userId: string, tz: string, body: Record<string, unknown>) {
   const read = readHealthPayload(body, tz);
   const dates = Object.keys(read.days);
-  const result = { ...read.counts, unknown: read.unknown, sleepAdded: 0, sleepEnded: 0, workoutsAdded: 0, workoutsLinked: 0 };
+  const result = { ...read.counts, unknown: read.unknown, sleepAdded: 0, sleepEnded: 0, sleepFixed: 0, workoutsAdded: 0, workoutsLinked: 0, workoutsFixed: 0 };
 
   // Days: merged over what's there.
   if (dates.length) {
@@ -578,47 +635,93 @@ async function importHealth(db: DB, userId: string, tz: string, body: Record<str
     }
   }
 
-  // Nights into the minutes log.
+  // Nights into the minutes log: a night you didn't log goes in, and one
+  // you logged by hand takes the watch's times (see health.js for when).
   for (const night of read.nights) {
     const from = new Date(night.start.getTime() - 24 * 3600000).toISOString();
     const { data: around } = await db
       .from("time_log_entries")
-      .select("id, category, tags, started_at, ended_at")
+      .select(AROUND)
       .eq("user_id", userId)
       .gte("started_at", from)
       .lte("started_at", night.end.toISOString())
       .limit(200);
     const act = sleepAction(night, around ?? []);
     if (act.kind === "end") {
-      await db.from("time_log_entries").update({ ended_at: act.at, ended_by: "stop" }).eq("id", act.id).is("ended_at", null);
-      result.sleepEnded++;
+      if (await endSleep(db, userId, (around ?? []).find((e: Around) => e.id === act.id), act.at, act.start)) result.sleepEnded++;
     } else if (act.kind === "add") {
       const { error } = await db
         .from("time_log_entries")
-        .insert({ user_id: userId, category: "Sleep", tags: ["Sleep"], started_at: act.start, ended_at: act.end, source: "watch" });
+        .insert({ user_id: userId, category: "Sleep", tags: ["Sleep"], started_at: act.start, ended_at: act.end, source: "watch", watch_fixed_at: new Date().toISOString() });
       if (error) throw error;
       result.sleepAdded++;
+    } else if (act.kind === "fix") {
+      const old = (around ?? []).find((e: Around) => e.id === act.id);
+      if (old && (await fitEntry(db, userId, old, act.start, act.end))) result.sleepFixed++;
+    } else if (act.kind === "match") {
+      await stampChecked(db, userId, act.id);
     }
   }
 
-  // Workouts: one row each, and an Exercise entry unless one is logged.
+  // Workouts: one row each, and an Exercise entry unless one is logged. A
+  // workout already linked to an entry the watch hasn't set yet gets
+  // another look, so a timer you ran by hand takes the watch's times. One
+  // that isn't plainly the workout (a long hike tagged Minister, say) stays
+  // linked and unset, so each look leaves it as it is.
   if (read.workouts.length) {
-    const { data: known } = await db.from("health_workouts").select("external_id, time_entry_id").eq("user_id", userId).in("external_id", read.workouts.map((w) => w.external_id));
+    const ids = read.workouts.map((w) => w.external_id);
+    const { data: known } = await db.from("health_workouts").select("external_id, time_entry_id").eq("user_id", userId).in("external_id", ids);
     const have = new Map((known ?? []).map((k: { external_id: string; time_entry_id: string | null }) => [k.external_id, k.time_entry_id]));
+    const linkedIds = [...new Set([...have.values()].filter(Boolean))] as string[];
+    const unset = new Set<string>();
+    if (linkedIds.length) {
+      const { data: linked, error } = await db.from("time_log_entries").select("id, watch_fixed_at").eq("user_id", userId).in("id", linkedIds);
+      if (error) throw error;
+      for (const e of linked ?? []) if (!e.watch_fixed_at) unset.add(e.id);
+    }
+    // Every workout the watch knows around these, so one Exercise timer
+    // that holds two of them is left as you logged it.
+    const first = Math.min(...read.workouts.map((w) => new Date(w.started_at).getTime())) - 12 * 3600000;
+    const last = Math.max(...read.workouts.map((w) => new Date(w.ended_at).getTime())) + 12 * 3600000;
+    const { data: nearby } = await db
+      .from("health_workouts")
+      .select("external_id, started_at, ended_at")
+      .eq("user_id", userId)
+      .gte("started_at", new Date(first).toISOString())
+      .lte("started_at", new Date(last).toISOString())
+      .limit(500);
+    const others = [...read.workouts, ...(nearby ?? []).filter((n: { external_id: string }) => !ids.includes(n.external_id))];
+
     for (const w of read.workouts) {
-      if (have.has(w.external_id) && have.get(w.external_id)) continue;
+      const linkedTo = have.get(w.external_id) ?? null;
+      if (linkedTo && !unset.has(linkedTo)) continue;
       const { data: around } = await db
         .from("time_log_entries")
-        .select("id, category, tags, started_at, ended_at")
+        .select(AROUND)
         .eq("user_id", userId)
         .gte("started_at", new Date(new Date(w.started_at).getTime() - 12 * 3600000).toISOString())
         .lte("started_at", w.ended_at)
         .limit(200);
-      const act = workoutAction(w, around ?? []);
+      const act = workoutAction(w, around ?? [], others);
+      const settle = async (id: string) => {
+        if (act.kind !== "link" || act.id !== id) return;
+        const old = (around ?? []).find((e: Around) => e.id === id);
+        if (act.fix && old) {
+          if (await fitEntry(db, userId, old, act.fix.start, act.fix.end)) result.workoutsFixed++;
+        } else if (act.match) {
+          await stampChecked(db, userId, id);
+        }
+      };
+      // Linked before: only its times can change, nothing else is touched.
+      if (linkedTo) {
+        await settle(linkedTo);
+        continue;
+      }
       let entryId: string | null = null;
       if (act.kind === "link") {
         entryId = act.id;
         result.workoutsLinked++;
+        await settle(act.id);
       } else {
         const { data: made, error } = await db.from("time_log_entries").insert(exerciseEntry(userId, w)).select("id").single();
         if (error) throw error;

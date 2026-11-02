@@ -39,7 +39,7 @@ function json(body: unknown, status = 200) {
 const SelectionSchema = z.object({
   situation: z
     .string()
-    .describe("One or two sentences on where this person actually is right now, read from their last ten days. Plain, specific, no encouragement."),
+    .describe("One or two sentences on where this person actually is right now, read from their last ten days, held up against what they chose to focus on. Plain, specific, no encouragement and no softening: name the gap if there is one."),
   home: z
     .array(
       z.object({
@@ -83,7 +83,7 @@ Bad matches, which you must avoid:
 Rules:
 - note_id must be copied exactly from the candidates. Never invent one.
 - Never choose the same card for both slots.
-- The reason is for them to read. One sentence, plain, naming the actual connection: "you have written about feeling behind three days running, and this is what Elder Bednar told you about that." Not "this is an inspiring thought."
+- The reason is for them to read. One sentence, plain and pointed, naming the actual connection and what it asks of them now: "you have written about feeling behind three days running, and this is what Elder Bednar told you about that." Not "this is an inspiring thought."
 - If nothing genuinely fits a slot, return fewer. An honest three is better than a padded six. Returning an empty home slot is allowed when there is truly nothing apt.
 - If they have scored past picks, those scores are the most important instruction you have. The app asks one question about each pick, "useful" or "not now", saved as 9 and 3; older picks carry a score from 1 to 10. Low scores with a note tell you exactly what kind of match they do not want; do not repeat that pattern. High scores tell you what landed, so look for more cards like those.
 - Never comment on their spiritual standing. You are choosing what to hand them, not assessing them.`;

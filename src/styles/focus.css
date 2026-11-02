@@ -151,3 +151,180 @@
 .focus-dots__day.is-yes { background: var(--accent); color: var(--on-accent); }
 .focus-dots__day.is-no { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); color: var(--text-2); }
 .focus-dots__day.is-today { outline: 1.5px solid var(--ink); outline-offset: 1px; }
+
+/* --- Top of Today: the week's focus as small targets ---------------------- */
+
+/* On the page itself, no card round it: a glance, just under the title. */
+.focus-strip { margin: 0 0 14px; }
+.focus-strip__label { margin: 0 0 4px; }
+
+.focus-strip__row {
+  --focus-gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 4px;
+  display: flex;
+  gap: var(--focus-gap);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.focus-strip__row::-webkit-scrollbar { display: none; }
+
+/* Five across, whatever the phone's width, and no wider than 88px each on a
+   tablet. The words get the whole cell, with no padding of their own, so a
+   goal as long as "Time developing artistic ability" still fits in three
+   lines at 390 wide. */
+.focus-strip__cell {
+  flex: 0 0 calc((100% - 4 * var(--focus-gap)) / 5);
+  max-width: 88px;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.focus-strip__item {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0 6px;
+  border: none;
+  border-radius: var(--r);
+  background: none;
+  color: var(--text);
+  text-align: center;
+  transition: background 0.14s;
+}
+@media (hover: hover) { .focus-strip__item:hover { background: var(--card); } }
+
+/* The face stays a little narrower than its cell, so two targets never touch.
+   (.mark.focus-strip, to outrank mark.css's full-width face whichever of the
+   two files loads first.) */
+.mark.focus-strip .focus-strip__item .mk-face { width: calc(100% - 4px); max-width: 64px; }
+@media (prefers-reduced-motion: no-preference) {
+  .focus-strip__item .mk-face { transition: transform 0.12s; }
+  .focus-strip__item:active .mk-face { transform: scale(0.94); }
+}
+
+/* There's no hover on a phone to show a title that's cut short, so the words
+   are a touch smaller than the rest of the page and get three lines.
+   When a title is longer still, Chrome can put its "…" up to 3px past the
+   end of a centred line, where the cell cut it off ("and.."). The box reaches 4px
+   into the gap on each side, a pixel more than that, so the "…" stays in
+   view; the words still wrap at the cell's own width. */
+.focus-strip__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-width: calc(100% + 8px);
+  margin-inline: -4px;
+  padding-inline: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+  /* Even lines, so a two-line title doesn't leave one word on its own. */
+  text-wrap: balance;
+}
+
+/* At this size the Mark's hairlines would vanish, so they keep a fixed width
+   on screen, the marks are a little bigger, and the four section lines go:
+   a focus has no "what got in the way" sections to split it into. */
+.mark.focus-strip .mk-board,
+.mark.focus-strip .mk-ring,
+.mark.focus-strip .mk-bull,
+.mark.focus-strip .mk-miss { vector-effect: non-scaling-stroke; }
+.mark.focus-strip .mk-board { stroke-width: 1.25px; }
+.mark.focus-strip .mk-ring { stroke-width: 0.75px; stroke-opacity: 0.4; }
+.mark.focus-strip .mk-bull { stroke-width: 1px; }
+.mark.focus-strip .mk-miss { stroke-width: 0.75px; stroke-opacity: 0.3; stroke-dasharray: 1.5 2.5; }
+.mark.focus-strip .mk-div { display: none; }
+.mark.focus-strip .mk-dot { r: 8.5px; stroke-width: 1.4; }
+/* Orange is today's answer only. Until today has one, the newest mark is
+   ink like the rest. */
+.mark.focus-strip .focus-strip__item:not(.is-answered) .mk-dot--last { fill: var(--ink); }
+
+.focus-strip__empty {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.focus-strip__set { min-height: 36px; }
+.focus-strip__error { margin-bottom: 12px; }
+
+@media (max-width: 900px) {
+  /* Edge to edge, so a sixth target peeks in from the side. The first cell
+     starts 2px nearer the screen's edge than the page does, which the space
+     round its face makes up: the targets still line up with what's below. */
+  .focus-strip__row { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
+}
+
+@media (max-width: 380px) {
+  /* The 375-wide iPhones (SE, 12 and 13 mini) leave each cell 67px, where
+     "Time developing artistic ability" would need a fourth line at 10.5px.
+     Half a pixel smaller and it's whole in three. */
+  .focus-strip__title { font-size: 10px; }
+}
+
+@media (min-width: 901px) {
+  /* A desk has no thumb to scroll with, and no reason to cut a title short:
+     the cells are wide enough for a whole goal in a line or two, five still
+     fit across the narrowest desk column, and any more wrap. */
+  .focus-strip__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px 8px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .focus-strip__cell { max-width: none; }
+  .focus-strip__title { font-size: 11.5px; line-height: 1.25; letter-spacing: -0.01em; }
+}
+
+/* --- One focus, in its sheet ---------------------------------------------- */
+
+.focus-sheet { display: flex; flex-direction: column; gap: 12px; }
+
+/* White blocks on the sheet's warm grey, the way cards sit on a page. */
+.focus-sheet__block {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.focus-sheet__week { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.focus-sheet__week .focus-dots__day { width: 24px; height: 24px; font-size: 10px; }
+.focus-sheet__count { font-size: 12.5px; color: var(--text-2); }
+
+.focus-sheet__answer .seg-btn { min-height: 40px; padding: 8px 10px; font-size: 13px; }
+
+.focus-sheet__add { display: flex; flex-direction: column; gap: 8px; }
+.focus-sheet__add .textarea { min-height: 84px; }
+.focus-sheet__save { display: flex; justify-content: flex-end; }
+.focus-sheet__save .btn { min-height: 36px; }
+
+.focus-sheet__none { margin: 0; font-size: 12.5px; color: var(--text-3); }
+
+.focus-sheet__notes { list-style: none; margin: 0; padding: 0; }
+.focus-sheet__note { padding: 4px 0 10px; border-top: 1px solid var(--line); }
+.focus-sheet__note-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
+.focus-sheet__when { min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); overflow-wrap: anywhere; }
+.focus-sheet__then { font-family: var(--font); }
+.focus-sheet__del { margin-right: -8px; color: var(--text-3); }
+.focus-sheet__text { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.focus-sheet__edit { align-self: flex-start; min-height: 36px; padding: 0 2px; }

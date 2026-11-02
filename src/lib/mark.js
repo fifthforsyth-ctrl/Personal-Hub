@@ -332,14 +332,16 @@ function tagKey(t) {
 
 // What the watch recorded toward a focus today, in a few words ("Strength
 // 42m"), shown beside the time log's minutes so the evening's Yes comes
-// with what actually happened. Only finished entries the watch made: a
-// workout it recorded, or a timer run from the wrist. "" when none.
+// with what actually happened. Only finished entries whose times are the
+// watch's: a workout it recorded, a timer run from the wrist, or one you
+// logged by hand that the watch has since set (watch_fixed_at; the
+// entries come from day_archive, whole rows). "" when none.
 export function watchSaw(focus, entries) {
   const want = new Set((focus?.categories ?? []).map(tagKey).filter(Boolean));
   if (!want.size) return "";
   const bits = [];
   for (const e of entries ?? []) {
-    if (e?.is_example || e?.source !== "watch" || !e.ended_at) continue;
+    if (e?.is_example || !(e?.source === "watch" || e?.watch_fixed_at) || !e.ended_at) continue;
     const tags = Array.isArray(e?.tags) && e.tags.length ? e.tags : [e?.category];
     if (!tags.some((t) => want.has(tagKey(t)))) continue;
     bits.push(`${workoutName(e.description || e.category)} ${fmtMins(e.duration_minutes)}`);

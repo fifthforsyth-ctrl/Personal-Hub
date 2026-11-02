@@ -5,6 +5,7 @@ import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 import { planRows } from "./camp";
 import { byPin } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
+import { lineageIds, cleanNote } from "./focus";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -170,13 +171,21 @@ export async function logPastTimeEntry(userId, { categories, description, minute
 
 // `endedBy` says how it ended: a plain stop, the Going to bed button, or a
 // runaway timer ended after the fact. `at` ends it earlier than now.
+//
+// A stop now only ends a timer that is still running. The page you tap on
+// may have loaded before something else ended it (the watch ends last
+// night's Sleep where it saw you wake, and stamps that), and a late Stop
+// or I'm up would move that end to now. Then nothing changes and this
+// returns null: it had already stopped, and the reload shows where. A stop
+// at `at` is the runaway fix, a time you give for when a timer that isn't
+// Sleep really stopped, so it lands either way (the watch never ends those).
 export async function stopTimeEntry(entryId, { endedBy = "stop", at } = {}) {
-  const { data, error } = await supabase
+  let q = supabase
     .from("time_log_entries")
     .update({ ended_at: (at ? new Date(at) : new Date()).toISOString(), ended_by: endedBy })
-    .eq("id", entryId)
-    .select()
-    .single();
+    .eq("id", entryId);
+  if (!at) q = q.is("ended_at", null);
+  const { data, error } = await q.select().maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -203,11 +212,12 @@ export async function splitIntoSleep(userId, entry, sleepAt) {
 }
 
 // Sleep entries since a moment, newest first: last night for the morning
-// check-in, the last month for your usual lights-out.
+// check-in, the last month for your usual lights-out. source and
+// watch_fixed_at say whether the times are the watch's.
 export async function fetchSleepEntries(userId, sinceISO) {
   const { data, error } = await supabase
     .from("time_log_entries")
-    .select("id, started_at, ended_at, duration_minutes, tags, category, is_nap")
+    .select("id, started_at, ended_at, duration_minutes, tags, category, is_nap, source, watch_fixed_at")
     .eq("user_id", userId)
     .contains("tags", ["Sleep"])
     .gte("started_at", sinceISO)
@@ -2371,7 +2381,8 @@ export async function deleteReceipt(receipt) {
 }
 
 // ---------------------------------------------------------------------------
-// Weekly focus goals (0059). A week is the Sunday it starts on.
+// Weekly focus goals (0059) and their notes (0101). A week is the Sunday it
+// starts on.
 // ---------------------------------------------------------------------------
 
 const FOCUS_COLUMNS = "id, week_start, title, node_id, carried_from, review, reviewed_at, position, created_at";
@@ -2430,6 +2441,59 @@ export async function setFocusCheckin(userId, goalId, date, moved) {
   const { error } = await supabase
     .from("focus_checkins")
     .upsert({ user_id: userId, goal_id: goalId, date, moved }, { onConflict: "goal_id,date" });
+  if (error) throw error;
+}
+
+// The focus and every earlier week it was carried from, newest first, as
+// { id, title, week_start } rows. Your focus goals are a few a week, so they
+// all come in one read and the chain is walked here (lineageIds), rather
+// than one round trip per week.
+export async function fetchFocusLineage(userId, goalId) {
+  const { data, error } = await supabase.from("focus_goals").select("id, title, week_start, carried_from").eq("user_id", userId);
+  if (error) throw error;
+  const rows = data ?? [];
+  const byId = new Map(rows.map((g) => [g.id, g]));
+  return lineageIds(goalId, rows).map((id) => byId.get(id) ?? { id, title: null, week_start: null, carried_from: null });
+}
+
+// Notes on a focus (0101): what you noticed about it, any day. Newest first.
+const FOCUS_NOTE_COLUMNS = "id, goal_id, date, text, created_at";
+
+export async function fetchFocusNotes(userId, goalIds) {
+  const ids = [...new Set((goalIds ?? []).filter(Boolean))];
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from("focus_notes")
+    .select(FOCUS_NOTE_COLUMNS)
+    .eq("user_id", userId)
+    .in("goal_id", ids)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addFocusNote(userId, { goalId, date, text }) {
+  const clean = cleanNote(text);
+  if (!clean) throw new Error("Write the note first.");
+  const { data, error } = await supabase
+    .from("focus_notes")
+    .insert({ user_id: userId, goal_id: goalId, date, text: clean })
+    .select(FOCUS_NOTE_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateFocusNote(noteId, text) {
+  const clean = cleanNote(text);
+  if (!clean) throw new Error("A note can't be empty. Delete it instead.");
+  const { data, error } = await supabase.from("focus_notes").update({ text: clean }).eq("id", noteId).select(FOCUS_NOTE_COLUMNS).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteFocusNote(noteId) {
+  const { error } = await supabase.from("focus_notes").delete().eq("id", noteId);
   if (error) throw error;
 }
 
@@ -3755,6 +3819,74 @@ export async function fetchQuestBoard(userId) {
 // Every line on one quest's list.
 export function fetchQuestTasks(userId, questId) {
   return selectAllPages(() => supabase.from("quest_tasks").select(QUEST_TASK).eq("user_id", userId).eq("quest_id", questId).order("id"));
+}
+
+// What's on `date` from every quest at once, for the plan on Today
+// (src/lib/todayPlan.js sorts it into the day's blocks):
+//   { sections, steps, lines, camps, quests }
+// - steps picked for the day, and every step in a section picked for it
+//   (0091), with the steps under them;
+// - quest lines picked for the day, or written on that day's own list (not
+//   the ongoing one), with their sub-tasks;
+// - every section (to know which are picked and their order), camp and
+//   quest, for names and order.
+// Done ones come too, so a tick on Today doesn't make a row vanish; which
+// section steps were finished before the day is todayPlan's to decide.
+// Notes on today come too, with the tasks under them: a note isn't a thing
+// to do, but a note picked for today ("Meeting with the team") can hold a
+// dozen that are, and todayPlan shows it as a heading over them.
+export async function fetchTodayQuestWork(userId, date) {
+  const [sections, camps, quests] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_sections").select("id, camp_id, title, today_on, clipboard, position").eq("user_id", userId).order("id")),
+    supabase.from("quest_camps").select("id, quest_id, title, position").eq("user_id", userId),
+    supabase.from("quests").select("id, title, status, position").eq("user_id", userId),
+  ]);
+  for (const r of [camps, quests]) if (r.error) throw r.error;
+  const picked = sections.filter((s) => s.today_on === date).map((s) => s.id);
+  const stepFilter = picked.length ? `today_on.eq.${date},section_id.in.(${picked.join(",")})` : `today_on.eq.${date}`;
+  const [steps, lines] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).or(stepFilter).order("id")),
+    selectAllPages(() =>
+      supabase.from("quest_tasks").select(QUEST_TASK).eq("user_id", userId).or(`today_on.eq.${date},and(day.eq.${date},ongoing.is.false)`).order("id")
+    ),
+  ]);
+
+  // What's under them. A section's own steps came with it; a step picked
+  // on its own (a note too) brings its sub-steps, as deep as they go, and
+  // through a note further down to the tasks under it. A line's sub-tasks
+  // are one level, and a note line brings its sub-tasks the same way.
+  const stepIds = new Set(steps.map((s) => s.id));
+  let reach = steps.filter((s) => !picked.includes(s.section_id)).map((s) => s.id);
+  for (let depth = 0; reach.length && depth < 4; depth++) {
+    const kids = (await rowsUnder("camp_steps", CAMP_STEP, userId, reach, { notes: true })).filter((s) => !stepIds.has(s.id));
+    for (const s of kids) stepIds.add(s.id);
+    steps.push(...kids);
+    reach = kids.map((s) => s.id);
+  }
+  const lineIds = new Set(lines.map((l) => l.id));
+  const subLines = await rowsUnder("quest_tasks", QUEST_TASK, userId, lines.filter((l) => !l.parent_id).map((l) => l.id));
+  lines.push(...subLines.filter((l) => !lineIds.has(l.id)));
+
+  return { sections, steps, lines, camps: camps.data ?? [], quests: quests.data ?? [] };
+}
+
+// The rows under these (by parent_id), a hundred parents at a time so the
+// request stays short. Notes are left out unless `notes` asks for them (to
+// reach the tasks under a note further down).
+async function rowsUnder(table, columns, userId, parentIds, { notes = false } = {}) {
+  const out = [];
+  for (let i = 0; i < parentIds.length; i += 100) {
+    let q = supabase
+      .from(table)
+      .select(columns)
+      .eq("user_id", userId)
+      .in("parent_id", parentIds.slice(i, i + 100));
+    if (!notes) q = q.neq("kind", "note");
+    const { data, error } = await q;
+    if (error) throw error;
+    out.push(...(data ?? []));
+  }
+  return out;
 }
 
 // A new line (or several, in order). Resolves to the rows as saved.

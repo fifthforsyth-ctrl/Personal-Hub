@@ -254,7 +254,7 @@ button { cursor: pointer; touch-action: manipulation; }
     align-items: center;
     justify-content: space-around;
     height: var(--tabs-h);
-    padding: 0 14px env(safe-area-inset-bottom, 0px);
+    padding: 0 8px env(safe-area-inset-bottom, 0px);
     background: var(--card);
     border-top: 1px solid var(--line);
   }
@@ -263,9 +263,10 @@ button { cursor: pointer; touch-action: manipulation; }
 
 /* Round icon buttons with a small name under each, so a new tab is never a
    guess. The current tab gets a dark ring and a dark name. */
+/* Five tabs and the ＋ share a 360px phone: 5 × 52 + 54 + 16 = 330. */
 .bottom-tab {
   flex: 0 0 auto;
-  min-width: 58px;
+  min-width: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1572,20 +1573,28 @@ form.card + .card { margin-top: 14px; }
 .walk-ref { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); letter-spacing: 0.04em; }
 .walk-prompt { margin: 14px 0 0; font-size: 14.5px; line-height: 1.55; color: var(--text); }
 
+/* The way into the evening: a big black button, the only one. */
 .evening-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 17px 20px;
+  gap: 12px;
+  min-height: 64px;
+  padding: 16px 20px;
   border-radius: var(--r-lg);
   background: var(--ink);
   color: var(--on-ink);
   font-weight: 650;
   font-size: 15px;
+  box-shadow: var(--shadow);
+  transition: background 0.14s, transform 0.12s;
 }
-.evening-banner svg:first-child { color: var(--accent); }
-.evening-banner--quiet { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
-.evening-banner--done { background: var(--card); color: var(--text-2); box-shadow: var(--shadow); }
+.evening-banner svg:first-child { color: var(--accent); flex: none; }
+.evening-banner__words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.evening-banner__title { font-size: 16.5px; font-weight: 680; letter-spacing: -0.01em; }
+.evening-banner__sub { font-size: 12.5px; font-weight: 500; opacity: 0.72; }
+@media (hover: hover) { .evening-banner:not(.evening-banner--done):hover { background: var(--ink-hover); } }
+.evening-banner:active { transform: scale(0.99); }
+.evening-banner--done { min-height: 0; background: var(--card); color: var(--text-2); }
 
 /* --- Evening ------------------------------------------------------------ */
 

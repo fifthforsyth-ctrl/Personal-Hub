@@ -9,10 +9,14 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
-import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
+import { fileURLToPath } from "node:url";
+import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
 import { watchForPrompt } from "../supabase/functions/assistant/body.js";
-import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
+import { PUSH_TONE, aimForPrompt } from "../supabase/functions/assistant/tone.js";
+import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins, restingNormal, minutesWatchParts, minutesWatch } from "../src/lib/watch.js";
+import { watchSlept } from "../src/lib/watch.js";
+import { upInTheNight, plainlyTheWorkout } from "../supabase/functions/watch/health.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
@@ -166,6 +170,7 @@ import {
   overnightProblem,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
+import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay } from "../src/lib/focus.js";
 import {
   buildMirror,
   lastWeekStart,
@@ -190,6 +195,8 @@ import {
   andList,
   fmtHours as mirrorHours,
 } from "../src/lib/mirror.js";
+import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields, applyOverrides } from "../src/lib/todayPlan.js";
+import { build as esbuildBundle } from "esbuild";
 
 let pass = 0;
 let fail = 0;
@@ -3132,7 +3139,7 @@ console.log("\napple watch");
   const nightObj = { start: new Date("2026-10-31T04:20:00Z"), end: new Date("2026-10-31T10:50:00Z") };
   const now = new Date("2026-10-31T14:00:00Z");
   ok("an unlogged night goes in", sleepAction(nightObj, [], now).kind === "add");
-  ok("a logged night is left alone", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T11:00:00Z" }], now).kind === "skip");
+  ok("a logged night the watch already set is left alone", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T11:00:00Z", watch_fixed_at: "2026-10-31T11:05:00Z" }], now).kind === "skip");
   ok("a Sleep timer still running from that night ends when you woke", (() => {
     const a = sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: null }], now);
     return a.kind === "end" && a.id === "s" && a.at === "2026-10-31T10:50:00.000Z";
@@ -3267,10 +3274,1028 @@ console.log("\napple watch");
   ok("watch saw: nothing for a focus it didn't touch", watchSaw({ categories: ["Draw"] }, entries) === "" && watchSaw({ categories: [] }, entries) === "");
   ok("watch saw: a timer still running isn't counted yet", !watchSaw(exercise, entries).includes("Exercise"));
   const line = morningWatchLine({ asleep_min: 586, deep_min: 51, rem_min: 145, sleep_end: "2026-11-01T15:54:17Z" });
-  ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
+  ok("morning watch line: slept, stages, when it saw you wake", /^Your watch: slept 9h 46m · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
   ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
   ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
 }
+
+{
+  console.log("\nthe push: tone and aim (Nov 2026)");
+  ok("the tone never soothes", /Never soothe/.test(PUSH_TONE) && /it's okay/.test(PUSH_TONE));
+  ok("the tone never speaks for God", /don't speak for God/i.test(PUSH_TONE) && /what God expects/.test(PUSH_TONE));
+  ok("the tone grounds the push in evidence and forbids invention", /real person/.test(PUSH_TONE) && /research/.test(PUSH_TONE) && /Never invent a figure/.test(PUSH_TONE));
+  ok("the tone keeps reflection and God at the centre", /walk with God at the centre/.test(PUSH_TONE));
+  const index = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
+  ok("the old soft tone line is gone from the spirit prompts", !/warm and direct, like a trusted friend/.test(index));
+  ok("walk and reflection both read the aim, in his time zone", (index.match(/aimDay\(supabase, date, tz\)/g) ?? []).length === 2);
+  const evening = aimForPrompt({
+    date: "2026-11-02",
+    tz: "America/Denver",
+    goals: [{ id: "g1", title: "Highly skilled" }],
+    focuses: [{ id: "f1", goal_id: "g1", name: "Draw", categories: ["Art"] }],
+    entries: [
+      // 8 pm on Nov 2 in Denver is Nov 3 in UTC: still tonight.
+      { category: "Art", tags: [], duration_minutes: 45, started_at: "2026-11-03T03:00:00Z" },
+      // 8 pm on Oct 26 in Denver is Oct 27 in UTC: eight local days back, so out.
+      { category: "Art", tags: [], duration_minutes: 60, started_at: "2026-10-27T02:00:00Z" },
+    ],
+  });
+  ok("tonight's evening minutes count and last week's evening doesn't", evening.lifetime_goals[0].focuses[0].minutes_last_7_days === 45, JSON.stringify(evening.lifetime_goals[0]));
+
+  ok("no rows is no aim", aimForPrompt({ date: "2026-11-02" }) === null);
+  const aim = aimForPrompt({
+    date: "2026-11-02",
+    mission: { statement: "To become a trusted servant", summit: "An Exalted Servant" },
+    goals: [{ id: "g1", title: "Highly skilled" }, { id: "g2", title: "Highly educated" }],
+    focuses: [{ id: "f1", goal_id: "g1", name: "Draw", categories: ["Art"] }],
+    entries: [
+      { category: "Art", tags: [], duration_minutes: 30, started_at: "2026-11-01T14:00:00Z" },
+      { category: "Work", tags: ["art"], duration_minutes: 10, started_at: "2026-10-31T14:00:00Z" },
+      { category: "Art", tags: [], duration_minutes: 99, started_at: "2026-10-20T14:00:00Z" },
+    ],
+    weekFocus: [{ id: "w2", title: "No artificial meals", position: 2 }, { id: "w1", title: "Up at 4:30", position: 1 }],
+    checkins: [{ goal_id: "w1", date: "2026-11-01", moved: true }, { goal_id: "w1", date: "2026-11-02", moved: false }],
+    targets: [{ id: "t1", goal_id: "g1" }, { id: "t2", quest_id: "q1" }, { id: "t3", lesson_id: "l1" }],
+    shots: [
+      { target_id: "t1", date: "2026-11-01", level: 0, note: "an hour of gesture drawing" },
+      { target_id: "t1", date: "2026-10-30", level: 5, note: null },
+      { target_id: "t1", date: "2026-10-01", level: 0, note: "old" },
+      { target_id: "t2", date: "2026-11-02", level: 2, note: null },
+    ],
+    quests: [{ id: "q1", title: "Premiere plugin", status: "on" }, { id: "q9", title: "Done one", status: "done" }],
+    lessons: [{ id: "l1", title: "More integrity", status: "learning" }, { id: "l2", title: "Learned", status: "learned" }],
+  });
+  ok("the mission and summit come through", aim.mission === "To become a trusted servant" && aim.summit === "An Exalted Servant");
+  ok("a focus counts its category and tags, only in the last week", aim.lifetime_goals[0].focuses[0].minutes_last_7_days === 40, JSON.stringify(aim.lifetime_goals[0]));
+  ok("a goal with no focus says so", aim.lifetime_goals[1].focuses === "none set yet");
+  ok("arrows are this week's only, oldest first, with their notes", JSON.stringify(aim.lifetime_goals[0].arrows_last_7_days) === JSON.stringify(["2026-10-30 missed", "2026-11-01 bullseye: an hour of gesture drawing"]), JSON.stringify(aim.lifetime_goals[0].arrows_last_7_days));
+  ok("this week's focus is in his order with moved and not days", aim.this_weeks_focus[0].focus === "Up at 4:30" && aim.this_weeks_focus[0].days_moved === 1 && aim.this_weeks_focus[0].days_not === 1);
+  ok("only quests still on, with their arrows", aim.quests.length === 1 && aim.quests[0].arrows_last_7_days[0] === "2026-11-02 middle ring", JSON.stringify(aim.quests));
+  ok("only lessons still being learned", aim.lessons.length === 1 && aim.lessons[0].lesson === "More integrity");
+}
+
+{
+  console.log("\ntoday's plan, block by block");
+  const D = "2026-11-02";
+  const at = (h, m = 0) => h * 60 + m;
+  const chunks = [
+    { id: "c5", start_time: "21:30:00", end_time: "04:30:00", title: "Sleep" },
+    { id: "c3", start_time: "13:00:00", end_time: "15:00:00", title: "Multicam", quest_id: "q1", camp_id: "k1" },
+    { id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Morning" },
+    { id: "c4", start_time: "16:00:00", end_time: "18:00:00", title: "Plugin again", quest_id: "q1", camp_id: null },
+    { id: "c2", start_time: "10:00:00", end_time: "12:00:00", title: "Plugin", quest_id: "q1", camp_id: null },
+    { id: "c6", start_time: null, end_time: null, title: "No time" },
+  ];
+  const tasks = [
+    { id: "t1", title: "Inbox", time_chunk_id: "c1", parent_task_id: null, status: true, position: 0 },
+    { id: "t1a", title: "Reply to Sam", time_chunk_id: "c1", parent_task_id: "t1", status: false, position: 0 },
+    { id: "t2", title: "Export clips", time_chunk_id: "c3", parent_task_id: null, status: false, position: 1 },
+    { id: "t3", title: "Call the bank", time_chunk_id: null, parent_task_id: null, status: false, position: 2 },
+    { id: "t4", title: "Moved block", time_chunk_id: "gone", parent_task_id: null, status: false, position: 3 },
+  ];
+  const work = {
+    quests: [
+      { id: "q1", title: "Plugin", status: "on", position: 0 },
+      { id: "q2", title: "House", status: "on", position: 1 },
+    ],
+    camps: [
+      { id: "k1", quest_id: "q1", title: "Multicam", position: 0 },
+      { id: "k2", quest_id: "q1", title: "Audio", position: 1 },
+      { id: "k3", quest_id: "q2", title: "Kitchen", position: 0 },
+    ],
+    sections: [
+      { id: "sA", camp_id: "k2", title: "Mixer", today_on: D, position: 0 },
+      { id: "sB", camp_id: "k2", title: "Later", today_on: null, position: 1 },
+    ],
+    steps: [
+      { id: "s1", camp_id: "k1", section_id: null, parent_id: null, kind: "task", text: "Sync angles", today_on: D, done_on: null, position: 0 },
+      { id: "s1a", camp_id: "k1", section_id: null, parent_id: "s1", kind: "task", text: "Check audio drift", today_on: D, done_on: null, position: 0 },
+      { id: "s2", camp_id: "k2", section_id: null, parent_id: null, kind: "task", text: "Pick a limiter", today_on: D, done_on: null, position: 0 },
+      { id: "s3", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done last week", today_on: null, done_on: "2026-10-30", position: 1 },
+      { id: "s4", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done this morning", today_on: null, done_on: D, position: 2 },
+      { id: "s7", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done before, one left", today_on: null, done_on: "2026-10-29", position: 3 },
+      { id: "s7a", camp_id: "k2", section_id: "sA", parent_id: "s7", kind: "task", text: "The one left", today_on: null, done_on: null, position: 0 },
+      { id: "s5", camp_id: "k3", section_id: null, parent_id: null, kind: "task", text: "Measure the sink", today_on: D, done_on: null, position: 0 },
+      { id: "n1", camp_id: "k1", section_id: null, parent_id: null, kind: "note", text: "Remember the tripod", today_on: D, done_on: null, position: 5 },
+      { id: "s6", camp_id: "k2", section_id: "sB", parent_id: null, kind: "task", text: "Not today", today_on: null, done_on: null, position: 0 },
+    ],
+    lines: [
+      { id: "l1", quest_id: "q1", parent_id: null, kind: "task", text: "Write release notes", day: D, ongoing: false, today_on: null, done_on: null, position: 0 },
+      { id: "l1a", quest_id: "q1", parent_id: "l1", kind: "task", text: "List the fixes", day: D, ongoing: false, today_on: null, done_on: D, position: 0 },
+      { id: "l2", quest_id: "q1", parent_id: null, kind: "task", text: "Ongoing, not picked", day: "2026-10-20", ongoing: true, today_on: null, done_on: null, position: 1 },
+      { id: "l3", quest_id: "q2", parent_id: null, kind: "task", text: "Order tiles", day: "2026-10-30", ongoing: false, today_on: D, done_on: null, position: 0 },
+      { id: "l4", quest_id: "q1", parent_id: null, kind: "note", text: "A note line", day: D, ongoing: false, today_on: null, done_on: null, position: 2 },
+      { id: "l5", quest_id: "q1", parent_id: "l2", kind: "task", text: "Under the ongoing one", day: D, ongoing: false, today_on: null, done_on: null, position: 0 },
+    ],
+  };
+  const planAt = (nowMin, extra = {}) => planForToday({ chunks, tasks, questWork: work, nowMin, date: D, ...extra });
+  const ids = (items) => items.map((i) => i.id);
+  const everyId = (p) => {
+    const walk = (items) => items.flatMap((i) => [i.id, ...walk(i.subs)]);
+    return [...p.blocks.flatMap((b) => walk(b.items)), ...walk(p.loose.planned), ...p.loose.quests.flatMap((g) => walk(g.items))];
+  };
+  const blockOf = (p, id) => p.blocks.find((b) => b.items.some((i) => i.id === id))?.id ?? null;
+
+  const p = planAt(at(11));
+  ok("every block with a time is listed, in day order", JSON.stringify(ids(p.blocks)) === JSON.stringify(["c1", "c2", "c3", "c4", "c5"]), JSON.stringify(ids(p.blocks)));
+  const sleep = p.blocks.find((b) => b.id === "c5");
+  ok("a block that ends before it starts ends tomorrow", sleep.startMin === at(21, 30) && sleep.endMin === at(4, 30) + 24 * 60, JSON.stringify([sleep.startMin, sleep.endMin]));
+  ok("blocks are past, now or ahead against the clock", JSON.stringify(p.blocks.map((b) => b.state)) === JSON.stringify(["past", "now", "ahead", "ahead", "ahead"]), JSON.stringify(p.blocks.map((b) => b.state)));
+  ok("just after midnight the night's block is still ahead", blocksOf(chunks, at(0, 30)).find((b) => b.id === "c5").state === "ahead");
+  ok("a block ends as the next one starts", blocksOf(chunks, at(10)).find((b) => b.id === "c1").state === "past" && blocksOf(chunks, at(10)).find((b) => b.id === "c2").state === "now");
+
+  const morning = p.blocks.find((b) => b.id === "c1");
+  ok("a planned task goes in the block it was planned into", ids(morning.items).join() === "t1", JSON.stringify(ids(morning.items)));
+  ok("its sub-tasks sit under it, not beside it", ids(morning.items[0].subs).join() === "t1a" && morning.items[0].subs[0].kind === "task", JSON.stringify(morning.items[0]));
+  ok("a block counts what's in it and under it", morning.done === 1 && morning.total === 2, JSON.stringify([morning.done, morning.total]));
+  ok("planned tasks with no block, or a block that isn't today's, wait at the foot", ids(p.loose.planned).join() === "t3,t4", JSON.stringify(ids(p.loose.planned)));
+
+  const multicam = p.blocks.find((b) => b.id === "c3");
+  ok("a camp step goes to the block tied to its camp, after the block's own tasks", ids(multicam.items).join() === "t2,s1", JSON.stringify(ids(multicam.items)));
+  ok("a step under a picked step shows under it once, not again on its own", ids(multicam.items[1].subs).join() === "s1a" && everyId(p).filter((x) => x === "s1a").length === 1, JSON.stringify(everyId(p)));
+  ok("a camp step says which camp it's from", multicam.items[1].from === "Multicam" && multicam.items[1].kind === "step", JSON.stringify(multicam.items[1]));
+  ok("a step whose camp has no block goes to a block tied to its quest", blockOf(p, "s2") === "c2", blockOf(p, "s2"));
+  ok("a quest line goes to the quest's block, not to one of its camps", blockOf(p, "l1") === "c2" && blockOf(planAt(at(14)), "l1") === "c4", JSON.stringify([blockOf(p, "l1"), blockOf(planAt(at(14)), "l1")]));
+  ok("a quest line says which quest it's from", p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "l1").from === "Plugin");
+  ok("a quest line's sub-tasks come with it", ids(p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "l1").subs).join() === "l1a");
+
+  ok("two blocks on one quest: the one running now takes it", blockOf(planAt(at(16, 30)), "s2") === "c4", blockOf(planAt(at(16, 30)), "s2"));
+  ok("two blocks on one quest: before both, the next one ahead takes it", blockOf(planAt(at(9)), "s2") === "c2", blockOf(planAt(at(9)), "s2"));
+  ok("two blocks on one quest: between them, the one still ahead takes it", blockOf(planAt(at(12, 30)), "s2") === "c4", blockOf(planAt(at(12, 30)), "s2"));
+  ok("two blocks on one quest: after both, the last one keeps it", blockOf(planAt(at(19)), "s2") === "c4", blockOf(planAt(at(19)), "s2"));
+  ok("with only a camp's block on the quest, a quest line goes there", blockOf(planForToday({ chunks: chunks.filter((c) => c.id === "c3"), tasks: [], questWork: work, nowMin: at(11), date: D }), "l1") === "c3");
+  ok("pickBlock with nothing to pick is null", pickBlock([]) === null);
+
+  ok("done things stay, marked done", morning.items[0].done === true && p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "s4")?.done === true);
+  ok("a step in a section picked for today that was finished before today is left out", !everyId(p).includes("s3"), JSON.stringify(everyId(p)));
+  ok("one finished before today with something under it still open stays, with it", blockOf(p, "s7") === "c2" && ids(p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "s7").subs).join() === "s7a");
+  ok("a step in a section that isn't picked isn't on today", !everyId(p).includes("s6"));
+  ok("notes are never things to do", !everyId(p).includes("n1") && !everyId(p).includes("l4"), JSON.stringify(everyId(p)));
+  ok("a quest line that isn't picked, from the ongoing list, isn't on today", !everyId(p).includes("l2"));
+  ok("a sub-task never comes on its own without its task", !everyId(p).includes("l5"));
+
+  ok("a quest with no block gets its own group at the foot, by name", p.loose.quests.length === 1 && p.loose.quests[0].questId === "q2" && p.loose.quests[0].title === "House", JSON.stringify(p.loose.quests));
+  ok("in a quest's group, its camps' steps come before its lines", ids(p.loose.quests[0].items).join() === "s5,l3", JSON.stringify(ids(p.loose.quests[0].items)));
+  ok("with no blocks at all, everything waits at the foot", (() => {
+    const bare = planForToday({ chunks: [], tasks, questWork: work, nowMin: at(11), date: D });
+    return bare.blocks.length === 0 && ids(bare.loose.planned).join() === "t1,t2,t3,t4" && bare.loose.quests.map((g) => g.questId).join() === "q1,q2";
+  })());
+  ok("the quests' own order holds", ids(questItemsForToday(work, D)).join() === "s1,s2,s4,s7,l1,s5,l3", JSON.stringify(ids(questItemsForToday(work, D))));
+  ok("a line picked from elsewhere comes before today's own", (() => {
+    const two = questItemsForToday({ quests: work.quests, lines: [work.lines[0], { ...work.lines[2], id: "lp", today_on: D }] }, D);
+    return ids(two).join() === "lp,l1";
+  })());
+  ok("nothing loaded yet is an empty plan, not a crash", (() => {
+    const empty = planForToday({ chunks: null, tasks: null, questWork: null, nowMin: 0, date: D });
+    return empty.blocks.length === 0 && empty.loose.planned.length === 0 && empty.loose.quests.length === 0 && empty.total === 0;
+  })());
+  ok("a count takes in everything under each item, too", JSON.stringify(tallyItems([{ done: true, subs: [{ done: false, subs: [{ done: true, subs: [] }] }] }])) === JSON.stringify({ done: 2, total: 3 }));
+
+  const iso = "2026-11-02T18:00:00.000Z";
+  ok("ticking a task sets its status and when", JSON.stringify(doneFields("task", true, D, iso)) === JSON.stringify({ status: true, completed_at: iso }) && doneFields("task", false, D, iso).completed_at === null);
+  ok("ticking a line keeps the day and the moment and stops working on it", JSON.stringify(doneFields("line", true, D, iso)) === JSON.stringify({ done_on: D, done_at: iso, working_since: null }));
+  ok("unticking a line clears both", JSON.stringify(doneFields("line", false, D, iso)) === JSON.stringify({ done_on: null, done_at: null }));
+  ok("ticking a step keeps the day and stops working on it; unticking clears it", JSON.stringify(doneFields("step", true, D, iso)) === JSON.stringify({ done_on: D, working_since: null }) && JSON.stringify(doneFields("step", false, D, iso)) === JSON.stringify({ done_on: null }));
+  const loaded = { tasks, work };
+  const ticked = withFields(loaded, "step", "s1", doneFields("step", true, D, iso));
+  ok("a tick changes only that row, and shows in the plan before it's saved", ticked.work.steps.find((s) => s.id === "s1").done_on === D && ticked.work.steps.find((s) => s.id === "s2").done_on === null && loaded.work.steps.find((s) => s.id === "s1").done_on === null && planForToday({ chunks, tasks: ticked.tasks, questWork: ticked.work, nowMin: at(11), date: D }).blocks.find((b) => b.id === "c3").items[1].done === true);
+  const unticked = withFields(loaded, "task", "t1", doneFields("task", false, D, iso));
+  ok("unticking a task keeps it where it was", planForToday({ chunks, tasks: unticked.tasks, questWork: work, nowMin: at(11), date: D }).blocks.find((b) => b.id === "c1").items[0].done === false && blockOf(planForToday({ chunks, tasks: unticked.tasks, questWork: work, nowMin: at(11), date: D }), "t1") === "c1");
+  ok("unticking a step in a picked section keeps it on today", everyId(planForToday({ chunks, tasks, questWork: withFields(loaded, "step", "s4", doneFields("step", false, D, iso)).work, nowMin: at(11), date: D })).includes("s4"));
+}
+
+{
+  console.log("\nthe week's focus as small targets (0101)");
+  const wk = "2026-11-01";
+  const goals = [
+    { id: "g1", title: "Patience" },
+    { id: "g2", title: "Exercise" },
+  ];
+  const checkins = [
+    { goal_id: "g1", date: "2026-11-03", moved: false },
+    { goal_id: "g1", date: "2026-11-01", moved: true },
+    { goal_id: "g1", date: "2026-10-31", moved: true }, // last week
+    { goal_id: "g1", date: "2026-11-08", moved: true }, // next week
+    { goal_id: "gone", date: "2026-11-02", moved: true }, // not this week's goal
+    { goal_id: "g2", date: "2026-11-02T00:00:00", moved: true },
+  ];
+  const shots = weekShots(goals, checkins, wk);
+  const radius = (s) => Math.hypot(s.x, s.y);
+  const g1 = shots.g1;
+  ok("every goal this week gets its own list of marks", Object.keys(shots).join() === "g1,g2", JSON.stringify(Object.keys(shots)));
+  ok("only this week's check-ins become marks", g1.length === 2 && shots.gone === undefined, JSON.stringify(g1.map((s) => s.date)));
+  ok("marks run oldest first, so the latest is the one lit", g1.map((s) => s.date).join() === "2026-11-01,2026-11-03", JSON.stringify(g1.map((s) => s.date)));
+  ok("a day that moved it lands in the inner ring", g1[0].level === MOVED_LEVEL && MOVED_LEVEL === 1 && radius(g1[0]) >= LEVELS[1].r0 - 0.2 && radius(g1[0]) <= LEVELS[1].r1 + 0.2, JSON.stringify(g1[0]));
+  ok("a 'not today' lands in the miss band", g1[1].level === NOT_TODAY_LEVEL && NOT_TODAY_LEVEL === 5 && radius(g1[1]) >= LEVELS[5].r0 - 0.2 && radius(g1[1]) <= LEVELS[5].r1 + 0.2, JSON.stringify(g1[1]));
+  ok("a mark's id is the goal and the day", g1[0].id === "g1:2026-11-01", g1[0].id);
+  ok("a mark sits where the Mark would put it, the same every time", JSON.stringify(placement("g1:2026-11-01", 1, null)) === JSON.stringify({ x: g1[0].x, y: g1[0].y }) && JSON.stringify(checkinShot("g1", "2026-11-01", true)) === JSON.stringify(g1[0]));
+  ok("a timestamp-shaped date still lands on its day", shots.g2.length === 1 && shots.g2[0].date === "2026-11-02", JSON.stringify(shots.g2));
+  ok("a goal nobody answered has no marks", weekShots([{ id: "g3" }], [], wk).g3.length === 0);
+  ok("no goals, no marks", JSON.stringify(weekShots(null, checkins, wk)) === "{}");
+  ok("two answers for one day keep the last", weekShots([{ id: "a" }], [{ goal_id: "a", date: wk, moved: true }, { goal_id: "a", date: wk, moved: false }], wk).a.map((s) => s.level).join() === "5");
+}
+
+{
+  console.log("\na focus's earlier weeks (0101)");
+  const all = [
+    { id: "w3", carried_from: "w2" },
+    { id: "w2", carried_from: "w1" },
+    { id: "w1", carried_from: null },
+    { id: "other", carried_from: null },
+  ];
+  ok("a kept focus walks back through every week it was carried", lineageIds("w3", all).join() === "w3,w2,w1", JSON.stringify(lineageIds("w3", all)));
+  ok("a goal row works as well as its id", lineageIds({ id: "w2", carried_from: "w1" }, all).join() === "w2,w1");
+  ok("a focus set fresh this week is only itself", lineageIds("w1", all).join() === "w1");
+  ok("other goals never join the chain", !lineageIds("w3", all).includes("other"));
+  ok("a removed earlier week ends the chain there", lineageIds("b", [{ id: "b", carried_from: "a" }]).join() === "b");
+  ok("a goal not in the list yet still counts as itself", lineageIds({ id: "new", carried_from: "w2" }, all).join() === "new,w2,w1", JSON.stringify(lineageIds({ id: "new", carried_from: "w2" }, all)));
+  ok("a loop between two weeks stops instead of hanging", lineageIds("x", [{ id: "x", carried_from: "y" }, { id: "y", carried_from: "x" }]).join() === "x,y");
+  ok("a goal pointing at itself is just itself", lineageIds("s", [{ id: "s", carried_from: "s" }]).join() === "s");
+  const long = Array.from({ length: 80 }, (_, i) => ({ id: `n${i}`, carried_from: i < 79 ? `n${i + 1}` : null }));
+  const walked = lineageIds("n0", long);
+  ok("the chain reaches back a year and no further", walked.length === LINEAGE_WEEKS && LINEAGE_WEEKS === 52 && walked[0] === "n0" && walked[51] === "n51", walked.length);
+  ok("nothing given, nothing walked", lineageIds(null, all).length === 0 && lineageIds("w1", null).join() === "w1");
+}
+
+{
+  console.log("\nnotes on a focus (0101)");
+  const notes = [
+    { id: "a", created_at: "2026-10-28T09:00:00+00:00" },
+    { id: "c", created_at: "2026-11-02T08:00:00+00:00" },
+    { id: "b", created_at: "2026-11-01T20:00:00+00:00" },
+  ];
+  ok("notes read newest first", newestFirst(notes).map((n) => n.id).join() === "c,b,a");
+  ok("sorting leaves the list it was given alone", notes[0].id === "a");
+  ok("a note loses the blank space round it but keeps its own lines", cleanNote("  first line\r\nsecond  \n\n") === "first line\nsecond", JSON.stringify(cleanNote("  first line\r\nsecond  \n\n")));
+  ok("an empty note is nothing to save", cleanNote("   \n ") === "" && cleanNote(null) === "");
+  ok("a note stops at the 2000 characters the table allows", cleanNote("x".repeat(2500)).length === 2000);
+  ok("the cap counts characters, not halves of an emoji", Array.from(cleanNote("😀".repeat(2100))).length === 2000);
+  ok("today's note says today", noteDay("2026-11-02", "2026-11-02") === "Today");
+  ok("yesterday's says yesterday", noteDay("2026-11-01", "2026-11-02") === "Yesterday");
+  ok("an older note shows its date", /Oct/.test(noteDay("2026-10-27", "2026-11-02")), noteDay("2026-10-27", "2026-11-02"));
+  const mig = readFileSync(new URL("../supabase/migrations/0101_focus_notes.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok("the notes migration only adds", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b|\balter\s+table\s+public\.focus_(goals|checkins)\b/i.test(mig));
+  ok("notes are kept to your own rows on your own goals", /enable row level security/.test(mig) && /g\.id = goal_id and g\.user_id = auth\.uid\(\)/.test(mig));
+  ok("removing a goal takes its notes with it", /references public\.focus_goals\(id\) on delete cascade/.test(mig));
+  ok("Ask's schema notes know focus_notes", readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8").includes("focus_notes(id, goal_id, date date, text text"));
+}
+
+{
+  console.log("\nthe watch sets hand-logged sleep and exercise right (0102)");
+  const now = new Date("2026-10-31T14:00:00Z");
+  const night = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T10:30:00Z"), bedStart: null };
+  const hand = { id: "h", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T04:20:00Z", ended_at: "2026-10-31T10:45:00Z", is_nap: false, source: null, watch_fixed_at: null };
+  const fix = sleepAction(night, [hand], now);
+  ok("one hand-logged night off by 5 minutes or more takes the watch's times", fix.kind === "fix" && fix.id === "h" && fix.start === "2026-10-31T04:40:00.000Z" && fix.end === "2026-10-31T10:30:00.000Z", JSON.stringify(fix));
+  const bedNight = { ...night, bedStart: new Date("2026-10-31T04:25:00Z") };
+  const bedFix = sleepAction(bedNight, [hand], now);
+  ok("its start is when you got into bed, when that was measured", bedFix.kind === "fix" && bedFix.start === "2026-10-31T04:25:00.000Z", JSON.stringify(bedFix));
+  ok("otherwise when you fell asleep", bedtimeOf(night) === night.start.getTime());
+  const staged = readHealthPayload({ data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [
+    { startDate: "2026-10-30 22:25:00 -0600", endDate: "2026-10-31 04:35:00 -0600", value: "In Bed", qty: 6.2 },
+    { startDate: "2026-10-30 22:40:00 -0600", endDate: "2026-10-31 04:30:00 -0600", value: "Core", qty: 5.8 },
+  ] }] } }, "America/Denver").nights[0];
+  ok("a night of stages knows when you got into bed", staged?.bedStart?.toISOString() === "2026-10-31T04:25:00.000Z" && staged.start.toISOString() === "2026-10-31T04:40:00.000Z", JSON.stringify(staged));
+  const agg = (inBed) => readHealthPayload({ data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [{ date: "2026-10-31", totalSleep: 5.8, inBed, inBedStart: "2026-10-30 22:25:00 -0600", sleepStart: "2026-10-30 22:40:00 -0600", sleepEnd: "2026-10-31 04:30:00 -0600" }] }] } }, "America/Denver").nights[0];
+  ok("a summed night has a bed time only when time in bed was measured", agg(6.2)?.bedStart?.toISOString() === "2026-10-31T04:25:00.000Z" && agg(0)?.bedStart === null);
+  ok("a bed time after you fell asleep, or 3 hours before, isn't believed", bedtimeOf({ start: night.start, bedStart: new Date("2026-10-31T05:00:00Z") }) === night.start.getTime() && bedtimeOf({ start: night.start, bedStart: new Date("2026-10-31T01:00:00Z") }) === night.start.getTime());
+  const two = sleepAction(night, [{ ...hand, id: "a", ended_at: "2026-10-31T07:00:00Z" }, { ...hand, id: "b", started_at: "2026-10-31T07:30:00Z" }], now);
+  ok("two Sleep entries over one night are left as you logged them", two.kind === "skip", JSON.stringify(two));
+  ok("an entry the watch already set isn't moved again", sleepAction(night, [{ ...hand, watch_fixed_at: "2026-10-31T11:00:00Z" }], now).kind === "skip");
+  const close = sleepAction(night, [{ ...hand, started_at: "2026-10-31T04:37:00Z", ended_at: "2026-10-31T10:34:00Z" }], now);
+  ok("under 5 minutes off, nothing moves; it's only marked as checked", close.kind === "match" && close.id === "h", JSON.stringify(close));
+  ok("a nap is never moved", sleepAction(night, [{ ...hand, is_nap: true }], now).kind === "skip");
+  ok("a running Sleep timer still just ends", sleepAction(night, [{ ...hand, ended_at: null }], now).kind === "end");
+  const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T03:30:00Z", ended_at: "2026-10-31T04:30:00Z" };
+  const fitted = sleepAction(bedNight, [{ ...hand, started_at: "2026-10-31T04:30:00Z" }, reading], now);
+  ok("the watch's start stops where the entry before it ended", fitted.kind === "fix" && fitted.start === "2026-10-31T04:30:00.000Z" && fitted.end === "2026-10-31T10:30:00.000Z", JSON.stringify(fitted));
+
+  const lift = { external_id: "W1", started_at: "2026-10-30T12:10:00.000Z", ended_at: "2026-10-30T12:45:00.000Z" };
+  const timed = { id: "e", category: "Exercise", tags: ["Exercise"], started_at: "2026-10-30T12:00:00Z", ended_at: "2026-10-30T12:30:00Z", watch_fixed_at: null };
+  const wfix = workoutAction(lift, [timed], [lift]);
+  ok("one finished Exercise entry off by 5 minutes takes the workout's times", wfix.kind === "link" && wfix.id === "e" && wfix.fix?.start === "2026-10-30T12:10:00.000Z" && wfix.fix?.end === "2026-10-30T12:45:00.000Z", JSON.stringify(wfix));
+  ok("a running Exercise timer is linked, not moved", (() => {
+    const a = workoutAction(lift, [{ ...timed, ended_at: null }], [lift], Date.parse("2026-10-30T13:00:00Z"));
+    return a.kind === "link" && !a.fix && !a.match;
+  })());
+  ok("one timer holding a run and a lift is left as logged", !workoutAction(lift, [{ ...timed, ended_at: "2026-10-30T13:30:00Z" }], [lift, { external_id: "W2", started_at: "2026-10-30T12:50:00Z", ended_at: "2026-10-30T13:20:00Z" }]).fix);
+  ok("a workout over two Exercise entries moves neither", (() => {
+    const a = workoutAction(lift, [timed, { ...timed, id: "e2", started_at: "2026-10-30T12:31:00Z", ended_at: "2026-10-30T12:50:00Z" }], [lift]);
+    return a.kind === "link" && !a.fix;
+  })());
+  ok("an entry the watch already set keeps its times", !workoutAction(lift, [{ ...timed, watch_fixed_at: "2026-10-30T13:00:00Z" }], [lift]).fix);
+  ok("under 5 minutes off is only marked as checked", workoutAction(lift, [{ ...timed, started_at: "2026-10-30T12:08:00Z", ended_at: "2026-10-30T12:47:00Z" }], [lift]).match === true);
+  const study = { id: "s", category: "Study", tags: ["Study"], started_at: "2026-10-30T12:40:00Z", ended_at: "2026-10-30T13:30:00Z" };
+  const forgot = workoutAction(lift, [{ ...timed, ended_at: "2026-10-30T12:40:00Z" }, study], [lift]);
+  ok("a workout left running on the watch stops where your next timer starts", forgot.fix?.start === "2026-10-30T12:10:00.000Z" && forgot.fix?.end === "2026-10-30T12:40:00.000Z", JSON.stringify(forgot));
+  ok("an Exercise entry the import makes is stamped as the watch's", typeof exerciseEntry("u", { ...lift, kind: "gym", name: "Strength" }, new Date("2026-10-30T14:00:00Z")).watch_fixed_at === "string");
+
+  const sql = readFileSync(new URL("../supabase/migrations/0102_watch_corrects.sql", import.meta.url), "utf8").replace(/--.*$/gm, "");
+  ok("0102 only adds: no drop, no constraint change, nothing deleted", !/\bdrop\b|\bconstraint\b|delete\s+from|\btruncate\b/i.test(sql));
+  ok("0102 adds the three columns", ["watch_fixed_at", "hand_started_at", "hand_ended_at"].every((c) => new RegExp(`add column if not exists ${c} timestamptz`).test(sql)));
+  ok("0102 stamps only what the import made", (sql.match(/t\.source = 'watch'/g) ?? []).length === 2);
+
+  ok("watch saw: a hand-logged workout the watch set counts", watchSaw({ categories: ["Exercise"] }, [{ category: "Exercise", tags: ["Exercise"], source: null, watch_fixed_at: "2026-11-01T14:00:00Z", description: "Run", started_at: "2026-11-01T13:00:00Z", ended_at: "2026-11-01T13:30:00Z", duration_minutes: 30 }]) === "Run 30m");
+  ok("watch saw: one it never set doesn't", watchSaw({ categories: ["Exercise"] }, [{ category: "Exercise", tags: ["Exercise"], source: null, watch_fixed_at: null, started_at: "2026-11-01T13:00:00Z", ended_at: "2026-11-01T13:30:00Z", duration_minutes: 30 }]) === "");
+}
+
+{
+  console.log("\nthe watch on Today's minutes");
+  const days = (from, n, hr) => Array.from({ length: n }, (_, i) => ({ date: `2026-10-${String(from + i).padStart(2, "0")}`, resting_hr: hr }));
+  ok("no normal from fewer than 7 readings", restingNormal(days(20, 6, 52), "2026-11-01") === null);
+  ok("7 readings make a normal: the middle one", restingNormal([...days(20, 3, 50), ...days(23, 4, 56)], "2026-11-01") === 56);
+  ok("an even count takes the middle two", restingNormal([...days(20, 4, 50), ...days(24, 4, 55)], "2026-11-01") === 53, String(restingNormal([...days(20, 4, 50), ...days(24, 4, 55)], "2026-11-01")));
+  ok("the day itself and days over 4 weeks back are left out", restingNormal([...days(1, 3, 90), ...days(20, 7, 52), { date: "2026-11-01", resting_hr: 99 }], "2026-11-01") === 52);
+  ok("empty readings don't count", restingNormal([...days(20, 6, 52), { date: "2026-10-28", resting_hr: null }, { date: "2026-10-29", resting_hr: 0 }], "2026-11-01") === null);
+
+  const today = { date: "2026-11-01", asleep_min: 412, woke_at: "2026-11-01T11:41:00Z", sleep_end: "2026-11-01T11:30:00Z", resting_hr: 54 };
+  const parts = minutesWatchParts(today, null, 52);
+  ok("slept, up and resting heart rate, words first", parts.map((p) => p.label).join(",") === "Slept,Up,Resting HR" && parts[0].value === "6h 52m" && /^\d{1,2}:\d{2}/.test(parts[1].value) && parts[1].value === minutesWatchParts({ woke_at: today.woke_at }, null, null)[0].value && parts[2].value === "54", JSON.stringify(parts));
+  ok("resting heart rate sits beside your normal", parts[2].sub === "your normal 52");
+  ok("up is when the watch saw you wake, without the automation", minutesWatchParts({ sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.label === "Up" && minutesWatchParts({ woke_at: "2026-11-01T11:41:00Z", sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.value !== minutesWatchParts({ sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.value);
+  const early = minutesWatchParts({ asleep_min: 412 }, { resting_hr: 57 }, 52);
+  ok("before today's resting heart rate is in, yesterday's says so", early[1]?.label === "Resting HR" && early[1].value === "57" && early[1].sub === "yesterday, your normal 52", JSON.stringify(early));
+  ok("no normal yet, no comparison", minutesWatchParts({ resting_hr: 54 }, null, null)[0].sub === null);
+  ok("nothing from the watch, nothing shown", minutesWatchParts(null, null, null).length === 0 && minutesWatchParts({ steps: 3000 }, null, 52).length === 0 && minutesWatch([], "2026-11-01").length === 0);
+  const month = [...days(20, 4, 50), ...days(24, 3, 60), { date: "2026-10-31", resting_hr: 70 }, { date: "2026-11-01", asleep_min: 400 }];
+  const fall = minutesWatch(month, "2026-11-01");
+  ok("yesterday's reading is set beside the normal before it, not itself", fall.find((p) => p.label === "Resting HR")?.sub === "yesterday, your normal 50", JSON.stringify(fall));
+  ok("today's reading is set beside the 4 weeks before today", minutesWatch([...month.slice(0, -1), { date: "2026-11-01", resting_hr: 58 }], "2026-11-01").find((p) => p.label === "Resting HR")?.sub === "your normal 55");
+}
+
+{
+  console.log("\nthe watch only sets what it saw, and says the night once");
+  const now = new Date("2026-10-19T15:00:00Z");
+  // His 10-19: Sleep 22:28-4:33, up, Exercise 5:27-6:02, back to bed
+  // 7:18-8:30. The watch sends one summed night over both parts.
+  const split = readHealthPayload({ data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [
+    { date: "2026-10-19", totalSleep: 7.25, awake: 2.75, inBed: 0, sleepStart: "2026-10-18 22:30:00 -0600", sleepEnd: "2026-10-19 08:30:00 -0600" },
+  ] }] } }, "America/Denver").nights[0];
+  const first = { id: "s1", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-19T04:28:00Z", ended_at: "2026-10-19T10:33:42Z", is_nap: false, source: null, watch_fixed_at: null };
+  const exercise = { id: "x", category: "Exercise", tags: ["Exercise"], started_at: "2026-10-19T11:27:00Z", ended_at: "2026-10-19T12:02:00Z" };
+  const withRun = sleepAction(split, [first, exercise], now);
+  ok("a split night: the first part's I'm up stays, not stretched to the run", withRun.kind === "match" && withRun.id === "s1", JSON.stringify(withRun));
+  const alone = sleepAction(split, [first], now);
+  ok("a split night with only the first part logged isn't stretched to 8:30", alone.kind === "match", JSON.stringify(alone));
+  const over = sleepAction(split, [{ ...first, started_at: "2026-10-19T04:00:00Z", ended_at: "2026-10-19T14:30:00Z" }], now);
+  ok("on a split night an entry still shrinks to the watch", over.kind === "fix" && over.start === "2026-10-19T04:30:00.000Z" && over.end === "2026-10-19T14:30:00.000Z", JSON.stringify(over));
+  ok("an hour awake makes a night split", upInTheNight(split, [], now.getTime()));
+  ok("so does a hole in the stages the watch doesn't call awake", upInTheNight({ start: "2026-10-31T04:40:00Z", end: "2026-10-31T11:20:00Z", asleep: 300, awake: 10 }, [], now.getTime()));
+
+  const night = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T10:30:00Z"), asleep: 340, awake: 10, bedStart: null };
+  const later = new Date("2026-10-31T14:00:00Z");
+  const hand = { id: "h", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T04:40:00Z", ended_at: "2026-10-31T10:00:00Z", is_nap: false, source: null, watch_fixed_at: null };
+  ok("a plain night isn't split", !upInTheNight(night, [hand], later.getTime()));
+  const grow = sleepAction(night, [hand], later);
+  ok("a plain night can grow an entry by up to 45 minutes", grow.kind === "fix" && grow.end === "2026-10-31T10:30:00.000Z", JSON.stringify(grow));
+  const far = sleepAction(night, [{ ...hand, started_at: "2026-10-31T05:45:00Z", ended_at: "2026-10-31T10:45:00Z" }], later);
+  ok("a side that would grow more than 45 minutes keeps your time; the other side still moves", far.kind === "fix" && far.start === "2026-10-31T05:45:00.000Z" && far.end === "2026-10-31T10:30:00.000Z", JSON.stringify(far));
+  const study = { id: "st", category: "Study", tags: ["Study"], started_at: "2026-10-31T08:10:00Z", ended_at: "2026-10-31T08:50:00Z" };
+  const upped = sleepAction(night, [{ ...hand, ended_at: "2026-10-31T08:00:00Z" }, study], later);
+  ok("something else logged inside the night keeps the entry from growing", upped.kind === "match", JSON.stringify(upped));
+  const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T04:43:00Z" };
+  ok("a few minutes' overlap at the edge doesn't count as up in the night", !upInTheNight(night, [reading], later.getTime()));
+
+  const timer = { ...hand, started_at: "2026-10-31T04:20:00Z", ended_at: null };
+  const ended = sleepAction(night, [timer], later);
+  ok("a running Sleep timer ends and starts at the watch's bedtime in one step", ended.kind === "end" && ended.at === "2026-10-31T10:30:00.000Z" && ended.start === "2026-10-31T04:40:00.000Z", JSON.stringify(ended));
+  ok("within 5 minutes its start stays", sleepAction(night, [{ ...timer, started_at: "2026-10-31T04:37:00Z" }], later).start === null);
+  ok("and a bedtime more than 45 minutes before your tap isn't taken", sleepAction(night, [{ ...timer, started_at: "2026-10-31T05:50:00Z" }], later).start === null);
+  ok("an earlier timer just before it keeps the start from running into it", sleepAction({ ...night, bedStart: new Date("2026-10-31T04:10:00Z") }, [{ ...timer, started_at: "2026-10-31T04:30:00Z" }, { id: "p", category: "Prep", tags: ["Prep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T04:25:00Z" }], later).start === "2026-10-31T04:25:00.000Z");
+  // The watch ends it at 4:30 and stamps it; he moves the times in the
+  // check-in; the next send has the same night and leaves his times alone.
+  const edited = { ...timer, started_at: "2026-10-31T04:15:00Z", ended_at: "2026-10-31T10:20:00Z", watch_fixed_at: "2026-10-31T12:45:00Z" };
+  ok("a check-in edit after the watch ended the timer survives the next send", sleepAction(night, [edited], new Date("2026-10-31T14:00:00Z")).kind === "skip");
+  const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
+  const endFn = watchFn.slice(watchFn.indexOf("async function endSleep"), watchFn.indexOf("async function stampChecked"));
+  ok("ending a Sleep timer stamps it in the same update", /ended_at: at, ended_by: "stop", watch_fixed_at: new Date\(\)\.toISOString\(\)/.test(endFn), endFn.slice(0, 200));
+  ok("only his own row, only while it's still running", /\.eq\("user_id", userId\)\.is\("ended_at", null\)/.test(endFn));
+  ok("a moved start keeps his beside it, and only lands if it's still where it was read", /hand_started_at: old\.started_at/.test(endFn) && /q\.eq\("started_at", old\.started_at\)/.test(endFn));
+  ok("the import ends timers through it", /act\.kind === "end"\) \{\s*if \(await endSleep\(/.test(watchFn));
+
+  const walk = { external_id: "walk", started_at: "2026-10-18T16:05:00.000Z", ended_at: "2026-10-18T16:50:00.000Z" };
+  const hike = { id: "hike", category: "Exercise", tags: ["Exercise", "Minister"], started_at: "2026-10-18T15:58:35Z", ended_at: "2026-10-18T20:58:35Z", watch_fixed_at: null };
+  const onHike = workoutAction(walk, [hike], [walk]);
+  ok("a five-hour hike tagged Minister holding a 45-minute walk is only linked", onHike.kind === "link" && onHike.id === "hike" && !onHike.fix && !onHike.match, JSON.stringify(onHike));
+  const pickleball = { external_id: "pb", started_at: "2026-10-25T02:00:00.000Z", ended_at: "2026-10-25T03:00:00.000Z" };
+  const dateNight = { id: "date", category: "Date", tags: ["Date", "Exercise"], started_at: "2026-10-25T01:30:00Z", ended_at: "2026-10-25T03:52:30Z", watch_fixed_at: null };
+  const onDate = workoutAction(pickleball, [dateNight], [pickleball]);
+  ok("a date that was also exercise is only linked", onDate.kind === "link" && !onDate.fix && !onDate.match, JSON.stringify(onDate));
+  const run = { external_id: "run", started_at: "2026-10-30T12:30:00.000Z", ended_at: "2026-10-30T13:00:00.000Z" };
+  const gym = { id: "gym", category: "Exercise", tags: ["Exercise"], started_at: "2026-10-30T12:00:00Z", ended_at: "2026-10-30T13:30:00Z", watch_fixed_at: null };
+  const onGym = workoutAction(run, [gym], [run]);
+  ok("a 90-minute gym entry holding a 30-minute run is only linked", onGym.kind === "link" && !onGym.fix && !onGym.match, JSON.stringify(onGym));
+  ok("a mixed entry with the workout's times isn't stamped as the watch's", !workoutAction(walk, [{ ...hike, started_at: "2026-10-18T16:04:00Z", ended_at: "2026-10-18T16:51:00Z" }], [walk]).match);
+  const left = { external_id: "left", started_at: "2026-10-30T12:00:00.000Z", ended_at: "2026-10-30T13:10:00.000Z" };
+  ok("a workout left running 40 minutes past your entry doesn't drag it along", !workoutAction(left, [{ ...gym, ended_at: "2026-10-30T12:30:00Z" }], [left]).fix);
+  ok("an entry that is the workout still takes its times", plainlyTheWorkout({ ...gym, tags: ["Exercise"], ended_at: "2026-10-30T13:05:00Z", started_at: "2026-10-30T12:25:00Z" }, run, { start: Date.parse(run.started_at), end: Date.parse(run.ended_at) }));
+  ok("one with no tags but Exercise as its category counts", plainlyTheWorkout({ id: "n", category: "Exercise", tags: null, started_at: run.started_at, ended_at: run.ended_at }, run, { start: Date.parse(run.started_at), end: Date.parse(run.ended_at) }));
+
+  const today = { date: "2026-11-02", asleep_min: 412, woke_at: "2026-11-02T11:41:00Z", resting_hr: 54 };
+  ok("the watch's sleep reads one way", watchSlept(today) === "6h 52m" && watchSlept({ asleep_min: 0 }) === null && watchSlept(null) === null);
+  ok("the Minutes row and the check-in's line use the same number", minutesWatchParts(today, null, null)[0].value === watchSlept(today) && morningWatchLine(today).includes(watchSlept(today)));
+  const quiet = minutesWatchParts(today, null, 52, { night: false });
+  ok("while the check-in is up, the Minutes row leaves out Slept and Up", quiet.map((p) => p.label).join(",") === "Resting HR", JSON.stringify(quiet));
+  ok("after it, they're back", minutesWatch([today], "2026-11-02").map((p) => p.label).join(",") === "Slept,Up,Resting HR" && minutesWatch([today], "2026-11-02", { night: false }).length === 1);
+  const checkinSrc = readFileSync(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url), "utf8");
+  ok("the check-in's one line says the watch's sleep the Minutes way", /if \(slept\) parts\.push\(`slept \$\{slept\}`\);\s*else if \(plan\.woke_at && plan\.lights_out_at\)/.test(checkinSrc) && /slept=\{data\.watchSlept\}/.test(checkinSrc));
+  const glanceSrc = readFileSync(new URL("../src/components/today/MinutesGlance.jsx", import.meta.url), "utf8");
+  ok("the Minutes row follows whether the check-in shows the night", /checkinOnPage \? shown \?\? isMorning\(\) : false/.test(glanceSrc) && /minutesWatch\(data, date, \{ night \}\)/.test(glanceSrc));
+}
+
+{
+  console.log("\ntoday's plan: notes from Quests over their tasks");
+  const D = "2026-11-02";
+  const at = (h, m = 0) => h * 60 + m;
+  const chunks = [
+    { id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Plugin", quest_id: "q1", camp_id: null },
+    { id: "c2", start_time: "10:00:00", end_time: "12:00:00", title: "Multicam", quest_id: "q1", camp_id: "k1" },
+  ];
+  const line = (id, fields) => ({ id, quest_id: "q1", parent_id: null, kind: "task", text: id, day: D, ongoing: false, today_on: null, done_on: null, position: 0, ...fields });
+  const step = (id, fields) => ({ id, camp_id: "k1", section_id: null, parent_id: null, kind: "task", text: id, today_on: null, done_on: null, position: 0, ...fields });
+  const work = {
+    quests: [{ id: "q1", title: "Plugin", status: "on", position: 0 }],
+    camps: [
+      { id: "k1", quest_id: "q1", title: "Multicam", position: 0 },
+      { id: "k2", quest_id: "q1", title: "Audio", position: 1 },
+    ],
+    sections: [{ id: "sA", camp_id: "k2", title: "Mixer", today_on: D, position: 0 }],
+    lines: [
+      // picked for today from the ongoing list, its tasks left where they were
+      line("m1", { kind: "note", text: "Meeting with the team", day: "2026-10-26", ongoing: true, today_on: D }),
+      line("m1a", { parent_id: "m1", day: "2026-10-26", ongoing: true }),
+      line("m1b", { parent_id: "m1", day: "2026-10-26", ongoing: true, done_on: D, position: 1 }),
+      line("m1c", { parent_id: "m1", kind: "note", text: "Sam ran it", day: "2026-10-26", ongoing: true, position: 2 }),
+      // written on today's own list
+      line("m2", { kind: "note", text: "Ideas from the call", position: 1 }),
+      line("m2a", { parent_id: "m2" }),
+      line("m3", { kind: "note", text: "Just a thought", position: 2 }),
+      // not on today, though a task under it carries today's day
+      line("m4", { kind: "note", text: "Old note", day: "2026-10-20", ongoing: true, position: 3 }),
+      line("m4a", { parent_id: "m4" }),
+      line("m5a", { parent_id: "gone" }),
+    ],
+    steps: [
+      // a note step picked on its own, with steps under it
+      step("n1", { kind: "note", text: "Camera checklist", today_on: D }),
+      step("n1a", { parent_id: "n1" }),
+      step("n1b", { parent_id: "n1", position: 1 }),
+      // a picked task step with a note under it, and a task under that
+      step("t1", { text: "Rig the cameras", today_on: D, position: 1 }),
+      step("t1n", { parent_id: "t1", kind: "note", text: "How it went" }),
+      step("t1na", { parent_id: "t1n", text: "Order a second clamp" }),
+      // notes in a section picked for today
+      step("n2", { camp_id: "k2", section_id: "sA", kind: "note", text: "Mixer notes" }),
+      step("n2a", { camp_id: "k2", section_id: "sA", parent_id: "n2" }),
+      step("n3", { camp_id: "k2", section_id: "sA", kind: "note", text: "Finished last week", position: 1 }),
+      step("n3a", { camp_id: "k2", section_id: "sA", parent_id: "n3", done_on: "2026-10-29" }),
+    ],
+  };
+  const ids = (items) => items.map((i) => i.id);
+  const everyId = (p) => {
+    const walk = (items) => items.flatMap((i) => [i.id, ...walk(i.subs)]);
+    return [...p.blocks.flatMap((b) => walk(b.items)), ...walk(p.loose.planned), ...p.loose.quests.flatMap((g) => walk(g.items))];
+  };
+  const p = planForToday({ chunks, tasks: [], questWork: work, nowMin: at(9), date: D });
+  const c1 = p.blocks.find((b) => b.id === "c1");
+  const c2 = p.blocks.find((b) => b.id === "c2");
+  const find = (block, id) => block.items.find((i) => i.id === id);
+
+  const m1 = find(c1, "m1");
+  ok("a note picked for today heads its tasks, in the quest's block", m1?.heading === true && ids(m1.subs).join() === "m1a,m1b", JSON.stringify(m1));
+  ok("the note has no box to tick; the tasks under it do", m1?.done === false && m1.subs.every((s) => s.kind === "line" && !s.heading) && m1.subs[1]?.done === true, JSON.stringify(m1?.subs));
+  ok("the note says which quest it's from", m1?.from === "Plugin");
+  ok("a note under the note is words, not a thing to do", !everyId(p).includes("m1c"), JSON.stringify(everyId(p)));
+  const m2 = find(c1, "m2");
+  ok("a note written on today's own list heads its tasks too", m2?.heading === true && ids(m2.subs).join() === "m2a", JSON.stringify(m2));
+  ok("a note with nothing to tick under it stays on Quests", !everyId(p).includes("m3"));
+  ok("tasks under a note that isn't on today stay off it, as any sub-task does", !everyId(p).includes("m4") && !everyId(p).includes("m4a") && !everyId(p).includes("m5a"), JSON.stringify(everyId(p)));
+
+  const n1 = find(c2, "n1");
+  ok("a note step picked on its own heads its steps, in its camp's block", n1?.heading === true && ids(n1.subs).join() === "n1a,n1b" && n1.subs.every((s) => s.kind === "step"), JSON.stringify(n1));
+  ok("the tasks under a note further down come up under the step above it", ids(find(c2, "t1")?.subs ?? []).join() === "t1na" && !everyId(p).includes("t1n"), JSON.stringify(find(c2, "t1")));
+  const n2 = find(c1, "n2");
+  ok("a note in a section picked for today heads its steps, shown once", n2?.heading === true && ids(n2.subs).join() === "n2a" && everyId(p).filter((x) => x === "n2a").length === 1, JSON.stringify(everyId(p)));
+  ok("a note in a picked section whose steps were all done before today is left out", !everyId(p).includes("n3") && !everyId(p).includes("n3a"));
+  ok("a note takes its place in the quests' order, like a task there", ids(questItemsForToday(work, D)).join() === "n1,t1,n2,m1,m2", JSON.stringify(ids(questItemsForToday(work, D))));
+
+  ok("a block counts the tasks under a note, not the note", c1.done === 1 && c1.total === 4 && c2.done === 0 && c2.total === 4, JSON.stringify([c1.done, c1.total, c2.done, c2.total]));
+  ok("a count leaves a heading out", JSON.stringify(tallyItems([{ heading: true, done: false, subs: [{ done: true, subs: [] }, { done: false, subs: [] }] }])) === JSON.stringify({ done: 1, total: 2 }));
+  const bare = planForToday({ chunks: [], tasks: [], questWork: work, nowMin: at(9), date: D });
+  ok("with no block for it, a note and its tasks wait in the quest's group", bare.loose.quests.length === 1 && bare.loose.quests[0].items.some((i) => i.id === "m1" && i.heading && i.subs.length === 2), JSON.stringify(bare.loose.quests));
+  const iso = "2026-11-02T18:00:00.000Z";
+  const ticked = withFields({ tasks: [], work }, "line", "m1a", doneFields("line", true, D, iso));
+  ok("a tick under a note shows before it's saved", find(planForToday({ chunks, tasks: [], questWork: ticked.work, nowMin: at(9), date: D }).blocks.find((b) => b.id === "c1"), "m1")?.subs[0]?.done === true);
+}
+
+{
+  console.log("\na focus's half-written note and a deleted note outlive the sheet");
+  // FocusSheet.jsx is a component, so it's built here with what it takes from
+  // React, the page and the database swapped for stand-ins, and only its own
+  // small helpers are run. Each stand-in hands its calls to `standIns`, so a
+  // test can say what "the database" answers.
+  const { build } = await import("esbuild");
+  const sheetPath = fileURLToPath(new URL("../src/components/focus/FocusSheet.jsx", import.meta.url));
+  const sheetSrc = readFileSync(sheetPath, "utf8");
+  const standIns = (globalThis.__focusSheetStandIns = {});
+  const keepReal = /\/lib\/(focus|planDates)$/;
+  const built = await build({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = sheetSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            const lines = names.map((n) => `export const ${n} = (...a) => globalThis.__focusSheetStandIns[${JSON.stringify(n)}]?.(...a);`);
+            return { contents: [...lines, "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { readDraft, keepDraft, dropSavedDraft, loadNotes, deleteLater, onNoteBack } = await import(
+    `data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`
+  );
+  const phone = (init = {}) => {
+    const m = new Map(Object.entries(init));
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k) };
+  };
+  const key = (id) => `hub.focus-note-draft.${id}`;
+
+  // Tap Save, then close the sheet before the note has saved.
+  const s1 = phone();
+  keepDraft("g", "Phone in the kitchen", s1);
+  dropSavedDraft("g", "Phone in the kitchen", s1);
+  ok("a saved note's kept copy goes, even when the sheet closed while it saved", s1.getItem(key("g")) === null);
+  keepDraft("g", "Phone in the kitchen. And the alarm", s1);
+  dropSavedDraft("g", "Phone in the kitchen", s1);
+  ok("what you typed after tapping Save is still kept", s1.getItem(key("g")) === "Phone in the kitchen. And the alarm");
+  keepDraft("g", "  \n", s1);
+  ok("an emptied box keeps nothing", s1.getItem(key("g")) === null);
+  ok(
+    "saving clears the kept copy itself and leaves newer typing in the box",
+    /await saveNote\(userId, \{ goalId: goal\.id, date, sent: draft \}\)/.test(sheetSrc) &&
+      /dropSavedDraft\(goalId, sent, store\)/.test(sheetSrc) &&
+      /setDraft\(\(cur\) => draftAfterSave\(cur, sent, Boolean\(row\)\)\)/.test(sheetSrc) &&
+      !/setDraft\(""\)/.test(sheetSrc)
+  );
+
+  // Saturday's half-written note, after the focus is kept on Sunday.
+  const kept = { id: "new", carried_from: "old" };
+  const s2 = phone({ [key("old")]: "Half a note from Saturday" });
+  ok("a draft left last week opens under the focus kept into this week", readDraft(kept, s2) === "Half a note from Saturday");
+  ok("it moves across, so last week's copy doesn't linger", s2.getItem(key("new")) === "Half a note from Saturday" && s2.getItem(key("old")) === null);
+  ok("and it's still there the next time", readDraft(kept, s2) === "Half a note from Saturday");
+  const s3 = phone({ [key("new")]: "this week's", [key("old")]: "last week's" });
+  ok("this week's own draft comes first", readDraft(kept, s3) === "this week's");
+  ok("a focus set fresh this week only has its own", readDraft({ id: "fresh", carried_from: null }, phone({ [key("old")]: "x" })) === "");
+  const off = { getItem: () => { throw new Error("off"); }, setItem: () => { throw new Error("off"); }, removeItem: () => { throw new Error("off"); } };
+  keepDraft("g", "x", off);
+  dropSavedDraft("g", "x", off);
+  ok("storage turned off just means no draft", readDraft(kept, off) === "");
+  ok("the sheet reads its draft from the whole goal row, carried_from and all", /useState\(\(\) => readDraft\(goal\)\)/.test(sheetSrc));
+
+  // Delete a note, close the sheet, open it again inside the 6 seconds.
+  const n1 = { id: "n1", goal_id: "w2", date: "2026-11-01", text: "Phone in the kitchen", created_at: "2026-11-01T12:00:00Z" };
+  const n2 = { id: "n2", goal_id: "w1", date: "2026-10-28", text: "Lights out by 9:30", created_at: "2026-10-28T13:00:00Z" };
+  let inDb = [n1, n2];
+  const deleted = [];
+  standIns.fetchFocusLineage = async () => [{ id: "w2", carried_from: "w1" }, { id: "w1", carried_from: null }];
+  standIns.fetchFocusNotes = async (_, ids) => inDb.filter((n) => ids.includes(n.goal_id));
+  standIns.deleteFocusNote = async (id) => {
+    deleted.push(id);
+    inDb = inDb.filter((n) => n.id !== id);
+  };
+  const shown = async () => (await loadNotes("u", "w2")).notes.map((n) => n.id).join();
+  ok("both weeks' notes load, newest first", (await shown()) === "n1,n2");
+  const first = deleteLater(n1);
+  ok("a note deleted a moment ago stays gone when the sheet is opened again", (await shown()) === "n2" && deleted.length === 0);
+  // A sheet opened near the end of the 6 seconds: the database reads its list
+  // while the note is still there, the delete goes through, then the list arrives.
+  const readEarly = inDb;
+  const fetchNotes = standIns.fetchFocusNotes;
+  let answer;
+  standIns.fetchFocusNotes = () => new Promise((r) => (answer = () => r(readEarly)));
+  const late = loadNotes("u", "w2");
+  await first.run();
+  await new Promise((r) => setTimeout(r));
+  answer();
+  const lateIds = (await late).notes.map((n) => n.id).join();
+  standIns.fetchFocusNotes = fetchNotes;
+  ok("once Undo has gone it's deleted for real", deleted.join() === "n1" && (await shown()) === "n2");
+  ok("a list read just before the delete went through, arriving after it, still leaves the note out", lateIds === "n2", lateIds);
+  inDb = [n1, n2];
+  ok("a note deleted for real never comes back in a list, however late it was read", (await shown()) === "n2");
+  inDb = [n2];
+
+  const back = [];
+  const stop = onNoteBack((note) => back.push(note.id));
+  const second = deleteLater(n2);
+  ok("hidden while Undo is offered", (await shown()) === "");
+  second.onUndo();
+  ok("Undo reaches the sheet on screen, even one opened after the delete", back.join() === "n2");
+  ok("and a sheet opened after Undo shows the note again", (await shown()) === "n2");
+  stop();
+  deleteLater(n1).onUndo();
+  ok("a closed sheet hears nothing", back.join() === "n2");
+  standIns.deleteFocusNote = async () => {
+    throw new Error("offline");
+  };
+  const third = deleteLater(n2);
+  const hiddenFirst = (await shown()) === "";
+  const failed = await third.run().then(() => false, () => true);
+  ok("a delete that fails lets the note show again", hiddenFirst && failed && (await shown()) === "n2");
+  ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(putBack\)/.test(sheetSrc));
+  delete globalThis.__focusSheetStandIns;
+
+  // The strip's titles: whole goals on a phone at 390, and on a desk.
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
+  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
+  const cell = (390 - 2 * pad - 4 * gap) / 5;
+  // 68px is what "Time developing artistic ability" needs for three lines at 10.5px, measured in the app's font.
+  ok("five across at 390 leave each title room for three lines of its words", cell >= 68 && /font-size: 10\.5px;/.test(css), `${cell}px`);
+  const title = css.slice(css.indexOf(".focus-strip__title {"));
+  ok("titles get three lines, not two", /-webkit-line-clamp: 3;/.test(title) && !/-webkit-line-clamp: 2;/.test(title));
+  const least = Number(css.match(/repeat\(auto-fill, minmax\((\d+)px, 1fr\)\)/)?.[1]);
+  const deskGap = Number(css.match(/gap: 10px (\d+)px;/)?.[1]);
+  ok("five fit across the narrowest desk column (613px at 901 wide), each wider than the old 88px", least > 88 && 5 * least + 4 * deskGap <= 613, `${least}px`);
+}
+
+{
+  console.log("\ntoday's plan: a tick holds until a load reads it back");
+  const D = "2026-11-02";
+  const iso = "2026-11-02T18:00:00.000Z";
+  const chunks = [{ id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Plugin", quest_id: "q1", camp_id: null }];
+  const tasks = [
+    { id: "t1", title: "Email Sam", status: false, time_chunk_id: "c1", parent_task_id: null, position: 0 },
+    { id: "t2", title: "Book the room", status: false, time_chunk_id: "c1", parent_task_id: null, position: 1 },
+  ];
+  const line = (id, fields) => ({ id, quest_id: "q1", parent_id: null, kind: "task", text: id, day: D, ongoing: false, today_on: null, done_on: null, position: 0, ...fields });
+  const work = {
+    quests: [{ id: "q1", title: "Plugin", status: "on", position: 0 }],
+    camps: [],
+    sections: [],
+    steps: [],
+    lines: [line("n1", { kind: "note", text: "Meeting with the team" }), line("n1a", { parent_id: "n1" }), line("n1b", { parent_id: "n1", position: 1 })],
+  };
+  const loaded = (startedAt, rows = tasks) => ({ tasks: rows, work, startedAt });
+  const tick = (kind, id, done, savedAt) => [`${kind}:${id}`, { kind, id, fields: doneFields(kind, done, D, iso), savedAt }];
+  const status = (data, id) => data.tasks.find((t) => t.id === id).status;
+  const lineDone = (data, id) => data.work.lines.find((l) => l.id === id).done_on;
+
+  const out = new Map([tick("task", "t1", true, null)]);
+  const whileOut = applyOverrides(loaded(500), out);
+  ok("a tick shows while its save is out, even over a load that began after it", status(whileOut.data, "t1") === true && whileOut.keep.has("task:t1"));
+  ok("with nothing loaded yet, a tick waits for the load", (() => {
+    const r = applyOverrides(undefined, out);
+    return r.data === undefined && r.keep.size === 1;
+  })());
+
+  const landed = new Map([tick("task", "t1", true, 100)]);
+  const early = applyOverrides(loaded(90), landed);
+  ok("a load that began before the save landed can't undo the tick", status(early.data, "t1") === true && early.keep.has("task:t1"));
+  ok("a load that began the moment the save landed keeps it too", applyOverrides(loaded(100), landed).keep.has("task:t1"));
+
+  // Since that load the row was unticked somewhere else (on another phone,
+  // say): the load is right and the old tick mustn't cover it.
+  const late = applyOverrides(loaded(150), landed);
+  ok("a load that began after the save landed shows the row as loaded, and the tick goes", status(late.data, "t1") === false && late.keep.size === 0);
+  ok("one that read the tick back shows it ticked", status(applyOverrides(loaded(150, [{ ...tasks[0], status: true }, tasks[1]]), landed).data, "t1") === true);
+
+  const many = new Map([tick("task", "t1", true, 100), tick("line", "n1a", true, null), tick("task", "t2", true, 200)]);
+  const each = applyOverrides(loaded(150), many);
+  ok(
+    "each row's tick is judged on its own",
+    status(each.data, "t1") === false && status(each.data, "t2") === true && lineDone(each.data, "n1a") === D && lineDone(each.data, "n1b") === null && [...each.keep.keys()].join() === "line:n1a,task:t2",
+    JSON.stringify([...each.keep.keys()])
+  );
+  ok("ticks leave what was loaded as it was, and keep when its load began", tasks[1].status === false && work.lines[1].done_on === null && each.data.startedAt === 150);
+  ok("a tick on a task under a note shows in its block", (() => {
+    const c1 = planForToday({ chunks, tasks: each.data.tasks, questWork: each.data.work, nowMin: 9 * 60, date: D }).blocks.find((b) => b.id === "c1");
+    const note = c1.items.find((i) => i.id === "n1");
+    return note?.heading === true && note.subs[0].done === true && note.subs[1].done === false && c1.done === 2 && c1.total === 4;
+  })());
+  ok("an untick holds the same way", (() => {
+    const r = applyOverrides(loaded(90, [{ ...tasks[0], status: true }, tasks[1]]), new Map([tick("task", "t1", false, 100)]));
+    return status(r.data, "t1") === false && r.data.tasks[0].completed_at === null;
+  })());
+}
+
+{
+  console.log("\na focus note still saving when its sheet opens again, and whole titles on a 375 phone");
+  // Built the same way as the block above (the same bundle, so the same
+  // module and its sets), with only the database and storage stood in for.
+  const { build } = await import("esbuild");
+  const sheetPath = fileURLToPath(new URL("../src/components/focus/FocusSheet.jsx", import.meta.url));
+  const sheetSrc = readFileSync(sheetPath, "utf8");
+  const standIns = (globalThis.__focusSheetStandIns = {});
+  const keepReal = /\/lib\/(focus|planDates)$/;
+  const built = await build({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = sheetSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            const lines = names.map((n) => `export const ${n} = (...a) => globalThis.__focusSheetStandIns[${JSON.stringify(n)}]?.(...a);`);
+            return { contents: [...lines, "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { readDraft, keepDraft, saveNote, onNoteLanded, withNote, draftAfterSave } = await import(
+    `data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`
+  );
+  const phone = (init = {}) => {
+    const m = new Map(Object.entries(init));
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k) };
+  };
+  const key = (id) => `hub.focus-note-draft.${id}`;
+  // The database holds each insert until the test lets it land, or fail.
+  const inserts = [];
+  standIns.addFocusNote = (_, n) =>
+    new Promise((resolve, reject) => {
+      const row = { id: `s${inserts.length}`, goal_id: n.goalId, date: n.date, text: n.text, created_at: `2026-11-02T18:0${inserts.length}:00Z` };
+      inserts.push({ n, land: () => resolve(row), fail: () => reject(new Error("offline")) });
+    });
+  const heard = [];
+  const stopHearing = onNoteLanded((e) => heard.push(e));
+  const D = "2026-11-02";
+
+  // Tap Save, swipe the sheet closed, open it again before the note lands.
+  const lunch = "Packed lunch the night before";
+  const s1 = phone();
+  keepDraft("g5", lunch, s1);
+  const saving = saveNote("u", { goalId: "g5", date: D, sent: lunch }, s1);
+  ok("a sheet opened while its note is saving leaves that note out of the box, so it can't be saved twice", readDraft({ id: "g5" }, s1) === "");
+  ok("the phone's copy is kept until it lands, in case it doesn't", s1.getItem(key("g5")) === lunch);
+  ok("newer typing in the box is read as usual meanwhile", readDraft({ id: "g5" }, phone({ [key("g5")]: lunch + ". And water" })) === lunch + ". And water");
+  ok("another focus's draft is read as usual meanwhile", readDraft({ id: "g2" }, phone({ [key("g2")]: lunch })) === lunch);
+  keepDraft("g5", "", s1); // the reopened sheet's empty box
+  inserts[0].land();
+  const row = await saving;
+  ok("when it lands, every sheet on screen hears which focus, what was sent and the saved note", heard.length === 1 && heard[0].goalId === "g5" && heard[0].sent === lunch && heard[0].row === row && row.text === lunch, JSON.stringify(heard));
+  keepDraft("g5", lunch, s1);
+  ok("after it lands the same words typed again are a draft like any other", readDraft({ id: "g5" }, s1) === lunch);
+  keepDraft("g5", "", s1);
+
+  const s2 = phone();
+  keepDraft("g5", "Fruit for dessert", s2);
+  const quiet = saveNote("u", { goalId: "g5", date: D, sent: "Fruit for dessert" }, s2);
+  inserts[1].land();
+  await quiet;
+  ok("a note that saves with no sheet open leaves no copy behind", s2.getItem(key("g5")) === null);
+
+  // It doesn't save, after a sheet opened meanwhile emptied the box.
+  const s3 = phone();
+  keepDraft("g5", "Walk after dinner", s3);
+  const failing = saveNote("u", { goalId: "g5", date: D, sent: "Walk after dinner" }, s3);
+  keepDraft("g5", "", s3);
+  inserts[2].fail();
+  const threw = await failing.then(() => false, () => true);
+  ok("a note that doesn't save is a draft again, even after a sheet opened meanwhile emptied the box", threw && readDraft({ id: "g5" }, s3) === "Walk after dinner");
+  ok("and the sheets on screen hear it didn't", heard.at(-1).row === null && heard.at(-1).sent === "Walk after dinner");
+  const s4 = phone();
+  keepDraft("g5", "Walk after dinner", s4);
+  const failing2 = saveNote("u", { goalId: "g5", date: D, sent: "Walk after dinner" }, s4);
+  keepDraft("g5", "Stretch before bed", s4);
+  inserts[3].fail();
+  await failing2.catch(() => {});
+  ok("and keeps what's been typed since, under the note that didn't save", s4.getItem(key("g5")) === "Walk after dinner\n\nStretch before bed", s4.getItem(key("g5")));
+
+  // Two notes on their way for the same focus.
+  const s5 = phone();
+  const one = saveNote("u", { goalId: "g7", date: D, sent: "One" }, s5);
+  const two = saveNote("u", { goalId: "g7", date: D, sent: "Two" }, s5);
+  keepDraft("g7", "Two", s5);
+  inserts[4].land();
+  await one;
+  ok("with two notes saving, the first landing doesn't let the second back into the box", readDraft({ id: "g7" }, s5) === "");
+  inserts[5].land();
+  await two;
+  ok("and once both have landed nothing is left behind", s5.getItem(key("g7")) === null);
+  stopHearing();
+  const before = heard.length;
+  const after = saveNote("u", { goalId: "g7", date: D, sent: "Three" }, phone());
+  inserts[6].land();
+  await after;
+  ok("a closed sheet hears nothing", heard.length === before);
+  delete globalThis.__focusSheetStandIns;
+
+  // What an open sheet does with it.
+  const list = { chain: [{ id: "w2" }, { id: "w1" }], notes: [{ id: "old", goal_id: "w1", created_at: "2026-10-28T13:00:00Z" }] };
+  const landed = { id: "s9", goal_id: "w2", date: D, text: lunch, created_at: "2026-11-02T18:00:00Z" };
+  ok("the saved note goes to the top of the list in a sheet that opened before it landed", withNote(list, landed).notes.map((n) => n.id).join() === "s9,old");
+  ok("a list read after it saved doesn't get it twice", withNote(withNote(list, landed), landed).notes.length === 2);
+  ok("a note from another focus leaves the list alone", withNote(list, { ...landed, goal_id: "w9" }) === list);
+  ok("with no list yet there's nothing to add it to", withNote(undefined, landed) === undefined);
+  ok("a box still holding just what was sent empties when it lands", draftAfterSave(lunch, lunch, true) === "");
+  ok("typing added after Save stays when it lands", draftAfterSave(lunch + ". And water", lunch, true) === lunch + ". And water");
+  ok("a box left empty gets the note back when it doesn't save", draftAfterSave("", lunch, false) === lunch && draftAfterSave("  ", lunch, false) === lunch);
+  ok("newer typing is kept, with the note that didn't save above it", draftAfterSave("Stretch", lunch, false) === `${lunch}\n\nStretch`);
+  ok("a box that already holds the unsaved note isn't doubled", draftAfterSave(`${lunch}\n\nStretch`, lunch, false) === `${lunch}\n\nStretch`);
+  ok(
+    "every sheet on screen hears a note land, and one with nothing loaded yet reads its list again",
+    /onNoteLanded\(\(\{ goalId, sent, row \}\) =>/.test(sheetSrc) && /if \(shown\.current\) putBack\(row\);\s*else reload\(\);/.test(sheetSrc) && /mutate\(\(d\) => withNote\(d, note\)\)/.test(sheetSrc)
+  );
+
+  // The strip's titles on the narrowest iPhones, and the "…" with room to spare.
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
+  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
+  const narrow = css.match(/@media \(max-width: (\d+)px\) \{[^}]*\.focus-strip__title \{ font-size: ([\d.]+)px; \}/);
+  const cell375 = (375 - 2 * pad - 4 * gap) / 5;
+  // At 10px, "Time developing artistic ability" fits three lines in a 67px cell, measured in the app's font.
+  ok(
+    "375-wide iPhones get 10px titles, which fit the longest real goal in three lines; 390 keeps 10.5px",
+    Boolean(narrow) && Number(narrow[1]) >= 375 && Number(narrow[1]) < 390 && Number(narrow[2]) === 10 && cell375 >= 67,
+    JSON.stringify([narrow?.[1], narrow?.[2], cell375])
+  );
+  const title = css.slice(css.indexOf(".focus-strip__title {"));
+  const bleed = Number(title.match(/margin-inline: -(\d+)px;/)?.[1]);
+  const padIn = Number(title.match(/padding-inline: (\d+)px;/)?.[1]);
+  const wider = Number(title.match(/max-width: calc\(100% \+ (\d+)px\);/)?.[1]);
+  // Chrome's clamped "…" was measured up to 3px past the end of a line.
+  ok(
+    "the title box reaches a pixel past where a clamped \"…\" can sit, and not into the next cell",
+    bleed === padIn && wider === 2 * bleed && bleed >= 3 + 1 && bleed <= gap,
+    JSON.stringify({ bleed, padIn, wider, gap })
+  );
+}
+
+{
+  console.log("\nthe watch's night stays as it saw it, and says it once, in one word");
+  // Stop and I'm up, against a stand-in database: api.js is bundled with its
+  // Supabase client swapped for a PostgREST client whose fetch answers here.
+  const apiPath = fileURLToPath(new URL("../src/lib/api.js", import.meta.url));
+  const apiBuilt = await esbuildBundle({
+    entryPoints: [apiPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-in client",
+        setup(b) {
+          b.onResolve({ filter: /^\.\/supabaseClient$/ }, (a) => (a.importer === apiPath ? { path: "client", namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, () => ({
+            contents: `import { PostgrestClient } from "@supabase/postgrest-js";
+export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch: (...a) => globalThis.__hubFetch(...a) });`,
+            loader: "js",
+            resolveDir: fileURLToPath(new URL("../src/lib", import.meta.url)),
+          }));
+        },
+      },
+    ],
+  });
+  const api = await import(`data:text/javascript;base64,${Buffer.from(apiBuilt.outputFiles[0].text).toString("base64")}`);
+  const sent = [];
+  let updated = [];
+  globalThis.__hubFetch = async (url, init = {}) => {
+    const method = init.method ?? "GET";
+    const body = init.body ? JSON.parse(init.body) : null;
+    sent.push({ url: decodeURIComponent(String(url)), method, body });
+    const rows = method === "PATCH" ? updated : method === "POST" ? [{ id: "started", ...body }] : [];
+    const one = (new Headers(init.headers).get("Accept") ?? "").includes("vnd.pgrst.object");
+    return new Response(JSON.stringify(one ? rows[0] ?? null : rows), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const lastPatch = () => [...sent].reverse().find((s) => s.method === "PATCH");
+
+  // 4:47 the watch ends Sleep at 4:41 and stamps it; at 4:58 he taps I'm up
+  // on the page he opened at 4:45.
+  updated = [];
+  const late = await api.stopTimeEntry("sleep").then((v) => v, (err) => err);
+  ok("a stop only ends a timer that's still running", /ended_at=is\.null/.test(lastPatch()?.url ?? ""), lastPatch()?.url);
+  ok("one that had already ended (the watch's wake time) is left, and the stop says null, not an error", late === null, String(late));
+  updated = [{ id: "sleep", category: "Sleep", tags: ["Sleep"], started_at: "2026-11-02T04:30:00Z", ended_at: "2026-11-02T11:58:00Z" }];
+  ok("a stop that lands hands back the entry", (await api.stopTimeEntry("sleep"))?.id === "sleep");
+  const at = "2026-11-02T05:10:00.000Z";
+  await api.stopTimeEntry("prep", { endedBy: "overnight_fix", at });
+  ok("the runaway fix still sets the time you give, running or not", !/ended_at=is\.null/.test(lastPatch()?.url ?? "") && lastPatch()?.body?.ended_at === at && lastPatch()?.body?.ended_by === "overnight_fix", JSON.stringify(lastPatch()));
+  updated = [];
+  const bed = await api.goToBed("u", "gone").then((v) => v, (err) => err);
+  ok("Going to bed after its timer already stopped still starts Sleep", bed?.id === "started" && bed?.category === "Sleep", String(bed?.message ?? JSON.stringify(bed)));
+  const switched = await api.switchTimer("u", "gone", { categories: ["Waste"] }).then((v) => v, (err) => err);
+  ok("switching from a timer that already stopped has nothing to ask about", switched?.stopped === null && switched?.started?.category === "Waste", JSON.stringify(switched));
+  delete globalThis.__hubFetch;
+  const glanceSrc = readFileSync(new URL("../src/components/today/MinutesGlance.jsx", import.meta.url), "utf8");
+  ok("the Minutes card's Stop takes a null as already stopped", /if \(stopped && needsFollowUp\(stopped\)\) setFollowUp\(stopped\);\s*\/\/ Today \(and anything else open\) reloads on this, once\.\s*announceChange\(\);/.test(glanceSrc));
+  const checkinSrc = readFileSync(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url), "utf8");
+  ok("I'm up reloads the night whether or not its stop landed", /await stopTimeEntry\(running\.id\);\s*announceChange\(\);\s*await Promise\.all\(\[reload\(\), onChanged\?\.\(\)\]\);/.test(checkinSrc));
+
+  // The check-in reads the night again when you come back to the app.
+  ok("the check-in reads the night again when you come back to the app", /const onShow = \(\) => document\.visibilityState === "visible" && reload\(\);/.test(checkinSrc) && /document\.addEventListener\("visibilitychange", onShow\)/.test(checkinSrc) && /document\.removeEventListener\("visibilitychange", onShow\)/.test(checkinSrc));
+
+  // Slept and Up under the minutes, unless the check-in on the page says them.
+  const todaySrc = readFileSync(new URL("../src/pages/Today.jsx", import.meta.url), "utf8");
+  ok("Today tells the Minutes card whether the check-in is up, by the test it mounts it with", /\{userId && data && !runaway && <MorningCheckin /.test(todaySrc) && /<MinutesGlance [^>]*checkinOnPage=\{Boolean\(userId && data && !runaway\)\}/.test(todaySrc));
+  ok("with no check-in on the page (a runaway asked about instead), the row says Slept and Up", /if \(!loaded\) return isMorning\(\);\s*return checkinOnPage \? shown \?\? isMorning\(\) : false;/.test(glanceSrc) && /const checkinShowsNight = useNightInCheckin\(loaded, checkinOnPage\);/.test(glanceSrc));
+  const sheetPath = fileURLToPath(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url));
+  const keep = /\/lib\/(honest|planDates|watch)$|^\.\/minutes$/;
+  const checkinBuilt = await esbuildBundle({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keep.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const names = (checkinSrc.match(new RegExp(`^import \\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { nightParts } = await import(`data:text/javascript;base64,${Buffer.from(checkinBuilt.outputFiles[0].text).toString("base64")}`);
+  const woke = "2026-11-02T11:41:00Z";
+  const lights = "2026-11-02T04:40:00Z";
+  ok("the one line says Up and the watch's sleep", nightParts({ woke_at: woke, lights_out_at: lights }, "6h 52m").join(" · ").match(/^Up \S+.* · slept 6h 52m$/) !== null, nightParts({ woke_at: woke, lights_out_at: lights }, "6h 52m").join(" · "));
+  ok("without the watch, lights-out to wake", nightParts({ woke_at: woke, lights_out_at: lights }, null)[1]?.endsWith("of sleep"));
+  ok("the watch's sleep alone still counts as the night", nightParts({ woke_at: null, lights_out_at: lights }, "6h 52m").join() === "slept 6h 52m");
+  ok("a line with neither Up nor sleep in it doesn't count as showing the night", nightParts({ woke_at: null, lights_out_at: lights }, null).length === 0 && nightParts({ woke_at: null, lights_out_at: null, sleep_quality: 4 }, null).length === 0);
+  ok("a done check-in reports the night only when its line has it", /done && !editing \? nightParts\(dayPlan, data\.watchSlept\)\.length > 0/.test(checkinSrc) && /const parts = nightParts\(plan, slept\);/.test(checkinSrc));
+
+  // One word for the watch's sleep.
+  const day = { date: "2026-11-02", asleep_min: 412, deep_min: 51, rem_min: 80, sleep_end: "2026-11-02T11:41:00Z", woke_at: "2026-11-02T11:41:00Z", resting_hr: 54 };
+  const formLine = morningWatchLine(day);
+  ok("the check-in's form says slept, the way the rest do", /^Your watch: slept 6h 52m · /.test(formLine ?? "") && !/asleep/i.test(formLine ?? ""), formLine);
+  ok(
+    "Slept everywhere the watch's sleep shows: the form, the one line, the Minutes row, the evening",
+    formLine.includes(`slept ${watchSlept(day)}`) &&
+      nightParts({ woke_at: null }, watchSlept(day)).join() === `slept ${watchSlept(day)}` &&
+      minutesWatchParts(day, null, null).some((p) => p.label === "Slept" && p.value === watchSlept(day)) &&
+      eveningWatchParts(day, []).some((p) => p.label === "Slept" && p.value === watchSlept(day))
+  );
+
+  // Something logged over the edge of the night isn't up in the night.
+  const night = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T12:10:00Z"), asleep: 430, awake: 20, bedStart: null };
+  const now = new Date("2026-10-31T15:00:00Z");
+  const hand = { id: "h", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T05:00:00Z", ended_at: "2026-10-31T11:40:00Z", is_nap: false, source: null, watch_fixed_at: null };
+  // Reading 21:30-22:50; the watch has him asleep at 22:40 (as he read) to 6:10.
+  const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T03:30:00Z", ended_at: "2026-10-31T04:50:00Z" };
+  ok("reading over the moment you fell asleep isn't up in the night", !upInTheNight(night, [hand, reading], now.getTime()));
+  const read = sleepAction(night, [hand, reading], now);
+  ok("so the entry still grows, back to where the reading ended and on to when you woke", read.kind === "fix" && read.start === "2026-10-31T04:50:00.000Z" && read.end === "2026-10-31T12:10:00.000Z", JSON.stringify(read));
+  const scripture = { id: "sc", category: "Scripture", tags: ["Scripture"], started_at: "2026-10-31T11:55:00Z", ended_at: "2026-10-31T12:30:00Z" };
+  ok("nor is something you started before the watch thinks you woke", !upInTheNight(night, [hand, scripture], now.getTime()));
+  const morning = sleepAction(night, [hand, scripture], now);
+  ok("and the end grows only to where it started", morning.kind === "fix" && morning.start === "2026-10-31T04:40:00.000Z" && morning.end === "2026-10-31T11:55:00.000Z", JSON.stringify(morning));
+  const inside = { id: "in", category: "Study", tags: ["Study"], started_at: "2026-10-31T08:00:00Z", ended_at: "2026-10-31T08:30:00Z" };
+  ok("something logged well inside the night is up in the night", upInTheNight(night, [hand, inside], now.getTime()));
+  const held = sleepAction(night, [{ ...hand, ended_at: "2026-10-31T07:50:00Z" }, inside], now);
+  ok("and then the entry doesn't grow on either side", held.kind === "match" && held.id === "h", JSON.stringify(held));
+  ok("20 minutes in from each edge is still the edge", !upInTheNight(night, [{ ...inside, started_at: "2026-10-31T05:00:00Z", ended_at: "2026-10-31T05:30:00Z" }], now.getTime()) && !upInTheNight(night, [{ ...inside, started_at: "2026-10-31T11:20:00Z", ended_at: "2026-10-31T11:50:00Z" }], now.getTime()));
+
+  // A send in the middle of the night carries only part of it.
+  const timer = { id: "t", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T04:30:00Z", ended_at: null, is_nap: false, source: null, watch_fixed_at: null };
+  const part = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T09:05:00Z"), asleep: 255, awake: 10, bedStart: null };
+  const early = sleepAction(part, [timer], new Date("2026-10-31T09:20:00Z"));
+  ok("a night that ended under 45 minutes ago doesn't end a running Sleep timer", early.kind === "skip" && early.why === "the night only just ended", JSON.stringify(early));
+  const full = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T12:00:00Z"), asleep: 420, awake: 20, bedStart: null };
+  ok("nor does the whole night sent the moment you're up", sleepAction(full, [timer], new Date("2026-10-31T12:10:00Z")).kind === "skip");
+  const after = sleepAction(full, [timer], new Date("2026-10-31T12:45:00Z"));
+  ok("45 minutes on, the next send ends it at the whole night's wake", after.kind === "end" && after.id === "t" && after.at === "2026-10-31T12:00:00.000Z" && after.start === "2026-10-31T04:40:00.000Z", JSON.stringify(after));
+
+  // Putting a move back, when the watch ended a running timer.
+  const raw0102 = readFileSync(new URL("../supabase/migrations/0102_watch_corrects.sql", import.meta.url), "utf8");
+  ok("0102's put-back keeps the watch's end where you never gave one", /set started_at = hand_started_at,\n--\s+ended_at = coalesce\(hand_ended_at, ended_at\)\n--\s+where hand_started_at is not null;/.test(raw0102) && !/hand_ended_at is not null/.test(raw0102));
+  const healthSrc = readFileSync(new URL("../supabase/functions/watch/health.js", import.meta.url), "utf8");
+  const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
+  ok("and the watch function says so where it explains putting back", /hand_ended_at stays empty/.test(healthSrc) && /0102_watch_corrects\.sql/.test(healthSrc) && /0102_watch_corrects\.sql/.test(watchFn.slice(0, watchFn.indexOf("import "))));
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
 import {
   Sun,
-  Moon,
   CalendarRange,
-  CalendarDays,
   Target,
   LogOut,
   Flame,
@@ -24,26 +22,25 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
-import { todayStr, addDays } from "../lib/planDates";
 import { refreshApp } from "../lib/refresh";
 
-// Four places you go, one thing you do from anywhere.
+// Five places you go, one thing you do from anywhere.
 //
-// The app used to have ten destinations side by side, and the thing you do
-// most (log a win) was three taps down. Now the tabs are the four places
-// you actually spend time (Today, Week, Board, Money), the ＋ opens capture
-// from wherever you are, and everything else lives under More. Nothing was
-// removed; it was moved out of the way of the daily path.
+// The tabs are the places you actually spend time: Today, Week, Quests,
+// Board and Money. Quests sits among them because the camps were too far
+// down the More menu to reach in the middle of a working day. The ＋ opens
+// capture from wherever you are, and everything else lives under More.
+//
+// The evening isn't a tab. You go to it from the big black "Evening
+// reflection" button on Today, which is where the day ends anyway, so one
+// way in is enough.
 export const NAV = [
   { to: "/", label: "Today", Icon: Sun, end: true },
   { to: "/plan", label: "Week", Icon: CalendarRange },
+  { to: "/quests", label: "Quests", Icon: ListChecks },
   { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
 ];
-
-// The evening is a desk ritual, so it sits in the sidebar; on a phone it's
-// reached from the banner Today shows after dark, or from More.
-const EVENING = { to: "/evening", label: "Evening", Icon: Moon };
 
 // Ask: questions about your whole record, answered with words and charts.
 // In the sidebar under the four places; on a phone, one tap from the top bar.
@@ -56,33 +53,27 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // card now. Both pages and everything in them are still there, at /work and
 // /spirit, for the day they're wanted again. The same goes for the goal
 // wheel: the Range took its place, and the wheel is still at /tree.
+//
+// Past days went the same way: you weren't opening it. Any day is still one
+// tap away from the week strip on Today, the Week page and the evening, and
+// /day/<date> still works.
 export const MORE = [
-  { to: "/evening", label: "Evening", Icon: Moon },
-  { to: "/day", label: "Past days", Icon: CalendarDays },
   { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
   { to: "/ascent", label: "The Range", Icon: Target },
-  { to: "/quests", label: "Quests", Icon: ListChecks },
   { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
   { to: "/watch", label: "On your watch", Icon: Watch },
 ];
 
-// "Past days" opens yesterday, the latest day that's over; today is on the
-// tab bar already. It stays lit on whichever day you page to from there.
-function hrefFor(to) {
-  return to === "/day" ? `/day/${addDays(todayStr(), -1)}` : to;
-}
-
 function isActive(to, pathname) {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-// The sidebar leaves out the evening: it already has it up top.
-function MoreLinks({ className, iconSize, withEvening = true }) {
+function MoreLinks({ className, iconSize }) {
   const { pathname } = useLocation();
-  return MORE.filter((m) => withEvening || m.to !== "/evening").map(({ to, label, Icon }) => (
-    <Link key={to} to={hrefFor(to)} className={className + (isActive(to, pathname) ? " active" : "")} aria-current={isActive(to, pathname) ? "page" : undefined}>
+  return MORE.map(({ to, label, Icon }) => (
+    <Link key={to} to={to} className={className + (isActive(to, pathname) ? " active" : "")} aria-current={isActive(to, pathname) ? "page" : undefined}>
       <Icon size={iconSize} strokeWidth={2} />
       {label}
     </Link>
@@ -167,7 +158,7 @@ export function Sidebar() {
         Capture
       </button>
 
-      {[NAV[0], EVENING, ...NAV.slice(1), ASK].map(({ to, label, Icon, end }) => (
+      {[...NAV, ASK].map(({ to, label, Icon, end }) => (
         <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "side-link" + (on ? " active" : "")}>
           <Icon size={17} strokeWidth={2} />
           {label}
@@ -176,7 +167,7 @@ export function Sidebar() {
 
       <div className="side-foot">
         <div className="eyebrow" style={{ padding: "0 11px 6px" }}>More</div>
-        <MoreLinks className="side-link side-link--sm" iconSize={15} withEvening={false} />
+        <MoreLinks className="side-link side-link--sm" iconSize={15} />
         <div className="side-signout">
           <SignOut className="side-link side-link--sm side-link--quiet" iconSize={15} />
         </div>
@@ -239,7 +230,9 @@ export function TopBar() {
 }
 
 // Round icons with their names under them: the icon is quick once you know
-// it, and the word is there until you do.
+// it, and the word is there until you do. Five tabs and the ＋ have to fit a
+// 360px phone, so the ＋ sits after the first three (Today, Week, Quests:
+// the ones you're in all day) rather than dead centre.
 export function BottomTabs() {
   const capture = useCapture();
   const tab = ({ to, label, Icon, end }) => (
@@ -253,11 +246,11 @@ export function BottomTabs() {
 
   return (
     <nav className="bottom-tabs" aria-label="Main">
-      {NAV.slice(0, 2).map(tab)}
+      {NAV.slice(0, 3).map(tab)}
       <button className="bottom-plus" onClick={() => capture.open()} aria-label="Capture" title="Capture">
         <Plus size={24} strokeWidth={2.6} />
       </button>
-      {NAV.slice(2).map(tab)}
+      {NAV.slice(3).map(tab)}
     </nav>
   );
 }
