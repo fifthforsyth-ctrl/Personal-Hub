@@ -1,4 +1,11 @@
-/* The Targets tab, its target pages, and the quests row on Today. */
+/* The Targets tab, its target pages, and the quests row on Today.
+
+   This file is in the first bundle (Today imports it), ahead of index.css
+   and of every sheet a page brings in later (ascent.css, quests.css,
+   cork.css). So a rule here for an element that also wears one of their
+   classes (.card, .btn, .btn-icon, .chip, .textarea, .qprint__save...)
+   names that class too, or something it sits in: one class alone loses to
+   theirs. */
 
 /* --- The quests row (Today, and a quest's own page) ------------------------ */
 .quests-row {
@@ -68,6 +75,14 @@
 .quests-row__pill.is-on small {
   color: rgba(255, 255, 255, 0.75);
 }
+/* A desk has no thumb to scroll with, so the pills wrap and a mouse reaches
+   every one (as the week's focus row does there). The label stays level
+   with the first row of pills: 2px of padding above a 44px pill. */
+@media (min-width: 901px) {
+  .quests-row { align-items: flex-start; }
+  .quests-row__label { display: flex; align-items: center; min-height: 48px; }
+  .quests-row__list { flex-wrap: wrap; overflow: visible; scroll-snap-type: none; }
+}
 
 
 /* --- Part 2: the Targets overview (add part 2's rules directly under this line) --- */
@@ -76,7 +91,7 @@
    that the four tiers come close to fitting a phone's first screen. The
    page wears .ascent and .mark for the bow, the patches and the faces. */
 .ov-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
-.ov-top .eyebrow { margin: 0 0 2px; }
+.ov .ov-top .eyebrow { margin: 0 0 2px; }
 .ov-top .page-title { margin: 0; }
 .ov-top .btn { flex: none; min-height: 40px; }
 
@@ -88,7 +103,10 @@
 .ov-none .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; }
 
 /* Tier 1: the mission. White like every card; the words carry it. */
-.ov-mission { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px 15px; color: var(--text); text-decoration: none; }
+.ov-mission { display: flex; flex-direction: column; gap: 3px; color: var(--text); text-decoration: none; }
+/* Its own padding beats the card's, and on a phone ascent.css's too, which
+   pads every card on its pages (.ascent .card:not(.card--flush)). */
+.card.ov-mission, .ascent .card.ov-mission:not(.card--flush) { padding: 14px 16px 15px; }
 a.ov-mission { transition: background 0.14s; }
 @media (hover: hover) { a.ov-mission:hover { background: var(--card-hover); } }
 .ov-mission__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -270,7 +288,8 @@ a.ov-mission { transition: background 0.14s; }
 .ov-fold--rack > summary { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .ov-fold--rack .mk-rack { margin-top: 4px; }
 
-.ov-behind { padding-top: 10px; padding-bottom: 10px; }
+/* Named as fully as the mission card's padding, for the same reason. */
+.card.ov-behind, .ascent .card.ov-behind:not(.card--flush) { padding-top: 10px; padding-bottom: 10px; }
 .ov-behind .ov-fold > summary { min-height: 44px; }
 .ov-behind .ov-fold > summary .eyebrow { margin: 0; flex: none; }
 .ov-behind .ov-fold > summary .ov-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -282,7 +301,7 @@ a.ov-mission { transition: background 0.14s; }
 .ov-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .ov-chips > li { min-width: 0; max-width: 100%; }
 .ov-chips .chip--tap { min-height: 40px; max-width: 100%; text-decoration: none; }
-.ov-chip--aside { background: none; border: 1px dashed var(--line-strong); color: var(--text-2); }
+.chip.ov-chip--aside { background: none; border: 1px dashed var(--line-strong); color: var(--text-2); }
 
 /* What a focus counts toward, as a link to that target's page: under the
    week in Today's focus sheet, and on each focus on the Week tab. */
@@ -335,14 +354,14 @@ a.ov-mission { transition: background 0.14s; }
 .tg-head__top { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
 .tg-head__name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .tg-head__name .eyebrow { margin: 0; }
-.tg-title { margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
+.page-title.tg-title { margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
 .tg-chip { margin-top: 2px; }
 .tg-head__build { flex: 0 0 auto; }
 
 .tg-why { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
 .tg-why__text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 68ch; }
 .tg-why__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.tg-why__more { min-height: 32px; }
+.tg-why__more { min-height: 36px; }
 .tg-why a { color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .tg-why__week { color: var(--text-3); }
 
@@ -356,12 +375,12 @@ a.ov-mission { transition: background 0.14s; }
 .tg-mark .mk-face.tg-mark__face { flex: 0 0 auto; width: 40px; height: 40px; }
 .tg-mark__state { flex: 1; min-width: 0; font-size: 13px; color: var(--text-2); }
 .tg-mark__state.is-in { color: var(--text); font-weight: 600; }
-.tg-mark__history { min-height: 40px; padding: 0 4px; }
+.btn-link.tg-mark__history { min-height: 40px; padding: 0 4px; }
 
 /* Reflect, Note, Quote and the pencil: one line, even at 360px. */
 .tg-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tg-act { min-height: 40px; padding: 8px 16px; }
-.tg-act__edit { margin-left: auto; width: 40px; height: 40px; border-color: var(--line); background: var(--card); color: var(--text); }
+.btn.tg-act { min-height: 40px; padding: 8px 16px; }
+.btn-icon.tg-act__edit { margin-left: auto; width: 40px; height: 40px; border-color: var(--line); background: var(--card); color: var(--text); }
 
 /* The build, small, top right (BuildTile.jsx). */
 .tg-build { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 92px; }
@@ -375,8 +394,10 @@ a.ov-mission { transition: background 0.14s; }
 .tg-build--wait .tg-build__pic { background: var(--inset); box-shadow: none; }
 .tg-build__line { display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 11.5px; line-height: 1.3; color: var(--text-2); }
 .tg-build__line > span { padding-top: 4px; }
-.tg-build__go { display: inline-flex; align-items: center; min-height: 32px; color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
-.tg-build__today { color: var(--accent-text); font-weight: 600; font-size: 11.5px; }
+.tg-build__go { display: inline-flex; align-items: center; min-height: 40px; color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+/* No negative margin above or below: stacked under the link, the done button's
+   bigger phone target would lie over the link's bottom. */
+.qs-done-btn.tg-build__today { min-height: 40px; margin: 0 -4px; color: var(--accent-text); font-weight: 600; font-size: 11.5px; }
 
 /* Gone, or never his. */
 .tg-gone { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
@@ -413,20 +434,20 @@ a.ov-mission { transition: background 0.14s; }
 }
 .tg-note__text--still { min-height: 0; cursor: default; }
 .tg-note--evening .tg-note__text { font-family: var(--font-serif); font-style: italic; color: var(--text-2); }
-.tg-note__del { flex: 0 0 auto; width: 40px; height: 40px; margin-right: -8px; color: var(--text-3); }
+.btn-icon.tg-note__del { flex: 0 0 auto; width: 40px; height: 40px; margin-right: -8px; color: var(--text-3); }
 @media (hover: hover) { button.tg-note__text:hover { color: var(--text-2); } }
 .tg-note__edit { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 4px; }
 .tg-note__edit .textarea { min-height: 96px; }
 .tg-note__btns { display: flex; justify-content: flex-end; gap: 8px; }
-.tg-note__btns .btn, .tg-more { min-height: 40px; }
-.tg-more { align-self: flex-start; }
+.tg-note__btns .btn, .btn.tg-more { min-height: 40px; }
+.btn.tg-more { align-self: flex-start; }
 
 /* The sheet for writing one (NoteSheet.jsx). */
 .tg-sheet { display: flex; flex-direction: column; gap: 12px; }
 .tg-sheet__q { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .tg-sheet__prompt { margin: 0; font-family: var(--font-serif); font-size: 19px; line-height: 1.4; color: var(--text); }
 .tg-sheet__another { min-height: 36px; }
-.tg-sheet__box { min-height: 128px; max-height: 50vh; resize: none; overflow-y: auto; font-size: 15px; line-height: 1.6; }
+.textarea.tg-sheet__box { min-height: 128px; max-height: 50vh; resize: none; overflow-y: auto; font-size: 15px; line-height: 1.6; }
 /* White boxes on the sheet's warm grey, so they read as boxes. */
 .tg-sheet .textarea, .tg-picker__search .input { background: var(--card); border-color: var(--line); }
 .tg-sheet__count { margin: -6px 2px 0; text-align: right; font: 500 11px var(--font-mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
@@ -436,7 +457,7 @@ a.ov-mission { transition: background 0.14s; }
 
 /* --- Quotes (LinkedQuotes.jsx, QuotePicker.jsx) ------------------------------ */
 .tg-quotes { min-width: 0; }
-.tg-quotes__strip { padding-top: 12px; padding-bottom: 16px; }
+.picks__strip.tg-quotes__strip { padding-top: 12px; padding-bottom: 16px; }
 .tg-qnote { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .tg-qnote__foot { padding: 0 2px; }
 .tg-unlink { min-height: 36px; }
@@ -473,7 +494,9 @@ a.ov-mission { transition: background 0.14s; }
 .tg-picker__board { min-height: 40px; }
 
 /* --- History (TargetHistory.jsx) ----------------------------------------------- */
-.tg-history.card { padding: 0; min-width: 0; }
+/* Flush: its summary and body pad themselves, on a phone too, where
+   ascent.css pads every card (.ascent .card:not(.card--flush)). */
+.tg-history.card, .ascent .tg-history.card:not(.card--flush) { padding: 0; min-width: 0; }
 .tg-history__sum {
   display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 16px; list-style: none; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -488,7 +511,7 @@ a.ov-mission { transition: background 0.14s; }
 .tg-history__body { padding: 0 16px 16px; }
 /* Its cards sit flat inside the fold. */
 .tg-history__body .mk-target .card { box-shadow: none; border-color: var(--line); }
-.qs-rest > .tg-history { margin-top: 4px; }
+.tg-page .qs-rest > .tg-history.card { margin-top: 4px; }
 .tg-page a.feeds__row { color: var(--text); text-decoration: none; }
 
 /* --- A week's focus (TargetFocus.jsx) ------------------------------------------- */
@@ -523,16 +546,16 @@ a.ov-mission { transition: background 0.14s; }
 @media (max-width: 900px) {
   .tg-body { gap: 12px; }
   .tg-crumbs a { min-height: 40px; }
-  .tg-page .feeds__row { min-height: 40px; align-items: center; }
+  .tg-page .feeds .feeds__row { min-height: 40px; align-items: center; }
   .tg-page .ascent-goal__actions .btn-link { min-height: 40px; }
   .tg-page .mk-setup .ascent-edit { width: 40px; height: 40px; }
   /* 16px, so the phone doesn't zoom in on the box as it's tapped. */
-  .tg-sheet__box, .tg-note__edit .textarea, .tg-picker__search .input { font-size: 16px; }
+  .textarea.tg-sheet__box, .tg-note__edit .textarea, .tg-picker__search .input { font-size: 16px; }
   .tg-sheet__actions .btn { flex: 1; }
 }
 @media (max-width: 420px) {
   .tg-head__top { gap: 10px; }
-  .tg-act { padding: 8px 13px; }
+  .btn.tg-act { padding: 8px 13px; }
   .tg-mission__statement { font-size: 17.5px; }
   .tg-link__kind { flex-basis: 46px; }
 }
@@ -547,7 +570,7 @@ a.ov-mission { transition: background 0.14s; }
 
 /* "Link" in a print's foot sits as quietly as Share beside it; once the
    quote is on a target, its words go dark and the link turns orange. */
-.qprint__link {
+.qprint__foot .qprint__link {
   position: relative;
   border-color: transparent;
   color: var(--text-2);
@@ -582,7 +605,7 @@ a.ov-mission { transition: background 0.14s; }
   container-type: inline-size;
 }
 @media (max-width: 560px) {
-  .qprint__foot {
+  .qprint .qprint__foot {
     gap: 4px;
   }
 }
