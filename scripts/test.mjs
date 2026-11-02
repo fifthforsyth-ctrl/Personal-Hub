@@ -4428,6 +4428,151 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 
+// ===== Review fixes, batch B =====
+// What's typed on a focus tonight is kept until an arrow holds it (#6, #10,
+// #14, #17, #18, #23), a checks-landed arrow whose save failed is tried
+// again and says it isn't saved (#5), and a choice taken off a focus's
+// check no longer reads as answered (#16, focus.js).
+{
+  console.log("\nreview fixes, batch B: a focus's arrow keeps what you typed");
+  const F = await import("../src/lib/focus.js");
+  const D = "2026-11-02";
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const energy = { id: "e", goal_id: "g", text: "Energy on waking", kind: "scale", pass: { min: 7 } };
+  const bed = { id: "b", goal_id: "g", text: "In bed by 9", kind: "time", pass: { by: "21:00" } };
+  const up = { id: "u", goal_id: "g", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+  const three = F.checksFor("g", [energy, bed, up]);
+
+  // #16: a choice taken off the list starts blank, so no miss is saved for it.
+  const met = { id: "m", goal_id: "g", text: "How I met the evening", kind: "choice", options: ["Peaceful", "Tense"], pass: { on: ["Peaceful"] } };
+  const calmRow = { answers: [{ aim: "m", text: "How I met the evening", kind: "choice", value: "Calm", v: 2 }], level: 0, lands: "checks" };
+  ok("#16 a saved choice that's been taken off the list starts blank", F.focusAnswers([met], calmRow)[0].value === null);
+  ok("#16 so the arrow waits for an answer rather than landing a miss", F.landedArrow([met], F.focusAnswers([met], calmRow)) === null);
+  ok("#16 a choice still on the list is kept", F.focusAnswers([met], { answers: [{ aim: "m", value: "Tense", v: 0 }] })[0].value === "Tense");
+
+  // The draft, kept on this phone.
+  const s1 = store();
+  ok("a focus's draft is kept by day, one entry per focus", (() => {
+    F.keepArrowDraft(D, "g", { mine: { e: { value: 7 } }, note: "Felt strong", at: 1 }, s1);
+    F.keepArrowDraft(D, "h", { mine: {}, note: "other", at: 2 }, s1);
+    const raw = JSON.parse(s1.getItem(F.arrowDraftKey(D)));
+    return F.arrowDraftKey(D) === `hub.focus.draft.${D}` && raw.g.note === "Felt strong" && raw.h.note === "other" && F.readArrowDraft(D, "g", s1).mine.e.value === 7;
+  })());
+  ok("clearing one focus leaves the others, and the day's key goes once it's empty", (() => {
+    F.keepArrowDraft(D, "g", null, s1);
+    const kept = F.readArrowDraft(D, "g", s1) === null && F.readArrowDraft(D, "h", s1)?.note === "other";
+    F.keepArrowDraft(D, "h", null, s1);
+    return kept && s1.getItem(F.arrowDraftKey(D)) === null;
+  })());
+  ok("a broken draft, or no storage at all, gives nothing and never throws", (() => {
+    const bad = store();
+    bad.setItem(F.arrowDraftKey(D), "{not json");
+    const boom = { getItem() { throw new Error("off"); }, setItem() { throw new Error("off"); }, removeItem() { throw new Error("off"); } };
+    F.keepArrowDraft(D, "g", { note: "x", at: 1 }, boom);
+    return F.readArrowDraft(D, "g", bad) === null && F.readArrowDraft(D, "g", boom) === null && F.readArrowDraft(D, "g", store()) === null;
+  })());
+
+  // What a draft gives back.
+  const restored = F.restoreMine(three, { e: { value: 7, line: "Slept well for once" }, b: { value: null }, gone: { value: "yes" }, u: { value: "half past" } });
+  ok("a draft's answers come back for checks still asked", restored.e.value === 7 && restored.e.line === "Slept well for once" && !("gone" in restored));
+  ok("an answer you cleared stays cleared", "b" in restored && restored.b.value === null);
+  ok("an answer that no longer fits its check is passed over", !("u" in restored));
+  ok("a choice taken off the list is passed over, its line kept", (() => {
+    const r = F.restoreMine([met], { m: { value: "Calm", line: "a quiet one" } });
+    return !("value" in r.m) && r.m.line === "a quiet one";
+  })());
+  ok("a broken draft gives no answers", Object.keys(F.restoreMine(three, null)).length === 0 && Object.keys(F.restoreMine(three, [1, 2])).length === 0 && Object.keys(F.restoreMine(three, { e: "7" })).length === 0);
+
+  // #17 / #14 / #6: two answers of three and a note, then Short and Full (or a reload).
+  const s2 = store();
+  const partial = { mine: { e: { value: 7, line: "Slept well for once" } }, note: "Felt strong all morning", at: Date.parse("2026-11-02T21:00:00Z") };
+  F.keepArrowDraft(D, "g", partial, s2);
+  const back = F.arrowStart(three, null, F.readArrowDraft(D, "g", s2));
+  const backAnswers = F.focusAnswers(three, null, { auto: [null, null, "04:30"], mine: back.mine });
+  ok("#17 half-answered checks and the note come back when the focus opens again", back.note === "Felt strong all morning" && backAnswers[0].value === 7 && backAnswers[0].line === "Slept well for once" && backAnswers[2].value === "04:30" && !back.drop);
+  ok("#17 and still no arrow lands until the last check is answered", F.landedArrow(three, backAnswers, back.note) === null);
+  ok("#14 with nothing typed there's no draft, and the saved note is where it starts", (() => {
+    const st = F.arrowStart(three, { note: "saved", updated_at: "2026-11-02T20:00:00Z" }, null);
+    return st.note === "saved" && Object.keys(st.mine).length === 0 && !st.drop;
+  })());
+
+  // Which wins: the draft or the saved arrow.
+  const savedRow = (at, extra = {}) => ({ goal_id: "g", date: D, level: 1, note: "from the laptop", answers: [], lands: "checks", updated_at: at, ...extra });
+  ok("a saved arrow older than the draft gives way to it", F.arrowStart(three, savedRow("2026-11-02T20:00:00Z"), partial).note === "Felt strong all morning");
+  ok("a saved arrow newer than the draft wins, and the draft can go", (() => {
+    const st = F.arrowStart(three, savedRow("2026-11-02T22:00:00Z"), partial);
+    return st.note === "from the laptop" && Object.keys(st.mine).length === 0 && st.drop;
+  })());
+  ok("a draft the saved arrow already holds can go", (() => {
+    const held = F.landedArrow(three, [{ value: 7, line: "Slept well for once" }, { value: "20:45" }, { value: "04:30", day: true }], "Felt strong all morning");
+    const st = F.arrowStart(three, { ...held, updated_at: "2026-11-02T20:00:00Z" }, partial);
+    return st.drop && st.note === "Felt strong all morning";
+  })());
+  ok("an arrow still on its way (no updated_at yet) never outranks the draft", F.arrowStart(three, savedRow(undefined), partial).note === "Felt strong all morning");
+
+  // When a saved arrow holds the draft.
+  const all = F.landedArrow(three, [{ value: 7, line: "Slept well for once" }, { value: "20:45" }, { value: "04:30", day: true }], "Felt strong all morning");
+  ok("an arrow with every answer, line and the note holds the draft", F.draftHeld(three, partial, all));
+  ok("one with a different note, answer or line doesn't", !F.draftHeld(three, partial, { ...all, note: "other" }) && !F.draftHeld(three, { ...partial, mine: { e: { value: 8 } } }, all) && !F.draftHeld(three, { ...partial, mine: { e: { value: 7, line: "new line" } } }, all));
+  ok("no arrow holds a draft with something in it; an empty one is held by anything", !F.draftHeld(three, partial, null) && F.draftHeld(three, { mine: {}, note: "  ", at: 1 }, null) && F.draftHeld(three, null, null));
+  ok("a draft's note is compared as it would be kept", F.draftHeld(three, { mine: {}, note: "  Felt strong all morning  " }, all));
+
+  // Once an arrow saves.
+  const s3 = store();
+  F.keepArrowDraft(D, "g", partial, s3);
+  F.settleArrowDraft(D, "g", three, all, s3);
+  ok("an arrow that saves holding the draft clears it", F.readArrowDraft(D, "g", s3) === null);
+  F.keepArrowDraft(D, "g", { ...partial, mine: { ...partial.mine, b: { value: "20:50" } } }, s3);
+  F.settleArrowDraft(D, "g", three, all, s3, 5e12);
+  ok("one that doesn't hold all of it (typed while it saved) keeps it, stamped newer than the save", F.readArrowDraft(D, "g", s3)?.at === 5e12 && F.readArrowDraft(D, "g", s3).mine.b.value === "20:50");
+
+  // #18: a note typed before placing, and one left after taking the arrow back.
+  const s4 = store();
+  F.keepArrowDraft(D, "w", { mine: {}, note: "Held my temper twice", at: 10 }, s4);
+  ok("#18 a note typed before an arrow is placed comes back with the focus", F.arrowStart([], null, F.readArrowDraft(D, "w", s4)).note === "Held my temper twice");
+  F.settleArrowDraft(D, "w", [], null, s4, 20);
+  ok("#18 taking the arrow back keeps the note on this phone, not just in the box", F.readArrowDraft(D, "w", s4)?.note === "Held my temper twice" && F.readArrowDraft(D, "w", s4).at === 20);
+  F.settleArrowDraft(D, "w", [], F.placedArrow({ x: 0, y: -20 }, "Held my temper twice"), s4);
+  ok("#18 placing the arrow saves the note with it and the draft goes", F.readArrowDraft(D, "w", s4) === null);
+
+  // #10: a note on a focus whose checks aren't all answered goes onto the arrow already there.
+  const landedRow = { goal_id: "g", date: D, moved: true, ...all, note: null, updated_at: "2026-11-02T20:00:00Z" };
+  const withNote = F.arrowWithNote(landedRow, "  Rough night with the kids ");
+  ok("#10 the arrow already there takes the note, just as it is otherwise", withNote.note === "Rough night with the kids" && withNote.level === landedRow.level && withNote.lands === "checks" && withNote.answers === landedRow.answers && !("updated_at" in withNote) && !("goal_id" in withNote));
+  ok("#10 an old yes-or-no day keeps the ring it reads as", F.arrowWithNote({ moved: true }, "x").level === 1 && F.arrowWithNote({ moved: false }, "x").level === 5);
+  ok("#10 with a check left unanswered, a new note is what's saved", F.arrowKey(F.arrowToSave(landedRow, null, "Rough night with the kids")) === F.arrowKey(withNote));
+  ok("#10 and nothing is saved when the note hasn't changed, or there's no arrow yet", F.arrowToSave(landedRow, null, "  ") === null && F.arrowToSave({ ...landedRow, note: "same" }, null, " same ") === null && F.arrowToSave(null, null, "a note") === null);
+
+  // #5: a checks-landed arrow whose save failed.
+  const old = { ...landedRow, level: 3, answers: [], note: null };
+  ok("#5 a ready arrow that isn't what's saved is saved", F.arrowToSave(old, all, all.note) === all && F.arrowToSave(null, all, all.note) === all);
+  ok("#5 one that is, isn't, unless its last save failed", F.arrowToSave({ ...all, updated_at: "x" }, all, all.note) === null && F.arrowToSave(all, all, all.note, F.arrowKey(all)) === all);
+  ok("#5 after a failed save the card says Not saved, even while the week still shows it", F.arrowNotSaved(all, { goal_id: "g", ...all }, { failed: F.arrowKey(all) }) && F.arrowNotSaved(all, old, { failed: F.arrowKey(all) }) && F.arrowNotSaved(all, null, { failed: F.arrowKey(all) }));
+  ok("#5 or when the week holds another arrow with nothing on its way", F.arrowNotSaved(all, old) && F.arrowNotSaved(all, null));
+  ok("#5 never while a save is waiting or on its way, nor once it's read back saved", !F.arrowNotSaved(all, old, { pending: true }) && !F.arrowNotSaved(all, { goal_id: "g", ...all }) && !F.arrowNotSaved(all, { ...all, updated_at: "2026-11-02T22:00:00Z" }, { failed: F.arrowKey(all) }) && !F.arrowNotSaved(null, old));
+
+  // The card, read as source.
+  const src = readFileSync(new URL("../src/components/focus/FocusArrows.jsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  ok("GoalArrow starts from the draft this phone kept", /useState\(\(\) => arrowStart\(checks, row, readArrowDraft\(date, goal\.id\)\)\)/.test(src) && /useState\(start\.note\)/.test(src) && /useState\(start\.mine\)/.test(src));
+  ok("every answer, line and note is kept on this phone as it's typed", /setMine\(next\);\s*keep\(\);/.test(src) && /noteRef\.current = text;\s*keep\(\);/.test(src));
+  ok("taking the arrow back keeps the note before the arrow goes", /cancel\(\);\s*keep\(\);\s*save\(null\);/.test(src));
+  ok("each save clears the draft once it holds it, and remembers a failure", /if \(saved\) settleArrowDraft\(date, goal\.id, checksRef\.current, next\);\s*else if \(next\) setFailedKey\(arrowKey\(next\)\);/.test(src));
+  ok("#5 flush with nothing waiting tries again", /if \(!job\) \{\s*retry\.current\?\.\(\);/.test(src) && /retry\.current =\s*mode === "checks"\s*\? saveChecks/.test(src));
+  ok("#5 the card says Not saved, with a way to try again", /else if \(ready && unsaved\) words = "Not saved\.";/.test(src) && /focus-arrow__retry/.test(src) && /Try again/.test(src) && /\.focus-arrow__retry \{/.test(css));
+  ok("#10 a note typed on a focus with an arrow saves whichever way it lands", /if \(rowRef\.current\) later\(mode === "placed" \? saveNote : saveChecks, NOTE_MS\);/.test(src));
+  ok("#18 #23 a note with no arrow yet says plainly it isn't kept", src.includes("Place the arrow to keep this note.") && src.includes("Answer its checks to keep this note.") && /\.focus-arrow__keep \{/.test(css) && /\.focus-arrow__note-box \{ align-self: stretch;/.test(css));
+  ok("the card's words have no em-dashes", !src.replace(/^\s*\/\/.*$/gm, "").includes("—"));
+}
+
+// (end of review fixes, batch B)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+
 // ===== Tonight's checks on each target (PR 2, part 1) =====
 // Add this part's tests directly under the line above.
 {
@@ -4685,8 +4830,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the evening card takes the props the evening hands it", /export default function FocusArrows\(\{ userId, date, entries, dayPlan, quick = false, flushRef \}\)/.test(arrowsSrc));
   ok("its flush saves what's waiting on every focus, then waits for every save", /for \(const flush of \[\.\.\.flushers\.current\]\) flush\(\);\s*await settled\(\);/.test(arrowsSrc));
   ok("the card says what it's for", arrowsSrc.includes("This week's focus") && arrowsSrc.includes("Put the arrow where today landed, or let its checks land it."));
-  ok("a placed arrow saves where you put it, with its note", /fw\.arrow\(goal\.id, date, placedArrow\(\{ x, y \}, noteRef\.current\)\)/.test(arrowsSrc) && /Take tonight's arrow back/.test(arrowsSrc));
-  ok("an arrow landed by checks saves only when it's ready and new", /if \(next && !sameArrow\(rowRef\.current, next\)\) arrowRef\.current\(goal\.id, date, next\)/.test(arrowsSrc));
+  ok("a placed arrow saves where you put it, with its note", /save\(placedArrow\(\{ x, y \}, noteRef\.current\)\)/.test(arrowsSrc) && /arrowRef\.current\(goal\.id, date, next\)\.then/.test(arrowsSrc) && /Take tonight's arrow back/.test(arrowsSrc));
+  ok("an arrow landed by checks saves only when it's ready and new (or its last save failed)", /const next = arrowToSave\(rowRef\.current, readyRef\.current, noteRef\.current, failedRef\.current\);\s*if \(next\) save\(next\);/.test(arrowsSrc));
   ok("a waiting note or answer saves when the sheet or card goes", /useEffect\(\(\) => \(\) => flush\(\), \[flush\]\)/.test(arrowsSrc));
   ok("the short evening has no settings, no lines and no note", /onSettings=\{quick \? null :/.test(arrowsSrc) && /onLine=\{quick \? undefined :/.test(arrowsSrc) && /const noteBox = !quick &&/.test(arrowsSrc));
   ok("saves for one goal and day go in line, and only the newest announces", /\(chains\.current\.get\(key\) \?\? Promise\.resolve\(\)\)\.then\(run\)/.test(hookSrc) && /if \(last\) announceChange\(\);/.test(hookSrc));

@@ -357,6 +357,10 @@
 /* Placed: the face, the line for what put it there, and a way to take it back. */
 .focus-arrow__place { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .focus-arrow__note { font-size: 14px; padding: 10px 12px; }
+/* The note's box spans the card in either mode, with a word under it while
+   there's no arrow yet for the note to keep with. */
+.focus-arrow__note-box { align-self: stretch; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.focus-arrow__keep { font-size: 12.5px; line-height: 1.4; color: var(--text-3); overflow-wrap: anywhere; }
 .focus-arrow__back { min-height: 36px; padding: 0 2px; color: var(--text-3); }
 
 .focus-arrow__none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -368,6 +372,9 @@
 .focus-arrow__ring { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--text); }
 .focus-arrow__lands.is-incomplete .focus-arrow__ring { font-weight: 500; color: var(--text-2); }
 .focus-arrow__lands.is-incomplete .focus-arrow__face { opacity: 0.55; }
+/* "Not saved. Try again": the link sits in the sentence, as tall as a tap
+   needs. Scoped under the ring so it outranks .btn-link, which loads later. */
+.focus-arrow__ring .focus-arrow__retry { min-height: 32px; padding: 0 2px; font-size: inherit; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; vertical-align: baseline; }
 
 /* A face this small keeps its hairlines a fixed width on screen and drops
    the section lines, the way the strip's do. */

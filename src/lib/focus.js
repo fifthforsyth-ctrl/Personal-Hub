@@ -307,9 +307,14 @@ export function focusAnswers(checks, row, { auto = [], mine = {} } = {}) {
 }
 
 // A saved answer still answers its check: a Some on what is now a Yes/No
-// doesn't, and starts blank.
+// doesn't, and starts blank. Nor does a choice that's been taken off the
+// check's list (Calm, renamed Peaceful): it would read as answered and not
+// passed with no chip lit, and the arrow would land as a miss you never
+// gave it.
 function fits(check, value) {
   if (!answered(check, value)) return false;
+  const c = normCheck(check);
+  if (c.kind === "choice" && !c.options.includes(String(value))) return false;
   return !scores(check) || markOf(check, value) != null;
 }
 
@@ -320,6 +325,172 @@ export function landedArrow(checks, answers, note = "") {
   const arrow = checksArrow(checks, answers, note);
   if (!arrow) return null;
   return { ...arrow, answers: arrow.answers.map((a, i) => (answers?.[i]?.day && a.value != null ? { ...a, day: true } : a)) };
+}
+
+// An arrow's note as it's kept: no blank space round it, no longer than the
+// 1000 characters the table allows, and null when there's nothing.
+export function arrowNote(text) {
+  return String(text ?? "").trim().slice(0, 1000) || null;
+}
+
+// The arrow already saved for the day, just as it is, with a new note. A
+// focus that lands by its checks keeps its arrow where it last landed while
+// a check is left unanswered, and a note you type meanwhile goes onto that
+// arrow rather than waiting for the checks. An old yes-or-no day keeps the
+// ring it reads as.
+export function arrowWithNote(row, note) {
+  return {
+    level: checkinLevel(row),
+    spot_x: row?.spot_x ?? null,
+    spot_y: row?.spot_y ?? null,
+    note: arrowNote(note),
+    answers: Array.isArray(row?.answers) ? row.answers : [],
+    lands: row?.lands ?? null,
+  };
+}
+
+// What a focus that lands by its checks should save tonight, or null when
+// nothing needs saving: the arrow its checks landed, when it isn't what's
+// saved or its last save failed (`failed`, that arrow's arrowKey); with a
+// check still unanswered, the arrow already there with the note you typed
+// since.
+export function arrowToSave(row, ready, note, failed = null) {
+  if (ready) return !sameArrow(row, ready) || failed === arrowKey(ready) ? ready : null;
+  if (row && arrowNote(note) !== (row.note ?? null)) return arrowWithNote(row, note);
+  return null;
+}
+
+// Whether the card should say tonight's arrow isn't saved, instead of its
+// ring: one its checks landed, with nothing waiting or on its way to save
+// it (`pending`), that the week doesn't hold. When its save failed, the week
+// can still show it as saved for a moment (the row put in before the save,
+// which has no updated_at), so only a row read back from the database
+// clears it.
+export function arrowNotSaved(ready, row, { failed = null, pending = false } = {}) {
+  if (!ready || pending) return false;
+  if (failed != null && failed === arrowKey(ready)) return !(row?.updated_at && sameArrow(row, ready));
+  return !sameArrow(row, ready);
+}
+
+// --- What's typed on a focus tonight, kept on this phone ----------------------
+//
+// An arrow can only be saved once there is one: placed on the face, or
+// landed by its checks once every check that scores is answered. Until
+// then, what you've typed (two answers of three, a line on one of them, the
+// note) has nowhere in the database to go, so it's kept on this phone, one
+// draft per focus for the day: `hub.focus.draft.<date>` holds { [goal id]:
+// { mine, note, at } }, `mine` being the answers you gave yourself by check
+// id ({ value, line }, as GoalArrow holds them), and `at` when you last
+// changed any of it. Switch Short and Full, leave the evening, close the
+// sheet on Today or reload, and it comes back.
+//
+// The draft gives way to a saved arrow that's newer than it (one landed on
+// another phone after you typed here), and it's cleared once an arrow that
+// holds all of it has saved. These take `store` only so the tests can hand
+// in a stand-in.
+
+export function arrowDraftKey(date) {
+  return `hub.focus.draft.${date}`;
+}
+
+function readDrafts(date, store) {
+  const s = store ?? localStorage;
+  const raw = JSON.parse(s.getItem(arrowDraftKey(date)) ?? "null");
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+// One focus's draft for the day, or null.
+export function readArrowDraft(date, goalId, store) {
+  try {
+    const e = readDrafts(date, store)[goalId];
+    return e && typeof e === "object" && !Array.isArray(e) ? e : null;
+  } catch {
+    return null;
+  }
+}
+
+// Keeps one focus's draft for the day, or clears it when `entry` is null.
+// The day's key goes once it holds nothing.
+export function keepArrowDraft(date, goalId, entry, store) {
+  try {
+    const s = store ?? localStorage;
+    const all = readDrafts(date, s);
+    if (entry) all[goalId] = entry;
+    else delete all[goalId];
+    if (Object.keys(all).length) s.setItem(arrowDraftKey(date), JSON.stringify(all));
+    else s.removeItem(arrowDraftKey(date));
+  } catch {
+    // Private mode or storage off: the draft just isn't kept.
+  }
+}
+
+// The answers in a draft that still fit their checks as they are now, by
+// check id. A draft is only ever a convenience, so a check that's gone, an
+// answer of the wrong kind or a choice taken off the list is passed over,
+// and a broken draft gives nothing. An answer you cleared stays cleared.
+export function restoreMine(checks, mine) {
+  const out = {};
+  if (!mine || typeof mine !== "object" || Array.isArray(mine)) return out;
+  for (const c of checks ?? []) {
+    const m = c?.id != null ? mine[c.id] : null;
+    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+    const e = {};
+    const v = m.value;
+    if ("value" in m && (v === null || v === "" || ((typeof v === "string" || typeof v === "number") && fits(c, v)))) e.value = v;
+    if (typeof m.line === "string") e.line = m.line.slice(0, 500);
+    if (Object.keys(e).length) out[c.id] = e;
+  }
+  return out;
+}
+
+// Whether an arrow holds everything in a draft: its note, and each answer
+// and line you gave. A draft with nothing in it is held by anything.
+export function draftHeld(checks, entry, arrow) {
+  if (!entry) return true;
+  const mine = restoreMine(checks, entry.mine);
+  const note = arrowNote(entry.note);
+  if (!note && !Object.keys(mine).length) return true;
+  if (!arrow) return false;
+  if (note !== (arrow.note ?? null)) return false;
+  const saved = new Map();
+  for (const e of Array.isArray(arrow.answers) ? arrow.answers : []) if (e?.aim) saved.set(e.aim, e);
+  for (const c of checks ?? []) {
+    const m = mine[c.id];
+    if (!m) continue;
+    const s = saved.get(c.id);
+    if ("value" in m && answerEntry(c, m.value).value !== (s?.value ?? null)) return false;
+    if ("line" in m && String(m.line).trim().slice(0, 500) !== String(s?.line ?? "")) return false;
+  }
+  return true;
+}
+
+// Where a focus's arrow starts tonight: { mine, note, drop }. A draft this
+// phone kept wins, unless the saved arrow is newer than it or already holds
+// all of it; then the saved arrow's note and answers are where it starts,
+// and `drop` says the draft can go.
+export function arrowStart(checks, row, entry) {
+  const saved = { mine: {}, note: String(row?.note ?? "") };
+  if (!entry || typeof entry !== "object") return { ...saved, drop: false };
+  const savedAt = Date.parse(row?.updated_at ?? "");
+  const at = Number(entry.at);
+  if (row && Number.isFinite(savedAt) && !(at > savedAt)) return { ...saved, drop: true };
+  if (row && Number.isFinite(savedAt) && draftHeld(checks, entry, row)) return { ...saved, drop: true };
+  return {
+    mine: restoreMine(checks, entry.mine),
+    note: typeof entry.note === "string" ? entry.note.slice(0, 1000) : saved.note,
+    drop: false,
+  };
+}
+
+// Once an arrow has saved: the draft goes if the arrow holds all of it.
+// Anything it doesn't hold (two answers of three, or a line typed while it
+// saved) is still yours, so the draft is stamped again, newer than the
+// arrow that just saved, and it's what the focus starts from next time.
+export function settleArrowDraft(date, goalId, checks, arrow, store, now = Date.now()) {
+  const entry = readArrowDraft(date, goalId, store);
+  if (!entry) return;
+  if (draftHeld(checks, entry, arrow)) keepArrowDraft(date, goalId, null, store);
+  else keepArrowDraft(date, goalId, { ...entry, at: now }, store);
 }
 
 // The bigger targets a focus can count toward, the Mark's own: each lifetime
