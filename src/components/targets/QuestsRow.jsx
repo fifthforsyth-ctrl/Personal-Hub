@@ -16,10 +16,16 @@ import "../../styles/targets.css";
 export default function QuestsRow({ userId, date, current = null, label = "Quests", className = "" }) {
   const { data, reload } = useLoad(() => (userId ? fetchQuestPills(userId, date) : null), [userId, date]);
 
-  // A camp ticked, a line written or a quest added elsewhere shows here too.
+  // A camp ticked, a line written or a quest added elsewhere shows here too,
+  // and so does what changed while the phone was away from the app.
   useEffect(() => {
+    const onShow = () => document.visibilityState === "visible" && reload();
     window.addEventListener("hub:changed", reload);
-    return () => window.removeEventListener("hub:changed", reload);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("hub:changed", reload);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [reload]);
 
   const pills = data ?? [];

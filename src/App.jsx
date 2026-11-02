@@ -44,6 +44,14 @@ function MovedTo({ to }) {
   return <Navigate to={`${path}${search}${hash}`} state={state} replace />;
 }
 
+// Each target's page starts fresh: going from one target to another (a
+// link up the ladder, the quests row) mustn't carry a draft, a search or an
+// open sheet across to the wrong target.
+function TargetAt() {
+  const { pathname } = useLocation();
+  return <Target key={pathname} />;
+}
+
 function RedirectToToday() {
   return <Navigate to={`/day/${todayStr()}`} replace />;
 }
@@ -67,11 +75,11 @@ export default function App() {
             <Route path="/work" element={<Work />} />
             <Route path="/money" element={<Money />} />
             <Route path="/targets" element={<Targets />} />
-            <Route path="/targets/mission" element={<Target />} />
+            <Route path="/targets/mission" element={<TargetAt />} />
             <Route path="/targets/camp/:id" element={<Camp />} />
             <Route path="/targets/plans" element={<Plans />} />
             <Route path="/targets/plans/:id" element={<Plans />} />
-            <Route path="/targets/:ref" element={<Target />} />
+            <Route path="/targets/:ref" element={<TargetAt />} />
             <Route path="/tree" element={<Tree />} />
             <Route path="/spirit" element={<Spirit />} />
             <Route path="/ask" element={<Ask />} />
