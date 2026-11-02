@@ -11,6 +11,9 @@
 .qs-head__name { display: flex; flex-direction: column; min-width: 0; }
 .qs-title { text-wrap: balance; margin-bottom: 2px; }
 .qs-head__village { display: inline-flex; align-items: center; flex: 0 0 auto; }
+/* the clipboard, closed (2026-11-02): a small button to open it again */
+.qs-head__clip { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-left: auto; }
+.qs-head__clip small { font: 600 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
 
 /* The quests and lessons as pills (Aaron, 2026-10-26). The one that's open
    unfolds into a card the width of the page with its camps in it, each with
@@ -100,15 +103,16 @@
   align-items: start;
 }
 .qs-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.qs-today, .qs-rest { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.qs-today, .qs-ongoing, .qs-rest { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 /* Today's board in columns (0092), on a screen wide enough: Today spans the
    page, with the rest of the list and the build beside each other under it.
    The list lets its two parts out into the grid for it, so Today itself
    never moves in the page. */
-.qs-grid--board { grid-template-areas: "today today" "main rail"; }
+.qs-grid--board { grid-template-areas: "today today" "ongoing rail" "main rail"; }
 .qs-grid--board .qs-main { display: contents; }
 .qs-grid--board .qs-today { grid-area: today; }
-.qs-grid--board .qs-rest, .qs-grid--board .qs-mini { grid-area: main; }
+.qs-grid--board .qs-ongoing { grid-area: ongoing; }
+.qs-grid--board .qs-rest { grid-area: main; }
 .qs-rail { grid-area: rail; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .qs .card + .card { margin-top: 0; }
@@ -144,21 +148,6 @@
 .qs-bar { display: flex; height: 6px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
 .qs-bar i { display: block; height: 100%; background: var(--ink); transition: width 0.35s ease; }
 .qs-bar i.qs-bar__today { background: var(--accent); }
-
-/* The slim bar that keeps the build in view while the list scrolls past it.
-   It takes no room in the list: a zero-height sticky holder with the bar
-   hung in it, shown once the build's card is out of sight. */
-.qs-mini { position: sticky; top: 8px; height: 0; z-index: 6; }
-.qs-mini__bar {
-  position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border: 0; border-radius: var(--r-pill); background: var(--card); box-shadow: var(--shadow-lift);
-  font: inherit; color: var(--text); cursor: pointer; text-align: left;
-  opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.qs-mini.on .qs-mini__bar { opacity: 1; transform: none; pointer-events: auto; }
-.qs-mini__name { flex: 0 0 auto; font-family: var(--font-serif); font-size: 15px; font-weight: 500; }
-.qs-mini .qs-bar { flex: 1; height: 5px; }
-.qs-mini__left { flex: 0 0 auto; font: 500 11px var(--font-mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
 
 /* --- The days --------------------------------------------------------------- */
 
@@ -454,7 +443,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qs-mini__bar, .qs-bar i, .tb-card, .tb-list, .tb-col { transition: none; }
+  .qs-bar i, .tb-card, .tb-list, .tb-col { transition: none; }
   .qs-pill__body, .qs-camp__working i { animation: none; }
 }
 
@@ -469,11 +458,12 @@
    columns have room side by side; the build and the notes stay beside
    Today. */
 @media (min-width: 901px) {
-  .qs-grid--clip { grid-template-areas: "today rail" "clip clip" "main ."; }
+  .qs-grid--clip { grid-template-areas: "today rail" "ongoing rail" "clip clip" "main ."; }
   .qs-grid--clip .qs-main { display: contents; }
   .qs-grid--clip .qs-today { grid-area: today; }
+  .qs-grid--clip .qs-ongoing { grid-area: ongoing; }
   .qs-grid--clip .qs-clip { grid-area: clip; min-width: 0; }
-  .qs-grid--clip .qs-rest, .qs-grid--clip .qs-mini { grid-area: main; }
-  .qs-grid--board.qs-grid--clip { grid-template-areas: "today today" "clip clip" "main rail"; }
+  .qs-grid--clip .qs-rest { grid-area: main; }
+  .qs-grid--board.qs-grid--clip { grid-template-areas: "today today" "ongoing rail" "clip clip" "main ."; }
 }
 .qs-clip { min-width: 0; }

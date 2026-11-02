@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { countLine } from "../../lib/questTasks";
 import Painting from "../../village/Painting";
@@ -62,20 +62,12 @@ function Today({ n, onToday, lead = " · ", words = "today" }) {
   );
 }
 
-export default function FloatingBuild({ village, today, onAway, todayDone, onToday }) {
+export default function FloatingBuild({ village, today, todayDone, onToday }) {
   const p = buildNow(village, today);
   const { done, laid, need, left } = counts(p, today);
   const shown = todayDone ?? laid;
   const card = useRef(null);
 
-  // Out of sight, the page shows the slim bar instead.
-  useEffect(() => {
-    const el = card.current;
-    if (!el || !window.IntersectionObserver || !onAway) return undefined;
-    const io = new IntersectionObserver((es) => onAway(!es[es.length - 1].isIntersecting), { threshold: 0, rootMargin: "-40px 0px 0px 0px" });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [onAway]);
 
   if (!p) {
     const waiting = village?.waiting ?? 0;
@@ -142,27 +134,5 @@ export default function FloatingBuild({ village, today, onAway, todayDone, onTod
         )}
       </div>
     </section>
-  );
-}
-
-// The slim bar that stays at the top of the list while the card is scrolled
-// away: the build, what's left, and the same bar. Tapping it goes back up.
-export function BuildMini({ village, today, show }) {
-  const p = buildNow(village, today);
-  if (!p) return <div className="qs-mini" aria-hidden="true" />;
-  const { done, laid, need, left } = counts(p, today);
-  return (
-    <div className={"qs-mini" + (show ? " on" : "")} aria-hidden={!show}>
-      <button
-        type="button"
-        className="qs-mini__bar"
-        tabIndex={show ? 0 : -1}
-        onClick={() => document.getElementById("qs-build")?.scrollIntoView({ behavior: "smooth", block: "center" })}
-      >
-        <span className="qs-mini__name">{p.name}</span>
-        <Bar done={done} laid={laid} need={need} />
-        <span className="qs-mini__left">{p.complete ? "Stands" : `${left} left`}</span>
-      </button>
-    </div>
   );
 }
