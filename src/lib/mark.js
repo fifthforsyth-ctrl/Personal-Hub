@@ -1,13 +1,15 @@
 import { addDays } from "./planDates.js";
 import { gearFor, shortGoal } from "./ascent.js";
 import { workoutName, fmtMins } from "./watch.js";
+import { normCheck, answered, markOf, scores, autoValue, answerEntry, focusEntry, checksLevel, shareOfLevel, legacyValue, valueText } from "./checks.js";
 
 // The Mark: every goal is a target (supabase/migrations/0075_the_mark.sql).
 //
 // Sin, chata in Hebrew and hamartia in Greek, means to miss the mark. Each
 // lifetime goal, the quest and each lesson is a target, and each evening
 // takes one shot at each. He never aims: he answers what a bullseye takes,
-// Yes, Some or No, and the share of it he did puts the arrow in its ring.
+// its checks (checks.js: Yes or No, 1 to 10, minutes, a time and the rest),
+// and the share of them he passed puts the arrow in its ring.
 // A miss lands in the section of what got in the way, so over the weeks the
 // misses gather where the reason is. A miss is a mark, not a mark against
 // you: nothing here turns red.
@@ -287,13 +289,35 @@ export function buildRange(ascentView, marks, today) {
 }
 
 // The answers on a shot, in the order they were asked, with what each was
-// called that day.
+// called that day. A check's answer keeps its kind and value (0103); an
+// older shot's answers were all Yes, Some or No and read that way. A weekly
+// focus that counted toward the target (`focus_goal`) carries the ring its
+// own arrow landed in.
 export function answersOf(shot) {
-  return (Array.isArray(shot?.answers) ? shot.answers : []).map((a) => ({
-    aim: a?.aim ?? null,
-    text: String(a?.text ?? ""),
-    v: a?.v === 0 || a?.v === 1 || a?.v === 2 ? a.v : null,
-  }));
+  return (Array.isArray(shot?.answers) ? shot.answers : []).map((a) => {
+    const focusGoal = a?.focus_goal ?? null;
+    const kind = focusGoal ? "focus" : a?.kind ?? "ysn";
+    const level = Number.isInteger(a?.level) && a.level >= 0 && a.level <= 5 ? a.level : null;
+    return {
+      aim: a?.aim ?? null,
+      focus_goal: focusGoal,
+      text: String(a?.text ?? ""),
+      kind,
+      value: focusGoal ? null : legacyValue(a),
+      unit: a?.unit ?? null,
+      v: a?.v === 0 || a?.v === 1 || a?.v === 2 ? a.v : null,
+      level,
+      line: String(a?.line ?? ""),
+      counts: a?.counts !== false,
+    };
+  });
+}
+
+// What one saved answer reads as: "Yes", "7/10", "4:32 am", or the ring a
+// focus's arrow landed in.
+export function answerText(entry) {
+  if (entry?.kind === "focus") return entry.level != null ? LEVELS[entry.level].name : "";
+  return valueText({ kind: entry?.kind, unit: entry?.unit }, entry?.value);
 }
 
 // An arrow is on the target once the day it's for has been banked.
@@ -349,15 +373,23 @@ export function watchSaw(focus, entries) {
   return bits.join(", ");
 }
 
-// Tonight's answers for a target, in the order its aims are asked: what's
-// already saved, else Yes where the time log saw the aim's focus, else blank.
-export function startingAnswers(target, { focusesById, entries } = {}) {
-  const saved = new Map(answersOf(target?.tonight).map((a) => [a.aim, a.v]));
+// Tonight's answers for a target, one { value, line } per check in the
+// order they're asked: what's already saved, else what the day holds (the
+// time log's minutes for a check with a focus, when you got up for "Up by"),
+// else blank. A saved answer that no longer fits its check (a Some on what
+// is now a Yes/No) starts blank.
+export function startingAnswers(target, { focusesById, entries, dayPlan } = {}) {
+  const saved = new Map(answersOf(target?.tonight).filter((a) => a.aim).map((a) => [a.aim, a]));
   return (target?.aims ?? []).map((a) => {
-    if (saved.has(a.id) && saved.get(a.id) != null) return saved.get(a.id);
-    const focus = a.focus_id ? focusesById?.get(a.focus_id) : null;
-    return focus && focusMinutes(focus, entries) > 0 ? 2 : null;
+    const s = saved.get(a.id);
+    if (s && fits(a, s.value)) return { value: s.value, line: s.line };
+    return { value: autoValue(a, { focusesById, entries, dayPlan, focusMinutes }), line: s?.line ?? "" };
   });
+}
+
+function fits(check, value) {
+  if (!answered(check, value)) return false;
+  return !scores(check) || markOf(check, value) != null;
 }
 
 // What a line says got in the way, when the reader can't be reached: the
@@ -417,14 +449,27 @@ export function guessReason(target, today) {
   return k >= 0 ? k : 0;
 }
 
-// The shot tonight's answers make, ready to save: null until every aim is
-// answered. A bullseye has no section.
-export function shotFrom(target, values, { line = "", reason = null, how = null } = {}) {
-  const level = levelFrom(values);
+// The ring tonight's answers put a target's arrow in, or null until every
+// check that scores is answered. `linked` is the week's focuses that count
+// toward this target and landed an arrow tonight ({ goal, level }): each
+// counts as one more check, and none ever holds the arrow back.
+export function tonightLevel(target, answers, linked = []) {
+  const aims = target?.aims ?? [];
+  const values = aims.map((_, i) => answers?.[i]?.value ?? null);
+  return checksLevel(aims, values, (linked ?? []).map((l) => shareOfLevel(l.level)));
+}
+
+// The shot tonight's answers make, ready to save: null until every check
+// that scores is answered. A bullseye has no section.
+export function shotFrom(target, answers, { line = "", reason = null, how = null, linked = [] } = {}) {
+  const level = tonightLevel(target, answers, linked);
   if (level == null) return null;
   const note = String(line ?? "").trim();
   return {
-    answers: (target?.aims ?? []).map((a, i) => ({ aim: a.id, text: a.text, v: values[i] })),
+    answers: [
+      ...(target?.aims ?? []).map((a, i) => answerEntry(a, answers?.[i]?.value ?? null, answers?.[i]?.line)),
+      ...(linked ?? []).map((l) => focusEntry(l.goal, l.level)),
+    ],
     level,
     reason: level === 0 ? null : reason,
     reason_how: level === 0 ? null : how,
@@ -432,3 +477,72 @@ export function shotFrom(target, values, { line = "", reason = null, how = null 
   };
 }
 
+// The checks on a target, cleaned, as the sheet edits them and the evening
+// asks them.
+export function checksOf(target) {
+  return (target?.aims ?? []).map((a) => ({ ...a, ...normCheck(a) }));
+}
+
+// --- Placing an arrow yourself ------------------------------------------------
+
+// The ring a spot on the face is in, from where you tapped (target units,
+// the center at 0,0). Past the face is a miss.
+export function levelAtSpot(x, y) {
+  const r = Math.hypot(Number(x) || 0, Number(y) || 0);
+  for (let k = 0; k < RINGS.length; k++) if (r <= RINGS[k]) return k;
+  return 5;
+}
+
+// A tap, kept on the target: anything past the miss band comes back inside
+// it, so an arrow is always somewhere you can see it.
+export function clampSpot(x, y) {
+  const nx = Number(x) || 0;
+  const ny = Number(y) || 0;
+  const r = Math.hypot(nx, ny);
+  const max = MISS_BAND - 4;
+  if (r <= max) return { x: round1(nx), y: round1(ny) };
+  return { x: round1((nx / r) * max), y: round1((ny / r) * max) };
+}
+
+// The middle of a ring, straight up: where the ring buttons (for a keyboard
+// or a screen reader) put an arrow.
+export function ringSpot(level) {
+  if (level === 0) return { x: 0, y: 0 };
+  const inner = RINGS[level - 1] ?? FACE;
+  const outer = RINGS[level] ?? MISS_BAND;
+  return { x: 0, y: round1(-(inner + outer) / 2) };
+}
+
+// --- The short evening ------------------------------------------------------
+
+// One tap for a whole target: Yes (2), Some (1) or No (0) for the day as a
+// whole, the way the short evening has always asked, landing a bullseye,
+// the middle or a miss. Checks the day already answered (the time log,
+// when you got up) are kept with it for the record, but the tap is what
+// sets the ring: the short evening never makes up an answer for a check.
+export const WHOLE = "The day as a whole";
+
+export function quickShot(target, v, answers = [], { reason = null, how = null } = {}) {
+  if (v !== 0 && v !== 1 && v !== 2) return null;
+  const level = levelFrom([v]);
+  const known = (target?.aims ?? [])
+    .map((a, i) => ({ a, value: answers?.[i]?.value ?? null, line: answers?.[i]?.line }))
+    .filter((x) => answered(x.a, x.value))
+    .map((x) => ({ ...answerEntry(x.a, x.value, x.line), counts: false }));
+  return {
+    answers: [{ aim: null, text: WHOLE, kind: "ysn", value: ANSWER_VALUES[v], v, counts: true, whole: true }, ...known],
+    level,
+    reason: level === 0 ? null : reason,
+    reason_how: level === 0 ? null : how,
+    note: null,
+  };
+}
+
+const ANSWER_VALUES = ["no", "some", "yes"];
+
+// The one tap a saved shot was, when it was a short evening's: 2, 1, 0, or
+// null when it was answered check by check.
+export function quickOf(shot) {
+  const w = (Array.isArray(shot?.answers) ? shot.answers : []).find((a) => a?.whole);
+  return w && (w.v === 0 || w.v === 1 || w.v === 2) ? w.v : null;
+}

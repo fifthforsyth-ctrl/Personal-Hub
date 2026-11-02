@@ -1,5 +1,6 @@
 import { addDays, startOfWeek, fmtShortDate } from "./planDates.js";
-import { placement } from "./mark.js";
+import { placement, levelAtSpot, clampSpot } from "./mark.js";
+import { normCheck, checksLevel, answerEntry } from "./checks.js";
 
 // Weekly focus goals: the few things a week is for, set on Sunday.
 //
@@ -82,23 +83,41 @@ export function cleanTitle(text) {
 
 // --- The week's focus as small targets on Today ------------------------------
 //
-// Each focus is drawn as one of the Mark's small targets, and each day you
-// answered "did today move it?" is a mark on it: a day that moved it lands
-// in the inner ring, a "not today" out in the miss band, and a day with no
-// answer leaves no mark. That mapping lives in checkinShot alone, so when
-// you come to place the arrows yourself, only that one function changes.
+// Each focus is drawn as one of the Mark's small targets, and each day's
+// arrow is a mark on it. Since 0103 an arrow lands one of two ways, chosen
+// per focus (lands_by): you place it yourself where the day landed, or the
+// focus's own checks put it in its ring, the way a target's do. A day from
+// before then only said whether it moved the focus: moved reads as the
+// inner ring, not today as a miss. A day with no answer leaves no mark.
 
 export const MOVED_LEVEL = 1; // Inner
 export const NOT_TODAY_LEVEL = 5; // Missed
 
-export function checkinShot(goalId, date, moved) {
-  const level = moved ? MOVED_LEVEL : NOT_TODAY_LEVEL;
-  const id = `${goalId}:${date}`;
-  // Its spot comes from the goal and the day, so a mark never jumps about.
-  return { id, date, level, ...placement(id, level, null) };
+export function landsBy(goal) {
+  return goal?.lands_by === "checks" ? "checks" : "placed";
 }
 
-// This week's check-ins as each goal's marks, oldest first, the order the
+// The ring a day's arrow is in. `c` is a check-in row, or (from before
+// 0103) just whether it moved.
+export function checkinLevel(c) {
+  if (c && typeof c === "object") {
+    if (Number.isInteger(c.level) && c.level >= 0 && c.level <= 5) return c.level;
+    return c.moved ? MOVED_LEVEL : NOT_TODAY_LEVEL;
+  }
+  return c ? MOVED_LEVEL : NOT_TODAY_LEVEL;
+}
+
+export function checkinShot(goalId, date, c) {
+  const level = checkinLevel(c);
+  const id = `${goalId}:${date}`;
+  // Where you put it, when you did; otherwise its spot comes from the goal
+  // and the day, so a mark never jumps about.
+  const placed = c && typeof c === "object" && c.spot_x != null && c.spot_y != null;
+  const spot = placed ? { x: Number(c.spot_x), y: Number(c.spot_y) } : placement(id, level, null);
+  return { id, date, level, ...spot, note: c && typeof c === "object" ? c.note ?? null : null };
+}
+
+// This week's arrows as each goal's marks, oldest first, the order the
 // target face wants (it lights the last one). Every goal gets a list, empty
 // until something's been answered; check-ins from other weeks, or for goals
 // not in this week, are left out.
@@ -109,11 +128,72 @@ export function weekShots(goals, checkins, weekStart) {
     const days = byGoal.get(c.goal_id);
     const date = String(c.date).slice(0, 10);
     if (!days || date < weekStart || date > end) continue;
-    days.set(date, Boolean(c.moved));
+    days.set(date, c);
   }
   const out = {};
   for (const [id, days] of byGoal) {
-    out[id] = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, moved]) => checkinShot(id, date, moved));
+    out[id] = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, c]) => checkinShot(id, date, c));
+  }
+  return out;
+}
+
+// One day's check-in for a goal, or null.
+export function checkinOn(checkins, goalId, date) {
+  return (checkins ?? []).find((c) => c.goal_id === goalId && String(c.date).slice(0, 10) === date) ?? null;
+}
+
+// A focus's checks still being asked, in order.
+export function checksFor(goalId, checks) {
+  return (checks ?? [])
+    .filter((c) => c.goal_id === goalId && !c.retired_on)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")))
+    .map((c) => ({ ...c, ...normCheck(c) }));
+}
+
+// The arrow you placed, ready to save: the ring comes from the spot.
+export function placedArrow(spot, note = "") {
+  const at = clampSpot(spot?.x, spot?.y);
+  const n = String(note ?? "").trim().slice(0, 1000);
+  return { level: levelAtSpot(at.x, at.y), spot_x: at.x, spot_y: at.y, note: n || null, answers: [], lands: "placed" };
+}
+
+// The arrow a focus's checks land, ready to save, or null until every check
+// that scores is answered. `answers` is one { value, line } per check.
+export function checksArrow(checks, answers, note = "") {
+  const values = (checks ?? []).map((_, i) => answers?.[i]?.value ?? null);
+  const level = checksLevel(checks, values);
+  if (level == null) return null;
+  const n = String(note ?? "").trim().slice(0, 1000);
+  return {
+    level,
+    spot_x: null,
+    spot_y: null,
+    note: n || null,
+    answers: (checks ?? []).map((c, i) => answerEntry(c, values[i], answers?.[i]?.line)),
+    lands: "checks",
+  };
+}
+
+// What a focus counts toward, as the Mark names its targets: a lifetime
+// goal (node_id), a quest or a lesson. Null when it stands alone.
+export function countsToward(goal) {
+  if (goal?.quest_id) return { kind: "quest", id: goal.quest_id };
+  if (goal?.lesson_id) return { kind: "lesson", id: goal.lesson_id };
+  if (goal?.node_id) return { kind: "goal", id: goal.node_id };
+  return null;
+}
+
+// The week's focuses that count toward a target and landed an arrow on
+// `date`, as { goal, level }: what the target's own shot averages in.
+export function linkedArrows(target, goals, checkins, date) {
+  if (!target?.ref?.id) return [];
+  const out = [];
+  for (const g of orderGoals(goals)) {
+    const to = countsToward(g);
+    if (!to || to.kind !== target.kind || to.id !== target.ref.id) continue;
+    const c = checkinOn(checkins, g.id, date);
+    if (!c) continue;
+    out.push({ goal: g, level: checkinLevel(c) });
   }
   return out;
 }

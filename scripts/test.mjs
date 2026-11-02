@@ -84,7 +84,8 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
-import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, watchSaw, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, watchSaw, startingAnswers, readLine, guessReason, shotFrom, answerText, tonightLevel, levelAtSpot, clampSpot, ringSpot, quickShot, quickOf, WHOLE } from "../src/lib/mark.js";
+import { normCheck as ckNorm, markOf as ckMark, clockDiff as ckClock, scores as ckScores, answered as ckAnswered, allAnswered as ckAll, checksLevel as ckLevel, shareOf as ckShare, shareOfLevel as ckShareOfLevel, levelOfShare as ckLevelOfShare, passText as ckPassText, valueText as ckValueText, clockText as ckClockText, answerEntry as ckEntry, legacyValue as ckLegacy, autoValue as ckAuto, wokeAt as ckWoke, toFive as ckToFive, tenOf as ckTenOf } from "../src/lib/checks.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -170,7 +171,7 @@ import {
   overnightProblem,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
-import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay } from "../src/lib/focus.js";
+import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay, landsBy as fLandsBy, checkinLevel as fCheckinLevel, placedArrow as fPlaced, checksArrow as fChecksArrow, checksFor as fChecksFor, countsToward as fToward, linkedArrows as fLinked } from "../src/lib/focus.js";
 import {
   buildMirror,
   lastWeekStart,
@@ -1526,11 +1527,17 @@ console.log("\nthe mark");
     tonight: null,
   };
   const byId = new Map([["f1", exercise]]);
-  ok("the time log answers Yes for a focus it saw; the rest wait for you", startingAnswers(tDisc, { focusesById: byId, entries }).join() === "2,");
-  ok("it never answers No for you", startingAnswers(tDisc, { focusesById: byId, entries: [] }).every((v) => v === null));
+  const vals = (list) => list.map((a) => a.value ?? "").join();
+  ok("the time log answers Yes for a focus it saw; the rest wait for you", vals(startingAnswers(tDisc, { focusesById: byId, entries })) === "yes,");
+  ok("it never answers No for you", startingAnswers(tDisc, { focusesById: byId, entries: [] }).every((a) => a.value === null));
   ok(
     "what's already saved wins over the time log",
-    startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a1", text: "Exercised", v: 1 }, { aim: "a2", text: "In bed on time", v: 0 }] } }, { focusesById: byId, entries }).join() === "1,0"
+    vals(startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a1", text: "Exercised", v: 0 }, { aim: "a2", text: "In bed on time", v: 2 }] } }, { focusesById: byId, entries })) === "no,yes"
+  );
+  ok(
+    "an old Some on what is now a Yes/No starts again",
+    vals(startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a2", text: "In bed on time", v: 1, line: "close" }] } }, { focusesById: byId, entries })) === "yes," &&
+      startingAnswers({ ...tDisc, tonight: { answers: [{ aim: "a2", text: "In bed on time", v: 1, line: "close" }] } }, { focusesById: byId, entries })[1].line === "close"
   );
 
   const why = ["Tired", "Late night", "Phone", "Overbooked"];
@@ -1542,12 +1549,13 @@ console.log("\nthe mark");
   ok("with nothing to read, the guess is where the last 30 days of misses gather", guessReason(tGuess, today) === 3);
   ok("and the first section when there are none", guessReason({ shots: [] }, today) === 0);
 
-  const half = shotFrom(tDisc, [2, 0], { line: "  Stayed up late. ", reason: 1, how: "read" });
+  const half = shotFrom(tDisc, [{ value: "yes" }, { value: "no", line: "11:40" }], { line: "  Stayed up late. ", reason: 1, how: "read" });
   ok("a shot keeps each answer with what it was called", half.answers.map((a) => `${a.aim}:${a.text}:${a.v}`).join() === "a1:Exercised:2,a2:In bed on time:0");
+  ok("and its kind, its value and its own line", half.answers[1].kind === "yn" && half.answers[1].value === "no" && half.answers[1].line === "11:40" && half.answers[0].line === undefined);
   ok("half done lands in the middle, in the section read from the line", half.level === 2 && half.reason === 1 && half.reason_how === "read" && half.note === "Stayed up late.");
-  const bull = shotFrom(tDisc, [2, 2], { line: "", reason: 1, how: "guess" });
+  const bull = shotFrom(tDisc, [{ value: "yes" }, { value: "yes" }], { line: "", reason: 1, how: "guess" });
   ok("a bullseye has no section and an empty line is no note", bull.level === 0 && bull.reason === null && bull.reason_how === null && bull.note === null);
-  ok("nothing to save until every aim is answered", shotFrom(tDisc, [2, null]) === null);
+  ok("nothing to save until every aim is answered", shotFrom(tDisc, [{ value: "yes" }, { value: null }]) === null);
 
   const mk = readFileSync(new URL("../supabase/migrations/0075_the_mark.sql", import.meta.url), "utf8")
     .split("\n")
@@ -4294,6 +4302,129 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const healthSrc = readFileSync(new URL("../supabase/functions/watch/health.js", import.meta.url), "utf8");
   const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
   ok("and the watch function says so where it explains putting back", /hand_ended_at stays empty/.test(healthSrc) && /0102_watch_corrects\.sql/.test(healthSrc) && /0102_watch_corrects\.sql/.test(watchFn.slice(0, watchFn.indexOf("import "))));
+}
+
+
+{
+  console.log("\nevening checks (0103)");
+  const C = (kind, pass = {}, extra = {}) => ({ id: `c-${kind}`, text: kind, kind, pass, ...extra });
+  ok("an aim from before checks is a Yes/No that counts", (() => {
+    const c = ckNorm({ id: "a", text: " Exercised " });
+    return c.kind === "yn" && c.pass.on === "yes" && c.counts === true && c.text === "Exercised";
+  })());
+  ok("a note is reflection only unless you say", ckNorm({ text: "x", kind: "note" }).counts === false && ckNorm({ text: "x", kind: "note", counts: true, pass: { words: true } }).counts === true);
+  ok("Yes/No: the passing answer is passed, the other not", ckMark(C("yn"), "yes") === 2 && ckMark(C("yn"), "no") === 0);
+  ok("a No can be what passes (no caffeine)", ckMark(C("yn", { on: "no" }), "no") === 2 && ckMark(C("yn", { on: "no" }), "yes") === 0);
+  ok("Some is always partly", ckMark(C("ysn"), "some") === 1 && ckMark(C("ysn", { on: "no" }), "some") === 1);
+  ok("Some isn't an answer to a plain Yes/No", ckMark(C("yn"), "some") === null);
+  ok("1 to 10: the bar passes, two under is partly, lower is not", ckMark(C("scale", { min: 7 }), 7) === 2 && ckMark(C("scale", { min: 7 }), 5) === 1 && ckMark(C("scale", { min: 7 }), 4) === 0);
+  ok("a number at least: the amount passes, any is partly, none is not", ckMark(C("number", { min: 20 }), 25) === 2 && ckMark(C("number", { min: 20 }), 5) === 1 && ckMark(C("number", { min: 20 }), 0) === 0);
+  ok("a number at most: under passes, up to half again over is partly", ckMark(C("number", { max: 2 }), 2) === 2 && ckMark(C("number", { max: 2 }), 3) === 1 && ckMark(C("number", { max: 2 }), 4) === 0);
+  ok("minutes: the full amount passes, any time is partly", ckMark(C("minutes", { min: 30 }), 45) === 2 && ckMark(C("minutes", { min: 30 }), 10) === 1 && ckMark(C("minutes", { min: 30 }), 0) === 0);
+  ok("minutes with no amount: any time passes", ckMark(C("minutes"), 1) === 2 && ckMark(C("minutes"), 0) === 0);
+  ok("a time: by it passes, 15 minutes late is partly", ckMark(C("time", { by: "04:35" }), "04:32") === 2 && ckMark(C("time", { by: "04:35" }), "04:50") === 1 && ckMark(C("time", { by: "04:35" }), "05:30") === 0);
+  ok("times read round the clock: 12:20 am is late for by 10:30 pm", ckMark(C("time", { by: "22:30" }), "00:20") === 0 && ckMark(C("time", { by: "22:30" }), "22:10") === 2 && ckMark(C("time", { by: "23:50" }), "00:02") === 1);
+  ok("clockDiff is early negative, late positive", ckClock("04:30", "04:35") === -5 && ckClock("00:20", "22:30") === 110 && ckClock("21:00", "04:35") < 0);
+  ok("a time with no 'by' never scores", ckMark(C("time"), "04:30") === null && !ckScores(C("time")));
+  ok("pick one: a passing choice passes, the rest don't", ckMark(C("choice", { on: ["Home"] }, { options: ["Home", "Out"] }), "Home") === 2 && ckMark(C("choice", { on: ["Home"] }, { options: ["Home", "Out"] }), "Out") === 0);
+  ok("a choice with nothing passing is reflection only", !ckScores(C("choice", { on: [] }, { options: ["A", "B"] })));
+  ok("a passing choice that isn't one of the choices is dropped", ckNorm(C("choice", { on: ["Gone"] }, { options: ["A"] })).pass.on.length === 0);
+  ok("a note that counts passes once written", ckMark({ text: "n", kind: "note", counts: true, pass: { words: true } }, "Saw it") === 2 && ckMark({ text: "n", kind: "note", counts: true, pass: { words: true } }, "  ") === null);
+  ok("a blank answer is no answer", !ckAnswered(C("number"), null) && !ckAnswered(C("number"), "") && ckAnswered(C("number"), 0) && !ckAnswered(C("yn"), ""));
+
+  const three = [C("yn"), C("scale", { min: 7 }), { id: "r", text: "Examen", kind: "note" }];
+  ok("reflection-only checks never hold the arrow back", ckAll(three, ["yes", 8, null]) && ckLevel(three, ["yes", 8, null]) === 0);
+  ok("every check that scores must be answered", ckLevel(three, ["yes", null, "words"]) === null);
+  ok("the ring is the share passed", ckLevel([C("yn"), C("yn")], ["yes", "no"]) === 2 && ckLevel([C("ysn"), C("yn")], ["some", "yes"]) === 1);
+  ok("nothing that scores, no ring", ckLevel([{ text: "n", kind: "note" }], ["x"]) === null && ckLevel([], []) === null);
+  ok("a focus that counts toward it is one more check", ckLevel([C("yn")], ["yes"], [0]) === 2 && ckShare([C("yn")], ["no"], [1]) === 0.5);
+  ok("a target with no checks of its own takes the focus's ring", ckLevel([], [], [ckShareOfLevel(1)]) === 1 && ckLevel([], [], [ckShareOfLevel(0)]) === 0);
+  ok("each ring's share lands back in that ring", [0, 1, 2, 3, 4, 5].every((k) => ckLevelOfShare(ckShareOfLevel(k)) === k));
+  ok("the old Yes/Some/No thresholds hold", ckLevelOfShare(0.75) === 1 && ckLevelOfShare(0.5) === 2 && ckLevelOfShare(0.25) === 3 && ckLevelOfShare(0.01) === 4 && ckLevelOfShare(0) === 5);
+
+  ok("what passes reads plainly", ckPassText(C("scale", { min: 7 })) === "7 or more" && ckPassText(C("time", { by: "04:35" })) === "By 4:35 am" && ckPassText(C("yn", { on: "no" })) === "No passes" && ckPassText({ text: "n", kind: "note" }) === "Reflection only");
+  ok("and so do answers", ckValueText(C("scale"), 8) === "8/10" && ckValueText(C("time"), "22:05") === "10:05 pm" && ckValueText(C("number", {}, { unit: "pages" }), 12) === "12 pages" && ckValueText(C("yn"), "yes") === "Yes");
+  ok("midnight and noon read right", ckClockText("00:15") === "12:15 am" && ckClockText("12:00") === "12:00 pm");
+
+  const entryRow = ckEntry(C("number", { min: 10 }, { unit: "pages" }), "12", " good ");
+  ok("a saved answer keeps kind, value, mark, unit and line", entryRow.kind === "number" && entryRow.value === 12 && entryRow.v === 2 && entryRow.unit === "pages" && entryRow.line === "good" && entryRow.counts === true);
+  ok("an old answer reads as the Yes/Some/No it was", ckLegacy({ v: 2 }) === "yes" && ckLegacy({ v: 1 }) === "some" && ckLegacy({ v: 0 }) === "no" && ckLegacy({ value: 7, v: 2 }) === 7);
+  const read = answersOf({ answers: [{ aim: "a", text: "Ex", v: 1 }, { aim: "b", text: "Up by", kind: "time", value: "04:40", v: 1, line: "late" }, { focus_goal: "fg", text: "Win by win", level: 1, v: 1 }] });
+  ok("a shot's answers read old and new alike", read[0].kind === "ysn" && read[0].value === "some" && read[1].value === "04:40" && read[1].line === "late" && read[2].kind === "focus" && read[2].level === 1);
+  ok("and say what they were", answerText(read[0]) === "Some" && answerText(read[1]) === "4:40 am" && answerText(read[2]) === "Inner");
+
+  const local = new Date(2026, 10, 2, 4, 32);
+  ok("Up by fills from I'm up", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { dayPlan: { woke_at: local.toISOString() } }) === "04:32");
+  ok("or from the night's sleep the time log has", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 4, 50).toISOString() }, { category: "Sleep", tags: ["Sleep"], is_nap: true, ended_at: new Date(2026, 10, 2, 11, 0).toISOString() }]) === "04:50");
+  ok("an afternoon nap isn't when you got up", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 15, 0).toISOString() }]) === null);
+  const drawFocus = { id: "f2", categories: ["Drawing"] };
+  const drawLog = [{ tags: ["Drawing"], duration_minutes: 40 }];
+  ok("minutes with a focus fill from the time log", ckAuto({ text: "Drew", kind: "minutes", focus_id: "f2" }, { focusesById: new Map([["f2", drawFocus]]), entries: drawLog, focusMinutes }) === 40);
+  ok("nothing logged leaves it blank, never zero", ckAuto({ text: "Drew", kind: "minutes", focus_id: "f2" }, { focusesById: new Map([["f2", drawFocus]]), entries: [], focusMinutes }) === null);
+
+  ok("a tap's ring comes from how far out it is", levelAtSpot(0, 0) === 0 && levelAtSpot(0, -20) === 1 && levelAtSpot(30, 30) === 2 && levelAtSpot(40, 40) === 3 && levelAtSpot(0, 79) === 4 && levelAtSpot(0, 90) === 5);
+  ok("a tap past the miss band comes back onto it", Math.hypot(clampSpot(200, 0).x, clampSpot(200, 0).y) <= 92.01 && clampSpot(10, 5).x === 10);
+  ok("a ring button's spot is in that ring", [0, 1, 2, 3, 4, 5].every((k) => levelAtSpot(ringSpot(k).x, ringSpot(k).y) === k));
+  ok("1–10 keeps a 1–5 for every older reader", ckToFive(1) === 1 && ckToFive(2) === 1 && ckToFive(7) === 4 && ckToFive(10) === 5 && ckToFive(null) === null);
+  ok("an older day's 1–5 shows on the 1–10", ckTenOf({ mood: 3 }, "mood") === 6 && ckTenOf({ mood: 3, mood_10: 5 }, "mood") === 5 && ckTenOf({}, "stress") === null);
+
+  console.log("\narrows on the week's focus (0103)");
+  ok("a focus's arrow is placed unless it lands by checks", fLandsBy({}) === "placed" && fLandsBy({ lands_by: "checks" }) === "checks");
+  ok("an old check-in reads as moved or not", fCheckinLevel({ moved: true }) === 1 && fCheckinLevel({ moved: false }) === 5 && fCheckinLevel(true) === 1);
+  ok("a new one by its ring", fCheckinLevel({ moved: true, level: 3 }) === 3 && fCheckinLevel({ moved: true, level: 0 }) === 0);
+  const placedShot = checkinShot("g", "2026-11-02", { level: 2, spot_x: 10, spot_y: -38, note: "close" });
+  ok("an arrow you placed sits where you put it", placedShot.x === 10 && placedShot.y === -38 && placedShot.level === 2 && placedShot.note === "close");
+  ok("one landed by checks gets a steady spot in its ring", (() => {
+    const s = checkinShot("g", "2026-11-02", { level: 2 });
+    return JSON.stringify({ x: s.x, y: s.y }) === JSON.stringify(placement("g:2026-11-02", 2, null));
+  })());
+  const arrow = fPlaced({ x: 0, y: -22 }, "  pretty good ");
+  ok("placing makes the ring from the spot and keeps a note", arrow.level === 1 && arrow.spot_y === -22 && arrow.note === "pretty good" && arrow.lands === "placed");
+  ok("a placed spot past the band is pulled in", Math.hypot(fPlaced({ x: 0, y: 300 }).spot_x, fPlaced({ x: 0, y: 300 }).spot_y) <= 92.01 && fPlaced({ x: 0, y: 300 }).level === 5);
+  const upBy = [{ id: "u", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" }];
+  const byChecks = fChecksArrow(upBy, [{ value: "04:30" }]);
+  ok("a focus that lands by checks: up at 4:30 is a bullseye", byChecks.level === 0 && byChecks.lands === "checks" && byChecks.spot_x === null && byChecks.answers[0].value === "04:30");
+  ok("and waits until its checks are answered", fChecksArrow(upBy, [{ value: null }]) === null);
+  ok("its checks come in order, retired ones left out", fChecksFor("g", [{ goal_id: "g", id: "2", text: "b", position: 1 }, { goal_id: "g", id: "1", text: "a", position: 0 }, { goal_id: "g", id: "x", text: "x", retired_on: "2026-11-01" }, { goal_id: "h", id: "h", text: "h" }]).map((c) => c.id).join() === "1,2");
+  ok("what a focus counts toward", fToward({ node_id: "n" })?.kind === "goal" && fToward({ quest_id: "q" })?.kind === "quest" && fToward({ lesson_id: "l" })?.id === "l" && fToward({}) === null);
+  const weekGoals = [
+    { id: "w1", title: "Win by win", node_id: "disc", position: 0 },
+    { id: "w2", title: "Draw daily", node_id: "skill", position: 1 },
+    { id: "w3", title: "Plugin hours", quest_id: "plugin", position: 2 },
+  ];
+  const weekIns = [
+    { goal_id: "w1", date: "2026-11-02", moved: true, level: 1 },
+    { goal_id: "w2", date: "2026-11-01", moved: true, level: 0 },
+    { goal_id: "w3", date: "2026-11-02", moved: false, level: 5 },
+  ];
+  const disc = { kind: "goal", ref: { id: "disc" } };
+  ok("a target picks up tonight's arrow from a focus that counts toward it", (() => {
+    const l = fLinked(disc, weekGoals, weekIns, "2026-11-02");
+    return l.length === 1 && l[0].goal.id === "w1" && l[0].level === 1;
+  })());
+  ok("but not another day's, nor another target's", fLinked({ kind: "goal", ref: { id: "skill" } }, weekGoals, weekIns, "2026-11-02").length === 0 && fLinked({ kind: "quest", ref: { id: "disc" } }, weekGoals, weekIns, "2026-11-02").length === 0);
+  ok("a quest's focus counts toward the quest, miss and all", fLinked({ kind: "quest", ref: { id: "plugin" } }, weekGoals, weekIns, "2026-11-02")[0]?.level === 5);
+  const tgt = { aims: [{ id: "a1", text: "Exercised" }] };
+  const withFocus = shotFrom(tgt, [{ value: "yes" }], { linked: [{ goal: weekGoals[0], level: 1 }] });
+  ok("the focus's arrow is saved in the shot, after the checks", withFocus.answers.length === 2 && withFocus.answers[1].focus_goal === "w1" && withFocus.answers[1].level === 1 && withFocus.level === 1);
+  ok("and never holds the shot back", tonightLevel(tgt, [{ value: null }], [{ goal: weekGoals[0], level: 0 }]) === null);
+  ok("a target of only a focus lands where the focus did", tonightLevel({ aims: [] }, [], [{ goal: weekGoals[0], level: 2 }]) === 2);
+
+  const qs = quickShot({ aims: [{ id: "u", text: "Up by", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { id: "d", text: "Drew", kind: "yn" }] }, 1, [{ value: "04:20" }, { value: null }], { reason: 2, how: "guess" });
+  ok("the short evening's one tap sets the ring for the whole target", qs.level === 2 && qs.answers[0].whole && qs.answers[0].text === WHOLE && qs.answers[0].value === "some" && quickOf(qs) === 1);
+  ok("and keeps what the day answered, without counting it or making the rest up", qs.answers.length === 2 && qs.answers[1].aim === "u" && qs.answers[1].counts === false);
+  ok("a quick bullseye has no section; no tap, no shot", quickShot({ aims: [] }, 2, [], { reason: 1 }).reason === null && quickShot({ aims: [] }, null) === null && quickOf({ answers: [{ aim: "a", v: 2 }] }) === null);
+  const sql = readFileSync(new URL("../supabase/migrations/0103_evening_checks.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok("0103 only adds: nothing dropped, deleted or rewritten", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b|\balter\s+column\b|\brename\b/i.test(sql));
+  ok("0103 adds columns only with if not exists", (sql.match(/add column(?! if not exists)/g) ?? []).length === 0);
+  ok("existing aims become Yes/No checks that count", /add column if not exists kind text not null default 'yn'/.test(sql) && /add column if not exists counts boolean not null default true/.test(sql));
+  ok("a focus's checks are yours, on your own goal", /alter table public\.focus_checks enable row level security/.test(sql) && /g\.id = goal_id and g\.user_id = auth\.uid\(\)/.test(sql) && /revoke all on public\.focus_checks from anon/.test(sql));
+  ok("a focus's quest and lesson must be yours", /as restrictive\s+for insert/.test(sql) && /as restrictive\s+for update/.test(sql) && (sql.match(/q\.user_id = auth\.uid\(\)/g) ?? []).length === 2);
+  ok("a check-in's spot stays on the target", /spot_x \* spot_x \+ spot_y \* spot_y <= 97 \* 97/.test(sql));
+  ok("the 1–10 feelings and the notes", ["mood_10", "stress_10"].every((c) => sql.includes(`add column if not exists ${c} smallint`)) && ["god_note", "mood_note", "stress_note"].every((c) => sql.includes(`add column if not exists ${c} text`)));
 }
 
 
