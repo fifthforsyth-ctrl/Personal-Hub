@@ -97,6 +97,7 @@ nodes(id, title text, description text, tracking_method 'note'|'checkbox'|'count
 node_edges(child_id, parent_id) — the goal tree (the goal wheel). progress_logs(node_id, amount numeric, created_at) — counter progress.
 focus_goals(id, week_start date (a Sunday), title text, node_id uuid, review text, reviewed_at timestamptz) — the few things chosen to focus on each week, set on Sundays.
 focus_checkins(goal_id, date date, moved boolean) — whether a focus goal moved forward that day.
+focus_notes(id, goal_id, date date, text text, created_at timestamptz) — notes he wrote about a focus goal, any day; a goal kept from last week points back at last week's row through focus_goals.carried_from, so a focus's earlier notes sit under those earlier goal ids.
 
 Notes and study (the Board)
 study_notes(id, title text, body text, excerpt text, note_kind text 'insight'|'thought'|'revelation'|'counsel'|'resolve'|'motivation'|'question', source_kind 'scripture'|'conference'|'other', source_ref text, studied_on date, created_at timestamptz, parent_note_id uuid, obsidian_uid text, gist text, ai_tags text[], shelf_keys text[], shelf_people text[], pinned boolean)

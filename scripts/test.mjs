@@ -166,6 +166,7 @@ import {
   overnightProblem,
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
+import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay } from "../src/lib/focus.js";
 import {
   buildMirror,
   lastWeekStart,
@@ -3270,6 +3271,85 @@ console.log("\napple watch");
   ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
   ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
   ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
+}
+
+{
+  console.log("\nthe week's focus as small targets (0101)");
+  const wk = "2026-11-01";
+  const goals = [
+    { id: "g1", title: "Patience" },
+    { id: "g2", title: "Exercise" },
+  ];
+  const checkins = [
+    { goal_id: "g1", date: "2026-11-03", moved: false },
+    { goal_id: "g1", date: "2026-11-01", moved: true },
+    { goal_id: "g1", date: "2026-10-31", moved: true }, // last week
+    { goal_id: "g1", date: "2026-11-08", moved: true }, // next week
+    { goal_id: "gone", date: "2026-11-02", moved: true }, // not this week's goal
+    { goal_id: "g2", date: "2026-11-02T00:00:00", moved: true },
+  ];
+  const shots = weekShots(goals, checkins, wk);
+  const radius = (s) => Math.hypot(s.x, s.y);
+  const g1 = shots.g1;
+  ok("every goal this week gets its own list of marks", Object.keys(shots).join() === "g1,g2", JSON.stringify(Object.keys(shots)));
+  ok("only this week's check-ins become marks", g1.length === 2 && shots.gone === undefined, JSON.stringify(g1.map((s) => s.date)));
+  ok("marks run oldest first, so the latest is the one lit", g1.map((s) => s.date).join() === "2026-11-01,2026-11-03", JSON.stringify(g1.map((s) => s.date)));
+  ok("a day that moved it lands in the inner ring", g1[0].level === MOVED_LEVEL && MOVED_LEVEL === 1 && radius(g1[0]) >= LEVELS[1].r0 - 0.2 && radius(g1[0]) <= LEVELS[1].r1 + 0.2, JSON.stringify(g1[0]));
+  ok("a 'not today' lands in the miss band", g1[1].level === NOT_TODAY_LEVEL && NOT_TODAY_LEVEL === 5 && radius(g1[1]) >= LEVELS[5].r0 - 0.2 && radius(g1[1]) <= LEVELS[5].r1 + 0.2, JSON.stringify(g1[1]));
+  ok("a mark's id is the goal and the day", g1[0].id === "g1:2026-11-01", g1[0].id);
+  ok("a mark sits where the Mark would put it, the same every time", JSON.stringify(placement("g1:2026-11-01", 1, null)) === JSON.stringify({ x: g1[0].x, y: g1[0].y }) && JSON.stringify(checkinShot("g1", "2026-11-01", true)) === JSON.stringify(g1[0]));
+  ok("a timestamp-shaped date still lands on its day", shots.g2.length === 1 && shots.g2[0].date === "2026-11-02", JSON.stringify(shots.g2));
+  ok("a goal nobody answered has no marks", weekShots([{ id: "g3" }], [], wk).g3.length === 0);
+  ok("no goals, no marks", JSON.stringify(weekShots(null, checkins, wk)) === "{}");
+  ok("two answers for one day keep the last", weekShots([{ id: "a" }], [{ goal_id: "a", date: wk, moved: true }, { goal_id: "a", date: wk, moved: false }], wk).a.map((s) => s.level).join() === "5");
+}
+
+{
+  console.log("\na focus's earlier weeks (0101)");
+  const all = [
+    { id: "w3", carried_from: "w2" },
+    { id: "w2", carried_from: "w1" },
+    { id: "w1", carried_from: null },
+    { id: "other", carried_from: null },
+  ];
+  ok("a kept focus walks back through every week it was carried", lineageIds("w3", all).join() === "w3,w2,w1", JSON.stringify(lineageIds("w3", all)));
+  ok("a goal row works as well as its id", lineageIds({ id: "w2", carried_from: "w1" }, all).join() === "w2,w1");
+  ok("a focus set fresh this week is only itself", lineageIds("w1", all).join() === "w1");
+  ok("other goals never join the chain", !lineageIds("w3", all).includes("other"));
+  ok("a removed earlier week ends the chain there", lineageIds("b", [{ id: "b", carried_from: "a" }]).join() === "b");
+  ok("a goal not in the list yet still counts as itself", lineageIds({ id: "new", carried_from: "w2" }, all).join() === "new,w2,w1", JSON.stringify(lineageIds({ id: "new", carried_from: "w2" }, all)));
+  ok("a loop between two weeks stops instead of hanging", lineageIds("x", [{ id: "x", carried_from: "y" }, { id: "y", carried_from: "x" }]).join() === "x,y");
+  ok("a goal pointing at itself is just itself", lineageIds("s", [{ id: "s", carried_from: "s" }]).join() === "s");
+  const long = Array.from({ length: 80 }, (_, i) => ({ id: `n${i}`, carried_from: i < 79 ? `n${i + 1}` : null }));
+  const walked = lineageIds("n0", long);
+  ok("the chain reaches back a year and no further", walked.length === LINEAGE_WEEKS && LINEAGE_WEEKS === 52 && walked[0] === "n0" && walked[51] === "n51", walked.length);
+  ok("nothing given, nothing walked", lineageIds(null, all).length === 0 && lineageIds("w1", null).join() === "w1");
+}
+
+{
+  console.log("\nnotes on a focus (0101)");
+  const notes = [
+    { id: "a", created_at: "2026-10-28T09:00:00+00:00" },
+    { id: "c", created_at: "2026-11-02T08:00:00+00:00" },
+    { id: "b", created_at: "2026-11-01T20:00:00+00:00" },
+  ];
+  ok("notes read newest first", newestFirst(notes).map((n) => n.id).join() === "c,b,a");
+  ok("sorting leaves the list it was given alone", notes[0].id === "a");
+  ok("a note loses the blank space round it but keeps its own lines", cleanNote("  first line\r\nsecond  \n\n") === "first line\nsecond", JSON.stringify(cleanNote("  first line\r\nsecond  \n\n")));
+  ok("an empty note is nothing to save", cleanNote("   \n ") === "" && cleanNote(null) === "");
+  ok("a note stops at the 2000 characters the table allows", cleanNote("x".repeat(2500)).length === 2000);
+  ok("the cap counts characters, not halves of an emoji", Array.from(cleanNote("😀".repeat(2100))).length === 2000);
+  ok("today's note says today", noteDay("2026-11-02", "2026-11-02") === "Today");
+  ok("yesterday's says yesterday", noteDay("2026-11-01", "2026-11-02") === "Yesterday");
+  ok("an older note shows its date", /Oct/.test(noteDay("2026-10-27", "2026-11-02")), noteDay("2026-10-27", "2026-11-02"));
+  const mig = readFileSync(new URL("../supabase/migrations/0101_focus_notes.sql", import.meta.url), "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n");
+  ok("the notes migration only adds", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b|\balter\s+table\s+public\.focus_(goals|checkins)\b/i.test(mig));
+  ok("notes are kept to your own rows on your own goals", /enable row level security/.test(mig) && /g\.id = goal_id and g\.user_id = auth\.uid\(\)/.test(mig));
+  ok("removing a goal takes its notes with it", /references public\.focus_goals\(id\) on delete cascade/.test(mig));
+  ok("Ask's schema notes know focus_notes", readFileSync(new URL("../supabase/functions/ask/index.ts", import.meta.url), "utf8").includes("focus_notes(id, goal_id, date date, text text"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
