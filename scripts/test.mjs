@@ -3845,7 +3845,10 @@ console.log("\napple watch");
   ok("an emptied box keeps nothing", s1.getItem(key("g")) === null);
   ok(
     "saving clears the kept copy itself and leaves newer typing in the box",
-    /dropSavedDraft\(goal\.id, sent\)/.test(sheetSrc) && /setDraft\(\(cur\) => \(cur === sent \? "" : cur\)\)/.test(sheetSrc) && !/setDraft\(""\)/.test(sheetSrc)
+    /await saveNote\(userId, \{ goalId: goal\.id, date, sent: draft \}\)/.test(sheetSrc) &&
+      /dropSavedDraft\(goalId, sent, store\)/.test(sheetSrc) &&
+      /setDraft\(\(cur\) => draftAfterSave\(cur, sent, Boolean\(row\)\)\)/.test(sheetSrc) &&
+      !/setDraft\(""\)/.test(sheetSrc)
   );
 
   // Saturday's half-written note, after the focus is kept on Sunday.
@@ -3878,28 +3881,42 @@ console.log("\napple watch");
   ok("both weeks' notes load, newest first", (await shown()) === "n1,n2");
   const first = deleteLater(n1);
   ok("a note deleted a moment ago stays gone when the sheet is opened again", (await shown()) === "n2" && deleted.length === 0);
+  // A sheet opened near the end of the 6 seconds: the database reads its list
+  // while the note is still there, the delete goes through, then the list arrives.
+  const readEarly = inDb;
+  const fetchNotes = standIns.fetchFocusNotes;
+  let answer;
+  standIns.fetchFocusNotes = () => new Promise((r) => (answer = () => r(readEarly)));
+  const late = loadNotes("u", "w2");
   await first.run();
+  await new Promise((r) => setTimeout(r));
+  answer();
+  const lateIds = (await late).notes.map((n) => n.id).join();
+  standIns.fetchFocusNotes = fetchNotes;
   ok("once Undo has gone it's deleted for real", deleted.join() === "n1" && (await shown()) === "n2");
+  ok("a list read just before the delete went through, arriving after it, still leaves the note out", lateIds === "n2", lateIds);
   inDb = [n1, n2];
-  ok("nothing is held back after its delete has run", (await shown()) === "n1,n2");
+  ok("a note deleted for real never comes back in a list, however late it was read", (await shown()) === "n2");
+  inDb = [n2];
 
   const back = [];
   const stop = onNoteBack((note) => back.push(note.id));
   const second = deleteLater(n2);
-  ok("hidden while Undo is offered", (await shown()) === "n1");
+  ok("hidden while Undo is offered", (await shown()) === "");
   second.onUndo();
   ok("Undo reaches the sheet on screen, even one opened after the delete", back.join() === "n2");
-  ok("and a sheet opened after Undo shows the note again", (await shown()) === "n1,n2");
+  ok("and a sheet opened after Undo shows the note again", (await shown()) === "n2");
   stop();
   deleteLater(n1).onUndo();
   ok("a closed sheet hears nothing", back.join() === "n2");
   standIns.deleteFocusNote = async () => {
     throw new Error("offline");
   };
-  const third = deleteLater(n1);
+  const third = deleteLater(n2);
+  const hiddenFirst = (await shown()) === "";
   const failed = await third.run().then(() => false, () => true);
-  ok("a delete that fails lets the note show again", failed && (await shown()) === "n1,n2");
-  ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(\(note\) =>/.test(sheetSrc));
+  ok("a delete that fails lets the note show again", hiddenFirst && failed && (await shown()) === "n2");
+  ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(putBack\)/.test(sheetSrc));
   delete globalThis.__focusSheetStandIns;
 
   // The strip's titles: whole goals on a phone at 390, and on a desk.
@@ -3974,6 +3991,157 @@ console.log("\napple watch");
     const r = applyOverrides(loaded(90, [{ ...tasks[0], status: true }, tasks[1]]), new Map([tick("task", "t1", false, 100)]));
     return status(r.data, "t1") === false && r.data.tasks[0].completed_at === null;
   })());
+}
+
+{
+  console.log("\na focus note still saving when its sheet opens again, and whole titles on a 375 phone");
+  // Built the same way as the block above (the same bundle, so the same
+  // module and its sets), with only the database and storage stood in for.
+  const { build } = await import("esbuild");
+  const sheetPath = fileURLToPath(new URL("../src/components/focus/FocusSheet.jsx", import.meta.url));
+  const sheetSrc = readFileSync(sheetPath, "utf8");
+  const standIns = (globalThis.__focusSheetStandIns = {});
+  const keepReal = /\/lib\/(focus|planDates)$/;
+  const built = await build({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = sheetSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            const lines = names.map((n) => `export const ${n} = (...a) => globalThis.__focusSheetStandIns[${JSON.stringify(n)}]?.(...a);`);
+            return { contents: [...lines, "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { readDraft, keepDraft, saveNote, onNoteLanded, withNote, draftAfterSave } = await import(
+    `data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`
+  );
+  const phone = (init = {}) => {
+    const m = new Map(Object.entries(init));
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k) };
+  };
+  const key = (id) => `hub.focus-note-draft.${id}`;
+  // The database holds each insert until the test lets it land, or fail.
+  const inserts = [];
+  standIns.addFocusNote = (_, n) =>
+    new Promise((resolve, reject) => {
+      const row = { id: `s${inserts.length}`, goal_id: n.goalId, date: n.date, text: n.text, created_at: `2026-11-02T18:0${inserts.length}:00Z` };
+      inserts.push({ n, land: () => resolve(row), fail: () => reject(new Error("offline")) });
+    });
+  const heard = [];
+  const stopHearing = onNoteLanded((e) => heard.push(e));
+  const D = "2026-11-02";
+
+  // Tap Save, swipe the sheet closed, open it again before the note lands.
+  const lunch = "Packed lunch the night before";
+  const s1 = phone();
+  keepDraft("g5", lunch, s1);
+  const saving = saveNote("u", { goalId: "g5", date: D, sent: lunch }, s1);
+  ok("a sheet opened while its note is saving leaves that note out of the box, so it can't be saved twice", readDraft({ id: "g5" }, s1) === "");
+  ok("the phone's copy is kept until it lands, in case it doesn't", s1.getItem(key("g5")) === lunch);
+  ok("newer typing in the box is read as usual meanwhile", readDraft({ id: "g5" }, phone({ [key("g5")]: lunch + ". And water" })) === lunch + ". And water");
+  ok("another focus's draft is read as usual meanwhile", readDraft({ id: "g2" }, phone({ [key("g2")]: lunch })) === lunch);
+  keepDraft("g5", "", s1); // the reopened sheet's empty box
+  inserts[0].land();
+  const row = await saving;
+  ok("when it lands, every sheet on screen hears which focus, what was sent and the saved note", heard.length === 1 && heard[0].goalId === "g5" && heard[0].sent === lunch && heard[0].row === row && row.text === lunch, JSON.stringify(heard));
+  keepDraft("g5", lunch, s1);
+  ok("after it lands the same words typed again are a draft like any other", readDraft({ id: "g5" }, s1) === lunch);
+  keepDraft("g5", "", s1);
+
+  const s2 = phone();
+  keepDraft("g5", "Fruit for dessert", s2);
+  const quiet = saveNote("u", { goalId: "g5", date: D, sent: "Fruit for dessert" }, s2);
+  inserts[1].land();
+  await quiet;
+  ok("a note that saves with no sheet open leaves no copy behind", s2.getItem(key("g5")) === null);
+
+  // It doesn't save, after a sheet opened meanwhile emptied the box.
+  const s3 = phone();
+  keepDraft("g5", "Walk after dinner", s3);
+  const failing = saveNote("u", { goalId: "g5", date: D, sent: "Walk after dinner" }, s3);
+  keepDraft("g5", "", s3);
+  inserts[2].fail();
+  const threw = await failing.then(() => false, () => true);
+  ok("a note that doesn't save is a draft again, even after a sheet opened meanwhile emptied the box", threw && readDraft({ id: "g5" }, s3) === "Walk after dinner");
+  ok("and the sheets on screen hear it didn't", heard.at(-1).row === null && heard.at(-1).sent === "Walk after dinner");
+  const s4 = phone();
+  keepDraft("g5", "Walk after dinner", s4);
+  const failing2 = saveNote("u", { goalId: "g5", date: D, sent: "Walk after dinner" }, s4);
+  keepDraft("g5", "Stretch before bed", s4);
+  inserts[3].fail();
+  await failing2.catch(() => {});
+  ok("but it doesn't write over what's been typed since", s4.getItem(key("g5")) === "Stretch before bed");
+
+  // Two notes on their way for the same focus.
+  const s5 = phone();
+  const one = saveNote("u", { goalId: "g7", date: D, sent: "One" }, s5);
+  const two = saveNote("u", { goalId: "g7", date: D, sent: "Two" }, s5);
+  keepDraft("g7", "Two", s5);
+  inserts[4].land();
+  await one;
+  ok("with two notes saving, the first landing doesn't let the second back into the box", readDraft({ id: "g7" }, s5) === "");
+  inserts[5].land();
+  await two;
+  ok("and once both have landed nothing is left behind", s5.getItem(key("g7")) === null);
+  stopHearing();
+  const before = heard.length;
+  const after = saveNote("u", { goalId: "g7", date: D, sent: "Three" }, phone());
+  inserts[6].land();
+  await after;
+  ok("a closed sheet hears nothing", heard.length === before);
+  delete globalThis.__focusSheetStandIns;
+
+  // What an open sheet does with it.
+  const list = { chain: [{ id: "w2" }, { id: "w1" }], notes: [{ id: "old", goal_id: "w1", created_at: "2026-10-28T13:00:00Z" }] };
+  const landed = { id: "s9", goal_id: "w2", date: D, text: lunch, created_at: "2026-11-02T18:00:00Z" };
+  ok("the saved note goes to the top of the list in a sheet that opened before it landed", withNote(list, landed).notes.map((n) => n.id).join() === "s9,old");
+  ok("a list read after it saved doesn't get it twice", withNote(withNote(list, landed), landed).notes.length === 2);
+  ok("a note from another focus leaves the list alone", withNote(list, { ...landed, goal_id: "w9" }) === list);
+  ok("with no list yet there's nothing to add it to", withNote(undefined, landed) === undefined);
+  ok("a box still holding just what was sent empties when it lands", draftAfterSave(lunch, lunch, true) === "");
+  ok("typing added after Save stays when it lands", draftAfterSave(lunch + ". And water", lunch, true) === lunch + ". And water");
+  ok("a box left empty gets the note back when it doesn't save", draftAfterSave("", lunch, false) === lunch && draftAfterSave("  ", lunch, false) === lunch);
+  ok("newer typing isn't replaced when it doesn't save", draftAfterSave("Stretch", lunch, false) === "Stretch");
+  ok(
+    "every sheet on screen hears a note land, and one with nothing loaded yet reads its list again",
+    /onNoteLanded\(\(\{ goalId, sent, row \}\) =>/.test(sheetSrc) && /if \(shown\.current\) putBack\(row\);\s*else reload\(\);/.test(sheetSrc) && /mutate\(\(d\) => withNote\(d, note\)\)/.test(sheetSrc)
+  );
+
+  // The strip's titles on the narrowest iPhones, and the "…" with room to spare.
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
+  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
+  const narrow = css.match(/@media \(max-width: (\d+)px\) \{[^}]*\.focus-strip__title \{ font-size: ([\d.]+)px; \}/);
+  const cell375 = (375 - 2 * pad - 4 * gap) / 5;
+  // At 10px, "Time developing artistic ability" fits three lines in a 67px cell, measured in the app's font.
+  ok(
+    "375-wide iPhones get 10px titles, which fit the longest real goal in three lines; 390 keeps 10.5px",
+    Boolean(narrow) && Number(narrow[1]) >= 375 && Number(narrow[1]) < 390 && Number(narrow[2]) === 10 && cell375 >= 67,
+    JSON.stringify([narrow?.[1], narrow?.[2], cell375])
+  );
+  const title = css.slice(css.indexOf(".focus-strip__title {"));
+  const bleed = Number(title.match(/margin-inline: -(\d+)px;/)?.[1]);
+  const padIn = Number(title.match(/padding-inline: (\d+)px;/)?.[1]);
+  const wider = Number(title.match(/max-width: calc\(100% \+ (\d+)px\);/)?.[1]);
+  // Chrome's clamped "…" was measured up to 3px past the end of a line.
+  ok(
+    "the title box reaches a pixel past where a clamped \"…\" can sit, and not into the next cell",
+    bleed === padIn && wider === 2 * bleed && bleed >= 3 + 1 && bleed <= gap,
+    JSON.stringify({ bleed, padIn, wider, gap })
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
