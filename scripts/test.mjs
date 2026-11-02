@@ -5113,7 +5113,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     M.tonightShot(S, { answers: [{ value: "yes" }, { value: 12 }], line: "", pick: { k: 3, how: "yours" } }).reason === null && M.tonightShot(S, { answers: [{ value: "yes" }, { value: null }], line: "" }) === null
   );
 
-  const ascentSrc = readFileSync(new URL("../src/pages/Ascent.jsx", import.meta.url), "utf8");
+  // The Range's edits live in the Targets tab's shared hook now (PR 3).
+  const ascentSrc = readFileSync(new URL("../src/components/targets/useLadder.jsx", import.meta.url), "utf8");
   const saveFrom = ascentSrc.slice(ascentSrc.indexOf("const saveTargetFrom"), ascentSrc.indexOf("saveTargetSetup(userId"));
   ok("taking out a check answered only tonight retires it: every shot counts, loosed or not", /data\?\.marks\?\.shots/.test(saveFrom) && !/t\.shots\.flatMap/.test(saveFrom));
   const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
@@ -5409,6 +5410,165 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 // (end of before you bank it)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 1) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: the ladder, notes and quotes");
+  const L = await import("../src/lib/ladder.js");
+  const goals = [{ id: "g1", title: "Highly skilled" }, { id: "g2", title: "Highly in tune with God" }];
+  const edges = [{ parent_id: "g1", child_id: "n1" }, { parent_id: "n1", child_id: "n2" }];
+  const quests = [
+    { id: "q1", title: "Build the best Premiere Pro plugin", status: "on", goal_id: "g1", position: 0 },
+    { id: "q2", title: "Old quest", status: "done", goal_id: null, position: 1 },
+    { id: "m1", title: "Quit caffeine", status: "on", lesson_id: "l1", goal_id: "g2", position: 2 },
+  ];
+  const lessons = [
+    { id: "l1", title: "Stop drinking caffeine", status: "learning", goal_id: "g2", position: 0 },
+    { id: "l2", title: "More integrity", status: "set_aside", goal_id: null, position: 1 },
+  ];
+  const focusGoals = [
+    { id: "f1", title: "Win by win", week_start: "2026-10-18", carried_from: null, quest_id: "q1" },
+    { id: "f2", title: "Win by win", week_start: "2026-10-25", carried_from: "f1", quest_id: "q1" },
+    { id: "f3", title: "Win by win", week_start: "2026-11-01", carried_from: "f2", quest_id: "q1" },
+    { id: "f4", title: "Up at 4:30", week_start: "2026-11-01", carried_from: null, node_id: "n2" },
+  ];
+  const data = { goals, edges, quests, lessons, focusGoals };
+  const r = (ref) => L.resolveRef(ref, data);
+  ok("the mission resolves", r("mission")?.kind === "mission" && r("mission").key === "mission");
+  ok("a lifetime goal is itself", r("g1")?.kind === "goal" && r("g1").key === "g1");
+  ok("a goal further down the wheel opens its lifetime goal", r("n2")?.kind === "goal" && r("n2").key === "g1");
+  ok("a quest is itself, whatever its status", r("q1")?.kind === "quest" && r("q2")?.kind === "quest" && r("q2").key === "q2");
+  ok("a lesson's mountain opens the lesson", r("m1")?.kind === "lesson" && r("m1").key === "l1");
+  ok("a lesson by its id or lesson-<id>, set aside too", r("l1")?.key === "l1" && r("lesson-l1")?.key === "l1" && r("l2")?.kind === "lesson");
+  ok("an old week's focus opens its newest week", r("f1")?.kind === "focus" && r("f1").key === "f3" && r("f3").key === "f3");
+  ok("anything else is nothing", r("nope") === null && r("") === null && r("lesson-nope") === null && L.resolveRef("x", null) === null);
+  ok("a loop in carried_from doesn't hang", L.newestInLine("a", [{ id: "a", carried_from: "b" }, { id: "b", carried_from: "a" }]) !== null);
+  ok("the goal walk stops on a loop", L.rootGoalOf("x", goals, [{ parent_id: "y", child_id: "x" }, { parent_id: "x", child_id: "y" }]) === null);
+  ok("a goal under two parents follows the one it's drawn under (its first edge)", L.rootGoalOf("k", goals, [{ parent_id: "g2", child_id: "k" }, { parent_id: "g1", child_id: "k" }]) === "g2");
+  ok("a forked line goes to the later week", L.newestInLine("a", [{ id: "a" }, { id: "b", carried_from: "a", week_start: "2026-10-25" }, { id: "c", carried_from: "a", week_start: "2026-11-01" }]) === "c");
+
+  ok("each kind names its column", JSON.stringify(["mission", "goal", "quest", "lesson", "focus"].map((kind) => L.refOf({ kind, id: "i" }))) ===
+    JSON.stringify([{ mission: true }, { goal_id: "i" }, { quest_id: "i" }, { lesson_id: "i" }, { focus_goal_id: "i" }]));
+  ok("no id, no ref", L.refOf({ kind: "quest", id: null }) === null && L.refOf(null) === null);
+  ok("pages live under /targets", L.pathOf("mission") === "/targets/mission" && L.pathOf("quest", "q1") === "/targets/q1");
+
+  const crumbs = (t) => L.crumbsFor(t, data).map((c) => c.label).join(" › ");
+  ok("a quest's ladder line", crumbs({ kind: "quest", id: "q1" }) === "My mission › Skilled", crumbs({ kind: "quest", id: "q1" }));
+  ok("a quest serving the mission", crumbs({ kind: "quest", id: "q2" }) === "My mission");
+  ok("a focus toward a quest goes through it", crumbs({ kind: "focus", id: "f3" }) === "My mission › Skilled › Plugin", crumbs({ kind: "focus", id: "f3" }));
+  ok("a focus toward a goal down the wheel finds its lifetime goal", crumbs({ kind: "focus", id: "f4" }) === "My mission › Skilled", crumbs({ kind: "focus", id: "f4" }));
+  ok("the mission has none", L.crumbsFor({ kind: "mission" }, data).length === 0);
+
+  const items = [
+    { questId: "q1", done: false },
+    { questId: "q1", done: true },
+    { questId: "q1", heading: true, subs: [{ done: false }, { done: false }] },
+    { questId: "m1", done: false },
+  ];
+  const pills = L.questPills({ quests, lessons, camps: [{ quest_id: "q1" }, { quest_id: "q1" }, { quest_id: "m1" }], items });
+  ok("one pill per quest on and lesson learning", pills.map((p) => p.key).join() === "q1,l1", pills.map((p) => p.key).join());
+  ok("a lesson's pill keys on the lesson and counts its mountain", pills[1].kind === "lesson" && pills[1].camps === 1 && pills[1].today === 1);
+  ok("today counts what's still to do; a note counts what's under it", pills[0].today === 3 && pills[0].done === 1 && pills[0].camps === 2);
+  ok("the pill's line", L.pillLine(pills[0]) === "2 camps · 3 today" && L.pillLine({ camps: 1, today: 0 }) === "1 camp" && L.pillLine({}) === "");
+
+  ok("every kind has questions", ["mission", "goal", "quest", "lesson", "focus"].every((k) => L.REFLECT_PROMPTS[k].length >= 4));
+  ok("questions go round", L.promptFor("focus", 4) === L.promptFor("focus", 0) && L.promptFor("focus", -1) === L.REFLECT_PROMPTS.focus.at(-1));
+  ok("questions say nothing of what God expects", Object.values(L.REFLECT_PROMPTS).flat().every((q) => !/expect|should|ought|\bmust\b|worthy|\bsins?\b/i.test(q)));
+  ok("no dashes in the questions", Object.values(L.REFLECT_PROMPTS).flat().every((q) => !/[–—]| -- /.test(q)));
+  ok("the day's first question is steady", L.promptIndexFor("quest", "2026-11-02") === L.promptIndexFor("quest", "2026-11-02") && L.promptIndexFor("quest", "2026-11-02") < L.REFLECT_PROMPTS.quest.length);
+  ok("a note is trimmed and kept to 4000", L.cleanTargetNote("  hi\r\nthere  ") === "hi\nthere" && L.cleanTargetNote("x".repeat(5000)).length === 4000);
+  ok("drafts are kept per target", L.noteDraftKey({ kind: "quest", key: "q1" }) === "hub.target-note-draft.quest:q1");
+
+  const shots = [{ id: "s1", date: "2026-11-01", note: "Held the line", loosed_at: "2026-11-02T04:00:00Z", answers: [{ aim: "a", text: "Up by 4:35", v: 2, line: "4:31" }, { aim: "b", text: "x", v: 1 }] }];
+  const evening = L.eveningLines(shots);
+  ok("the evening's lines come along, read only", evening.length === 2 && evening[1].prompt === "Up by 4:35" && evening.every((e) => e.source === "evening"));
+  const tl = L.notesTimeline(
+    {
+      notes: [
+        { id: "t1", kind: "reflection", prompt: "Why?", date: "2026-11-02", text: "Because", created_at: "2026-11-02T15:00:00Z" },
+        { id: "t2", kind: "note", date: "2026-11-02", text: "Later", created_at: "2026-11-02T18:00:00Z" },
+      ],
+      focusNotes: [{ id: "fn", date: "2026-10-28", text: "From Today", created_at: "2026-10-28T12:00:00Z" }],
+      evening,
+    },
+    "2026-11-02"
+  );
+  ok("the timeline is newest first, by day", tl.map((g) => g.label).join() === "Today,Yesterday,Wed, Oct 28" || tl.map((g) => g.date).join() === "2026-11-02,2026-11-01,2026-10-28", tl.map((g) => `${g.date}:${g.label}`).join());
+  ok("and newest first within a day", tl[0].items.map((i) => i.id).join() === "t2,t1" && tl[0].items[1].kind === "reflection");
+
+  const lib = [
+    { id: "a", text: "Discipline is choosing between what you want now and what you want most.", author: "Abraham Lincoln", source: null, created_at: "2026-10-01", saved_at: null },
+    { id: "b", text: "The natural man is an enemy to God.", author: "King Benjamin", source: "Mosiah 3:19", created_at: "2026-10-05", saved_at: "2026-10-06", rating: "applies", rated_at: "2026-10-06" },
+    { id: "c", text: "Ce que l'on conçoit bien s'énonce clairement.", author: "Boileau", source: null, created_at: "2026-10-07", saved_at: null },
+  ];
+  ok("every word must match, in words, author or source", L.filterQuotes(lib, "want most").map((q) => q.id).join() === "a" && L.filterQuotes(lib, "mosiah enemy").map((q) => q.id).join() === "b");
+  ok("accents don't matter", L.filterQuotes(lib, "concoit").map((q) => q.id).join() === "c");
+  ok("an empty search finds nothing", L.filterQuotes(lib, "  ").length === 0);
+  const secs = L.pickerSections(lib, { linkedIds: ["a"], pickIds: ["c"] });
+  ok("the picker's sections, no quote twice", secs.map((s) => s.key).join() === "linked,board,picks" && secs.flatMap((s) => s.quotes.map((q) => q.id)).join() === "a,b,c", secs.map((s) => s.key).join());
+  ok("own quotes search their excerpt and people", L.filterOwnQuotes([{ id: "n", title: "x", excerpt: "Ponder the path", shelf_people: ["David A. Bednar"] }], "bednar path").length === 1);
+  const shelf = L.askShelfFor({ key: "q1abcdefgh" }, "Build the best Premiere Pro plugin", "my work");
+  ok("finding new quotes asks the Board's shelf for this target", /^ask:[a-z0-9-]{1,80}$/.test(shelf.key) && shelf.facet === "ask" && shelf.hint.includes("my work") && shelf.label.length <= 80, shelf.key);
+
+  // --- The tables (0104) -----------------------------------------------------
+  const mig = readFileSync(new URL("../supabase/migrations/0104_target_notes_and_quotes.sql", import.meta.url), "utf8");
+  const sql = mig.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  ok("0104 is purely additive", !/\b(drop|truncate|delete\s+from|update\s+public)\b/i.test(sql) && (sql.match(/alter\s+table/gi) ?? []).length === (sql.match(/alter table public\.\w+ enable row level security;/g) ?? []).length);
+  ok("0104 has a rollback", /Rollback \(SQL Editor/.test(mig) && /drop table if exists public\.quote_links;/.test(mig) && /drop table if exists public\.target_notes;/.test(mig));
+  ok("each note and link is on exactly one target", (sql.match(/num_nonnulls\(nullif\(mission, false\), goal_id, quest_id, lesson_id, focus_goal_id\) = 1/g) ?? []).length === 2);
+  ok("each link is one quote", /num_nonnulls\(quote_id, note_id\) = 1/.test(sql) && /create unique index if not exists quote_links_once/.test(sql));
+  ok("both tables are owned and closed to anon", ["target_notes", "quote_links"].every((t) => sql.includes(`alter table public.${t} enable row level security`) && sql.includes(`revoke all on public.${t} from anon, public`)));
+  ok("the policies check every id they're given", ["nodes n where n.id = goal_id", "quests q where q.id = quest_id and q.user_id = auth.uid() and q.lesson_id is null", "lessons l where l.id = lesson_id", "focus_goals f where f.id = focus_goal_id"].every((x) => sql.split(x).length - 1 === 2) &&
+    /quotes x where x\.id = quote_id/.test(sql) && /study_notes s where s\.id = note_id/.test(sql));
+  ok("only a reflection carries a question", /constraint target_notes_prompt check \(kind = 'reflection' or prompt is null\)/.test(sql));
+  ok("a removed target takes its notes and links with it", (sql.match(/on delete cascade/g) ?? []).length === 12 && !/on delete set null/.test(sql));
+
+  const api = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
+  ok("linking twice isn't an error", /error\?\.code === "23505"\) return null/.test(api.slice(api.indexOf("export async function linkQuote"))));
+  ok("the Targets functions sit outside the Mark's", api.indexOf("export async function fetchTargetNotes") < api.indexOf("export async function looseShots") || api.indexOf("export async function fetchTargetNotes") > api.indexOf("export async function readMarkLine"));
+  for (const fn of ["ask", "assistant"]) {
+    const doc = readFileSync(new URL(`../supabase/functions/${fn}/index.ts`, import.meta.url), "utf8");
+    ok(`${fn}'s schema notes know target_notes and quote_links`, doc.includes("target_notes(id, mission boolean, goal_id uuid") && doc.includes("quote_links(id, quote_id uuid, note_id uuid"));
+  }
+
+  // --- Old addresses ----------------------------------------------------------
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  ok("the Targets routes", ['path="/targets"', 'path="/targets/mission"', 'path="/targets/:ref"', 'path="/targets/camp/:id"', 'path="/targets/plans"', 'path="/targets/plans/:id"'].every((p) => app.includes(p)));
+  ok("every old Quests and Range address moves to Targets", ["/quests", "/quests/:key", "/ascent", "/ascent/:ref", "/ascent/camp/:id", "/ascent/plans", "/ascent/plans/:id"].every((p) => new RegExp(`path="${p}" element=\\{<MovedTo to="/targets`).test(app)));
+  ok("and keeps the query and state", /<Navigate to=\{`\$\{path\}\$\{search\}\$\{hash\}`\} state=\{state\} replace \/>/.test(app));
+}
+
+// (end of targets tab, part 1)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 2) =====
+// Add this part's tests directly under the line above.
+{
+}
+
+// (end of targets tab, part 2)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 3) =====
+// Add this part's tests directly under the line above.
+{
+}
+
+// (end of targets tab, part 3)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 4) =====
+// Add this part's tests directly under the line above.
+{
+}
+
+// (end of targets tab, part 4)
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

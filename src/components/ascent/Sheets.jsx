@@ -194,7 +194,8 @@ function campRows(camps) {
 }
 
 // The camps editor, for a quest's mountain and a lesson's. Taking off a camp
-// that has steps asks first, since its steps go with it when you save.
+// that's saved always asks first: everything in it goes when you save, its
+// clipboard, photos and sketches too, not only the steps that count.
 function CampsField({ rows, setRows, today, stepsIn, label, note }) {
   const confirm = useConfirm();
   const setRow = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -208,10 +209,10 @@ function CampsField({ rows, setRows, today, stepsIn, label, note }) {
   async function remove(r) {
     const n = r.id ? stepsIn?.(r.id) ?? 0 : 0;
     if (
-      n &&
+      r.id &&
       !(await confirm({
         title: `Take off “${r.title || "this camp"}”?`,
-        body: `Its ${n === 1 ? "step goes" : `${n} steps go`} with it when you save.`,
+        body: `${n ? `Its ${n === 1 ? "step goes" : `${n} steps go`} with it when you save, and its` : "Everything in it goes when you save: its steps,"} clipboard, photos and sketches.`,
         confirmLabel: "Take it off",
       }))
     )
@@ -313,7 +314,7 @@ export function QuestSheet({ quest, camps = [], stepsIn, goals, today, onSave, o
             today={today}
             stepsIn={stepsIn}
             label="Camps on the way up, first to last"
-            note="Each camp is a point on the way you'll know you've reached. The quest itself is the summit. Tap a camp on the Range for its steps."
+            note="Each camp is a point on the way you'll know you've reached. The quest itself is the summit. Tap a camp on its quest page for its steps."
           />
         ) : null}
 
@@ -383,7 +384,7 @@ export function LessonSheet({ lesson, camps = [], stepsIn, goals, today, mountai
           note={
             rows.length
               ? "Each camp is a point on the way you'll know you've reached, with steps of its own. Learning the lesson is the summit."
-              : "Give it camps and it gets a mountain on the Range, climbed the same way as a quest."
+              : "Give it camps and it gets its own, climbed the same way as a quest's."
           }
         />
         {problem && <p className="form-error">{problem}</p>}

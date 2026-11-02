@@ -14,7 +14,9 @@ import "../../styles/cork.css";
 // The picture is whatever the web had: the person, or a scene that suits the
 // words. When it won't load, the card falls back to a warm block with the
 // person's initials, so it never shows a broken image.
-export default function QuoteCard({ quote, onChange, variant = "shelf", reason }) {
+// `extra` goes in the foot beside Save and Share (a target page's Unlink,
+// the Board's Link).
+export default function QuoteCard({ quote, onChange, variant = "shelf", reason, extra = null }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
@@ -93,6 +95,7 @@ export default function QuoteCard({ quote, onChange, variant = "shelf", reason }
           {pinned ? "Unpin" : saved ? "On your board" : "Save to board"}
         </button>
         <ShareQuote quote={quote} className="qprint__save qprint__share" />
+        {extra}
       </div>
     </figure>
   );
