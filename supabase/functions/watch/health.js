@@ -117,8 +117,10 @@ const round = (v, places = 1) => {
 
 // --- Sleep -------------------------------------------------------------------------------------
 
-// One night: { date, start, end, asleep, deep, rem, core, awake, inBed }
-// (minutes; start and end are Dates). `date` is the day you woke up on.
+// One night: { date, start, end, asleep, deep, rem, core, awake, inBed,
+// bedStart } (minutes; start, end and bedStart are Dates). `start` is when
+// you fell asleep and `bedStart` when you got into bed, if that was
+// measured. `date` is the day you woke up on.
 function nightFromAggregated(row, units, tz) {
   const m = (k) => {
     const v = Number(row?.[k]);
@@ -126,6 +128,7 @@ function nightFromAggregated(row, units, tz) {
   };
   const start = parseHaeDate(row.sleepStart ?? row.inBedStart);
   const end = parseHaeDate(row.sleepEnd ?? row.inBedEnd);
+  const inBed = m("inBed") || null;
   const staged = [m("core"), m("deep"), m("rem")].some((v) => v != null);
   const asleep = m("totalSleep") ?? (staged || m("asleep") != null ? (m("core") ?? 0) + (m("deep") ?? 0) + (m("rem") ?? 0) + (m("asleep") ?? 0) : null);
   return {
@@ -139,7 +142,10 @@ function nightFromAggregated(row, units, tz) {
     awake: m("awake"),
     // The watch doesn't track time in bed, so it comes as 0: that's
     // "not measured", not "no time in bed".
-    inBed: m("inBed") || null,
+    inBed,
+    // When you got into bed, only when time in bed was measured (the
+    // iPhone's sleep schedule does that; the watch alone doesn't).
+    bedStart: inBed && row.inBedStart ? parseHaeDate(row.inBedStart) : null,
   };
 }
 
@@ -164,6 +170,7 @@ function nightsFromStages(rows, tz) {
     const start = new Date(Math.min(...span.map((s) => s.start.getTime())));
     const end = new Date(Math.max(...span.map((s) => s.end.getTime())));
     const has = (re) => g.some((s) => re.test(s.value));
+    const bed = g.filter((s) => /in ?bed/.test(s.value));
     return {
       date: localDate(end, tz),
       start,
@@ -174,6 +181,7 @@ function nightsFromStages(rows, tz) {
       core: has(/core/) ? round(mins((s) => /core/.test(s.value)), 0) : null,
       awake: has(/awake/) ? round(mins((s) => /awake/.test(s.value)), 0) : null,
       inBed: has(/in ?bed/) ? round(mins((s) => /in ?bed/.test(s.value)), 0) : null,
+      bedStart: bed.length ? new Date(Math.min(...bed.map((s) => s.start.getTime()))) : null,
     };
   });
 }
@@ -340,54 +348,132 @@ export function mergeDay(old, fresh) {
 }
 
 // --- Into the minutes log ----------------------------------------------------------------------
+//
+// You still log sleep and exercise by hand when the watch isn't linked yet
+// or didn't come along, and the watch's numbers arrive later. When they do,
+// they set your entry's times right, once:
+//
+//   * Only an entry the watch hasn't already set (watch_fixed_at empty).
+//     The import stamps watch_fixed_at whenever it sets or checks an
+//     entry's times, and on every entry it makes, so a time you change
+//     afterwards (in the morning check-in, say) is yours and stays.
+//   * Only when exactly one finished entry lines up with what the watch
+//     saw. Two Sleep entries over one night (up in the night, back to
+//     bed), or one Exercise timer holding a run and a lift, are left as
+//     you logged them.
+//   * Only when a time is off by 5 minutes or more. Closer than that, the
+//     entry is only stamped as checked.
+//   * Never so it runs into the entry before or after it: a workout you
+//     forgot to end on the watch stops where your next timer starts.
+//
+// The times you gave are kept beside the new ones (hand_started_at,
+// hand_ended_at), so a move can always be seen and put back.
 
+const FIX_MIN = 5 * 60000;
 const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 const sleepy = (e) => (e?.tags ?? []).includes("Sleep") || e?.category === "Sleep";
 const exercisey = (e) => (e?.tags ?? []).includes("Exercise") || e?.category === "Exercise";
+const ms = (v) => new Date(v).getTime();
+const iso = (t) => new Date(t).toISOString();
 
-// What one night of watch sleep does to the minutes log, given the Sleep
+// When the night began, for the Sleep entry: the moment you got into bed
+// when that was measured (closest to the "Lights out" you'd give), else
+// when you fell asleep. A bed time after you fell asleep, or more than 3
+// hours before it, isn't believed.
+export function bedtimeOf(night) {
+  const onset = ms(night.start);
+  const bed = night.bedStart ? ms(night.bedStart) : NaN;
+  return Number.isFinite(bed) && bed <= onset && onset - bed <= 3 * 3600000 ? bed : onset;
+}
+
+// The watch's times for `mine`, pulled in so they don't run into the
+// entries on either side of it (or a timer that's still going), as
+// { start, end } in ms, or null when nothing is left between them.
+function fitBetween(mine, start, end, entries, now) {
+  const s0 = ms(mine.started_at);
+  const f0 = ms(mine.ended_at);
+  let from = start;
+  let to = end;
+  for (const e of entries ?? []) {
+    if (!e || e.id === mine.id || !e.started_at) continue;
+    const s = ms(e.started_at);
+    const f = e.ended_at ? ms(e.ended_at) : now;
+    if (f <= s0 && f > from) from = f;
+    if (s >= f0 && s < to) to = s;
+  }
+  return to > from ? { start: from, end: to } : null;
+}
+
+// Off by enough to move it?
+const offBy = (mine, fit) => Math.abs(ms(mine.started_at) - fit.start) >= FIX_MIN || Math.abs(ms(mine.ended_at) - fit.end) >= FIX_MIN;
+
+// What one night of watch sleep does to the minutes log, given the
 // entries around it (started within a day of it) and now:
-//   { kind: "skip" }                   a Sleep entry already covers it
+//   { kind: "skip", why }              nothing to do
 //   { kind: "end", id, at }            a Sleep timer still running from
 //                                       that night ends when you woke
+//   { kind: "fix", id, start, end }    the one Sleep entry you logged over
+//                                       it takes the watch's times
+//   { kind: "match", id }              that entry is already within 5
+//                                       minutes: stamp it as checked
 //   { kind: "add", start, end }        nothing logged: the night goes in
 // A running Sleep timer is only ended when the night is fresh (woke up in
 // the last 18 hours) and the timer began no more than 3 hours before you
 // fell asleep, so an old forgotten timer is left to the fix list.
 export function sleepAction(night, entries, now = new Date()) {
-  const start = new Date(night.start).getTime();
-  const end = new Date(night.end).getTime();
+  const start = ms(night.start);
+  const end = ms(night.end);
   if (!(end > start) || end > now.getTime() + 5 * 60000) return { kind: "skip", why: "not over yet" };
   const sleeps = (entries ?? []).filter(sleepy);
-  const running = sleeps.find((e) => !e.ended_at && new Date(e.started_at).getTime() < end);
+  const running = sleeps.find((e) => !e.ended_at && ms(e.started_at) < end);
   if (running) {
-    const began = new Date(running.started_at).getTime();
+    const began = ms(running.started_at);
     const fresh = now.getTime() - end < 18 * 3600000;
-    if (fresh && began >= start - 3 * 3600000) return { kind: "end", id: running.id, at: new Date(end).toISOString() };
+    if (fresh && began >= start - 3 * 3600000) return { kind: "end", id: running.id, at: iso(end) };
     return { kind: "skip", why: "a Sleep timer is running" };
   }
-  const covered = sleeps.some((e) => e.ended_at && overlaps(start, end, new Date(e.started_at).getTime(), new Date(e.ended_at).getTime()));
-  if (covered) return { kind: "skip", why: "already logged" };
-  return { kind: "add", start: new Date(start).toISOString(), end: new Date(end).toISOString() };
+  const logged = sleeps.filter((e) => e.ended_at && overlaps(start, end, ms(e.started_at), ms(e.ended_at)));
+  if (logged.length > 1) return { kind: "skip", why: "more than one Sleep entry" };
+  if (logged.length === 1) {
+    const mine = logged[0];
+    if (mine.watch_fixed_at) return { kind: "skip", why: "already set by the watch" };
+    if (mine.is_nap) return { kind: "skip", why: "already logged" };
+    const fit = fitBetween(mine, bedtimeOf(night), end, entries, now.getTime());
+    if (!fit) return { kind: "skip", why: "no room" };
+    if (!offBy(mine, fit)) return { kind: "match", id: mine.id };
+    return { kind: "fix", id: mine.id, start: iso(fit.start), end: iso(fit.end) };
+  }
+  return { kind: "add", start: iso(start), end: iso(end) };
 }
 
-// A workout's Exercise entry: the one you already logged over it, or a
-// new one.
-export function workoutAction(workout, entries) {
-  const start = new Date(workout.started_at).getTime();
-  const end = new Date(workout.ended_at).getTime();
-  const mine = (entries ?? []).find((e) => {
-    if (!exercisey(e)) return false;
-    const s = new Date(e.started_at).getTime();
-    const f = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
-    return overlaps(start, end, s, f);
-  });
-  if (mine) return { kind: "link", id: mine.id };
-  return { kind: "add" };
+// A workout's Exercise entry: the one you already logged over it, or a new
+// one. `others` are the other workouts the watch knows around then, so a
+// timer holding two of them isn't fit to one.
+//   { kind: "add" }
+//   { kind: "link", id }                      linked, times left alone
+//   { kind: "link", id, match: true }         and already within 5 minutes
+//   { kind: "link", id, fix: { start, end } } and set to the watch's times
+export function workoutAction(workout, entries, others = [], now = Date.now()) {
+  const start = ms(workout.started_at);
+  const end = ms(workout.ended_at);
+  const span = (e) => [ms(e.started_at), e.ended_at ? ms(e.ended_at) : now];
+  const hits = (entries ?? []).filter((e) => exercisey(e) && overlaps(start, end, ...span(e)));
+  const mine = hits[0];
+  if (!mine) return { kind: "add" };
+  const link = { kind: "link", id: mine.id };
+  if (hits.length > 1 || !mine.ended_at || mine.watch_fixed_at) return link;
+  const [s, f] = span(mine);
+  const same = (o) => (o.external_id != null && o.external_id === workout.external_id) || (ms(o.started_at) === start && ms(o.ended_at) === end);
+  if ((others ?? []).some((o) => o && !same(o) && overlaps(s, f, ms(o.started_at), ms(o.ended_at)))) return link;
+  const fit = fitBetween(mine, start, end, entries, now);
+  if (!fit) return link;
+  if (!offBy(mine, fit)) return { ...link, match: true };
+  return { ...link, fix: { start: iso(fit.start), end: iso(fit.end) } };
 }
 
-// The Exercise row for a workout the minutes log doesn't have yet.
-export function exerciseEntry(userId, w) {
+// The Exercise row for a workout the minutes log doesn't have yet. Its
+// times are the watch's from the start, so it's stamped as set.
+export function exerciseEntry(userId, w, now = new Date()) {
   const run = w.kind === "run" && w.distance && /^(mi|km)$/i.test(w.distance_unit ?? "");
   return {
     user_id: userId,
@@ -400,6 +486,7 @@ export function exerciseEntry(userId, w) {
     exercise_metric: run ? w.distance : null,
     exercise_unit: run ? w.distance_unit.toLowerCase() : null,
     source: "watch",
+    watch_fixed_at: now.toISOString(),
   };
 }
 

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Clock, Square, Play } from "lucide-react";
-import { stopTimeEntry, goToBed } from "../../lib/api";
+import { Clock, Square, Play, Watch } from "lucide-react";
+import { stopTimeEntry, goToBed, fetchHealthDays } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
+import { useLoad } from "../../lib/useLoad";
+import { addDays } from "../../lib/planDates";
+import { minutesWatch } from "../../lib/watch";
 import { friendlyError } from "../../lib/errors";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 import { isSleep } from "../../lib/honest";
@@ -11,6 +14,7 @@ import { isBedtime } from "./dayParts";
 import StopFollowUp, { needsFollowUp } from "./StopFollowUp";
 import BedButton from "./BedButton";
 import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } from "./minutes";
+import "../../styles/watch.css";
 
 // Where today has gone, at a glance, with the timer one tap away.
 //
@@ -26,8 +30,17 @@ import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } f
 // (deep or shallow, who it was with), which folds away on its own. In the
 // evening, Going to bed stops whatever is running and starts Sleep; while
 // Sleep runs, its button says "I'm up".
-export default function MinutesGlance({ entries, running, loaded }) {
+//
+// Given the day (`date`), it also shows what the watch saw of last night
+// and this morning, in one quiet row under the minutes: how long you slept,
+// when you were up, and your resting heart rate beside your own normal.
+// That's your baseline to read it against, not a target, so it's never
+// red and never a score. Nothing shows when the watch sent nothing, so a
+// day you logged by hand looks exactly as it did, and the card never waits
+// on the watch or breaks when it can't be read.
+export default function MinutesGlance({ entries, running, loaded, date }) {
   const { user } = useAuth();
+  const watch = useWatchRow(user?.id, date);
   const capture = useCapture();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -104,6 +117,8 @@ export default function MinutesGlance({ entries, running, loaded }) {
         loaded && !live && <p className="empty" style={{ marginBottom: 4 }}>Nothing logged yet today.</p>
       )}
 
+      {watch.length > 0 && <WatchRow parts={watch} />}
+
       {followUp && !live && <StopFollowUp key={followUp.id} userId={user?.id} entry={followUp} onClose={() => setFollowUp(null)} />}
 
       {live ? (
@@ -119,6 +134,42 @@ export default function MinutesGlance({ entries, running, loaded }) {
       )}
       {live && bedtime && <BedButton onClick={bed} busy={busy} />}
       {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
+    </div>
+  );
+}
+
+// Last night and this morning from the watch: the 29 days up to today,
+// so today's resting heart rate has its normal to sit beside. Reads again
+// when anything changes and when you come back to the app, since the watch
+// sends its numbers in the background. A failure is only logged (useLoad
+// warns and keeps the last good answer), so the row stays as it was or off.
+function useWatchRow(userId, date) {
+  const { data, reload } = useLoad(() => (userId && date ? fetchHealthDays(userId, addDays(date, -29), date) : []), [userId, date]);
+  useEffect(() => {
+    if (!date) return undefined;
+    const onShow = () => document.visibilityState === "visible" && reload();
+    window.addEventListener("hub:changed", reload);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("hub:changed", reload);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, [reload, date]);
+  return date && data?.length ? minutesWatch(data, date) : [];
+}
+
+function WatchRow({ parts }) {
+  return (
+    <div className="minutes-watch" aria-label="From your watch">
+      <Watch size={13} className="minutes-watch__icon" aria-hidden="true" />
+      <div className="watch-line__parts">
+        {parts.map((p) => (
+          <span key={p.label} className="watch-line__part">
+            <span className="faint">{p.label}</span> <strong className="mono">{p.value}</strong>
+            {p.sub && <span className="faint watch-line__sub">{p.sub}</span>}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

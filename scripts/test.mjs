@@ -9,10 +9,10 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
-import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
+import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
 import { watchForPrompt } from "../supabase/functions/assistant/body.js";
-import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
+import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins, restingNormal, minutesWatchParts, minutesWatch } from "../src/lib/watch.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
@@ -3132,7 +3132,7 @@ console.log("\napple watch");
   const nightObj = { start: new Date("2026-10-31T04:20:00Z"), end: new Date("2026-10-31T10:50:00Z") };
   const now = new Date("2026-10-31T14:00:00Z");
   ok("an unlogged night goes in", sleepAction(nightObj, [], now).kind === "add");
-  ok("a logged night is left alone", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T11:00:00Z" }], now).kind === "skip");
+  ok("a logged night the watch already set is left alone", sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T11:00:00Z", watch_fixed_at: "2026-10-31T11:05:00Z" }], now).kind === "skip");
   ok("a Sleep timer still running from that night ends when you woke", (() => {
     const a = sleepAction(nightObj, [{ id: "s", tags: ["Sleep"], started_at: "2026-10-31T04:00:00Z", ended_at: null }], now);
     return a.kind === "end" && a.id === "s" && a.at === "2026-10-31T10:50:00.000Z";
@@ -3270,6 +3270,89 @@ console.log("\napple watch");
   ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
   ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
   ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
+}
+
+{
+  console.log("\nthe watch sets hand-logged sleep and exercise right (0102)");
+  const now = new Date("2026-10-31T14:00:00Z");
+  const night = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T10:30:00Z"), bedStart: null };
+  const hand = { id: "h", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T04:20:00Z", ended_at: "2026-10-31T10:45:00Z", is_nap: false, source: null, watch_fixed_at: null };
+  const fix = sleepAction(night, [hand], now);
+  ok("one hand-logged night off by 5 minutes or more takes the watch's times", fix.kind === "fix" && fix.id === "h" && fix.start === "2026-10-31T04:40:00.000Z" && fix.end === "2026-10-31T10:30:00.000Z", JSON.stringify(fix));
+  const bedNight = { ...night, bedStart: new Date("2026-10-31T04:25:00Z") };
+  const bedFix = sleepAction(bedNight, [hand], now);
+  ok("its start is when you got into bed, when that was measured", bedFix.kind === "fix" && bedFix.start === "2026-10-31T04:25:00.000Z", JSON.stringify(bedFix));
+  ok("otherwise when you fell asleep", bedtimeOf(night) === night.start.getTime());
+  const staged = readHealthPayload({ data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [
+    { startDate: "2026-10-30 22:25:00 -0600", endDate: "2026-10-31 04:35:00 -0600", value: "In Bed", qty: 6.2 },
+    { startDate: "2026-10-30 22:40:00 -0600", endDate: "2026-10-31 04:30:00 -0600", value: "Core", qty: 5.8 },
+  ] }] } }, "America/Denver").nights[0];
+  ok("a night of stages knows when you got into bed", staged?.bedStart?.toISOString() === "2026-10-31T04:25:00.000Z" && staged.start.toISOString() === "2026-10-31T04:40:00.000Z", JSON.stringify(staged));
+  const agg = (inBed) => readHealthPayload({ data: { metrics: [{ name: "sleep_analysis", units: "hr", data: [{ date: "2026-10-31", totalSleep: 5.8, inBed, inBedStart: "2026-10-30 22:25:00 -0600", sleepStart: "2026-10-30 22:40:00 -0600", sleepEnd: "2026-10-31 04:30:00 -0600" }] }] } }, "America/Denver").nights[0];
+  ok("a summed night has a bed time only when time in bed was measured", agg(6.2)?.bedStart?.toISOString() === "2026-10-31T04:25:00.000Z" && agg(0)?.bedStart === null);
+  ok("a bed time after you fell asleep, or 3 hours before, isn't believed", bedtimeOf({ start: night.start, bedStart: new Date("2026-10-31T05:00:00Z") }) === night.start.getTime() && bedtimeOf({ start: night.start, bedStart: new Date("2026-10-31T01:00:00Z") }) === night.start.getTime());
+  const two = sleepAction(night, [{ ...hand, id: "a", ended_at: "2026-10-31T07:00:00Z" }, { ...hand, id: "b", started_at: "2026-10-31T07:30:00Z" }], now);
+  ok("two Sleep entries over one night are left as you logged them", two.kind === "skip", JSON.stringify(two));
+  ok("an entry the watch already set isn't moved again", sleepAction(night, [{ ...hand, watch_fixed_at: "2026-10-31T11:00:00Z" }], now).kind === "skip");
+  const close = sleepAction(night, [{ ...hand, started_at: "2026-10-31T04:37:00Z", ended_at: "2026-10-31T10:34:00Z" }], now);
+  ok("under 5 minutes off, nothing moves; it's only marked as checked", close.kind === "match" && close.id === "h", JSON.stringify(close));
+  ok("a nap is never moved", sleepAction(night, [{ ...hand, is_nap: true }], now).kind === "skip");
+  ok("a running Sleep timer still just ends", sleepAction(night, [{ ...hand, ended_at: null }], now).kind === "end");
+  const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T03:30:00Z", ended_at: "2026-10-31T04:30:00Z" };
+  const fitted = sleepAction(bedNight, [{ ...hand, started_at: "2026-10-31T04:30:00Z" }, reading], now);
+  ok("the watch's start stops where the entry before it ended", fitted.kind === "fix" && fitted.start === "2026-10-31T04:30:00.000Z" && fitted.end === "2026-10-31T10:30:00.000Z", JSON.stringify(fitted));
+
+  const lift = { external_id: "W1", started_at: "2026-10-30T12:10:00.000Z", ended_at: "2026-10-30T12:45:00.000Z" };
+  const timed = { id: "e", category: "Exercise", tags: ["Exercise"], started_at: "2026-10-30T12:00:00Z", ended_at: "2026-10-30T12:30:00Z", watch_fixed_at: null };
+  const wfix = workoutAction(lift, [timed], [lift]);
+  ok("one finished Exercise entry off by 5 minutes takes the workout's times", wfix.kind === "link" && wfix.id === "e" && wfix.fix?.start === "2026-10-30T12:10:00.000Z" && wfix.fix?.end === "2026-10-30T12:45:00.000Z", JSON.stringify(wfix));
+  ok("a running Exercise timer is linked, not moved", (() => {
+    const a = workoutAction(lift, [{ ...timed, ended_at: null }], [lift], Date.parse("2026-10-30T13:00:00Z"));
+    return a.kind === "link" && !a.fix && !a.match;
+  })());
+  ok("one timer holding a run and a lift is left as logged", !workoutAction(lift, [{ ...timed, ended_at: "2026-10-30T13:30:00Z" }], [lift, { external_id: "W2", started_at: "2026-10-30T12:50:00Z", ended_at: "2026-10-30T13:20:00Z" }]).fix);
+  ok("a workout over two Exercise entries moves neither", (() => {
+    const a = workoutAction(lift, [timed, { ...timed, id: "e2", started_at: "2026-10-30T12:31:00Z", ended_at: "2026-10-30T12:50:00Z" }], [lift]);
+    return a.kind === "link" && !a.fix;
+  })());
+  ok("an entry the watch already set keeps its times", !workoutAction(lift, [{ ...timed, watch_fixed_at: "2026-10-30T13:00:00Z" }], [lift]).fix);
+  ok("under 5 minutes off is only marked as checked", workoutAction(lift, [{ ...timed, started_at: "2026-10-30T12:08:00Z", ended_at: "2026-10-30T12:47:00Z" }], [lift]).match === true);
+  const study = { id: "s", category: "Study", tags: ["Study"], started_at: "2026-10-30T12:40:00Z", ended_at: "2026-10-30T13:30:00Z" };
+  const forgot = workoutAction(lift, [{ ...timed, ended_at: "2026-10-30T12:40:00Z" }, study], [lift]);
+  ok("a workout left running on the watch stops where your next timer starts", forgot.fix?.start === "2026-10-30T12:10:00.000Z" && forgot.fix?.end === "2026-10-30T12:40:00.000Z", JSON.stringify(forgot));
+  ok("an Exercise entry the import makes is stamped as the watch's", typeof exerciseEntry("u", { ...lift, kind: "gym", name: "Strength" }, new Date("2026-10-30T14:00:00Z")).watch_fixed_at === "string");
+
+  const sql = readFileSync(new URL("../supabase/migrations/0102_watch_corrects.sql", import.meta.url), "utf8").replace(/--.*$/gm, "");
+  ok("0102 only adds: no drop, no constraint change, nothing deleted", !/\bdrop\b|\bconstraint\b|delete\s+from|\btruncate\b/i.test(sql));
+  ok("0102 adds the three columns", ["watch_fixed_at", "hand_started_at", "hand_ended_at"].every((c) => new RegExp(`add column if not exists ${c} timestamptz`).test(sql)));
+  ok("0102 stamps only what the import made", (sql.match(/t\.source = 'watch'/g) ?? []).length === 2);
+
+  ok("watch saw: a hand-logged workout the watch set counts", watchSaw({ categories: ["Exercise"] }, [{ category: "Exercise", tags: ["Exercise"], source: null, watch_fixed_at: "2026-11-01T14:00:00Z", description: "Run", started_at: "2026-11-01T13:00:00Z", ended_at: "2026-11-01T13:30:00Z", duration_minutes: 30 }]) === "Run 30m");
+  ok("watch saw: one it never set doesn't", watchSaw({ categories: ["Exercise"] }, [{ category: "Exercise", tags: ["Exercise"], source: null, watch_fixed_at: null, started_at: "2026-11-01T13:00:00Z", ended_at: "2026-11-01T13:30:00Z", duration_minutes: 30 }]) === "");
+}
+
+{
+  console.log("\nthe watch on Today's minutes");
+  const days = (from, n, hr) => Array.from({ length: n }, (_, i) => ({ date: `2026-10-${String(from + i).padStart(2, "0")}`, resting_hr: hr }));
+  ok("no normal from fewer than 7 readings", restingNormal(days(20, 6, 52), "2026-11-01") === null);
+  ok("7 readings make a normal: the middle one", restingNormal([...days(20, 3, 50), ...days(23, 4, 56)], "2026-11-01") === 56);
+  ok("an even count takes the middle two", restingNormal([...days(20, 4, 50), ...days(24, 4, 55)], "2026-11-01") === 53, String(restingNormal([...days(20, 4, 50), ...days(24, 4, 55)], "2026-11-01")));
+  ok("the day itself and days over 4 weeks back are left out", restingNormal([...days(1, 3, 90), ...days(20, 7, 52), { date: "2026-11-01", resting_hr: 99 }], "2026-11-01") === 52);
+  ok("empty readings don't count", restingNormal([...days(20, 6, 52), { date: "2026-10-28", resting_hr: null }, { date: "2026-10-29", resting_hr: 0 }], "2026-11-01") === null);
+
+  const today = { date: "2026-11-01", asleep_min: 412, woke_at: "2026-11-01T11:41:00Z", sleep_end: "2026-11-01T11:30:00Z", resting_hr: 54 };
+  const parts = minutesWatchParts(today, null, 52);
+  ok("slept, up and resting heart rate, words first", parts.map((p) => p.label).join(",") === "Slept,Up,Resting HR" && parts[0].value === "6h 52m" && /^\d{1,2}:\d{2}/.test(parts[1].value) && parts[1].value === minutesWatchParts({ woke_at: today.woke_at }, null, null)[0].value && parts[2].value === "54", JSON.stringify(parts));
+  ok("resting heart rate sits beside your normal", parts[2].sub === "your normal 52");
+  ok("up is when the watch saw you wake, without the automation", minutesWatchParts({ sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.label === "Up" && minutesWatchParts({ woke_at: "2026-11-01T11:41:00Z", sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.value !== minutesWatchParts({ sleep_end: "2026-11-01T11:30:00Z" }, null, null)[0]?.value);
+  const early = minutesWatchParts({ asleep_min: 412 }, { resting_hr: 57 }, 52);
+  ok("before today's resting heart rate is in, yesterday's says so", early[1]?.label === "Resting HR" && early[1].value === "57" && early[1].sub === "yesterday, your normal 52", JSON.stringify(early));
+  ok("no normal yet, no comparison", minutesWatchParts({ resting_hr: 54 }, null, null)[0].sub === null);
+  ok("nothing from the watch, nothing shown", minutesWatchParts(null, null, null).length === 0 && minutesWatchParts({ steps: 3000 }, null, 52).length === 0 && minutesWatch([], "2026-11-01").length === 0);
+  const month = [...days(20, 4, 50), ...days(24, 3, 60), { date: "2026-10-31", resting_hr: 70 }, { date: "2026-11-01", asleep_min: 400 }];
+  const fall = minutesWatch(month, "2026-11-01");
+  ok("yesterday's reading is set beside the normal before it, not itself", fall.find((p) => p.label === "Resting HR")?.sub === "yesterday, your normal 50", JSON.stringify(fall));
+  ok("today's reading is set beside the 4 weeks before today", minutesWatch([...month.slice(0, -1), { date: "2026-11-01", resting_hr: 58 }], "2026-11-01").find((p) => p.label === "Resting HR")?.sub === "your normal 55");
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
