@@ -5779,7 +5779,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const focusSheet = read("src/components/focus/FocusSheet.jsx");
   ok(
     "a focus's note keeps Today's draft (hub.focus-note-draft.<id>)",
-    /import \{ readDraft, keepDraft \} from "\.\.\/focus\/FocusSheet";/.test(sheetSrc) && /`hub\.focus-note-draft\.\$\{goalId\}`/.test(focusSheet) && /readDraft\(focusGoal\)/.test(sheetSrc) && /keepDraft\(focusGoal\.id, text\)/.test(sheetSrc)
+    /import \{ readDraft, keepDraft(?:, \w+)* \} from "\.\.\/focus\/FocusSheet";/.test(sheetSrc) && /`hub\.focus-note-draft\.\$\{goalId\}`/.test(focusSheet) && /readDraft\(focusGoal\)/.test(sheetSrc) && /keepDraft\(focusGoal\.id, text\)/.test(sheetSrc)
   );
   ok("a focus's note saves through Today's own save", /saveNote\(userId, \{ goalId: target\.id, date: today, sent: text \}\)/.test(read("src/components/targets/NotesSection.jsx")));
 
@@ -6034,6 +6034,207 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, review fix 3: notes, reflections and linked quotes) =====
 // Add this fix group's tests directly under the line above.
 {
+  console.log("\ntargets tab, review fix 3: notes, reflections and linked quotes");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
+  const notesSrc = read("src/components/targets/NotesSection.jsx");
+  const linked = read("src/components/targets/LinkedQuotes.jsx");
+  const { REFLECT_PROMPTS, promptFor, promptIndexFor, notesTimeline, noteDraftKey } = await import("../src/lib/ladder.js");
+
+  // NoteSheet's own helpers, with everything it imports but ladder.js
+  // swapped for stand-ins (as part 3's tests build it).
+  const sheetPath = fileURLToPath(at("src/components/targets/NoteSheet.jsx"));
+  const sheetBuilt = await esbuildBundle({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !/lib\/ladder$/.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const names = (sheetSrc.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const N = await import(`data:text/javascript;base64,${Buffer.from(sheetBuilt.outputFiles[0].text).toString("base64")}`);
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const later = () => {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  // --- 13: a reflection's draft keeps the question it answers ---------------
+  const quests = REFLECT_PROMPTS.quest;
+  const monday = "2026-10-31";
+  const tuesday = "2026-11-01";
+  ok("the day's opening question differs between the two days of the finding", promptIndexFor("quest", monday) !== promptIndexFor("quest", tuesday));
+  const rKey = "hub.target-note-draft.quest:q1:reflect";
+  const s13 = store();
+  const asked = quests[promptIndexFor("quest", monday)];
+  N.keepNoteDraft(rKey, "Half an answer", s13);
+  N.keepNoteDraft(N.promptKey(rKey), asked, s13);
+  const reopened = N.keptQuestion("quest", N.readNoteDraft(N.promptKey(rKey), s13), promptIndexFor("quest", tuesday));
+  ok("a draft reopened the next day comes back under the question he answered", reopened.text === asked && reopened.turn === quests.indexOf(asked));
+  ok("an older draft that kept only the question's place still reads", N.keptQuestion("quest", "1", 5).text === quests[1] && N.keptQuestion("quest", "1", 5).turn === 1);
+  ok("a question no longer on the list is still the one it's saved under", N.keptQuestion("quest", "What did the old list ask?", 3).text === "What did the old list ask?" && N.keptQuestion("quest", "What did the old list ask?", 3).turn === 3);
+  ok("with nothing kept, the day's question", N.keptQuestion("quest", "", 4).text === promptFor("quest", 4) && N.keptQuestion("quest", null, 4).turn === 4);
+  ok(
+    "the question is kept with the words every time they're kept, as its words, and goes when the box empties",
+    /if \(reflect\) keepNoteDraft\(promptKey\(draftKey\), text\.trim\(\) \? prompt : ""\);/.test(sheetSrc) && /\[focusNote, focusGoal, draftKey, text, reflect, prompt\]/.test(sheetSrc)
+  );
+  ok("a kept question is only read with words to go under it", /keptQuestion\(kind, text\.trim\(\) \? readNoteDraft\(promptKey\(draftKey\)\) : "", promptIndexFor\(kind, today\)\)/.test(sheetSrc));
+  ok("what's saved is the question on screen", /const prompt = ask\?\.text \?\? null;/.test(sheetSrc) && /onSave\(\{ text: sent, prompt \}\)/.test(sheetSrc));
+
+  // --- 14: a focus's reflection follows the focus into its new week ---------
+  const keyOf = (id) => `${noteDraftKey({ kind: "focus", key: id })}:reflect`;
+  const s14 = store();
+  N.keepNoteDraft(keyOf("w1"), "Saturday's lines", s14);
+  N.keepNoteDraft(N.promptKey(keyOf("w1")), REFLECT_PROMPTS.focus[2], s14);
+  const carried = N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14);
+  ok(
+    "a reflection left in last week's focus moves to this week's, with its question",
+    carried === "Saturday's lines" && s14.m.get(keyOf("w2")) === "Saturday's lines" && s14.m.get(N.promptKey(keyOf("w2"))) === REFLECT_PROMPTS.focus[2] && !s14.m.has(keyOf("w1")) && !s14.m.has(N.promptKey(keyOf("w1")))
+  );
+  const s14b = store();
+  N.keepNoteDraft(keyOf("w2"), "This week's own", s14b);
+  N.keepNoteDraft(keyOf("w1"), "Last week's", s14b);
+  ok("a week with its own draft keeps it, and the earlier one stays put", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s14b) === "This week's own" && s14b.m.get(keyOf("w1")) === "Last week's");
+  const s14c = store();
+  N.keepNoteDraft(keyOf("w0"), "Two weeks back", s14c);
+  ok("the newest earlier week with a draft is the one that moves", N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14c) === "Two weeks back" && !s14c.m.has(keyOf("w0")));
+  ok("with nothing anywhere, an empty box", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], store()) === "" && N.carryNoteDraft(keyOf("w2"), null, store()) === "");
+  ok(
+    "the page hands the sheet its earlier weeks' keys",
+    /const earlierKeys = isFocus && sheet === "reflect" \? \(lineage \?\? \[\]\)\.filter\(\(id\) => id && id !== target\.id\)\.map\(\(id\) => `\$\{noteDraftKey\(\{ kind: "focus", key: id \}\)\}:\$\{sheet\}`\) : NONE;/.test(notesSrc) &&
+      /earlierKeys=\{earlierKeys\}/.test(notesSrc)
+  );
+  ok(
+    "the move happens before the question is read",
+    /carryNoteDraft\(draftKey, earlierKeys\)/.test(sheetSrc) && sheetSrc.indexOf("carryNoteDraft(draftKey, earlierKeys)") < sheetSrc.indexOf("const [ask, setAsk] = useState(")
+  );
+
+  // --- 16: words still saving aren't offered for a second save ---------------
+  const nKey = "hub.target-note-draft.quest:q1:reflect";
+  const s16 = store();
+  N.keepNoteDraft(nKey, "Sent once", s16);
+  const q16 = quests[2];
+  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
+  const heard = [];
+  const stop = N.onNoteSent((l) => heard.push(l));
+  let d = later();
+  let p = N.sendNote({ key: nKey, sent: "Sent once", question: q16, save: () => d.promise, store: s16 });
+  ok("a sheet opened while it saves finds an empty box", N.readNoteDraft(nKey, s16) === "" && N.carryNoteDraft(nKey, [], s16) === "");
+  d.resolve({ id: "r1" });
+  await p;
+  ok("once saved, the draft and its question are gone", !s16.m.has(nKey) && !s16.m.has(N.promptKey(nKey)));
+  ok("the sheets on screen hear it land", heard.length === 1 && heard[0].key === nKey && heard[0].sent === "Sent once" && heard[0].saved === true);
+
+  // A sheet reopened mid-save empties the box (its keep-as-you-type), and
+  // the first save then fails: the words and their question come back.
+  N.keepNoteDraft(nKey, "Sent again", s16);
+  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "", s16);
+  N.keepNoteDraft(N.promptKey(nKey), "", s16);
+  d.reject(new Error("offline"));
+  let threw = false;
+  try {
+    await p;
+  } catch {
+    threw = true;
+  }
+  ok("a failed save after the box was emptied puts the words back, with their question", threw && N.readNoteDraft(nKey, s16) === "Sent again" && s16.m.get(N.promptKey(nKey)) === q16);
+  ok("and the sheets on screen hear that too", heard.length === 2 && heard[1].saved === false && heard[1].question === q16);
+
+  // Typed since, in a sheet opened meanwhile: nothing of either is lost.
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "Something new", s16);
+  d.reject(new Error("offline"));
+  await p.catch(() => {});
+  ok("words typed since stay, under the ones that didn't save", N.readNoteDraft(nKey, s16) === "Sent again\n\nSomething new");
+  ok("a box that already holds the unsaved words isn't given them twice", N.withUnsentNote("Sent again\n\nmore", "Sent again") === "Sent again\n\nmore" && N.withUnsentNote("  ", "x") === "x");
+
+  // Saved, with words typed since under it: that draft keeps its question.
+  N.keepNoteDraft(nKey, "Sent last", s16);
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent last", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "Typed after", s16);
+  N.keepNoteDraft(N.promptKey(nKey), quests[0], s16);
+  d.resolve({ id: "r2" });
+  await p;
+  ok("a save that lands leaves a newer draft and its question alone", N.readNoteDraft(nKey, s16) === "Typed after" && s16.m.get(N.promptKey(nKey)) === quests[0]);
+  stop();
+
+  // An earlier week's draft that's still saving isn't moved across.
+  const s16b = store();
+  N.keepNoteDraft(keyOf("w1"), "On its way", s16b);
+  d = later();
+  p = N.sendNote({ key: keyOf("w1"), sent: "On its way", save: () => d.promise, store: s16b });
+  ok("an earlier week's words that are still saving stay where they are", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s16b) === "" && s16b.m.has(keyOf("w1")));
+  d.resolve({ id: "r3" });
+  await p;
+
+  ok("the sheet saves through sendNote, which keeps the words on their way by draft key", /const inFlight = new Map\(\);/.test(sheetSrc) && /sendNote\(\{ key: draftKey, sent, question: prompt, save:/.test(sheetSrc));
+  ok("a sheet closed mid-save doesn't close the one open when it lands", /if \(live\.current\) onClose\(\);/.test(sheetSrc));
+  ok(
+    "an open sheet hears its words land, a target note's or a focus note's",
+    /return onNoteSent\(\(landed\) => landed\.key === draftKey && heard\(landed\)\);/.test(sheetSrc) && /onNoteLanded\(\(\{ goalId, sent, row \}\) => goalId === focusId/.test(sheetSrc)
+  );
+
+  // --- 17: an inline edit isn't thrown away by a tap on another note ---------
+  ok(
+    "a tap on another note is ignored while an edit is changed or saving",
+    /if \(editing && editBox\.current && \(editing\.busy \|\| editing\.text !== editing\.orig\)\) \{/.test(notesSrc) && /setEditing\(\{ id: item\.id, text: item\.text, orig: item\.text, busy: false \}\)/.test(notesSrc)
+  );
+  ok("every note's text opens through that check", /onClick=\{\(\) => startEdit\(item\)\}/.test(notesSrc) && (notesSrc.match(/setEditing\(\{ id: /g) ?? []).length === 1);
+  ok("the box being edited is the one the tap goes back to", /ref=\{editBox\}/.test(notesSrc));
+
+  // --- 18: the picker's unlink has Undo, and a quick second tap counts --------
+  ok("an unlink from the picker is the card's unlink, with Undo", /else if \(hit\.linkIds\?\.length\) unlink\(hit\);/.test(linked) && !/quiet: true|if \(!quiet\)/.test(linked) &&/toast\.show\("Unlinked", \{\s*actionLabel: "Undo"/.test(linked));
+  ok(
+    "a second tap on a link still saving takes it off, and unlinks it once saved",
+    /const unlinkAfter = useRef\(new Map\(\)\);/.test(linked) &&
+      /unlinkAfter\.current\.set\(item\.id, hit\);/.test(linked) &&
+      /const off = unlinkAfter\.current\.delete\(item\.id\);/.test(linked) &&
+      /if \(off\) unlink\(saved\);/.test(linked)
+  );
+  ok("a third tap before it saved keeps the link", /const waiting = unlinkAfter\.current\.get\(item\.id\);/.test(linked) && /mutate\(\(l\) => \[\.\.\.\(l \?\? \[\]\), waiting\]\);/.test(linked));
+  ok("a link tapped off before it failed says nothing", /if \(!unlinkAfter\.current\.delete\(item\.id\)\) toast\.error\(err, "Couldn't link that quote\."\);/.test(linked));
+
+  // --- I1: a lifetime goal reads the goals under it, a focus its weeks -------
+  const lineageCall = /\{ lineage: isFocus \|\| target\.kind === "goal" \? lineage \?\? \[\] : undefined \}/;
+  ok("notes are read with the target's lineage, on a goal as on a focus", lineageCall.test(notesSrc) && /fetchTargetNotes\(userId, ref, \{ lineage:/.test(notesSrc));
+  ok("linked quotes are read the same way", lineageCall.test(linked) && /fetchQuoteLinks\(userId, ref, \{ lineage:/.test(linked));
+  ok("the old option name is gone from these files", ![sheetSrc, notesSrc, linked].some((src) => /focusLineage/.test(src)));
+
+  // --- I3: the evening's lines name their ring --------------------------------
+  ok("the notes take the target's reasons for the evening's lines", /reasons = null/.test(notesSrc) && /eveningLines\(shots \?\? \[\], reasons \?\? \[\]\)/.test(notesSrc) && /\[pending, own, focusNotes\.data, shots, reasons, today\]/.test(notesSrc));
+  ok("the tag reads From the evening, then the ring, then the check's question", /From the evening\s*\{item\.ring \? <span> · \{item\.ring\}<\/span> : null\}\s*\{item\.prompt \? <span> · \{item\.prompt\}<\/span> : null\}/.test(notesSrc));
+  const ringed = notesTimeline({ evening: [{ id: "shot:s1", source: "evening", kind: "evening", date: "2026-11-01", created_at: "2026-11-01T21:00:00Z", text: "Ran out of time", prompt: null, ring: "Outer · Distracted" }] }, "2026-11-02");
+  ok("the ring reaches the timeline's rows", ringed[0]?.items[0]?.ring === "Outer · Distracted");
+
+  // --- Copy ----------------------------------------------------------------------
+  const dashed = [sheetSrc, notesSrc, linked].filter((src) => /[—–]/.test(src));
+  ok("no em or en dashes in the notes, the sheet or the quotes", dashed.length === 0);
 }
 // (end of review fix 3)
 

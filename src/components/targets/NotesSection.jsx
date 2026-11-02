@@ -14,7 +14,8 @@ import NoteSheet, { noteLimit } from "./NoteSheet";
 // "Notes and reflections" on a target: everything written about it, newest
 // first, a day at a time. His own notes and reflections (a reflection with
 // the question it answered over it), a focus's notes from Today, and what
-// the evening said about it, which is read only and says so.
+// the evening said about it (with the ring it landed in, and on a miss what
+// got in the way), which is read only and says so.
 //
 // His own can be changed where they stand (a tap opens the words to edit)
 // or deleted, with Undo. The sheet for writing a new one (NoteSheet) opens
@@ -23,15 +24,18 @@ import NoteSheet, { noteLimit } from "./NoteSheet";
 //   target    { kind, id, key } as resolveRef gives it
 //   name      its short name, for the sheet's title
 //   focusGoal the focus_goals row, on a focus's page
-//   lineage   a focus's earlier weeks (ids), whose notes are its notes too
+//   lineage   ids whose notes are this target's too: a focus's earlier
+//             weeks, or the goals under a lifetime goal (new ones are
+//             still written on the target itself)
 //   shots     the target's loosed shots, for the evening's lines
+//   reasons   the target's miss reasons, which the evening's lines name
 //   limit     how many show before "Show N older"
 //   sheet     "reflect", "note" or null; onSheet opens or closes it
 
 const NONE = [];
 const tmpId = () => `tmp:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
 
-export default function NotesSection({ userId, today, target, name, focusGoal = null, lineage = null, shots = null, limit = 10, sheet = null, onSheet }) {
+export default function NotesSection({ userId, today, target, name, focusGoal = null, lineage = null, shots = null, reasons = null, limit = 10, sheet = null, onSheet }) {
   const toast = useToast();
   const isFocus = target.kind === "focus";
   const ref = useMemo(() => refOf(target), [target]);
@@ -39,7 +43,7 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
   const lineageKey = (lineage ?? []).join(",");
 
   const notes = useLoad(
-    () => (userId && ref ? fetchTargetNotes(userId, ref, { focusLineage: isFocus ? lineage ?? [] : undefined }) : null),
+    () => (userId && ref ? fetchTargetNotes(userId, ref, { lineage: isFocus || target.kind === "goal" ? lineage ?? [] : undefined }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [userId, refKey, lineageKey]
   );
@@ -50,7 +54,8 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
   // Saving now: shown at once, in their place, until the saved row is in.
   const [pending, setPending] = useState([]);
   const [all, setAll] = useState(false);
-  const [editing, setEditing] = useState(null); // { id, text, busy }
+  const [editing, setEditing] = useState(null); // { id, text, orig, busy }
+  const editBox = useRef(null);
   const sheetOpen = useRef(sheet);
   sheetOpen.current = sheet;
 
@@ -65,11 +70,11 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
         {
           notes: [...pending.filter((p) => !p.goal_id), ...own],
           focusNotes: [...pending.filter((p) => p.goal_id), ...(focusNotes.data?.notes ?? [])],
-          evening: eveningLines(shots ?? []),
+          evening: eveningLines(shots ?? [], reasons ?? []),
         },
         today
       ),
-    [pending, own, focusNotes.data, shots, today]
+    [pending, own, focusNotes.data, shots, reasons, today]
   );
   const count = groups.reduce((n, g) => n + g.items.length, 0);
 
@@ -132,6 +137,18 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
 
   // --- Changing and deleting his own ---------------------------------------
 
+  // A tap on another note while he's changed the one he's in, or while it
+  // saves, would throw his change away; the tap takes him back to his box.
+  // (Only while that box is on screen: one pushed out of the first `limit`
+  // by a new note can't be got back to, so it doesn't hold the rest.)
+  function startEdit(item) {
+    if (editing && editBox.current && (editing.busy || editing.text !== editing.orig)) {
+      editBox.current.focus();
+      return;
+    }
+    setEditing({ id: item.id, text: item.text, orig: item.text, busy: false });
+  }
+
   async function saveEdit(item) {
     const e = editing;
     if (!e || e.busy) return;
@@ -188,6 +205,10 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
 
   const loading = (!notes.data && notes.loading) || (isFocus && !focusNotes.data && focusNotes.loading);
   const draftBase = noteDraftKey(target);
+  // A focus kept on Sunday is a new row each week, so a reflection left
+  // half-written in an earlier week is found under that week's key and
+  // moves across when the sheet opens (NoteSheet's carryNoteDraft).
+  const earlierKeys = isFocus && sheet === "reflect" ? (lineage ?? []).filter((id) => id && id !== target.id).map((id) => `${noteDraftKey({ kind: "focus", key: id })}:${sheet}`) : NONE;
 
   return (
     <section className="card tg-notes" id="notes" aria-labelledby="tg-notes-h">
@@ -240,6 +261,7 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
                       {item.source === "evening" && (
                         <p className="tg-note__tag">
                           From the evening
+                          {item.ring ? <span> · {item.ring}</span> : null}
                           {item.prompt ? <span> · {item.prompt}</span> : null}
                         </p>
                       )}
@@ -253,6 +275,7 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
                           }}
                         >
                           <textarea
+                            ref={editBox}
                             className="textarea"
                             rows={3}
                             value={editing.text}
@@ -277,7 +300,7 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
                         </form>
                       ) : mine && !saving ? (
                         <div className="tg-note__row">
-                          <button type="button" className="tg-note__text" onClick={() => setEditing({ id: item.id, text: item.text, busy: false })} aria-label={`Change this ${item.kind === "reflection" ? "reflection" : "note"}`}>
+                          <button type="button" className="tg-note__text" onClick={() => startEdit(item)} aria-label={`Change this ${item.kind === "reflection" ? "reflection" : "note"}`}>
                             {item.text}
                           </button>
                           <button type="button" className="btn-icon tg-note__del" onClick={() => remove(item)} aria-label={`Delete this ${item.kind === "reflection" ? "reflection" : "note"}`} title="Delete">
@@ -309,6 +332,7 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
           name={name}
           today={today}
           draftKey={`${draftBase}:${sheet}`}
+          earlierKeys={earlierKeys}
           focusGoal={isFocus && sheet === "note" ? focusGoal ?? { id: target.id } : null}
           onSave={(v) => saveNew(sheet, v)}
           onClose={() => onSheet(null)}
