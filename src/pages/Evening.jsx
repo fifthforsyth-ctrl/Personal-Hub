@@ -26,6 +26,7 @@ import { useOutbox, withTaps, isUnnamed } from "../components/today/tapOutbox";
 import { trackedMinutes, OVERLAP_NOTE } from "../components/today/minutes";
 import { eveningDate, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
+import { useToast } from "../components/ui/Feedback";
 import "../styles/daily.css";
 
 // The evening, on one page, in the order it actually goes: what went well
@@ -51,7 +52,9 @@ import "../styles/daily.css";
 // target for tonight's shots, and bank it. Same day, same records, same
 // arrows; Full switches back at any point and keeps everything tapped: the
 // card being left saves what it holds and the page reads the day again, so
-// the other one opens on it. ?short=1 opens it short at any hour.
+// the other one opens on it. If something there doesn't save, it stays open
+// (still saying "Not saved, retry") instead of going and taking what you
+// typed with it. ?short=1 opens it short at any hour.
 
 function shortKey(date) {
   return `hub.evening-short.${date}`;
@@ -109,19 +112,53 @@ export default function Evening() {
   const [shortLine, setShortLine] = useState(false);
 
   const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
+  const toast = useToast();
 
-  // The card being left saves what it holds, and then the page reads the day
-  // again, so the one switched to opens on what was just tapped.
-  const setShort = (v) => {
-    if (v === short) return;
-    const leaving = [flushFocus.current, short ? flushShort.current : flushCheckin.current];
+  // The card being left saves everything it holds first: the focus arrows
+  // (tonight's shots read them), then tonight's shots, the ticks on their
+  // way, and the notes and taps. Only once all of that has landed, and the
+  // page has read the day again, does it go, so the one switched to opens
+  // on what was just tapped. A save that fails keeps you where you are: the
+  // card going would take its waiting saves (and their retry) with it, and
+  // the other one would open on the older values with nothing to say so.
+  const [switching, setSwitching] = useState(false);
+  const switchingRef = useRef(false);
+  const dateRef = useRef(date);
+  dateRef.current = date;
+  const flushShots = useRef(null);
+  const setShort = async (v) => {
+    if (v === short || switchingRef.current) return;
+    const from = date;
+    const leaving = short ? [flushShots.current, flushShort.current] : [flushShots.current, flushTasks.current, flushCheckin.current];
+    switchingRef.current = true;
+    setSwitching(true);
+    let saved = true;
+    try {
+      await flushFocus.current?.();
+      await Promise.all(leaving.map((flush) => flush?.()));
+    } catch (err) {
+      console.warn(err);
+      saved = false;
+    }
+    const fresh = saved ? await reload() : null;
+    switchingRef.current = false;
+    setSwitching(false);
+    if (!saved) {
+      toast.show("Something here didn't save yet, so this stays open. Try it again, then switch.", { tone: "error", duration: 5000 });
+      return;
+    }
+    // Another evening opened meanwhile: it starts the way it starts.
+    if (dateRef.current !== from) return;
+    if (!fresh) {
+      toast.show("It's all saved, but the day didn't load again. Try switching in a moment.", { tone: "error", duration: 5000 });
+      return;
+    }
     setShortState(v);
     try {
-      sessionStorage.setItem(shortKey(date), v ? "1" : "0");
+      sessionStorage.setItem(shortKey(from), v ? "1" : "0");
     } catch {
       /* the switch still works for this visit */
     }
-    Promise.allSettled(leaving.map((flush) => flush?.())).then(() => reload());
   };
 
   // A win captured from the sheet over this page shows up here too.
@@ -134,7 +171,6 @@ export default function Evening() {
   // Tonight's arrows: how many targets are answered, a way to save what's
   // still waiting before they fly, and the volley once they have.
   const [arrows, setArrows] = useState(null);
-  const flushShots = useRef(null);
   const [volley, setVolley] = useState(null);
 
   const loose = useCallback(async () => {
@@ -173,11 +209,11 @@ export default function Evening() {
           <div className="eyebrow">{date === tonight ? "Tonight" : "Evening"} · {fmtDayHeading(date)}</div>
           <h1 className="page-title" style={{ marginTop: 3 }}>{isToday ? "How today really went" : "How the day really went"}</h1>
           {!banked && data && (
-            <div className="seg evening-length" role="group" aria-label="How long tonight">
-              <button type="button" className={"seg-btn" + (short ? " active" : "")} aria-pressed={short} onClick={() => setShort(true)}>
+            <div className="seg evening-length" role="group" aria-label="How long tonight" aria-busy={switching}>
+              <button type="button" className={"seg-btn" + (short ? " active" : "")} aria-pressed={short} onClick={() => setShort(true)} disabled={switching}>
                 Short
               </button>
-              <button type="button" className={"seg-btn" + (!short ? " active" : "")} aria-pressed={!short} onClick={() => setShort(false)}>
+              <button type="button" className={"seg-btn" + (!short ? " active" : "")} aria-pressed={!short} onClick={() => setShort(false)} disabled={switching}>
                 Full
               </button>
             </div>

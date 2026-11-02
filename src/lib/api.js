@@ -2458,11 +2458,18 @@ export async function addFocusGoal(userId, { weekStart, title, nodeId = null, ca
     .select(FOCUS_COLUMNS)
     .single();
   if (error) throw error;
+  // Two writes, so the goal goes again if its checks can't follow it: the
+  // caller says it didn't add, and Keep tapped again mustn't make a second
+  // copy of the focus (the first one landing by checks it doesn't have).
   if (fromChecks.length) {
     const { error: cErr } = await supabase
       .from("focus_checks")
       .insert(fromChecks.map((c, i) => ({ user_id: userId, goal_id: data.id, ...checkRow(c), position: i })));
-    if (cErr) throw cErr;
+    if (cErr) {
+      const { error: undoErr } = await supabase.from("focus_goals").delete().eq("id", data.id);
+      if (undoErr) console.warn(undoErr);
+      throw cErr;
+    }
   }
   return data;
 }
@@ -3560,6 +3567,14 @@ export async function saveTargetSetup(userId, ref, { reasons, aims }, before, { 
 
 // A list of checks under one parent (a target's aims, a focus's checks),
 // saved to match `rows` in order. Only what changed is written.
+//
+// Safe to run again with the same rows and `before` after it failed part
+// way, which is what a second tap on Save does (both sheets stay open with
+// what you set, new checks still without an id). The deletes and updates
+// land the same twice. The insert wouldn't: the first try may already have
+// put a new check in, so the parent's checks are read first, and one that
+// wasn't there as the sheet opened and matches a new check exactly is taken
+// as that check, already in, rather than asked twice every evening.
 async function saveCheckList(table, parent, userId, rows, before, { answered = new Set(), today } = {}) {
   const ordered = (rows ?? []).map((a, i) => ({ ...a, position: i }));
   const keep = new Set(ordered.filter((a) => a.id).map((a) => a.id));
@@ -3574,14 +3589,39 @@ async function saveCheckList(table, parent, userId, rows, before, { answered = n
     const { error } = await supabase.from(table).update({ retired_on: today }).in("id", retire);
     if (error) throw error;
   }
-  const fresh = ordered.filter((a) => !a.id);
+  const wasRow = new Map((before ?? []).filter((b) => b.id).map((b) => [b.id, b]));
+  const nowRow = new Map();
+  let fresh = ordered.filter((a) => !a.id);
+  if (fresh.length) {
+    const [column, value] = Object.entries(parent)[0];
+    const { data: now, error: readErr } = await supabase
+      .from(table)
+      .select("id, text, kind, options, pass, unit, auto, counts, focus_id, position")
+      .eq("user_id", userId)
+      .eq(column, value)
+      .is("retired_on", null)
+      .order("position");
+    if (readErr) throw readErr;
+    for (const r of now ?? []) nowRow.set(r.id, r);
+    const spare = (now ?? []).filter((r) => !wasRow.has(r.id) && !keep.has(r.id));
+    fresh = fresh.filter((a) => {
+      const same = spare.filter((r) => sameCheck(r, a));
+      const r = same.find((x) => x.position === a.position) ?? same[0];
+      if (!r) return true;
+      spare.splice(spare.indexOf(r), 1);
+      a.id = r.id;
+      return false;
+    });
+  }
   if (fresh.length) {
     const { error } = await supabase.from(table).insert(fresh.map((a) => ({ user_id: userId, ...parent, ...checkRow(a), position: a.position })));
     if (error) throw error;
   }
+  // A row is left alone when you didn't change it (it's as the sheet opened)
+  // or it already holds what you set (the first try got that far).
+  const holds = (r, a) => Boolean(r) && sameCheck(r, a) && r.position === a.position;
   for (const a of ordered.filter((x) => x.id)) {
-    const was = (before ?? []).find((b) => b.id === a.id);
-    if (was && sameCheck(was, a) && was.position === a.position) continue;
+    if (holds(wasRow.get(a.id), a) || holds(nowRow.get(a.id), a)) continue;
     const { error } = await supabase.from(table).update({ ...checkRow(a), position: a.position }).eq("id", a.id);
     if (error) throw error;
   }
