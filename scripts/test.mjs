@@ -6339,9 +6339,10 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const mig = readFileSync(new URL("../supabase/migrations/0104_target_notes_and_quotes.sql", import.meta.url), "utf8");
   const sql = mig.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
   const copy = sql.slice(sql.indexOf("insert into public.target_notes"));
-  ok("0104 copies each lesson mountain's note onto its lesson once", /^insert into public\.target_notes \(user_id, lesson_id, kind, date, text\)\nselect q\.user_id, q\.lesson_id, 'note', \(q\.created_at at time zone 'America\/Denver'\)::date, btrim\(q\.note, E' \\t\\r\\n'\)\nfrom public\.quests q\n/.test(copy), copy.slice(0, 300));
+  ok("0104 copies each lesson mountain's note onto its lesson once", /^insert into public\.target_notes \(user_id, lesson_id, kind, date, text\)\nselect q\.user_id, q\.lesson_id, 'note', \(q\.created_at at time zone 'America\/Denver'\)::date, left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)\nfrom public\.quests q\n/.test(copy), copy.slice(0, 300));
   ok("only a mountain's, and only a note with words in it", /where q\.lesson_id is not null and btrim\(coalesce\(q\.note, ''\), E' \\t\\r\\n'\) <> ''/.test(copy));
-  ok("and never twice", /and not exists \(select 1 from public\.target_notes t where t\.lesson_id = q\.lesson_id and t\.text = btrim\(q\.note, E' \\t\\r\\n'\)\);/.test(copy));
+  ok("and never twice", /and not exists \(select 1 from public\.target_notes t where t\.lesson_id = q\.lesson_id and t\.text = left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)\);/.test(copy));
+  ok("a note too long for a note keeps its first 4000 characters instead of stopping the file", (copy.match(/left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)/g) ?? []).length === 2);
   ok("it says why it's there", /The old Quests page kept "Notes on this\n-- lesson" on the lesson's mountain/.test(mig) && /lesson's own page now reads only target_notes/.test(mig));
   ok("the copy is the last thing 0104 does, and only once", sql.indexOf("insert into public.target_notes") > sql.indexOf("grant select, insert, update, delete on public.quote_links") && (sql.match(/insert into/gi) ?? []).length === 1);
 }

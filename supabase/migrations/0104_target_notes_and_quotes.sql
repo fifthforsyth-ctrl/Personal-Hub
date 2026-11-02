@@ -149,9 +149,11 @@ grant select, insert, update, delete on public.quote_links to authenticated;
 -- this copies nothing now; it's here so nothing written there is lost if
 -- one is written before this is applied. Running it again copies nothing
 -- twice (a lesson that already has that note is skipped). Blank lines and
--- spaces round a note are trimmed, as the app trims a note it saves.
+-- spaces round a note are trimmed, as the app trims a note it saves, and a
+-- note longer than a note can be (4000) keeps its first 4000 characters
+-- rather than stopping the whole file (the full text stays in quests.note).
 insert into public.target_notes (user_id, lesson_id, kind, date, text)
-select q.user_id, q.lesson_id, 'note', (q.created_at at time zone 'America/Denver')::date, btrim(q.note, E' \t\r\n')
+select q.user_id, q.lesson_id, 'note', (q.created_at at time zone 'America/Denver')::date, left(btrim(q.note, E' \t\r\n'), 4000)
 from public.quests q
 where q.lesson_id is not null and btrim(coalesce(q.note, ''), E' \t\r\n') <> ''
-  and not exists (select 1 from public.target_notes t where t.lesson_id = q.lesson_id and t.text = btrim(q.note, E' \t\r\n'));
+  and not exists (select 1 from public.target_notes t where t.lesson_id = q.lesson_id and t.text = left(btrim(q.note, E' \t\r\n'), 4000));
