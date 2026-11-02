@@ -7,6 +7,14 @@ export function isOffline(err) {
   return /failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(err?.message ?? "");
 }
 
+// An error whose message is already written for him (a save that didn't
+// go through, said in plain words), to be shown as it is.
+export function plainError(message) {
+  const err = new Error(message);
+  err.plain = true;
+  return err;
+}
+
 export function friendlyError(err, fallback = "Something went wrong. Try again.") {
   if (err) console.warn(err);
   const message = err?.message ?? String(err ?? "");

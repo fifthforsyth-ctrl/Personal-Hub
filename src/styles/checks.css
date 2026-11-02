@@ -9,7 +9,10 @@
 /* A pasted link is one long word: it breaks where it has to rather than
    running under the answer and off the card. */
 .ck-row__text { font-size: 14px; font-weight: 560; line-height: 1.3; overflow-wrap: anywhere; }
-.ck-row__pass { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
+/* One line of words that wraps as words do: the dot stays with what passes,
+   and a long hint carries on after it rather than starting a line of its own. */
+.ck-row__pass { display: block; font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
+.ck-row__pass .ck-mark { vertical-align: -1px; margin-right: 5px; }
 .ck-row__hint { color: var(--text-2); }
 .ck-row__a { flex-shrink: 0; max-width: 100%; }
 .ck-row--scale .ck-row__a,
@@ -55,6 +58,9 @@
 .ck-edit__item { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); }
 .ck-edit__top { display: flex; align-items: center; gap: 4px; }
 .ck-edit__top .input { flex: 1; min-width: 0; }
+/* The question wraps onto a second line rather than hide its end behind the
+   buttons beside it. */
+.ck-edit .ck-edit__q { resize: none; min-height: 0; line-height: 1.35; font: inherit; font-size: 14px; padding: 8px 10px; overflow-wrap: anywhere; }
 .ck-edit__grid { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 12.5px; color: var(--text-2); }
 .ck-edit__grid label { display: inline-flex; align-items: center; gap: 6px; }
 .ck-edit__grid .input { padding: 6px 8px; font-size: 13px; width: auto; }

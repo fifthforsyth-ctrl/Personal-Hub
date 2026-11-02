@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
-import { friendlyError } from "../../lib/errors";
+import { friendlyError, plainError } from "../../lib/errors";
 
 // The evening's four cards.
 //
@@ -215,7 +215,7 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     if (!flushRef) return;
     flushRef.current = async () => {
       const ok = await saveRef.current?.();
-      if (ok === false) throw new Error("Your reflection didn't save. It's kept on this phone; try again in a moment.");
+      if (ok === false) throw plainError("Your reflection didn't save. It's kept on this phone; try again in a moment.");
     };
     return () => {
       flushRef.current = null;

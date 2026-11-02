@@ -11,6 +11,7 @@ import { useBackOnline } from "../today/useBackOnline";
 import Slider from "../ui/Slider";
 import "../../styles/honest.css";
 import "../../styles/daily.css";
+import { plainError } from "../../lib/errors";
 
 // Before you bank it: how the day felt, any communication with God, and
 // when tomorrow starts (Aaron, 2026-11-02).
@@ -253,7 +254,7 @@ export function NoteInput({ note, placeholder, label, max, multiline = false, id
     "aria-label": label,
     maxLength: max,
   };
-  return multiline ? <textarea rows={2} {...props} /> : <input {...props} />;
+  return multiline ? <textarea rows={3} {...props} /> : <input {...props} />;
 }
 
 // --- How the evening saves --------------------------------------------------
@@ -318,7 +319,7 @@ export function useSaves() {
 
   const flush = useCallback(async () => {
     if (loop.current) await loop.current;
-    if (!(await pump())) throw new Error("Something didn't save.");
+    if (!(await pump())) throw plainError("A note or tap in Before you bank it didn't save. Check your signal and try again.");
   }, [pump]);
 
   const waiting = useCallback((key) => wanted.current.has(key), []);

@@ -76,7 +76,7 @@ export default function FocusStrip({ userId, date }) {
                   onClick={() => setOpenId(g.id)}
                 >
                   <TargetFace target={{ shots: shots[g.id] ?? [], reasons: [] }} today={date} range="7" mini />
-                  <span className="focus-strip__title">{g.title}</span>
+                  <span className="focus-strip__title">{keepDashes(g.title)}</span>
                 </button>
               </li>
             );
@@ -88,4 +88,11 @@ export default function FocusStrip({ userId, date }) {
       {open && <FocusSheet key={open.id} userId={userId} goal={open} date={date} fw={fw} onClose={() => setOpenId(null)} />}
     </>
   );
+}
+
+// "Daily form--win by win": a double dash is one mark, so it's drawn with
+// hyphens that never break, and the name wraps at its spaces instead of
+// leaving "--" alone at the start or end of a line.
+function keepDashes(title) {
+  return String(title ?? "").replace(/-/g, "\u2011");
 }

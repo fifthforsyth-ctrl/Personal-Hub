@@ -387,11 +387,11 @@ export function watchSaw(focus, entries) {
 // with the 20 minutes logged by then; open it again at ten with 60 in the
 // log and the day's newer answer takes over. One he gave himself always
 // stays put. The focus side does the same (focus.js, focusAnswers).
-export function startingAnswers(target, { focusesById, entries, dayPlan } = {}) {
+export function startingAnswers(target, { focusesById, entries, dayPlan, date } = {}) {
   const saved = new Map(answersOf(target?.tonight).filter((a) => a.aim).map((a) => [a.aim, a]));
   return (target?.aims ?? []).map((a) => {
     const s = saved.get(a.id);
-    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes });
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes, date });
     const line = s?.line ?? "";
     if (s?.day === true && fresh != null) return { value: fresh, line, day: true };
     if (s && fits(a, s.value)) return { value: s.value, line, day: s.day === true };
@@ -415,12 +415,12 @@ function fits(check, value) {
 // gave himself stays put, and so does the day's when it now has nothing.
 // The same list comes back when nothing changed, so the evening knows not
 // to save again.
-export function freshAnswers(target, answers, { focusesById, entries, dayPlan } = {}) {
+export function freshAnswers(target, answers, { focusesById, entries, dayPlan, date } = {}) {
   let changed = false;
   const next = (target?.aims ?? []).map((a, i) => {
     const x = answers?.[i];
     if (!x || x.day !== true) return x;
-    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes });
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes, date });
     if (fresh == null || fresh === x.value) return x;
     changed = true;
     return { ...x, value: fresh, day: true };
@@ -596,9 +596,9 @@ export function quickOf(shot) {
 // time log's minutes for a check with a focus (and what the watch saw, so
 // the answer comes with what actually happened), or when you got up for an
 // "Up by". Null for a check only you answer.
-export function checkHint(check, { focusesById, entries, dayPlan } = {}) {
+export function checkHint(check, { focusesById, entries, dayPlan, date } = {}) {
   const c = normCheck(check);
-  if (c.kind === "time" && c.auto === "wake") return autoValue(c, { dayPlan, entries }) ? "From when you got up" : "No wake time in your log";
+  if (c.kind === "time" && c.auto === "wake") return autoValue(c, { dayPlan, entries, date }) ? "From when you got up" : "No wake time in your log";
   const focus = c.focus_id ? focusesById?.get?.(c.focus_id) : null;
   if (!focus) return null;
   const mins = focusMinutes(focus, entries);
@@ -666,11 +666,11 @@ export function shotKey(shot) {
 // moved on since (the desk finished what the phone started), the shot wins.
 // A draft of any other shape, an old one from before checks had kinds
 // included, is simply not used.
-export function tonightDraft(target, { focusesById, entries, dayPlan, mine } = {}) {
+export function tonightDraft(target, { focusesById, entries, dayPlan, date, mine } = {}) {
   const shot = target?.tonight ?? null;
   const kept = mine && typeof mine === "object" && !Array.isArray(mine) ? mine : null;
   const newer = Boolean(kept && (!shot || (typeof kept.base === "string" && kept.base === shotKey(shot))));
-  let answers = startingAnswers(target, { focusesById, entries, dayPlan });
+  let answers = startingAnswers(target, { focusesById, entries, dayPlan, date });
   let line = String(shot?.note ?? "");
   if (newer) {
     answers = restoreAnswers(target, answers, kept.answers);

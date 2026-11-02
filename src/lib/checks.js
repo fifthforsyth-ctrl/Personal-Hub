@@ -358,9 +358,9 @@ export function clockText(hhmm) {
 //                          (a Yes/No reads Yes when there were any)
 //   "Up by" (auto wake)    when you got up: the time you tapped I'm up,
 //                          else the end of the night's sleep the time log has
-export function autoValue(check, { focusesById, entries, dayPlan, focusMinutes } = {}) {
+export function autoValue(check, { focusesById, entries, dayPlan, focusMinutes, date } = {}) {
   const c = normCheck(check);
-  if (c.kind === "time" && c.auto === "wake") return wokeAt(dayPlan, entries);
+  if (c.kind === "time" && c.auto === "wake") return wokeAt(dayPlan, entries, date ?? dayPlan?.date ?? null);
   if (!c.focus_id || !focusMinutes) return null;
   const focus = focusesById?.get?.(c.focus_id);
   if (!focus) return null;
@@ -371,8 +371,10 @@ export function autoValue(check, { focusesById, entries, dayPlan, focusMinutes }
 }
 
 // When you got up that morning, as "HH:MM" on this device's clock: the
-// morning's I'm up, else the last Sleep entry that ended before noon.
-export function wokeAt(dayPlan, entries) {
+// morning's I'm up, else the last Sleep entry that ended before noon on
+// that day (`date`, "YYYY-MM-DD"). Without the day check, opening Monday's
+// evening on Tuesday would take Tuesday morning's wake for Monday's.
+export function wokeAt(dayPlan, entries, date = null) {
   if (dayPlan?.woke_at) return localHHMM(dayPlan.woke_at);
   let best = null;
   for (const e of entries ?? []) {
@@ -381,9 +383,14 @@ export function wokeAt(dayPlan, entries) {
     if (!tags.some((t) => String(t ?? "").trim().toLowerCase() === "sleep")) continue;
     const end = new Date(e.ended_at);
     if (Number.isNaN(end.getTime()) || end.getHours() >= 12) continue;
+    if (date && localYmd(end) !== String(date).slice(0, 10)) continue;
     if (!best || end > best) best = end;
   }
   return best ? localHHMM(best) : null;
+}
+
+function localYmd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function localHHMM(at) {

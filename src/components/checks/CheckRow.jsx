@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { normCheck, passText, markOf, scores, clockText } from "../../lib/checks";
+import { normCheck, passText, markOf, scores } from "../../lib/checks";
 import "../../styles/checks.css";
 
 // One check, answered the way its kind asks (checks.js): two or three
@@ -137,7 +137,6 @@ function Answer({ c, value, onValue, disabled, labelledBy }) {
     return (
       <label className="ck-num">
         <input className="input input--sm" type="time" value={value ?? ""} onChange={(e) => pick(e.target.value || null)} aria-labelledby={labelledBy} disabled={disabled} />
-        {value && <span className="faint ck-num__read">{clockText(value)}</span>}
       </label>
     );
   }

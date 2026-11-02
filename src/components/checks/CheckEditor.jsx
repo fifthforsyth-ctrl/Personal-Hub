@@ -97,10 +97,15 @@ export default function CheckEditor({ rows, onChange, focuses = [], max = 6, fir
         {rows.map((r, i) => (
           <li key={r.key} className="ck-edit__item">
             <div className="ck-edit__top">
-              <input
-                className="input"
+              <textarea
+                className="input ck-edit__q"
+                rows={2}
                 value={r.text}
-                onChange={(e) => set(r.key, { text: e.target.value })}
+                onChange={(e) => set(r.key, { text: e.target.value.replace(/[\r\n]+/g, " ") })}
+                onKeyDown={(e) => {
+                  // One line of words: Enter doesn't start a new one.
+                  if (e.key === "Enter") e.preventDefault();
+                }}
                 maxLength={120}
                 placeholder={i === 0 ? firstPlaceholder : "Another check"}
                 aria-label={`Check ${i + 1}`}

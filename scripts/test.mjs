@@ -4357,6 +4357,19 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("Up by fills from I'm up", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { dayPlan: { woke_at: local.toISOString() } }) === "04:32");
   ok("or from the night's sleep the time log has", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 4, 50).toISOString() }, { category: "Sleep", tags: ["Sleep"], is_nap: true, ended_at: new Date(2026, 10, 2, 11, 0).toISOString() }]) === "04:50");
   ok("an afternoon nap isn't when you got up", ckWoke(null, [{ category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 15, 0).toISOString() }]) === null);
+  {
+    // The evening's log can hold the night ahead (a sleep started tonight and
+    // ended tomorrow morning): with the day given, only that morning counts.
+    const nights = [
+      { category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 2, 4, 40).toISOString() },
+      { category: "Sleep", tags: ["Sleep"], ended_at: new Date(2026, 10, 3, 4, 31).toISOString() },
+    ];
+    ok("the day's own morning, not the next one", ckWoke(null, nights, "2026-11-02") === "04:40");
+    ok("only the next morning logged: no wake time for this day", ckWoke(null, [nights[1]], "2026-11-02") === null);
+    ok("with no day given, the latest morning still counts", ckWoke(null, nights) === "04:31");
+    ok("autoValue passes the day on", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { entries: [nights[1]], date: "2026-11-02" }) === null);
+    ok("and takes it from the day plan when it isn't given", ckAuto({ text: "Up", kind: "time", pass: { by: "04:35" }, auto: "wake" }, { entries: nights, dayPlan: { date: "2026-11-02" } }) === "04:40");
+  }
   const drawFocus = { id: "f2", categories: ["Drawing"] };
   const drawLog = [{ tags: ["Drawing"], duration_minutes: 40 }];
   ok("minutes with a focus fill from the time log", ckAuto({ text: "Drew", kind: "minutes", focus_id: "f2" }, { focusesById: new Map([["f2", drawFocus]]), entries: drawLog, focusMinutes }) === 40);
@@ -4518,7 +4531,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("one he gave himself is left alone", M.freshAnswers(drew, [{ value: 10, line: "", day: false }, running[1]], { focusesById: byId, entries: log(45) })[0].value === 10);
   ok(
     "the evening marks his own answers as his and takes the day's newer ones while it's open",
-    /\{ \.\.\.a, value, day: false \}/.test(shotsSrc) && /freshAnswers\(t, x\.answers, \{ focusesById, entries, dayPlan \}\)/.test(shotsSrc) && /localDraft\(t, d, saved\.get\(t\.key\)\)/.test(shotsSrc)
+    /\{ \.\.\.a, value, day: false \}/.test(shotsSrc) && /freshAnswers\(t, x\.answers, \{ focusesById, entries, dayPlan, date \}\)/.test(shotsSrc) && /localDraft\(t, d, saved\.get\(t\.key\)\)/.test(shotsSrc)
   );
 
   // --- The quick card and the full card still agree, with no save loop -------
@@ -5331,7 +5344,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("tapping what's chosen never takes it back", !/=== n \? null/.test(checkin) && !/alarm === a \? null/.test(checkin) && /if \(n === mood && !saves\.waiting\("mood"\)\) return;/.test(checkin));
   ok("saves go one at a time, so a tap while one saves still goes", /if \(loop\.current\) return loop\.current;/.test(checkin) && /wanted\.current\.set\(key, \{ run \}\)/.test(checkin));
   ok("a save that fails stays waiting and says so", /if \(wanted\.current\.get\(key\) === job\) failed\.add\(key\)/.test(checkin) && checkin.includes("Not saved, retry") && /useBackOnline\(retry, status\.failed > 0\)/.test(checkin));
-  ok("flushing saves every note still typed, and fails loudly", /for \(const n of notes\.current\) n\.saveNow\(\);/.test(checkin) && /throw new Error\("Something didn't save\."\)/.test(checkin));
+  ok("flushing saves every note still typed, and fails loudly", /for \(const n of notes\.current\) n\.saveNow\(\);/.test(checkin) && /throw plainError\("A note or tap in Before you bank it didn't save\./.test(checkin));
   ok("the em dash stays out of what he reads", !/>[^<{]*—[^<{]*</.test(checkin) && !/placeholder="[^"]*—/.test(checkin));
 
   const short = code(src("src/components/day/ShortEvening.jsx"));

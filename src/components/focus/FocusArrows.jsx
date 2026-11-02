@@ -37,6 +37,7 @@ import FocusSettings from "./FocusSettings";
 import "../../styles/mark.css";
 import "../../styles/checks.css";
 import "../../styles/focus.css";
+import { plainError } from "../../lib/errors";
 
 // This week's focus, in the evening: one arrow per focus for the day.
 //
@@ -81,7 +82,7 @@ export default function FocusArrows({ userId, date, entries, dayPlan, quick = fa
       // says why and the tap can go again), or tonight's shots would fly
       // without that arrow and its answers would be lost.
       const done = await settled();
-      if (done.includes(false)) throw new Error("A focus arrow didn't save. Check your signal and try again.");
+      if (done.includes(false)) throw plainError("A focus arrow didn't save. Check your signal and try again.");
     };
     return () => {
       flushRef.current = null;
@@ -207,7 +208,7 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
   // The arrow whose save failed, by arrowKey, until another save starts.
   const [failedKey, setFailedKey] = useState(null);
 
-  const auto = useMemo(() => checks.map((c) => autoValue(c, { focusesById, entries, dayPlan, focusMinutes })), [checks, focusesById, entries, dayPlan]);
+  const auto = useMemo(() => checks.map((c) => autoValue(c, { focusesById, entries, dayPlan, focusMinutes, date })), [checks, focusesById, entries, dayPlan, date]);
   const answers = mode === "checks" ? focusAnswers(checks, row, { auto, mine }) : [];
   const ready = mode === "checks" ? landedArrow(checks, answers, note) : null;
   const readyKey = arrowKey(ready);

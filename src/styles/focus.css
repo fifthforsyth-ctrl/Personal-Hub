@@ -404,3 +404,8 @@
 .focus-settings__actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 18px; }
 
 .focus-week__settings { color: var(--text-3); }
+
+/* A box placed straight on the sheet (not in a white card) gets a white
+   fill and a line, so it reads as something to fill in. */
+.focus-settings > .field .input,
+.focus-settings > .field select.input { background: var(--card); border-color: var(--line-strong); }

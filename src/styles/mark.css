@@ -335,3 +335,7 @@
 .mk-quick__name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; font-weight: 550; }
 .mk-quick__name svg { flex-shrink: 0; }
 .mk-quick__name small { font-size: 11px; font-weight: 400; }
+
+/* The four section names sit straight on the sheet: white boxes with a
+   line, so they read as fields. */
+.mk-reasons-edit .input { background: var(--card); border-color: var(--line-strong); }

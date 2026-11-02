@@ -175,7 +175,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
     const local = readLocal(date);
     const next = {};
     for (const t of range.all) {
-      next[t.key] = tonightDraft(t, { focusesById, entries, dayPlan, mine: local[t.key] });
+      next[t.key] = tonightDraft(t, { focusesById, entries, dayPlan, date, mine: local[t.key] });
       if (t.tonight) saved.current.set(t.key, t.tonight);
     }
     draftsRef.current = next;
@@ -354,11 +354,11 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
     if (!all) return;
     for (const t of targetsRef.current) {
       const d = all[t.key];
-      if (!d || freshAnswers(t, d.answers, { focusesById, entries, dayPlan }) === d.answers) continue;
-      update(t.key, (x) => ({ ...x, answers: freshAnswers(t, x.answers, { focusesById, entries, dayPlan }) }));
+      if (!d || freshAnswers(t, d.answers, { focusesById, entries, dayPlan, date }) === d.answers) continue;
+      update(t.key, (x) => ({ ...x, answers: freshAnswers(t, x.answers, { focusesById, entries, dayPlan, date }) }));
       later(t.key);
     }
-  }, [focusesById, entries, dayPlan, update, later]);
+  }, [focusesById, entries, dayPlan, date, update, later]);
 
   // An arrow placed on a focus that counts toward a target changes that
   // target's shot: settle it again. Only a change counts (the first read of
@@ -612,7 +612,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
                         line={d.answers[j]?.line ?? ""}
                         onValue={(v) => answer(t, j, v)}
                         onLine={(l) => answerLine(t, j, l)}
-                        hint={checkHint(a, { focusesById, entries, dayPlan })}
+                        hint={checkHint(a, { focusesById, entries, dayPlan, date })}
                       />
                     ))}
                   </div>
