@@ -5755,7 +5755,9 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // The order on a phone: the grid's cells in the source, as a phone stacks them.
   const order = ["<QuestCamps", 'className="qs-today"', 'className="qs-ongoing"', 'className="qs-clip"', "{quotes}", "{notes}", "qs-earlier", "{history}"];
-  const spots = order.map((s) => body.indexOf(s));
+  // (the full page's render: while the lists load, the quotes, notes and history sit under the header instead)
+  const grid = body.slice(body.indexOf("<PhotoProvider"));
+  const spots = order.map((s) => grid.indexOf(s));
   ok("a quest's page runs camps, Today, ongoing, clipboard, quotes, notes, earlier days, history", spots.every((n, i) => n > 0 && (i === 0 || n > spots[i - 1])), JSON.stringify(spots));
   const qcss = read("src/styles/quests.css");
   ok("the phone keeps that order: the grid only places its cells on a desk", !/grid-area:\s*(camps|today|ongoing|clip|side|rest|build)\b/.test(qcss.slice(0, qcss.indexOf("@media (min-width: 901px)"))));
@@ -6011,7 +6013,12 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const remove = sheets.slice(sheets.indexOf("async function remove(r)"), sheets.indexOf("setRows((rs) => rs.filter((x) => x.key !== r.key));"));
   ok("taking off any saved camp asks first, clipboard and all", /r\.id &&\s*!\(await confirm\(/.test(remove) && /clipboard, photos and sketches/.test(remove));
   const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-  ok("each target's page starts fresh", /<Target key=\{pathname\} \/>/.test(app) && (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2);
+  ok(
+    "each target's page starts fresh",
+    /if \(pathname !== at\.current\.key && pathname !== at\.current\.alias\) at\.current = \{ key: pathname, alias: null \};/.test(app) &&
+      /<Target\s+key=\{at\.current\.key\}\s+onCanonical=\{\(path\) => \{\s*at\.current\.alias = path;\s*\}\}/.test(app) &&
+      (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2
+  );
 }
 
 // (end of targets tab, part 5)
@@ -6020,6 +6027,183 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, review fix 1: the page loads and its head) =====
 // Add this fix group's tests directly under the line above.
 {
+  console.log("\ntargets tab, review fix 1: the page loads and its head");
+  const { build } = await import("esbuild");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  const body = read("src/components/targets/QuestBody.jsx");
+  const page = read("src/pages/Target.jsx");
+  const headSrc = read("src/components/targets/TargetHead.jsx");
+  const focusSrc = read("src/components/targets/TargetFocus.jsx");
+  const app = read("src/App.jsx");
+
+  // --- QuestBody: the header in one place, the sections in every state ----------
+  const loadingBranch = body.slice(body.indexOf("if (!board) {"), body.indexOf("if (!sel) {"));
+  const goneBranch = body.slice(body.indexOf("if (!sel) {"), body.indexOf("const [todayList, ...earlierAll] = days;"));
+  const mainReturn = body.slice(body.indexOf("// Every part is its own cell of one grid"));
+  const sections = /<div className="tg-body">\s*\{quotes\}\s*\{notes\}\s*\{history\}\s*<\/div>/;
+  ok("while a quest's lists load or fail, its quotes, notes and history still show (so Reflect, Note and Quote open)", loadingBranch.length > 0 && sections.test(loadingBranch) && /<LoadError what="this list"/.test(loadingBranch));
+  ok("and when its lists can't be found", goneBranch.length > 0 && sections.test(goneBranch) && /Couldn't find this/.test(goneBranch));
+  ok(
+    "the header is the first thing in each of QuestBody's three returns, so it never remounts as the lists arrive",
+    /return \(\s*<>\s*\{head\(tileFor\(\{ waiting: true \}\)\)\}/.test(loadingBranch) &&
+      /return \(\s*<>\s*\{head\(null\)\}/.test(goneBranch) &&
+      /return \(\s*<>\s*\{head\(tile\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
+      (body.match(/\{head\(/g) ?? []).length === 3
+  );
+  const providers = body.slice(body.indexOf("<PhotoProvider"), body.indexOf("</PhotoProvider>"));
+  ok("nothing inside the photo and tint providers draws the header", providers.length > 0 && !/head\(/.test(providers));
+
+  // --- Target.jsx: the lists load alongside the ladder ----------------------------
+  ok("the page reads a quest's lists itself, alongside the ladder, and QuestBody no longer does", /useLoad\(\(\) => \(userId && wantsBoard \? fetchQuestBoard\(userId\) : null\), \[userId, wantsBoard\]\)/.test(page) && !/fetchQuestBoard\(\w|^\s+fetchQuestBoard,$/m.test(body));
+  ok(
+    "and hands them down with their error, loading, reload and mutate",
+    /board=\{board\.data\}\s*boardError=\{board\.error\}\s*boardLoading=\{board\.loading\}\s*reloadBoard=\{board\.reload\}\s*mutateBoard=\{board\.mutate\}/.test(page) &&
+      /const error = boardError;\s*const loading = boardLoading;\s*const reload = reloadBoard;/.test(body)
+  );
+  ok(
+    "a ladder that fails on a quest's page is a line above its lists, not the whole page",
+    /\{ladder\.error && <LoadError what=\{`this \$\{kind\}'s arrows and climb`\} error=\{ladder\.error\} onRetry=\{ladder\.reload\} stale=\{Boolean\(data\)\} \/>\}\s*<QuestBody/.test(page) &&
+      /if \(!data && ladder\.error && !quest && !\(wantsBoard && board\.loading\)\) \{/.test(page)
+  );
+  ok("drawn from its lists alone, it has no pencil until the ladder's row is in", /const edit = info\.fromBoard\s*\? null/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
+  const calls = page.match(/resolveRef\(ref, \{[^}]*\}\)/g) ?? [];
+  ok(
+    "every placing of a focus stops at this week (upTo), and the place is told again as the day turns",
+    calls.length === 3 && calls.filter((c) => c !== "resolveRef(ref, {})").every((c) => /\bupTo\b/.test(c)) && /const upTo = focusWeekOf\(today\);/.test(page) && /\[ref, data, board\.data, edges, focusGoals, rows\.data, today\]/.test(page),
+    calls.join(" | ")
+  );
+  ok("the evening's lines get the target's reasons, for the ring and the miss", /reasons=\{t\?\.reasons \?\? null\}/.test(page));
+  ok("a goal's notes and quotes take in the goals under it", /import \{ subtreeIds \} from "\.\.\/lib\/wheel";/.test(page) && /lineage: \[\.\.\.subtreeIds\(edges \?\? \[\], id\)\],/.test(page));
+  ok("a focus's ladder line comes from its row as the week has it now", /crumbs: ladderLine\(\[focusRow\]\),/.test(page));
+  ok("the page tells App.jsx of its own move just before it goes", /onCanonical\?\.\(`\/targets\/\$\{key\}`\);\s*navigate\(`\/targets\/\$\{key\}/.test(page) && /export default function Target\(\{ onCanonical = null \}\)/.test(page));
+  ok("App.jsx keeps the page across that move, and starts afresh for any other", /const at = useRef\(\{ key: pathname, alias: null \}\);/.test(app) && /<Target\s+key=\{at\.current\.key\}/.test(app) && !/<Target key=\{pathname\}/.test(app));
+
+  // --- The head and the focus -----------------------------------------------------
+  ok("a target off the range (done, set aside, learned) doesn't say 'No arrow yet today'", /off=\{Boolean\(chip\)\}/.test(headSrc) && /\{\(!off \|\| t\.today\) && <span className=\{"tg-mark__state"/.test(headSrc));
+  ok("a focus's why line is one line of words", /<div className="tg-why">\s*<p className="tg-why__text">\{why\}<\/p>\s*<\/div>/.test(headSrc));
+  ok("a focus's page says what it counts toward once, above", /toward=\{null\}/.test(focusSrc) && !/towardLabel/.test(focusSrc));
+
+  // --- placeRef and describe, run ---------------------------------------------------
+  // Target.jsx built with everything it imports swapped for stand-ins but
+  // the ladder's, the focus's, the Mark's and the wheel's libraries (and
+  // React's element maker, for a focus's why line).
+  const pagePath = fileURLToPath(at("src/pages/Target.jsx"));
+  const keep = /\/lib\/(ladder|focus|mark|wheel)$|^react\/jsx-runtime$/;
+  const builtPage = await build({
+    entryPoints: [pagePath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "automatic",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === pagePath && !keep.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = page.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const P = await import(`data:text/javascript;base64,${Buffer.from(builtPage.outputFiles[0].text).toString("base64")}`);
+  const day = "2026-11-04"; // a Wednesday; its week began Sunday Nov 1
+  const board = {
+    quests: [
+      { id: "q1", title: "Build the best Premiere Pro plugin", note: "Ship it by spring.", status: "on", goal_id: "g1", lesson_id: null },
+      { id: "q2", title: "Run a marathon", note: null, status: "done", goal_id: null, lesson_id: null },
+      { id: "m1", title: "Quit caffeine", note: null, status: "on", goal_id: null, lesson_id: "l1" },
+    ],
+    lessons: [{ id: "l1", title: "Stop drinking caffeine", question: "What does it do to my mornings?", status: "learned", goal_id: "g1" }],
+    goals: [
+      { id: "g1", title: "Highly skilled" },
+      { id: "g2", title: "Highly fit" },
+    ],
+  };
+  const place = (ref, more = {}) => P.placeRef(ref, { data: undefined, board: undefined, edges: null, focusGoals: null, rowsIn: false, today: day, ...more });
+  ok("the mission is placed at once", place("mission")?.kind === "mission");
+  ok("before the ladder and the lists, nothing can be told yet", place("q1") === undefined);
+  const fromBoard = place("q1", { board });
+  ok("the lists alone place a quest", fromBoard?.kind === "quest" && fromBoard.key === "q1");
+  const byMountain = place("m1", { board });
+  ok("and a lesson by its mountain's id, at the lesson's own address", byMountain?.kind === "lesson" && byMountain.key === "l1");
+  ok("but not a goal: that waits for the ladder", place("g1", { board }) === undefined);
+  const data = { goals: [{ id: "g1", title: "Highly skilled" }], quests: board.quests, lessons: board.lessons, marks: { targets: [], aims: [], shots: [] } };
+  ok("once the ladder's in, it places a goal", place("g1", { data, board })?.kind === "goal");
+  ok("what it can't place is nothing of his only once the focus rows are in too", place("zz", { data }) === undefined && place("zz", { data, rowsIn: true }) === null);
+
+  const none = { questView: () => null, lessonView: () => null, targetOf: () => null, focusWeek: { week: [] } };
+  const edges = [{ parent_id: "g2", child_id: "g3" }];
+  const q = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges, today: day });
+  ok(
+    "a quest drawn from its lists: its name, why and ladder line, no target yet, and no pencil",
+    q?.title === "Build the best Premiere Pro plugin" && q.why === "Ship it by spring." && q.mark === null && q.fromBoard === true && q.name === "Plugin" && q.crumbs.map((c) => c.label).join() === "My mission,Skilled",
+    JSON.stringify(q?.crumbs)
+  );
+  const l = P.describe({ kind: "lesson", id: "l1", key: "l1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges: null, today: day });
+  ok("a lesson drawn from its lists keeps its question and its Learned chip", l?.why === "What does it do to my mornings?" && l.chip === "Learned" && l.mark === null && l.fromBoard === true);
+  const seen = { ...none, questView: (id) => (id === "q1" ? { ...board.quests[0], state: {} } : null) };
+  const withLadder = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data, view: { goals: [] }, board, ladder: seen, focusGoals: null, edges, today: day });
+  ok("once the ladder's in, its target on the range is there and its pencil with it", withLadder?.mark?.key === "q1" && withLadder.fromBoard === false);
+  ok("a quest in neither is gone", P.describe({ kind: "quest", id: "nope", key: "nope" }, { data, view: { goals: [] }, board, ladder: none, focusGoals: null, edges, today: day }) === null);
+  const goal = P.describe(
+    { kind: "goal", id: "g1", key: "g1" },
+    { data, view: { goals: [{ id: "g1", title: "Highly skilled", short: "Skilled" }] }, board, ladder: none, focusGoals: null, edges: [{ parent_id: "g1", child_id: "g4" }, { parent_id: "g4", child_id: "g5" }, ...edges], today: day }
+  );
+  ok("a goal's page reads its own notes and those of every goal under it", goal?.lineage?.slice().sort().join() === "g1,g4,g5", JSON.stringify(goal?.lineage));
+  const row = { id: "f1", title: "Daily form", week_start: "2026-11-01", node_id: "g1", quest_id: null, lesson_id: null, carried_from: null };
+  const moved = { ...none, focusWeek: { week: [{ ...row, node_id: null, quest_id: "q1" }] } };
+  const f = P.describe(
+    { kind: "focus", id: "f1", key: "f1" },
+    { data, view: { goals: [], quests: board.quests, lessons: board.lessons }, board, ladder: moved, focusGoals: [row], edges, today: day }
+  );
+  ok("a focus moved to count toward a quest shows that quest in its ladder line at once", f?.crumbs.map((c) => c.to).join() === "/targets/mission,/targets/g1,/targets/q1", JSON.stringify(f?.crumbs));
+
+  // --- TargetHead, drawn ------------------------------------------------------------
+  const dir = fileURLToPath(at("src/components/targets/"));
+  const standIns = {
+    "react-router-dom": 'import { createElement } from "react"; export const Link = ({ to, children, className }) => createElement("a", { href: to, className }, children);',
+    "lucide-react": "export const ChevronRight = () => null; export const Pencil = () => null;",
+  };
+  const builtHead = await build({
+    stdin: {
+      contents: 'export { default as TargetHead } from "./TargetHead.jsx"; export { renderToStaticMarkup } from "react-dom/server"; export { createElement, Fragment } from "react";',
+      resolveDir: dir,
+      loader: "jsx",
+    },
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    jsx: "automatic",
+    logLevel: "silent",
+    banner: { js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(import.meta.url)});` },
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /^(react-router-dom|lucide-react)$|\/TargetFace$/ }, (a) => ({ path: a.path, namespace: "stand-in" }));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => ({ contents: standIns[a.path] ?? "export default () => null;", loader: "jsx", resolveDir: dir }));
+        },
+      },
+    ],
+  });
+  const H = await import(`data:text/javascript;base64,${Buffer.from(builtHead.outputFiles[0].text).toString("base64")}`);
+  const drawHead = (props) => H.renderToStaticMarkup(H.createElement(H.TargetHead, { title: "Plugin", eyebrow: "Quest", today: day, onHistory: () => {}, ...props }));
+  const mark = { shots: [], today: null };
+  ok("a quest he's on says no arrow yet today", /No arrow yet today/.test(drawHead({ mark })));
+  const doneHead = drawHead({ mark, chip: "Done" });
+  ok("a finished one doesn't, and keeps its History", !/No arrow yet today/.test(doneHead) && /History/.test(doneHead) && /tg-chip">Done</.test(doneHead));
+  ok("an arrow that did land today on one set aside is still said", /Bullseye tonight/.test(drawHead({ mark: { shots: [], today: { level: 0 } }, chip: "Set aside" })));
+  const why = H.createElement(H.Fragment, null, "Counts toward ", H.createElement("a", { href: "/targets/g1" }, "Skilled"), H.createElement("span", { className: "tg-why__week" }, " · Week of Oct 25"));
+  ok("a focus's why stays one line of words", /<div class="tg-why"><p class="tg-why__text">Counts toward <a href="\/targets\/g1">Skilled<\/a><span class="tg-why__week"> · Week of Oct 25<\/span><\/p><\/div>/.test(drawHead({ why })));
+  ok("while a quest's target is coming, its row keeps its place", /<div class="tg-mark" aria-hidden="true"><\/div>/.test(drawHead({ markWaiting: true })) && !/tg-mark/.test(drawHead({})));
 }
 // (end of review fix 1)
 

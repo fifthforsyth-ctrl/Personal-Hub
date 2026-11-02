@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazy, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -46,10 +46,22 @@ function MovedTo({ to }) {
 
 // Each target's page starts fresh: going from one target to another (a
 // link up the ladder, the quests row) mustn't carry a draft, a search or an
-// open sheet across to the wrong target.
+// open sheet across to the wrong target. The page's own move to the
+// target's address (from a lesson's mountain, an older week of a focus, a
+// goal further down the wheel) is the same target, so the page keeps what
+// it has loaded across it instead of loading it all again.
 function TargetAt() {
   const { pathname } = useLocation();
-  return <Target key={pathname} />;
+  const at = useRef({ key: pathname, alias: null });
+  if (pathname !== at.current.key && pathname !== at.current.alias) at.current = { key: pathname, alias: null };
+  return (
+    <Target
+      key={at.current.key}
+      onCanonical={(path) => {
+        at.current.alias = path;
+      }}
+    />
+  );
 }
 
 function RedirectToToday() {

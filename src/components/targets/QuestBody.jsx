@@ -9,7 +9,6 @@ import {
   addSteps,
   deleteQuestTask,
   fetchCampsSteps,
-  fetchQuestBoard,
   fetchQuestTasks,
   fetchTodayOrder,
   reorder,
@@ -106,6 +105,10 @@ import "../../styles/quests.css";
 // The page hands in its own parts (Target.jsx): `head(build)` draws the
 // header with the build in it, `quotes` and `notes` go after the lists of
 // today (beside them on a desk), and `history` (the target's marks) last.
+// The header is drawn at the same place whatever state the lists are in,
+// so it (and the quests row under it) never starts over as they arrive;
+// and while they load, or when they can't, the quotes, notes and history
+// still show under it, so Reflect, Note and Quote always open.
 
 const EARLIER_SHOWN = 10;
 // The clipboard closed down to a small button (Aaron, 2026-11-02), remembered.
@@ -137,10 +140,27 @@ function useWide() {
 
 // `kind` is "quest" or "lesson" and `id` its id (a lesson's own, never its
 // mountain's). `ladder` is the page's useLadder(): the climb (its camps
-// reached, the flag at the next one) and the ceremony. `reloadRef` is
-// filled with what reads this page's lists again, for after an edit in a
-// sheet (a camp renamed or taken off).
-export default function QuestBody({ kind, id, ladder, head, quotes = null, notes = null, history = null, reloadRef = null }) {
+// reached, the flag at the next one) and the ceremony. `board` is
+// fetchQuestBoard() as the page loads it (alongside the ladder, so the
+// lists needn't wait on it), with its `boardError`, `boardLoading`,
+// `reloadBoard` and `mutateBoard`. `reloadRef` is filled with what reads
+// this page's lists again, for after an edit in a sheet (a camp renamed or
+// taken off).
+export default function QuestBody({
+  kind,
+  id,
+  ladder,
+  board,
+  boardError = null,
+  boardLoading = false,
+  reloadBoard,
+  mutateBoard,
+  head,
+  quotes = null,
+  notes = null,
+  history = null,
+  reloadRef = null,
+}) {
   const { user } = useAuth();
   const userId = user?.id;
   const today = todayStr();
@@ -148,7 +168,9 @@ export default function QuestBody({ kind, id, ladder, head, quotes = null, notes
   const toast = useToast();
   const confirm = useConfirm();
 
-  const { data: board, error, loading, reload, mutate: mutateBoard } = useLoad(() => (userId ? fetchQuestBoard(userId) : null), [userId]);
+  const error = boardError;
+  const loading = boardLoading;
+  const reload = reloadBoard;
   const items = useMemo(() => (board ? boardOf(board) : []), [board]);
   // The quest open here, whatever its status (one that's done or set aside
   // still opens), or the lesson, with its mountain once it has one: a
@@ -1508,11 +1530,19 @@ export default function QuestBody({ kind, id, ladder, head, quotes = null, notes
   // the right rail instead (only one is drawn, so only one is painted).
   const tileFor = (props) => (roomy ? null : <BuildTile {...props} />);
 
+  // Whatever the lists are doing, the header comes first in a fragment (the
+  // same place in all three returns), and the quotes, notes and history
+  // are there under it: their sheets open from the header's buttons.
   if (!board) {
     return (
       <>
         {head(tileFor({ waiting: true }))}
         {error ? <LoadError what="this list" error={error} onRetry={reload} /> : loading && <p className="empty">Loading…</p>}
+        <div className="tg-body">
+          {quotes}
+          {notes}
+          {history}
+        </div>
       </>
     );
   }
@@ -1529,6 +1559,11 @@ export default function QuestBody({ kind, id, ladder, head, quotes = null, notes
             Try again
           </button>
         </section>
+        <div className="tg-body">
+          {quotes}
+          {notes}
+          {history}
+        </div>
       </>
     );
   }
@@ -1684,134 +1719,136 @@ export default function QuestBody({ kind, id, ladder, head, quotes = null, notes
   // clipboard, quotes, notes and reflections, earlier days, then the
   // history. On a desk the grid puts the build and the quotes and notes in
   // the right rail instead (quests.css); nothing moves in the page as it
-  // does, so what's open or focused in a list stays so.
+  // does, so what's open or focused in a list stays so. The header sits
+  // outside the providers, where it is while the lists load.
   return (
-    <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
-      <SectionTints sections={campData?.sections} steps={campData?.steps}>
-        {head(tile)}
+    <>
+      {head(tile)}
+      <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
+        <SectionTints sections={campData?.sections} steps={campData?.steps}>
+          {error && <LoadError what="this list" error={error} onRetry={reload} stale />}
 
-        {error && <LoadError what="this list" error={error} onRetry={reload} stale />}
+          <SketchProvider kind="task" userId={userId} scopeId={questId} about={(lid) => (lines ?? []).find((x) => x.id === lid)?.text} onAddToNote={addToNote}>
+            <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "") + (busyBar ? " qs-grid--picking" : "")}>
+              {roomy && (
+                <div className="qs-rail__build">
+                  <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
+                </div>
+              )}
 
-        <SketchProvider kind="task" userId={userId} scopeId={questId} about={(lid) => (lines ?? []).find((x) => x.id === lid)?.text} onAddToNote={addToNote}>
-          <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "") + (busyBar ? " qs-grid--picking" : "")}>
-            {roomy && (
-              <div className="qs-rail__build">
-                <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
-              </div>
-            )}
-
-            <QuestCamps
-              kind={kind}
-              camps={sortedCamps}
-              tally={tally}
-              climb={climb}
-              canReach={canReach}
-              planted={planted}
-              onReach={() => ladder?.reachNext(climb)}
-              onAddCamps={newCamps}
-              clip={clipButton}
-            />
-
-            {/* Today stays where it is in the page whatever the layout
-                (spread or not, it's CSS that moves it), so what's open or
-                focused in it stays so as it moves. */}
-            <div className="qs-today">{todayCard}</div>
-
-            {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
-            <div className="qs-ongoing">
-              <OngoingList
-                key={sel.key}
-                list={ongoing}
+              <QuestCamps
                 kind={kind}
-                openId={homeOpen}
-                row={row}
-                onAddSubs={addSubs}
-                {...drag}
-                drop="ongoing"
-                action={
-                  !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
-                    <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
-                      Pick for today
-                    </button>
-                  ) : null
-                }
-              >
-                {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
-                <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind, true)} />
-              </OngoingList>
-            </div>
+                camps={sortedCamps}
+                tally={tally}
+                climb={climb}
+                canReach={canReach}
+                planted={planted}
+                onReach={() => ladder?.reachNext(climb)}
+                onAddCamps={newCamps}
+                clip={clipButton}
+              />
 
-            {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
+              {/* Today stays where it is in the page whatever the layout
+                  (spread or not, it's CSS that moves it), so what's open or
+                  focused in it stays so as it moves. */}
+              <div className="qs-today">{todayCard}</div>
 
-            {(quotes || notes) && (
-              <aside className="qs-side" aria-label={`On this ${kind}`}>
-                {quotes}
-                {notes}
-              </aside>
-            )}
-
-            <div className="qs-rest">
-              {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
-              {earlierShown.map((d) => (
-                <DayList
-                  key={d.day}
-                  day={d}
-                  label={dayLabel(d.day, today)}
-                  today={today}
-                  folded={!unfolded[d.day]}
-                  onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+              {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
+              <div className="qs-ongoing">
+                <OngoingList
+                  key={sel.key}
+                  list={ongoing}
+                  kind={kind}
                   openId={homeOpen}
                   row={row}
                   onAddSubs={addSubs}
                   {...drag}
-                />
-              ))}
-              {earlier.length > earlierShown.length && (
-                <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
-                  Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
-                </button>
-              )}
-              {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
-              {history}
-            </div>
-          </div>
-        </SketchProvider>
+                  drop="ongoing"
+                  action={
+                    !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
+                      <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
+                        Pick for today
+                      </button>
+                    ) : null
+                  }
+                >
+                  {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
+                  <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind, true)} />
+                </OngoingList>
+              </div>
 
-        {select.on && (
-          <SelectBar
-            count={selected.length}
-            places={clipPlaces}
-            camps={sortedCamps}
-            notes={selected.length > 0 && selected.every((k) => rawStep(k)?.kind === "note")}
-            onMove={moveSelectedTo}
-            onNewSection={newSectionForSelected}
-            onKind={kindOfSelected}
-            onClear={() => select.start()}
-            onDone={select.stop}
-          />
-        )}
-        {colSheet && (
-          <ColumnSheet
-            section={colSheet}
-            onRename={(title) => renameColumn(colSheet, title)}
-            onRemove={() => {
-              const sec = colSheet;
-              setColSheet(null);
-              removeColumn(sec);
-            }}
-            onClose={() => setColSheet(null)}
-          />
-        )}
-        {doneView && (
-          <DoneToday
-            view={doneView}
-            quest={{ questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) }}
-            all={doneAll}
-            onView={setDoneView}
-            onClose={() => setDoneView(null)}
-          />
-        )}
-      </SectionTints>
-    </PhotoProvider>
+              {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
+
+              {(quotes || notes) && (
+                <aside className="qs-side" aria-label={`On this ${kind}`}>
+                  {quotes}
+                  {notes}
+                </aside>
+              )}
+
+              <div className="qs-rest">
+                {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
+                {earlierShown.map((d) => (
+                  <DayList
+                    key={d.day}
+                    day={d}
+                    label={dayLabel(d.day, today)}
+                    today={today}
+                    folded={!unfolded[d.day]}
+                    onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+                    openId={homeOpen}
+                    row={row}
+                    onAddSubs={addSubs}
+                    {...drag}
+                  />
+                ))}
+                {earlier.length > earlierShown.length && (
+                  <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
+                    Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
+                  </button>
+                )}
+                {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
+                {history}
+              </div>
+            </div>
+          </SketchProvider>
+
+          {select.on && (
+            <SelectBar
+              count={selected.length}
+              places={clipPlaces}
+              camps={sortedCamps}
+              notes={selected.length > 0 && selected.every((k) => rawStep(k)?.kind === "note")}
+              onMove={moveSelectedTo}
+              onNewSection={newSectionForSelected}
+              onKind={kindOfSelected}
+              onClear={() => select.start()}
+              onDone={select.stop}
+            />
+          )}
+          {colSheet && (
+            <ColumnSheet
+              section={colSheet}
+              onRename={(title) => renameColumn(colSheet, title)}
+              onRemove={() => {
+                const sec = colSheet;
+                setColSheet(null);
+                removeColumn(sec);
+              }}
+              onClose={() => setColSheet(null)}
+            />
+          )}
+          {doneView && (
+            <DoneToday
+              view={doneView}
+              quest={{ questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) }}
+              all={doneAll}
+              onView={setDoneView}
+              onClose={() => setDoneView(null)}
+            />
+          )}
+        </SectionTints>
+      </PhotoProvider>
+    </>
   );
 }

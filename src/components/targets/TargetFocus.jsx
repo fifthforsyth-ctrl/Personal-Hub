@@ -6,7 +6,7 @@ import { LEVELS } from "../../lib/mark";
 import { fmtShortDate, parseDateStr } from "../../lib/planDates";
 import { useLoad } from "../../lib/useLoad";
 import LoadError from "../ui/LoadError";
-import { GoalArrow, towardLabel } from "../focus/FocusArrows";
+import { GoalArrow } from "../focus/FocusArrows";
 import { useFocusWeek } from "../focus/useFocusWeek";
 import "../../styles/focus.css";
 
@@ -91,7 +91,8 @@ export default function TargetFocus({ userId, today, row, ladder, ascent, onSett
                 entries={day.data?.entries}
                 dayPlan={day.data?.dayPlan}
                 focusesById={ascent.focusesById}
-                toward={towardLabel(goal, ascent)}
+                // Said once, above, as the link to its page.
+                toward={null}
                 onSettings={onSettings}
                 showTitle={false}
               />
