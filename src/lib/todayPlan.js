@@ -24,8 +24,11 @@
 // planned tasks with no time first, then one group per quest.
 //
 // Done things stay where they were, struck through, so a tick never makes a
-// row jump out from under your thumb. Notes (a line you can't tick) are
-// never shown as things to do.
+// row jump out from under your thumb. A note (a line you can't tick) is
+// never shown as a thing to do. When one on today has tasks under it
+// ("Meeting with the team" and what came out of it), it shows as a heading
+// over them, the way Quests' Today shows it, so its tasks are here to tick;
+// a note with nothing to tick under it stays on Quests.
 //
 // Adding another kind later (deadlines due today, say): turn its rows into
 // items of the same shape, say which blocks could take each one, best first
@@ -100,26 +103,44 @@ function forest(rows, parentKey) {
   return { byId, kids, tops };
 }
 
-// One row as an item, with everything under it. `seen` keeps a loop in the
-// data (which the app never makes) from going round forever.
+const isNote = (row) => row?.kind === "note";
+
+// One row as an item, with everything under it. A note is a heading: words
+// over the tasks under it, never ticked or counted. `seen` keeps a loop in
+// the data (which the app never makes) from going round forever.
 function itemOf(row, kind, kids, seen = new Set()) {
   seen.add(row.id);
-  const title = kind === "task" ? row.title : row.text;
+  const title = String((kind === "task" ? row.title : row.text) ?? "").trim() || "Untitled";
+  const subs = subsOf(row, kind, kids, seen);
+  if (isNote(row)) return { kind, id: row.id, title, done: false, heading: true, subs };
   const done = kind === "task" ? Boolean(row.status) : row.done_on != null;
-  const subs = (kids.get(row.id) ?? []).filter((k) => !seen.has(k.id)).map((k) => itemOf(k, kind, kids, seen));
-  return { kind, id: row.id, title: String(title ?? "").trim() || "Untitled", done, subs };
+  return { kind, id: row.id, title, done, subs };
+}
+
+// What's under a row, as items. A note further down is words about the
+// thing it sits under, not something to do, so what's under the note moves
+// up into its place rather than going with it.
+function subsOf(row, kind, kids, seen) {
+  const out = [];
+  for (const k of kids.get(row.id) ?? []) {
+    if (seen.has(k.id)) continue;
+    if (isNote(k)) {
+      seen.add(k.id);
+      out.push(...subsOf(k, kind, kids, seen));
+    } else out.push(itemOf(k, kind, kids, seen));
+  }
+  return out;
 }
 
 // Every item and everything under it, for counting.
 const flat = (items) => items.flatMap((i) => [i, ...flat(i.subs)]);
 
-// How many of these (and everything under them) are done, of how many.
+// How many of these (and everything under them) are done, of how many. A
+// heading isn't something to do, so it isn't counted; its tasks are.
 export function tallyItems(items) {
-  const all = flat(items ?? []);
+  const all = flat(items ?? []).filter((i) => !i.heading);
   return { done: all.filter((i) => i.done).length, total: all.length };
 }
-
-const isNote = (row) => row?.kind === "note";
 
 // What's on today from your quests, as items, in the order Quests shows
 // them: each quest in its order, its camps' steps in camp order, then its
@@ -134,6 +155,10 @@ const isNote = (row) => row?.kind === "note";
 // today, or written on today's own list (not the ongoing one); its sub-tasks
 // come with it, and a sub-task never comes on its own.
 //
+// A note on today, step or line, is a heading over the tasks under it, in
+// the same place a task there would go. A note can't be finished, so in a
+// picked section it's on today while something under it is.
+//
 // `work` is { sections, steps, lines, camps, quests }, as
 // fetchTodayQuestWork gives it. Rows it holds that aren't on today (a
 // section not picked, a line from another day) are left out here.
@@ -147,14 +172,13 @@ export function questItemsForToday(work, date) {
   const out = [];
 
   // --- camp steps
-  const st = forest(
-    (steps ?? []).filter((s) => !isNote(s)),
-    "parent_id"
-  );
+  const st = forest(steps, "parent_id");
   const stillOn = (row, seen = new Set()) => {
     if (seen.has(row.id)) return false;
     seen.add(row.id);
-    return !row.done_on || row.done_on >= date || (st.kids.get(row.id) ?? []).some((k) => stillOn(k, seen));
+    const under = () => (st.kids.get(row.id) ?? []).some((k) => stillOn(k, seen));
+    if (isNote(row)) return under();
+    return !row.done_on || row.done_on >= date || under();
   };
   const onToday = (row) =>
     (date && row.today_on === date) || (picked.has(row.section_id) && !(row.parent_id && st.byId.has(row.parent_id)) && stillOn(row));
@@ -174,29 +198,30 @@ export function questItemsForToday(work, date) {
     return [s.clipboard ? 1 : 2, s.position ?? 0];
   };
   for (const row of stepRows) {
+    const item = itemOf(row, "step", st.kids);
+    if (item.heading && !item.subs.length) continue; // a note with nothing to tick under it
     const c = camp.get(row.camp_id);
     const questId = c?.quest_id ?? null;
     const [rank, secPos] = sectionRank(row);
     out.push({
-      item: { ...itemOf(row, "step", st.kids), from: c?.title || quest.get(questId)?.title || null, questId, campId: row.camp_id ?? null },
+      item: { ...item, from: c?.title || quest.get(questId)?.title || null, questId, campId: row.camp_id ?? null },
       order: [questPos(questId), 0, c?.position ?? 0, rank, secPos, row.position ?? 0],
       tie: row,
     });
   }
 
   // --- quest lines
-  const ln = forest(
-    (lines ?? []).filter((l) => !isNote(l)),
-    "parent_id"
-  );
+  const ln = forest(lines, "parent_id");
   for (const row of ln.tops) {
     if (row.parent_id) continue; // a sub-task whose task isn't on today stays with its task
     const mine = date && row.today_on === date;
     const own = date && row.day === date && !row.ongoing;
     if (!mine && !own) continue;
+    const item = itemOf(row, "line", ln.kids);
+    if (item.heading && !item.subs.length) continue; // a note with nothing to tick under it
     const fromElsewhere = mine && (row.ongoing || row.day !== date);
     out.push({
-      item: { ...itemOf(row, "line", ln.kids), from: quest.get(row.quest_id)?.title || null, questId: row.quest_id ?? null, campId: null },
+      item: { ...item, from: quest.get(row.quest_id)?.title || null, questId: row.quest_id ?? null, campId: null },
       order: [questPos(row.quest_id), 1, fromElsewhere ? 0 : 1, 0, 0, row.position ?? 0],
       tie: row,
     });
@@ -214,7 +239,9 @@ export function questItemsForToday(work, date) {
 //     loose: { planned: [items], quests: [{ questId, title, items }] },
 //     done, total }
 // Each item is { kind: "task" | "line" | "step", id, title, done, subs,
-// from?, questId?, campId? }, with `subs` in the same shape.
+// heading?, from?, questId?, campId? }, with `subs` in the same shape. An
+// item with `heading` is a note over the tasks in its `subs`: it has no box
+// to tick and isn't in any count.
 //
 // `chunks` are today's blocks, `tasks` today's planned tasks (fetchTasks),
 // `questWork` what fetchTodayQuestWork gives, `nowMin` minutes since

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, ArrowRight, ChevronDown } from "lucide-react";
+import { CalendarClock, ArrowRight, ChevronDown, NotebookPen } from "lucide-react";
 import { colorFor } from "../../lib/categories";
 import { fmtTimeRange } from "../../lib/planDates";
 import { fetchTasks, fetchTodayQuestWork, toggleTask, updateQuestTask, updateStep } from "../../lib/api";
@@ -19,9 +19,10 @@ import { announceChange } from "./announce";
 // it. The one you're in now is marked and open, and so is each one ahead,
 // with what you'll do in it: the tasks you planned into it on the day page,
 // and what you picked for today on Quests when the block is tied to that
-// quest or camp (src/lib/todayPlan.js decides which block takes what).
-// Blocks behind you shrink to one line with how much of them got done; a
-// tap opens one to tick something you finished late.
+// quest or camp (src/lib/todayPlan.js decides which block takes what). A
+// note you picked on Quests with tasks under it is a small heading over
+// them. Blocks behind you shrink to one line with how much of them got
+// done; a tap opens one to tick something you finished late.
 //
 // A tick saves straight away and shows before it's saved. Done things stay
 // where they were, struck through, so nothing jumps out from under your
@@ -80,6 +81,7 @@ export default function PlanBlocks({ userId, date, chunks }) {
   const saving = useRef(new Set());
   const toggle = useCallback(
     async (item) => {
+      if (item.heading) return; // a note's words, nothing to tick
       const key = `${item.kind}:${item.id}`;
       if (saving.current.has(key)) return;
       saving.current.add(key);
@@ -236,9 +238,27 @@ function Items({ items, onToggle, hideFrom = null, sub = false }) {
 }
 
 // A thing to do: a box to tick, its words, where it's from on Quests, and
-// what's under it.
+// what's under it. A note from Quests with tasks under it is a small label
+// over them instead, with no box: the note isn't something to do, they are.
 function Item({ item, onToggle, hideFrom }) {
   const from = item.from && item.from !== hideFrom ? item.from : null;
+  if (item.heading) {
+    return (
+      <li className="plan-item plan-item--heading">
+        <div className="plan-item__row">
+          {/* The pen sits where a box would, as on Quests. */}
+          <span className="plan-item__pen" aria-hidden="true">
+            <NotebookPen size={13} />
+          </span>
+          <div className="plan-item__main">
+            <span className="plan-item__label">{item.title}</span>
+            {from && <span className="plan-item__from">{from}</span>}
+          </div>
+        </div>
+        {item.subs.length > 0 && <Items items={item.subs} onToggle={onToggle} sub />}
+      </li>
+    );
+  }
   return (
     <li className={"plan-item" + (item.done ? " is-done" : "")}>
       <div className="plan-item__row">
