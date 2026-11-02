@@ -212,18 +212,18 @@
 
 /* There's no hover on a phone to show a title that's cut short, so the words
    are a touch smaller than the rest of the page and get three lines.
-   When a title is longer still, Chrome can put its "…" a few pixels past the
-   end of a centred line, where the cell cut it off ("and.."). The box reaches 3px
-   into the gap on each side so the "…" stays in view; the words still wrap at
-   the cell's own width. */
+   When a title is longer still, Chrome can put its "…" up to 3px past the
+   end of a centred line, where the cell cut it off ("and.."). The box reaches 4px
+   into the gap on each side, a pixel more than that, so the "…" stays in
+   view; the words still wrap at the cell's own width. */
 .focus-strip__title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  max-width: calc(100% + 6px);
-  margin-inline: -3px;
-  padding-inline: 3px;
+  max-width: calc(100% + 8px);
+  margin-inline: -4px;
+  padding-inline: 4px;
   font-size: 10.5px;
   font-weight: 600;
   line-height: 1.2;
@@ -267,6 +267,13 @@
      starts 2px nearer the screen's edge than the page does, which the space
      round its face makes up: the targets still line up with what's below. */
   .focus-strip__row { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
+}
+
+@media (max-width: 380px) {
+  /* The 375-wide iPhones (SE, 12 and 13 mini) leave each cell 67px, where
+     "Time developing artistic ability" would need a fourth line at 10.5px.
+     Half a pixel smaller and it's whole in three. */
+  .focus-strip__title { font-size: 10px; }
 }
 
 @media (min-width: 901px) {
