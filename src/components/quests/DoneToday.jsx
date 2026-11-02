@@ -44,7 +44,7 @@ export default function DoneToday({ view, quest, all, onView, onClose }) {
       {showAll ? (
         all.map((q) => (
           <section key={q.key} className="done-quest" aria-label={q.name}>
-            <Link to={`/targets/${q.key}`} className="done-quest__name" onClick={onClose}>
+            <Link to={`/targets/${q.lessonId ?? q.questId}`} className="done-quest__name" onClick={onClose}>
               <span>{q.name}</span>
               <small>{q.count}</small>
               <ChevronRight size={15} aria-hidden="true" />

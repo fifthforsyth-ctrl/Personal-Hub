@@ -22,7 +22,8 @@
 -- delete). delete_goal (0056) is left as it is.
 --
 -- Nothing here scores anything. Purely additive: two new tables, their
--- indexes and policies. Nothing existing is changed.
+-- indexes and policies, and a one-time copy of a lesson's old notes into
+-- target_notes (at the end). Nothing existing is changed.
 --
 -- Rollback (SQL Editor; drops only what this file added):
 --   drop table if exists public.quote_links;
@@ -138,3 +139,19 @@ revoke all on public.target_notes from anon, public;
 revoke all on public.quote_links from anon, public;
 grant select, insert, update, delete on public.target_notes to authenticated;
 grant select, insert, update, delete on public.quote_links to authenticated;
+
+-- A lesson's old notes come along. The old Quests page kept "Notes on this
+-- lesson" on the lesson's mountain (quests.note on the quests row with its
+-- lesson_id), and the lesson's own page now reads only target_notes, so
+-- each mountain's note is copied once onto the lesson as a note, dated the
+-- day its mountain was made (in Utah, where he lives). Nothing is moved or
+-- cleared: quests.note stays as it was. No mountain has a note today, so
+-- this copies nothing now; it's here so nothing written there is lost if
+-- one is written before this is applied. Running it again copies nothing
+-- twice (a lesson that already has that note is skipped). Blank lines and
+-- spaces round a note are trimmed, as the app trims a note it saves.
+insert into public.target_notes (user_id, lesson_id, kind, date, text)
+select q.user_id, q.lesson_id, 'note', (q.created_at at time zone 'America/Denver')::date, btrim(q.note, E' \t\r\n')
+from public.quests q
+where q.lesson_id is not null and btrim(coalesce(q.note, ''), E' \t\r\n') <> ''
+  and not exists (select 1 from public.target_notes t where t.lesson_id = q.lesson_id and t.text = btrim(q.note, E' \t\r\n'));

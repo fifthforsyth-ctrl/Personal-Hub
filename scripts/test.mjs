@@ -6220,6 +6220,130 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, review fix 2: the ladder, its data and the overview) =====
 // Add this fix group's tests directly under the line above.
 {
+  console.log("\ntargets tab, review fix 2: the ladder, its data and the overview");
+  const L = await import("../src/lib/ladder.js");
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+
+  // --- This week's focus stays this week's once next week is planned --------
+  const line = [
+    { id: "f1", title: "Win by win", week_start: "2026-10-18", carried_from: null },
+    { id: "f2", title: "Win by win", week_start: "2026-10-25", carried_from: "f1" },
+    { id: "f3", title: "Win by win", week_start: "2026-11-01", carried_from: "f2" },
+    { id: "f5", title: "Win by win", week_start: "2026-11-08", carried_from: "f3" },
+  ];
+  const at = (ref, upTo) => L.resolveRef(ref, { goals: [], quests: [], lessons: [], focusGoals: line, upTo })?.key;
+  ok("kept into next week early, this week's focus still opens this week's row", at("f3", "2026-11-01") === "f3", at("f3", "2026-11-01"));
+  ok("and an older week of it opens this week's, not next week's", at("f1", "2026-11-01") === "f3", at("f1", "2026-11-01"));
+  ok("a link straight to next week's row still opens that row", at("f5", "2026-11-01") === "f5" && L.resolveRef("f5", { focusGoals: line, upTo: "2026-11-01" })?.kind === "focus");
+  ok("with no week given, the walk goes to the newest row as before", at("f3") === "f5" && at("f1") === "f5" && L.newestInLine("f1", line) === "f5");
+  ok("once next week comes, it opens next week's", at("f3", "2026-11-08") === "f5");
+  ok("newestInLine stops before a week past upTo", L.newestInLine("f2", line, "2026-11-01") === "f3" && L.newestInLine("f2", line, "2026-10-25") === "f2");
+  const fork = [{ id: "a", week_start: "2026-10-25" }, { id: "b", carried_from: "a", week_start: "2026-11-01" }, { id: "c", carried_from: "a", week_start: "2026-11-08" }];
+  ok("a stray fork into next week can't hide this week's row", L.newestInLine("a", fork, "2026-11-01") === "b" && L.newestInLine("a", fork) === "c");
+
+  // --- The evening's lines say where the arrow landed ----------------------------
+  const reasons = ["Tired", "Distracted", "Ran out of time"];
+  const shots = [
+    { id: "s1", date: "2026-11-01", level: 3, reason: 1, note: "Ran out of time", loosed_at: "2026-11-02T04:00:00Z", answers: [{ aim: "a", text: "Up by 4:35", v: 0, line: "Overslept" }] },
+    { id: "s2", date: "2026-10-31", level: 0, reason: 2, note: "Clean day", loosed_at: "2026-11-01T04:00:00Z" },
+    { id: "s3", date: "2026-10-30", level: null, note: "No ring", loosed_at: "2026-10-31T04:00:00Z" },
+    { id: "s4", date: "2026-10-29", level: 5, reason: null, note: "Missed it", loosed_at: "2026-10-30T04:00:00Z" },
+  ];
+  const ev = L.eveningLines(shots, reasons);
+  const ringOf = (id) => ev.find((e) => e.id === id)?.ring;
+  ok("an outer-ring miss says its ring and what got in the way", ringOf("shot:s1") === "Outer · Distracted", ringOf("shot:s1"));
+  ok("a check's own line carries its arrow's ring too", ringOf("shot:s1:0") === "Outer · Distracted" && ev.find((e) => e.id === "shot:s1:0").prompt === "Up by 4:35");
+  ok("a bullseye is only its ring, whatever reason is left on the row", ringOf("shot:s2") === "Bullseye");
+  ok("a shot with no ring says none", ringOf("shot:s3") === null);
+  ok("a miss with no reason is only its ring", ringOf("shot:s4") === "Missed");
+  ok("without the target's reasons, only the ring", L.eveningLines(shots).find((e) => e.id === "shot:s1").ring === "Outer" && L.eveningLines(shots, null).find((e) => e.id === "shot:s1").ring === "Outer");
+  ok("the ring comes through the timeline", L.notesTimeline({ evening: ev }, "2026-11-02")[0].items.every((i) => i.ring === "Outer · Distracted"));
+  ok("no dashes in a ring", ev.every((e) => !/[–—]| -- /.test(e.ring ?? "")));
+
+  // --- Two pills never say the same word ----------------------------------------
+  const pills = L.questPills({
+    quests: [
+      { id: "q1", title: "Quit caffeine", status: "on", position: 0 },
+      { id: "q2", title: "Build the best Premiere Pro plugin", status: "on", position: 1 },
+    ],
+    lessons: [{ id: "l1", title: "Stop drinking caffeine", status: "learning", position: 0 }],
+  });
+  ok("a quest and a lesson that shorten alike both show their full names", pills.map((p) => p.short).join("|") === "Quit caffeine|Plugin|Stop drinking caffeine", pills.map((p) => p.short).join("|"));
+  ok("every pill's label is its own", new Set(pills.map((p) => p.short.toLowerCase())).size === pills.length);
+  ok("a pill nothing else shares keeps its one word", L.questPills({ quests: [{ id: "q", title: "Build the best Premiere Pro plugin", status: "on" }] })[0].short === "Plugin");
+
+  // --- Reflect never opens on a follow-up ----------------------------------------
+  ok("each quest question stands alone (no 'the difference' with nothing before it)", L.REFLECT_PROMPTS.quest.length === 6 && L.REFLECT_PROMPTS.quest.every((q) => !/^why was there a difference/i.test(q) && !/\bthe difference\b/i.test(q)));
+
+  // --- A lifetime goal reads the goals under it; a focus its earlier weeks -------
+  const api = src("lib/api.js");
+  ok("the old option name is gone", !/focusLineage/.test(api));
+  ok("notes and quotes on a target take a lineage", /export async function fetchTargetNotes\(userId, ref, \{ lineage \} = \{\}\)/.test(api) && /export async function fetchQuoteLinks\(userId, ref, \{ lineage \} = \{\}\)/.test(api));
+  const refEntrySrc = api.slice(api.indexOf("function refEntry("), api.indexOf("\n}\n", api.indexOf("function refEntry(")) + 2);
+  const onRefSrc = api.slice(api.indexOf("function onRef("), api.indexOf("\n}\n", api.indexOf("function onRef(")) + 2);
+  const onRef = new Function(`${refEntrySrc}\n${onRefSrc}\nreturn onRef;`)();
+  const q = { in: (c, v) => `in:${c}:${v.join(",")}`, eq: (c, v) => `eq:${c}:${v}` };
+  ok("a lifetime goal reads every goal under it, itself once", onRef(q, { goal_id: "g1" }, ["g1", "n1", "n2"]) === "in:goal_id:g1,n1,n2", onRef(q, { goal_id: "g1" }, ["g1", "n1", "n2"]));
+  ok("a focus reads its earlier weeks", onRef(q, { focus_goal_id: "f3" }, ["f2", "f1"]) === "in:focus_goal_id:f3,f2,f1");
+  ok("any other target is only itself, lineage or not", onRef(q, { quest_id: "q1" }, ["x"]) === "eq:quest_id:q1" && onRef(q, { lesson_id: "l1" }, ["x"]) === "eq:lesson_id:l1" && onRef(q, { mission: true }, ["x"]) === "eq:mission:true");
+  ok("no lineage, only itself", onRef(q, { goal_id: "g1" }) === "eq:goal_id:g1" && onRef(q, { focus_goal_id: "f3" }, []) === "eq:focus_goal_id:f3");
+
+  // --- "From you" holds every own quote ----------------------------------------
+  const own = api.slice(api.indexOf("export async function fetchOwnQuotes"), api.indexOf("export async function fetchQuoteLinks"));
+  ok("his own quotes come a page at a time, all of them", /selectAllPages\(\(\) =>/.test(own) && !/\.limit\(/.test(own) && /\.order\("created_at", \{ ascending: false \}\)\s*\.order\("id"\)/.test(own));
+  ok("and only the ones that record someone's words", /\.or\("excerpt\.not\.is\.null,shelf_people\.neq\.\{\}"\)/.test(own) && /rows\.filter\(\(n\) => String\(n\.excerpt \?\? ""\)\.trim\(\) \|\| \(n\.shelf_people \?\? \[\]\)\.length\)/.test(own));
+
+  // --- The shared hook: deletes, a new lesson, and the patch just earned ---------
+  const hook = src("components/targets/useLadder.jsx");
+  const removeQuest = hook.slice(hook.indexOf("async function removeQuest"), hook.indexOf("const saveLessonFrom"));
+  const removeLesson = hook.slice(hook.indexOf("async function removeLesson"), hook.indexOf("const saveTargetFrom"));
+  ok("deleting a quest leaves its page as soon as the delete lands, before the reload", /await deleteQuest\(quest\.id\);\s*onGone\?\.\(\);\s*\}/.test(removeQuest) && !/\)\) onGone\?\.\(\)/.test(removeQuest));
+  ok("and so does deleting a lesson", /await deleteLesson\(lesson\.id\);\s*onGone\?\.\(\);\s*\}/.test(removeLesson) && !/\)\) onGone\?\.\(\)/.test(removeLesson));
+  const lessonSave = hook.slice(hook.indexOf("const saveLessonFrom"), hook.indexOf("async function removeLesson"));
+  ok("a new lesson's page is set to open only once it and its camps are both saved", (lessonSave.match(/onAdded\?\.\(/g) ?? []).length === 1 && /if \(!lesson\) onAdded\?\.\(lessonId\);\s*\},\s*"Couldn't save that lesson\."/.test(lessonSave));
+  ok("the patch just earned waits under one key", /export const FRESH_PATCH_KEY = "hub:freshPatch";/.test(hook));
+  const summit = hook.slice(hook.indexOf("setFreshPatch(q.id);"), hook.indexOf("toast.show(`Patch earned"));
+  ok("it's kept for Targets as the summit's ceremony ends", /sessionStorage\.setItem\(FRESH_PATCH_KEY, q\.id\)/.test(summit));
+  const undo = hook.slice(hook.indexOf("async function undoSummit"), hook.indexOf("// --- Saving from the sheets"));
+  ok("and taken back with the summit", /setFreshPatch\(null\);\s*try \{\s*sessionStorage\.removeItem\(FRESH_PATCH_KEY\);/.test(undo));
+  const page = src("pages/Targets.jsx");
+  ok("Targets reads it once and clears it as it opens", /const \[fresh\] = useState\(\(\) => \{\s*try \{\s*return sessionStorage\.getItem\(FRESH_PATCH_KEY\);/.test(page) && /useEffect\(\(\) => \{\s*try \{\s*sessionStorage\.removeItem\(FRESH_PATCH_KEY\);[\s\S]*?\}, \[\]\);/.test(page));
+  ok("and Behind you opens on it", /<BehindYou view=\{view\} fresh=\{fresh\} \/>/.test(page) && !/freshPatch/.test(page));
+  const storageSafe = (s) => [...s.matchAll(/sessionStorage\./g)].every((m) => /try \{\s*(return )?$/.test(s.slice(0, m.index)));
+  ok("every sessionStorage call can't break the page (each in a try)", storageSafe(hook) && storageSafe(page) && (hook.match(/sessionStorage\./g) ?? []).length === 2 && (page.match(/sessionStorage\./g) ?? []).length === 2);
+
+  // --- Done today links a lesson by its own id ----------------------------------
+  const done = allDoneToday(
+    {
+      items: [{ key: "m1", questId: "m1", lessonId: "l1", name: "Patience" }, { key: "q", questId: "q", lessonId: null, name: "Plugin" }],
+      quests: [{ id: "m1", title: "Mountain", lesson_id: "l1" }, { id: "q", title: "Plugin" }, { id: "m2", title: "Mountain", lesson_id: "l2" }],
+      lessons: [{ id: "l1", title: "Patience" }, { id: "l2", title: "Honesty" }],
+      tasks: [
+        { id: "a", quest_id: "m1", kind: "task", text: "Held my tongue", done_on: "2026-11-02" },
+        { id: "b", quest_id: "q", kind: "task", text: "Shipped", done_on: "2026-11-02" },
+        { id: "c", quest_id: "m2", kind: "task", text: "Told the truth", done_on: "2026-11-02" },
+      ],
+    },
+    "2026-11-02"
+  );
+  ok("done today knows a lesson's own id, along the top or not", done.map((d) => `${d.questId}:${d.lessonId}`).join() === "m1:l1,q:null,m2:l2", done.map((d) => `${d.questId}:${d.lessonId}`).join());
+  const doneSheet = src("components/quests/DoneToday.jsx");
+  ok("and links it there, never by its mountain", /<Link to=\{`\/targets\/\$\{q\.lessonId \?\? q\.questId\}`\}/.test(doneSheet) && !/\/targets\/\$\{q\.key\}/.test(doneSheet));
+
+  // --- The watch says where picks are made now ----------------------------------
+  const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
+  ok("with nothing picked, the watch sends him to a quest's page under Targets", watchFn.includes(`done("Nothing open on Today. Pick some on a quest's page under Targets.")`) && !/Pick some on Quests/.test(watchFn));
+  ok("and the watch page calls it his quests' list", src("pages/Watch.jsx").includes("(today's list from your quests)") && !/from Quests\)/.test(src("pages/Watch.jsx")));
+
+  // --- A lesson's old notes come along (0104) --------------------------------------
+  const mig = readFileSync(new URL("../supabase/migrations/0104_target_notes_and_quotes.sql", import.meta.url), "utf8");
+  const sql = mig.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  const copy = sql.slice(sql.indexOf("insert into public.target_notes"));
+  ok("0104 copies each lesson mountain's note onto its lesson once", /^insert into public\.target_notes \(user_id, lesson_id, kind, date, text\)\nselect q\.user_id, q\.lesson_id, 'note', \(q\.created_at at time zone 'America\/Denver'\)::date, btrim\(q\.note, E' \\t\\r\\n'\)\nfrom public\.quests q\n/.test(copy), copy.slice(0, 300));
+  ok("only a mountain's, and only a note with words in it", /where q\.lesson_id is not null and btrim\(coalesce\(q\.note, ''\), E' \\t\\r\\n'\) <> ''/.test(copy));
+  ok("and never twice", /and not exists \(select 1 from public\.target_notes t where t\.lesson_id = q\.lesson_id and t\.text = btrim\(q\.note, E' \\t\\r\\n'\)\);/.test(copy));
+  ok("it says why it's there", /The old Quests page kept "Notes on this\n-- lesson" on the lesson's mountain/.test(mig) && /lesson's own page now reads only target_notes/.test(mig));
+  ok("the copy is the last thing 0104 does, and only once", sql.indexOf("insert into public.target_notes") > sql.indexOf("grant select, insert, update, delete on public.quote_links") && (sql.match(/insert into/gi) ?? []).length === 1);
 }
 // (end of review fix 2)
 

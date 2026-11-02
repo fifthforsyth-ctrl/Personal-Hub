@@ -50,6 +50,9 @@ import { useFocusWeek } from "../focus/useFocusWeek";
 
 const NO_ROWS = [];
 
+// Where a patch just earned waits for Targets to open "Behind you" on it.
+export const FRESH_PATCH_KEY = "hub:freshPatch";
+
 export function useLadder({ onSaved } = {}) {
   const { user } = useAuth();
   const userId = user?.id;
@@ -159,6 +162,14 @@ export function useLadder({ onSaved } = {}) {
           title: q.title,
           then: () => {
             setFreshPatch(q.id);
+            // The summit is reached on the quest's own page, and the patch
+            // is drawn on Targets: it waits there for the overview to open
+            // it (Targets reads it once and clears it).
+            try {
+              sessionStorage.setItem(FRESH_PATCH_KEY, q.id);
+            } catch {
+              // no storage: the patch is there, just without the welcome
+            }
             toast.show(`Patch earned: ${q.title}`, { actionLabel: "Undo", onAction: () => undoSummit(q) });
           },
         }),
@@ -188,6 +199,11 @@ export function useLadder({ onSaved } = {}) {
     mutate((d) => d && { ...d, quests: d.quests.map((x) => (x.id === q.id ? { ...x, status: "on", finished_on: null } : x)) });
     setPlanted(null);
     setFreshPatch(null);
+    try {
+      sessionStorage.removeItem(FRESH_PATCH_KEY);
+    } catch {
+      // no storage, nothing waiting
+    }
     try {
       await updateQuest(q.id, { status: "on", finished_on: null });
       announceChange();
@@ -245,12 +261,23 @@ export function useLadder({ onSaved } = {}) {
       }))
     )
       return;
-    if (await write(() => deleteQuest(quest.id), "Couldn't delete that quest.", `Deleted ${quest.title}`)) onGone?.();
+    // It leaves the page as soon as the delete lands, before the reload:
+    // otherwise its page would say it isn't one of his for a moment.
+    await write(
+      async () => {
+        await deleteQuest(quest.id);
+        onGone?.();
+      },
+      "Couldn't delete that quest.",
+      `Deleted ${quest.title}`
+    );
   }
 
   // A lesson and its own mountain: made with its first camp, and kept in
   // step with the lesson's name and goal. Taking off its last camp keeps
   // the mountain, since its daily list and clipboard live there too.
+  // `onAdded(id)` runs with a new lesson's id once it and its camps are
+  // both saved, never when the camps failed (the sheet stays open then).
   const saveLessonFrom = (lesson, onAdded) => (v) =>
     write(
       async () => {
@@ -265,7 +292,6 @@ export function useLadder({ onSaved } = {}) {
           });
         } else {
           lessonId = await addLesson(userId, { title: v.title, question: v.question, goalId: v.goal_id, today, position: data?.lessons.length ?? 0 });
-          onAdded?.(lessonId);
         }
         const m = lesson?.mountain ?? null;
         if (!m && v.camps.length) {
@@ -274,6 +300,7 @@ export function useLadder({ onSaved } = {}) {
           if (m.title !== v.title || m.goal_id !== v.goal_id) await updateQuest(m.id, { title: v.title, goal_id: v.goal_id });
           await syncCamps(userId, m.id, v.camps, m.state?.camps ?? NO_ROWS);
         }
+        if (!lesson) onAdded?.(lessonId);
       },
       "Couldn't save that lesson.",
       lesson ? "Lesson saved" : `Added ${v.title}`
@@ -288,8 +315,16 @@ export function useLadder({ onSaved } = {}) {
       }))
     )
       return;
-    // Its mountain goes with it (quests.lesson_id cascades, 0079).
-    if (await write(() => deleteLesson(lesson.id), "Couldn't delete that lesson.", `Deleted ${lesson.title}`)) onGone?.();
+    // Its mountain goes with it (quests.lesson_id cascades, 0079). Off its
+    // page as soon as the delete lands, as with a quest.
+    await write(
+      async () => {
+        await deleteLesson(lesson.id);
+        onGone?.();
+      },
+      "Couldn't delete that lesson.",
+      `Deleted ${lesson.title}`
+    );
   }
 
   // What a bullseye takes, and the four sections. An aim a shot already
