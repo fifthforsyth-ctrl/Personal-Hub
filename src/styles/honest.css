@@ -139,6 +139,7 @@
 .morning__field em { font-style: normal; font-weight: 500; color: var(--text-3); }
 .morning__field .input { padding: 9px 12px; font-family: var(--font-mono); font-size: 14px; }
 .morning__slept { margin: 8px 0 0; font-size: 12px; color: var(--text-2); }
+.morning__watch { margin-top: 2px; color: var(--text-3, var(--text-2)); }
 .morning__other-alarm { width: auto; padding: 7px 12px; font-family: var(--font-mono); font-size: 13px; }
 .morning__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .morning__pair > div { min-width: 0; }

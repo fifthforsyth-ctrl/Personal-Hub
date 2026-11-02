@@ -6,6 +6,7 @@ import {
   fetchWatchedHabits,
   fetchLossReasons,
   fetchWinLosses,
+  fetchHealthDays,
   stopTimeEntry,
   updateTimeEntry,
   logPastTimeEntry,
@@ -28,6 +29,7 @@ import {
   fmtClock,
   fmtDuration,
 } from "../../lib/honest";
+import { morningWatchLine } from "../../lib/watch";
 import { Scale } from "./StopFollowUp";
 import { timeOf } from "./minutes";
 import { announceChange } from "./announce";
@@ -60,7 +62,7 @@ function noonBefore(date) {
 
 async function loadMorning(userId, date) {
   const since = noonBefore(date).toISOString();
-  const [sleeps, lastAlarm, watched, reasons, rows] = await Promise.all([
+  const [sleeps, lastAlarm, watched, reasons, rows, watchDays] = await Promise.all([
     fetchSleepEntries(userId, since),
     fetchLastAlarm(userId, date),
     fetchWatchedHabits(userId).catch((err) => {
@@ -72,8 +74,14 @@ async function loadMorning(userId, date) {
       return [];
     }),
     fetchWinLosses(userId, { sinceISO: since, limit: 200 }),
+    // What the watch saw of the night. The check-in never waits on it.
+    fetchHealthDays(userId, date, date).catch((err) => {
+      console.warn(err);
+      return [];
+    }),
   ]);
   return {
+    watchLine: morningWatchLine(watchDays[0]),
     sleep: lastNightSleep(sleeps, date),
     lastAlarm,
     watched,
@@ -299,6 +307,7 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
           {fmtDuration(slept)} of sleep{(fromSleep.woke || fromSleep.lights) && ", from your Sleep timer"}
         </p>
       )}
+      {data.watchLine && <p className="morning__slept morning__watch">{data.watchLine}</p>}
 
       <div className="honest-label">Alarm was set for</div>
       <div className="honest-chips">

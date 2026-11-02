@@ -11,7 +11,8 @@
 import { readFileSync } from "node:fs";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
-import { eveningWatchParts, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
+import { watchForPrompt } from "../supabase/functions/assistant/body.js";
+import { eveningWatchParts, morningWatchLine, workoutName, lastUsedLine, watchAddress, fmtMins as watchMins } from "../src/lib/watch.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
 import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
@@ -79,7 +80,7 @@ import {
   windowDays,
   WINDOW_DAYS,
 } from "../src/lib/ascent.js";
-import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
+import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TIERS, bowLine, bowProgress, bowEarned, fourReasons, DEFAULT_REASONS, shortTarget, iconFor, buildRange, answersOf, LEVELS, isLoosed, focusMinutes, watchSaw, startingAnswers, readLine, guessReason, shotFrom } from "../src/lib/mark.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
 import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
@@ -3218,6 +3219,57 @@ console.log("\napple watch");
     "America/Denver"
   );
   ok("a watch night with inBed 0 leaves time in bed empty", noBed.days["2026-11-01"]?.in_bed_min == null && noBed.days["2026-11-01"]?.asleep_min === 586, JSON.stringify(noBed.days));
+}
+
+{
+  // What the prompts are told the watch saw. (Clocks went back at 2 a.m.
+  // on 2026-11-01, so Denver is UTC-7 all that day after it.)
+  const tz = "America/Denver";
+  const history = [
+    { date: "2026-10-29", asleep_min: 420, resting_hr: 54 },
+    { date: "2026-10-30", asleep_min: 430, resting_hr: 56 },
+    { date: "2026-10-31", asleep_min: 440, resting_hr: 55 },
+  ];
+  const day = { date: "2026-11-01", sleep_end: "2026-11-01T11:41:00Z", asleep_min: 370, deep_min: 48, rem_min: 80, steps: 8421.4, resting_hr: 61 };
+  const w = watchForPrompt({
+    date: "2026-11-01",
+    day,
+    history: [...history, day],
+    workouts: [
+      { name: "Traditional Strength Training", started_at: "2026-11-01T13:10:00Z", minutes: 42 },
+      { name: "Outdoor Walk", started_at: "2026-11-02T04:30:00Z", minutes: 20 },
+      { name: "Outdoor Run", started_at: "2026-11-02T08:00:00Z", minutes: 30 },
+    ],
+    tz,
+  });
+  ok("watch prompt: up time from the watch's wake", w?.up_at === "4:41 AM", JSON.stringify(w));
+  ok("watch prompt: short night said against the usual", w?.last_night === "6h 10m asleep, about 1h 00m less than their usual 7h 10m", w?.last_night);
+  ok("watch prompt: stages", w?.sleep_stages === "48m deep, 1h 20m REM", w?.sleep_stages);
+  ok("watch prompt: only that day's workouts, local time, in order", JSON.stringify(w?.workouts) === JSON.stringify(["Strength, 42m at 6:10 AM", "Walk, 20m at 9:30 PM"]), JSON.stringify(w?.workouts));
+  ok("watch prompt: steps rounded, resting HR beside the usual", w?.steps === 8421 && w?.resting_heart_rate === "61 bpm (their usual 55)", JSON.stringify(w));
+  const fresh = watchForPrompt({ date: "2026-11-01", day: { date: "2026-11-01", asleep_min: 586, woke_at: "2026-11-01T12:00:00Z", sleep_end: "2026-11-01T15:54:17Z" }, history: [], workouts: [], tz });
+  ok("watch prompt: no usual until there are 3 nights; the wake-up automation wins", fresh?.last_night === "9h 46m asleep" && fresh?.up_at === "5:00 AM", JSON.stringify(fresh));
+  const near = watchForPrompt({ date: "2026-11-01", day: { date: "2026-11-01", asleep_min: 420 }, history, workouts: [], tz });
+  ok("watch prompt: within half an hour is about usual", near?.last_night === "7h 00m asleep, about their usual", near?.last_night);
+  ok("watch prompt: nothing from the watch, nothing in the record", watchForPrompt({ date: "2026-11-01", day: null, history: [], workouts: [], tz }) === null);
+}
+
+{
+  // The watch beside the time log, in the evening's shots and the morning.
+  const exercise = { categories: ["Exercise"] };
+  const entries = [
+    { category: "Exercise", tags: ["Exercise"], source: "watch", description: "Traditional Strength Training", started_at: "2026-11-01T13:10:00Z", ended_at: "2026-11-01T13:52:00Z", duration_minutes: 42 },
+    { category: "Exercise", tags: ["Exercise"], source: "app", description: "Stretch", started_at: "2026-11-01T14:00:00Z", ended_at: "2026-11-01T14:10:00Z", duration_minutes: 10 },
+    { category: "Exercise", tags: ["Exercise"], source: "watch", started_at: "2026-11-02T00:00:00Z", ended_at: null, duration_minutes: null },
+    { category: "Sleep", tags: ["Sleep"], source: "watch", started_at: "2026-11-01T05:30:00Z", ended_at: "2026-11-01T11:40:00Z", duration_minutes: 370 },
+  ];
+  ok("watch saw: the workout it recorded, by its short name", watchSaw(exercise, entries) === "Strength 42m", watchSaw(exercise, entries));
+  ok("watch saw: nothing for a focus it didn't touch", watchSaw({ categories: ["Draw"] }, entries) === "" && watchSaw({ categories: [] }, entries) === "");
+  ok("watch saw: a timer still running isn't counted yet", !watchSaw(exercise, entries).includes("Exercise"));
+  const line = morningWatchLine({ asleep_min: 586, deep_min: 51, rem_min: 145, sleep_end: "2026-11-01T15:54:17Z" });
+  ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
+  ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
+  ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

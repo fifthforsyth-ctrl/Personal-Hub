@@ -57,11 +57,25 @@ export function eveningWatchParts(day, workouts) {
   return parts;
 }
 
+// The morning check-in's quiet line: what the watch saw of last night,
+// beside the times you give, so a late "I'm up" tap can be set right.
+// Null when the watch has no night for the day.
+export function morningWatchLine(day) {
+  const slept = num(day?.asleep_min);
+  if (!slept) return null;
+  const parts = [`${fmtMins(slept)} asleep`];
+  const deep = num(day?.deep_min);
+  const rem = num(day?.rem_min);
+  if (deep && rem) parts.push(`${fmtMins(deep)} deep, ${fmtMins(rem)} REM`);
+  if (day?.sleep_end) parts.push(`awake at ${clock(day.sleep_end)}`);
+  return `Your watch: ${parts.join(" · ")}`;
+}
+
 // "Shortcut, 5 min ago" style status for the key: what last used it.
 export function lastUsedLine(key, now = Date.now()) {
   if (!key) return "Off";
   if (!key.last_used_at) return "On · waiting for the watch";
-  const who = { shortcut: "the watch", wake: "the wake-up", health: "Health Auto Export" }[key.last_used_by] ?? "the watch";
+  const who = { shortcut: "the watch", wake: "the wake-up", health: "Health Auto Export", app: "the watch app" }[key.last_used_by] ?? "the watch";
   const mins = Math.round((now - new Date(key.last_used_at).getTime()) / 60000);
   const when = mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} hr ago` : `${Math.round(mins / 1440)} d ago`;
   return `On · ${who}, ${when}`;
