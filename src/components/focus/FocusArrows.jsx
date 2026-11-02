@@ -17,6 +17,13 @@ import {
   arrowKey,
   sameArrow,
   towardTitle,
+  arrowNote,
+  arrowToSave,
+  arrowNotSaved,
+  arrowStart,
+  readArrowDraft,
+  keepArrowDraft,
+  settleArrowDraft,
 } from "../../lib/focus";
 import { LEVELS, focusMinutes } from "../../lib/mark";
 import { autoValue, scores, clockText, valueText } from "../../lib/checks";
@@ -50,8 +57,8 @@ import "../../styles/focus.css";
 //   dayPlan        the day's plan row, for "Up by" (woke_at)
 //   quick          the short evening's version: smaller faces, no notes
 //   flushRef       set to an async () => void that saves anything still
-//                  waiting (a note typed a moment ago) before the day is
-//                  banked
+//                  waiting (a note typed a moment ago), or an arrow whose
+//                  save failed, before the day is banked
 
 export default function FocusArrows({ userId, date, entries, dayPlan, quick = false, flushRef }) {
   const weekStart = focusWeekOf(date);
@@ -157,7 +164,8 @@ export function towardLabel(goal, ascent) {
 
 // A note waits this long after you stop typing before it saves; an answer
 // to a check, a moment less. Bank the day, or close the sheet, and it saves
-// at once.
+// at once. Until there's an arrow to save it with, what you've typed is
+// kept on this phone instead (see "kept on this phone" in focus.js).
 const NOTE_MS = 700;
 const CHECKS_MS = 450;
 
@@ -183,9 +191,17 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
     [goal, checkins, date]
   );
 
-  const [note, setNote] = useState(() => row?.note ?? "");
+  // Where tonight starts: what this phone kept of what you typed (the
+  // draft), unless the saved arrow is newer or already holds it all.
+  const [start] = useState(() => arrowStart(checks, row, readArrowDraft(date, goal.id)));
+  const [note, setNote] = useState(start.note);
   // Answers you gave yourself tonight, by check id: { value, line }.
-  const [mine, setMine] = useState({});
+  const [mine, setMine] = useState(start.mine);
+  useEffect(() => {
+    if (start.drop) keepArrowDraft(date, goal.id, null);
+  }, [start, date, goal.id]);
+  // The arrow whose save failed, by arrowKey, until another save starts.
+  const [failedKey, setFailedKey] = useState(null);
 
   const auto = useMemo(() => checks.map((c) => autoValue(c, { focusesById, entries, dayPlan, focusMinutes })), [checks, focusesById, entries, dayPlan]);
   const answers = mode === "checks" ? focusAnswers(checks, row, { auto, mine }) : [];
@@ -198,11 +214,39 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
   rowRef.current = row;
   const noteRef = useRef(note);
   noteRef.current = note;
+  const mineRef = useRef(mine);
+  mineRef.current = mine;
   const readyRef = useRef(ready);
   readyRef.current = ready;
+  const checksRef = useRef(checks);
+  checksRef.current = checks;
+  const failedRef = useRef(failedKey);
+  failedRef.current = failedKey;
   const arrowRef = useRef(fw.arrow);
   arrowRef.current = fw.arrow;
   const waiting = useRef(null); // { timer, run }
+  // The last ready arrow the save effect below has looked at, so a render
+  // can tell one it's about to save from one nothing is saving.
+  const seen = useRef(undefined);
+  // What flush does when nothing is waiting; set each render below.
+  const retry = useRef(null);
+
+  // What you've typed, kept on this phone until an arrow holding it saves.
+  function keep() {
+    keepArrowDraft(date, goal.id, { mine: mineRef.current, note: noteRef.current, at: Date.now() });
+  }
+
+  // Every save of tonight's arrow goes through here. Once it has saved, the
+  // draft goes if the arrow holds all of it; if it didn't save, the arrow is
+  // remembered as not saved, for the card to say so and to try again.
+  function save(next) {
+    failedRef.current = null;
+    setFailedKey(null);
+    arrowRef.current(goal.id, date, next).then((saved) => {
+      if (saved) settleArrowDraft(date, goal.id, checksRef.current, next);
+      else if (next) setFailedKey(arrowKey(next));
+    });
+  }
 
   const cancel = useCallback(() => {
     if (waiting.current) clearTimeout(waiting.current.timer);
@@ -222,9 +266,16 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
     [cancel]
   );
 
+  // With nothing waiting, what's on screen can still be other than what's
+  // saved: an arrow its checks landed whose save failed is never put off
+  // again (the effect below only saves on a new answer), so this tries it
+  // once more, and banking the day waits for it.
   const flush = useCallback(() => {
     const job = waiting.current;
-    if (!job) return;
+    if (!job) {
+      retry.current?.();
+      return;
+    }
     clearTimeout(job.timer);
     waiting.current = null;
     job.run();
@@ -246,63 +297,106 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
   function place({ x, y }) {
     cancel();
     haptic("tap");
-    fw.arrow(goal.id, date, placedArrow({ x, y }, noteRef.current));
+    save(placedArrow({ x, y }, noteRef.current));
   }
 
   // The note goes with the arrow, so it waits for one: typed before you've
-  // placed it, it's saved with the placing.
+  // placed it, it's kept on this phone and saved with the placing.
   function saveNote() {
     const r = rowRef.current;
     if (!r) return;
     const at = checkinShot(goal.id, date, r);
     const next = placedArrow({ x: at.x, y: at.y }, noteRef.current);
-    if (!sameArrow(r, next)) arrowRef.current(goal.id, date, next);
+    if (!sameArrow(r, next)) save(next);
   }
 
+  // Taking the arrow back takes its note with it in the database, so the
+  // note stays in the box and on this phone, and the box says it'll keep
+  // once the arrow is placed again.
   function takeBack() {
     cancel();
-    fw.arrow(goal.id, date, null);
+    keep();
+    save(null);
   }
 
   // --- Landed by its checks ---------------------------------------------------
 
+  // Tonight's arrow once every check that scores is answered, saved when it
+  // differs from what's saved or its last save failed. With a check still
+  // unanswered the arrow stays where it last landed, and a note typed
+  // meanwhile goes onto that one.
   function saveChecks() {
-    const next = readyRef.current;
-    if (next && !sameArrow(rowRef.current, next)) arrowRef.current(goal.id, date, next);
+    const next = arrowToSave(rowRef.current, readyRef.current, noteRef.current, failedRef.current);
+    if (next) save(next);
   }
 
   // Saved whenever it's ready and differs from what's saved: an answer, the
   // time log catching up, a note. When an answer is cleared it isn't ready,
   // and the last arrow it landed stays put until it is again.
   useEffect(() => {
+    seen.current = readyKey;
     if (mode !== "checks" || !readyKey) return;
     if (sameArrow(rowRef.current, readyRef.current)) return;
     later(saveChecks, CHECKS_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, readyKey, later]);
 
+  // What flush tries when nothing is waiting: the arrow its checks landed
+  // (or a note for the one already there), or a placed arrow's note that
+  // didn't save.
+  retry.current =
+    mode === "checks"
+      ? saveChecks
+      : () => {
+          if (rowRef.current && arrowNote(noteRef.current) !== (rowRef.current.note ?? null)) saveNote();
+        };
+
   // A line added to an answer the day filled in leaves the answer the day's,
   // so it keeps up with the time log.
   function answer(c, patch) {
-    setMine((m) => ({ ...m, [c.id]: { ...m[c.id], ...patch } }));
+    const next = { ...mineRef.current, [c.id]: { ...mineRef.current[c.id], ...patch } };
+    mineRef.current = next;
+    setMine(next);
+    keep();
   }
 
   function typeNote(text) {
     setNote(text);
     noteRef.current = text;
-    if (mode === "placed" && rowRef.current) later(saveNote, NOTE_MS);
+    keep();
+    if (rowRef.current) later(mode === "placed" ? saveNote : saveChecks, NOTE_MS);
   }
 
-  const noteBox = !quick && (
-    <input
-      className="input focus-arrow__note"
-      value={note}
-      onChange={(e) => typeNote(e.target.value)}
-      onBlur={flush}
-      maxLength={1000}
-      placeholder="What landed it there?"
-      aria-label={`What landed “${goal.title}” there?`}
-    />
+  // Tonight's arrow, landed by its checks, isn't what's saved and nothing is
+  // on its way to save it: its save failed (the read after it may not have
+  // come back yet, so the week can still show it as saved), or it differs
+  // from what the week holds with nothing waiting.
+  const pending = readyKey !== seen.current || waiting.current != null;
+  const unsaved = mode === "checks" && arrowNotSaved(ready, row, { failed: failedKey, pending });
+
+  // A note has nowhere to go until there's an arrow to go with: say so,
+  // rather than leave a box that looks saved. With nothing that scores
+  // there's never an arrow to land, so there's no box either.
+  const canLand = mode === "placed" || checks.some(scores) || Boolean(row);
+  const keepHint = !row && !ready && arrowNote(note) ? (mode === "placed" ? "Place the arrow to keep this note." : "Answer its checks to keep this note.") : null;
+  const noteBox = !quick && canLand && (
+    <div className="focus-arrow__note-box">
+      <input
+        className="input focus-arrow__note"
+        value={note}
+        onChange={(e) => typeNote(e.target.value)}
+        onBlur={flush}
+        maxLength={1000}
+        placeholder="What landed it there?"
+        aria-label={`What landed “${goal.title}” there?`}
+        aria-describedby={keepHint ? `${goal.id}-keep` : undefined}
+      />
+      {keepHint && (
+        <small className="focus-arrow__keep" id={`${goal.id}-keep`}>
+          {keepHint}
+        </small>
+      )}
+    </div>
   );
 
   return (
@@ -362,7 +456,7 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
               />
             ))}
           </div>
-          <Lands goal={goal} date={date} earlier={earlier} ready={ready} row={row} scored={checks.some(scores)} quick={quick} />
+          <Lands goal={goal} date={date} earlier={earlier} ready={ready} row={row} scored={checks.some(scores)} quick={quick} unsaved={unsaved} onRetry={saveChecks} />
           {noteBox}
         </div>
       )}
@@ -372,17 +466,20 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
 
 // The ring a focus's checks put its arrow in, on its small target with the
 // week's other arrows. Tonight's shows as it's answered, before it saves.
-function Lands({ goal, date, earlier, ready, row, scored, quick }) {
+// One whose save failed says so, instead of its ring, until it saves: the
+// card tries again when you tap, leave or bank the day.
+function Lands({ goal, date, earlier, ready, row, scored, quick, unsaved = false, onRetry }) {
   const tonight = ready ?? row;
   const shots = tonight ? [...earlier, checkinShot(goal.id, date, tonight)] : earlier;
   const level = tonight ? checkinLevel(tonight) : null;
   let words;
   if (!scored) words = "None of its checks is scored, so there's nothing for the arrow to land by.";
+  else if (ready && unsaved) words = "Not saved.";
   else if (ready) words = ringWords(ready.level);
   else if (row) words = "Not every check is answered yet, so its arrow stays where it last landed.";
   else words = "Answer its checks and the arrow lands itself.";
   return (
-    <div className={"mark focus-arrow__lands" + (!ready && row ? " is-incomplete" : "")} aria-live="polite">
+    <div className={"mark focus-arrow__lands" + ((!ready && row) || (ready && unsaved) ? " is-incomplete" : "")} aria-live="polite">
       <span className="focus-arrow__face">
         <TargetFace
           target={{ shots, reasons: [] }}
@@ -393,7 +490,17 @@ function Lands({ goal, date, earlier, ready, row, scored, quick }) {
           label={level != null ? `Tonight's arrow: ${LEVELS[level].name}` : "No arrow yet tonight"}
         />
       </span>
-      <span className={"focus-arrow__ring" + (quick ? " focus-arrow__ring--quick" : "")}>{words}</span>
+      <span className={"focus-arrow__ring" + (quick ? " focus-arrow__ring--quick" : "")}>
+        {words}
+        {ready && unsaved && onRetry && (
+          <>
+            {" "}
+            <button type="button" className="btn-link focus-arrow__retry" onClick={onRetry}>
+              Try again
+            </button>
+          </>
+        )}
+      </span>
     </div>
   );
 }
