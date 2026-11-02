@@ -7,12 +7,15 @@ import { cardFace } from "../../lib/markdown";
 import { corkItems, pinOf, tiltOf } from "../../lib/quoteShelves";
 import { dayLabel } from "../study/dayLabel";
 import QuoteCard from "./QuoteCard";
+import LinkToTarget from "../targets/LinkToTarget";
 
 // The board itself: the quotes you've saved and the thoughts you've
 // kept, pinned up together, newest first. Pinned thoughts go to the top.
 //
 // Quotes hang as black-and-white prints; your own thoughts are index cards
 // titled in your hand, and any of them can carry a picture of its own.
+// A quote's "Link" puts it on a target: the mission, a goal, a quest or
+// lesson, or the week's focus.
 const PAGE = 18;
 
 const SHOW = [
@@ -65,7 +68,7 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
             {items.slice(0, shown).map((item) => (
               <div key={item.id} className="print-slot">
                 {item.kind === "quote" ? (
-                  <QuoteCard quote={item.quote} variant="cork" onChange={onQuoteChange} />
+                  <QuoteCard quote={item.quote} variant="cork" onChange={onQuoteChange} extra={<LinkToTarget quote={item.quote} />} />
                 ) : (
                   <PaperNote note={item.note} onOpen={onOpenNote} onChanged={onNotesChanged} />
                 )}

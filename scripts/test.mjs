@@ -5566,6 +5566,132 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, part 4) =====
 // Add this part's tests directly under the line above.
 {
+  console.log("\ntargets tab: linking a quote from the Board and Today");
+  // LinkToTarget.jsx is a component, so it's built here with React, the
+  // page and the database swapped for stand-ins; only its pure helpers run.
+  const { build } = await import("esbuild");
+  const linkPath = fileURLToPath(new URL("../src/components/targets/LinkToTarget.jsx", import.meta.url));
+  const linkSrc = readFileSync(linkPath, "utf8");
+  const keepReal = /\/lib\/(ladder|ascent|focus|mark|planDates)$/;
+  const built = await build({
+    entryPoints: [linkPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === linkPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = linkSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => {};`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const M = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+
+  // What can be linked to: the ladder, biggest to smallest, only what's on now.
+  const today = "2026-11-04"; // a Wednesday; its week began Sunday Nov 1
+  const rows = {
+    mission: null,
+    goals: [
+      { id: "g2", title: "Highly in tune with God", created_at: "2026-01-01T00:00:00Z" },
+      { id: "g1", title: "Highly skilled", created_at: "2026-01-01T00:00:00Z" },
+    ],
+    quests: [
+      { id: "q2", title: "Redo the kitchen", status: "on", lesson_id: null, goal_id: null, position: 1 },
+      { id: "q1", title: "Build the best Premiere Pro plugin", status: "on", lesson_id: null, goal_id: "g1", position: 0 },
+      { id: "q3", title: "Run a marathon", status: "done", lesson_id: null, position: 2 },
+      { id: "q4", title: "An old idea", status: "set_aside", lesson_id: null, position: 3 },
+      { id: "m1", title: "Quit caffeine", status: "on", lesson_id: "l1", position: 4 },
+    ],
+    lessons: [
+      { id: "l1", title: "Stop drinking caffeine", status: "learning", started_on: "2026-10-01", position: 0 },
+      { id: "l2", title: "More integrity", status: "learned", started_on: "2026-09-01", position: 1 },
+      { id: "l3", title: "Patience", status: "set_aside", position: 2 },
+    ],
+    focusGoals: [
+      { id: "f1", title: "Win by win", week_start: "2026-10-25", carried_from: null, position: 0 },
+      { id: "f2", title: "Win by win", week_start: "2026-11-01", carried_from: "f1", position: 1 },
+      { id: "f3", title: "Up at 4:30", week_start: "2026-11-01", carried_from: null, position: 0 },
+      { id: "f4", title: "Planned ahead", week_start: "2026-11-08", carried_from: null, position: 0 },
+    ],
+  };
+  const list = M.ladderTargets(rows, today);
+  const kinds = list.map((t) => `${t.kind}:${t.key}`).join();
+  ok("mission, goals, quests, lessons, then this week's focus", kinds === "mission:mission,goal:g1,goal:g2,quest:q1,quest:q2,lesson:l1,focus:f3,focus:f2", kinds);
+  ok("only quests he's on, never a lesson's mountain", list.filter((t) => t.kind === "quest").every((t) => ["q1", "q2"].includes(t.id)) && !list.some((t) => t.id === "m1"));
+  ok("only lessons he's learning, keyed on the lesson", list.filter((t) => t.kind === "lesson").map((t) => t.id).join() === "l1");
+  ok("only this week's focus, with the weeks it came from", list.filter((t) => t.kind === "focus").map((t) => t.id).join() === "f3,f2" && list.find((t) => t.id === "f2").lineage.join() === "f2,f1");
+  ok("the mission is offered even unwritten", list[0].title === "My mission" && list[0].line === "Not written yet" && list[0].group === "mission");
+  const written = M.ladderTargets({ ...rows, mission: { statement: "  An exalted servant.  ", summit: null } }, today)[0];
+  ok("a written mission reads in its own words", written.title === "An exalted servant." && written.serif && written.short === "My mission");
+  ok("short names for the toast", list.find((t) => t.id === "q1").short === "Plugin" && list.find((t) => t.id === "g1").short === "Skilled");
+  ok("each in its group", list.map((t) => t.group).join() === "mission,goals,goals,climbs,climbs,climbs,focus,focus");
+  ok("nothing to link to but the mission is still something", M.ladderTargets({}, today).map((t) => t.kind).join() === "mission");
+
+  // What a quote is on.
+  const links = [
+    { id: "a", quote_id: "Q", mission: true },
+    { id: "b", quote_id: "Q", focus_goal_id: "f1" },
+    { id: "c", quote_id: "Q", quest_id: "q3", quest: { id: "q3", title: "Run a marathon", status: "done" } },
+    { id: "d", quote_id: "Q", focus_goal_id: "f0", focus: { id: "f0", title: "Read daily", week_start: "2026-10-18" } },
+    { id: "e", quote_id: "Q", lesson_id: "l1" },
+    { id: "f", quote_id: "Q", lesson_id: "l2", lesson: { id: "l2", title: "More integrity", status: "learned" } },
+  ];
+  const others = M.otherTargets(links, list);
+  ok("what it's on that isn't on now is named, with where it stands", others.map((t) => `${t.title}|${t.line}`).join() === "Run a marathon|Quest · done,Read daily|" + others[1]?.line + ",More integrity|Lesson from God · learned" && /^Focus · week of /.test(others[1]?.line ?? ""), others.map((t) => `${t.title}|${t.line}`).join());
+  ok("and goes under Not on right now", others.every((t) => t.group === "other"));
+  const all = [...list, ...others];
+  const ids = M.linkIdsByTarget(all, links);
+  ok("the mission's link", ids.get("mission").join() === "a");
+  ok("a focus linked last week shows on this week's", ids.get("f2").join() === "b" && ids.get("f3").length === 0);
+  ok("a lesson by its own id", ids.get("l1").join() === "e");
+  ok("an old target's link is its own row", ids.get("q3").join() === "c" && ids.get("f0").join() === "d");
+  ok("nothing else is checked", ["g1", "g2", "q1", "q2"].every((k) => ids.get(k).length === 0));
+  ok("the count is of targets, not rows", M.targetCount(links) === 6 && M.targetCount([...links, { id: "g", quote_id: "Q", mission: true }]) === 6 && M.targetCount([]) === 0 && M.targetCount(null) === 0);
+  ok("what the button says", M.linkName(0) === "Link to a target" && M.linkName(1) === "Linked to 1 target" && M.linkName(3) === "Linked to 3 targets");
+  ok("the groups, biggest to smallest, the empty ones left out", M.groupTargets(all).map((g) => g.title).join("|") === "My mission|Lifetime goals|Quests and lessons|This week's focus|Not on right now" && M.groupTargets(list.slice(0, 1)).length === 1);
+  ok("the button reads Link, or Linked · N", /<span className="link-to__word">Linked · <\/span>\s*\{count\}/.test(linkSrc) && /\) : \(\s*"Link"\s*\)/.test(linkSrc) && /aria-label=\{linkName\(count\)\}/.test(linkSrc));
+
+  // Where it goes.
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["the picks and shelves", "src/components/board/Shelves.jsx"]]) {
+    const cards = read(file).match(/<QuoteCard [^\n]*\/>/g) ?? [];
+    ok(`every print on ${where} has Link`, cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  }
+  ok("Today's quote has Link beside Share, in its own buttons' style", /<ShareQuote [^\n]*\/>\n\s*<LinkToTarget quote=\{quote\} className="btn btn--sm quote-card__link" \/>/.test(read("src/components/today/QuoteOfDay.jsx")));
+
+  // How it writes.
+  ok("a tap links with linkQuote and unlinks with unlinkQuote", /track\(linkQuote\(userId, refOf\(t\), source\)\)/.test(linkSrc) && /track\(unlinkQuote\(ids\)\)/.test(linkSrc));
+  ok("Unlink has an Undo that puts the rows back", /actionLabel: "Undo", onAction: \(\) => putBack\(userId, source, gone, toast\)/.test(linkSrc) && /track\(relinkQuotes\(gone\)\)/.test(linkSrc));
+  ok("a link that was there already stays checked", /if \(row\) \{[\s\S]{0,120}return;\s*\}\s*\/\/ It was linked already/.test(linkSrc) && !/if \(!row\)[^\n]*filter/.test(linkSrc));
+  ok("a failed write puts the check back and says so", /toast\.error\(err, "Couldn't link it\."\)/.test(linkSrc) && /toast\.error\(err, "Couldn't unlink it\."\)/.test(linkSrc));
+  ok("other pages hear of it once, when the sheet has closed", /announceChange\(\);/.test(linkSrc) && /links\.sheets -= 1;\s*settle\(\);/.test(linkSrc) && /if \(links\.sheets \|\| links\.writes \|\| !links\.dirty\) return;/.test(linkSrc));
+  ok("nothing about the targets is read until the sheet opens", linkSrc.indexOf("fetchLadderTargets(userId)") > linkSrc.indexOf("function LinkSheet("));
+  ok("the sheet sits on the body, so a tilted print doesn't carry it", /createPortal\(<LinkSheet /.test(linkSrc));
+  ok("each row opens its target's page", /<Link className="link-to__open" to=\{pathOf\(t\.kind, t\.key\)\}/.test(linkSrc));
+
+  const api = read("src/lib/api.js");
+  const part4 = api.slice(api.indexOf("// --- Targets tab, part 4"), api.indexOf("// --- end of part 4"));
+  ok("part 4's reads sit in its part of api.js", ["fetchLadderTargets", "fetchLinksForQuote", "fetchQuoteLinkRows"].every((f) => part4.includes(`export async function ${f}(`) && api.split(`export async function ${f}(`).length === 2));
+  ok("a quote's links are only his, and only that quote's", /\["quote_id", quoteId\] : \["note_id", noteId\]/.test(part4) && /\.eq\("user_id", userId\)\s*\.eq\(column, value\)/.test(part4));
+  ok("the targets read skips the Range's 30 days of steps", !/ascent_steps/.test(part4) && /fetchFocusGoalRows\(userId\)/.test(part4));
+
+  const css = read("src/styles/targets.css");
+  const partCss = css.slice(css.indexOf("/* --- Part 4:"), css.indexOf("/* --- end of part 4 --- */"));
+  const outside = css.replace(partCss, "");
+  ok("Link's rules sit in part 4 of targets.css", /\.link-to__row \{/.test(partCss) && !/link-to__|qprint__link|quote-card__link/.test(outside));
+  ok("rows and Open are thumb-sized", /\.link-to__row \{[^}]*min-height: (4[4-9]|[5-9]\d)px/.test(partCss) && /\.link-to__open \{[^}]*width: 44px/.test(partCss));
+  ok("a narrow print's foot takes two lines, not three", /\.qprint__foot,\s*\.quote-card__rate \{\s*container-type: inline-size;/.test(partCss) && /@container \(max-width: 179px\) \{[\s\S]*?\.qprint__link \.link-to__word \{\s*display: none;/.test(partCss));
+  ok("no em or en dashes in Link's words", ![linkSrc, part4, partCss].some((s) => /[–—]| -- /.test(s)));
 }
 
 // (end of targets tab, part 4)

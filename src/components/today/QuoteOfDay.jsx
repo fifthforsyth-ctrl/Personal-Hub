@@ -8,6 +8,7 @@ import { todayStr } from "../../lib/planDates";
 import { RATINGS, initials, ratedLine, sourceLine } from "../../lib/quotes";
 import { useBackOnline } from "./useBackOnline";
 import ShareQuote from "../board/ShareQuote";
+import LinkToTarget from "../targets/LinkToTarget";
 
 // One quote for the day, from a Church leader or someone from history,
 // chosen for what this week is about.
@@ -20,7 +21,9 @@ import ShareQuote from "../board/ShareQuote";
 // A historical figure comes with their portrait when there's a public-domain
 // one; anyone else gets a name card. Rating it is the whole loop: "applies"
 // brings it back now and then and steers what comes next. "Save to board"
-// pins it up on the Board's cork, and "Share" sends it to a friend.
+// pins it up on the Board's cork, "Share" sends it to a friend, and "Link"
+// puts it on a target (the mission, a goal, a quest or lesson, the week's
+// focus), whose page shows it from then on.
 const asked = new Map();
 
 function triedKey(date) {
@@ -233,6 +236,7 @@ function QuoteCard({ day, onRated }) {
           {saved ? "On your board" : "Save to board"}
         </button>
         <ShareQuote quote={quote} className="btn btn--sm quote-card__share" />
+        <LinkToTarget quote={quote} className="btn btn--sm quote-card__link" />
       </div>
       {rateError && <div className="form-error">{rateError}</div>}
 
