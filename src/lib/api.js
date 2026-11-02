@@ -5,6 +5,7 @@ import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 import { planRows } from "./camp";
 import { byPin } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
+import { lineageIds, cleanNote } from "./focus";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -2371,7 +2372,8 @@ export async function deleteReceipt(receipt) {
 }
 
 // ---------------------------------------------------------------------------
-// Weekly focus goals (0059). A week is the Sunday it starts on.
+// Weekly focus goals (0059) and their notes (0101). A week is the Sunday it
+// starts on.
 // ---------------------------------------------------------------------------
 
 const FOCUS_COLUMNS = "id, week_start, title, node_id, carried_from, review, reviewed_at, position, created_at";
@@ -2430,6 +2432,59 @@ export async function setFocusCheckin(userId, goalId, date, moved) {
   const { error } = await supabase
     .from("focus_checkins")
     .upsert({ user_id: userId, goal_id: goalId, date, moved }, { onConflict: "goal_id,date" });
+  if (error) throw error;
+}
+
+// The focus and every earlier week it was carried from, newest first, as
+// { id, title, week_start } rows. Your focus goals are a few a week, so they
+// all come in one read and the chain is walked here (lineageIds), rather
+// than one round trip per week.
+export async function fetchFocusLineage(userId, goalId) {
+  const { data, error } = await supabase.from("focus_goals").select("id, title, week_start, carried_from").eq("user_id", userId);
+  if (error) throw error;
+  const rows = data ?? [];
+  const byId = new Map(rows.map((g) => [g.id, g]));
+  return lineageIds(goalId, rows).map((id) => byId.get(id) ?? { id, title: null, week_start: null, carried_from: null });
+}
+
+// Notes on a focus (0101): what you noticed about it, any day. Newest first.
+const FOCUS_NOTE_COLUMNS = "id, goal_id, date, text, created_at";
+
+export async function fetchFocusNotes(userId, goalIds) {
+  const ids = [...new Set((goalIds ?? []).filter(Boolean))];
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from("focus_notes")
+    .select(FOCUS_NOTE_COLUMNS)
+    .eq("user_id", userId)
+    .in("goal_id", ids)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addFocusNote(userId, { goalId, date, text }) {
+  const clean = cleanNote(text);
+  if (!clean) throw new Error("Write the note first.");
+  const { data, error } = await supabase
+    .from("focus_notes")
+    .insert({ user_id: userId, goal_id: goalId, date, text: clean })
+    .select(FOCUS_NOTE_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateFocusNote(noteId, text) {
+  const clean = cleanNote(text);
+  if (!clean) throw new Error("A note can't be empty. Delete it instead.");
+  const { data, error } = await supabase.from("focus_notes").update({ text: clean }).eq("id", noteId).select(FOCUS_NOTE_COLUMNS).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteFocusNote(noteId) {
+  const { error } = await supabase.from("focus_notes").delete().eq("id", noteId);
   if (error) throw error;
 }
 
