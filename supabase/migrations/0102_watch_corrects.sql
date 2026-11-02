@@ -14,7 +14,10 @@
 --                      this is null.
 --     hand_started_at  the start you gave, before the watch moved it
 --     hand_ended_at    the end you gave, before the watch moved it
---                      (both null unless the watch moved the entry)
+--                      (both null unless the watch moved the entry; when
+--                      the watch ends a Sleep timer that was still
+--                      running and moves its start, only hand_started_at
+--                      is set, since you never gave that entry an end)
 --
 -- Backfill: entries the import itself made already carry the watch's
 -- times, so they're stamped with when they were made. That's the Exercise
@@ -32,10 +35,14 @@
 --
 -- Purely additive.
 --
--- To put the watch's moves back (SQL Editor):
+-- To put the watch's moves back (SQL Editor). A Sleep timer the watch
+-- ended keeps the watch's end, since it never had one of yours.
+-- watch_fixed_at stays, so the watch leaves them as put back. Add
+-- `and id = '<entry id>'` to put back just one.
 --   update public.time_log_entries
---      set started_at = hand_started_at, ended_at = hand_ended_at
---    where hand_started_at is not null and hand_ended_at is not null;
+--      set started_at = hand_started_at,
+--          ended_at = coalesce(hand_ended_at, ended_at)
+--    where hand_started_at is not null;
 --
 -- Rollback (SQL Editor; deploy the earlier `watch` function first, then
 -- drop only what this file added):

@@ -58,10 +58,13 @@ const PHONE_OFF = "Phone off by lights-out";
 const skipKey = (date) => `hub.morning-skip.${date}`;
 
 // Whether the check-in is on Today showing last night (its form, or its
-// one line once done), so the watch row under the minutes can leave out
-// Slept and Up instead of saying them a second time a few lines down. Null
-// while that isn't known (the check-in still loading, or not on the page);
-// the Minutes card then goes by the check-in's hours.
+// one line once done, when that line says when you were up or how long you
+// slept), so the watch row under the minutes can leave out Slept and Up
+// instead of saying them a second time a few lines down. Null while that
+// isn't known (the check-in still loading) and once it's off the page.
+// Today tells the Minutes card whether the check-in is on the page at all,
+// and only then does the card go by this (or, while it's null, by the
+// check-in's hours).
 let nightShown = null;
 const nightListeners = new Set();
 function setNightShown(v) {
@@ -130,17 +133,26 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   });
 
   // Sleep stopped from the timer, or a runaway fixed: read the night again.
+  // And when you come back to the app, since the watch sends the night in
+  // the background, often after the check-in has loaded or been done; then
+  // its sleep is the one the one line shows.
   useEffect(() => {
+    const onShow = () => document.visibilityState === "visible" && reload();
     window.addEventListener("hub:changed", reload);
-    return () => window.removeEventListener("hub:changed", reload);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("hub:changed", reload);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [reload]);
 
   const done = Boolean(dayPlan?.morning_at);
   const asleep = Boolean(running && isSleep(running));
-  // What the returns below show, for the Minutes card: the night (the form
-  // or the one line), not the night (nothing, or the I'm up button), or not
-  // known yet.
-  const showsNight = !isMorning() && !editing ? false : !data ? null : done && !editing ? true : skipped && !editing ? false : !asleep;
+  // What the returns below show, for the Minutes card: the night (the form,
+  // or the one line when it has Up or the sleep in it), not the night
+  // (nothing, the I'm up button, or a line with neither), or not known yet.
+  const showsNight =
+    !isMorning() && !editing ? false : !data ? null : done && !editing ? nightParts(dayPlan, data.watchSlept).length > 0 : skipped && !editing ? false : !asleep;
   useEffect(() => {
     setNightShown(showsNight);
   }, [showsNight]);
@@ -157,6 +169,8 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
       setWaking(true);
       setWakeError(null);
       try {
+        // If the watch ended Sleep after this page loaded, this changes
+        // nothing (its wake time stays) and the reload shows the night.
         await stopTimeEntry(running.id);
         announceChange();
         await Promise.all([reload(), onChanged?.()]);
@@ -207,13 +221,20 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   );
 }
 
-// `slept` is the watch's sleep for the night ("6h 52m"), or null without
-// one; then it's lights-out to wake, as you gave them.
-function Summary({ plan, slept, onEdit }) {
+// What the one line says of the night: when you were up, and how long you
+// slept. `slept` is the watch's sleep for the night ("6h 52m"), or null
+// without one; then it's lights-out to wake, as you gave them. Empty when
+// it has neither, and then the Minutes card says them instead.
+export function nightParts(plan, slept) {
   const parts = [];
   if (plan.woke_at) parts.push(`Up ${timeOf(plan.woke_at)}`);
   if (slept) parts.push(`slept ${slept}`);
   else if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtDuration((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
+  return parts;
+}
+
+function Summary({ plan, slept, onEdit }) {
+  const parts = nightParts(plan, slept);
   if (plan.sleep_quality) parts.push(`quality ${plan.sleep_quality}`);
   if (plan.energy) parts.push(`energy ${plan.energy}`);
   return (
