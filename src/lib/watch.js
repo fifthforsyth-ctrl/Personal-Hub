@@ -32,6 +32,17 @@ export function workoutName(name) {
   return short ? short[0].toUpperCase() + short.slice(1) : "Workout";
 }
 
+// How long the watch saw you asleep last night ("6h 52m"), or null when it
+// has no night for the day. Every place the Hub shows the watch's sleep
+// takes its number from here, so one night never reads as two different
+// numbers, and the short lines call it "slept" the same way: "Slept 6h 52m"
+// under Today's minutes and in the evening, "slept 6h 52m" in the morning
+// check-in's line once it's done.
+export function watchSlept(day) {
+  const slept = num(day?.asleep_min);
+  return slept ? fmtMins(slept) : null;
+}
+
 // The evening's watch line: [{ label, value }] in reading order, or [] when
 // the watch has nothing for the day. `day` is that date's health_days row
 // (its sleep is the night before), `workouts` the day's health_workouts.
@@ -40,11 +51,11 @@ export function eveningWatchParts(day, workouts) {
   // The wake-up automation's moment, or else when the watch saw you wake.
   const up = day?.woke_at ?? day?.sleep_end;
   if (up) parts.push({ label: "Up", value: clock(up), sub: null });
-  const slept = num(day?.asleep_min);
+  const slept = watchSlept(day);
   if (slept) {
     const deep = num(day?.deep_min);
     const rem = num(day?.rem_min);
-    parts.push({ label: "Slept", value: fmtMins(slept), sub: deep && rem ? `${fmtMins(deep)} deep, ${fmtMins(rem)} REM` : null });
+    parts.push({ label: "Slept", value: slept, sub: deep && rem ? `${fmtMins(deep)} deep, ${fmtMins(rem)} REM` : null });
   }
   for (const w of [...(workouts ?? [])].sort((a, b) => new Date(a.started_at) - new Date(b.started_at))) {
     parts.push({ label: workoutName(w.name), value: fmtMins(w.minutes), sub: `at ${clock(w.started_at)}${num(w.avg_hr) ? `, avg ${Math.round(w.avg_hr)} bpm` : ""}` });
@@ -65,9 +76,9 @@ export function eveningWatchParts(day, workouts) {
 // beside the times you give, so a late "I'm up" tap can be set right.
 // Null when the watch has no night for the day.
 export function morningWatchLine(day) {
-  const slept = num(day?.asleep_min);
+  const slept = watchSlept(day);
   if (!slept) return null;
-  const parts = [`${fmtMins(slept)} asleep`];
+  const parts = [`${slept} asleep`];
   const deep = num(day?.deep_min);
   const rem = num(day?.rem_min);
   if (deep && rem) parts.push(`${fmtMins(deep)} deep, ${fmtMins(rem)} REM`);
@@ -99,12 +110,16 @@ export function restingNormal(days, date) {
 // last night, since a night belongs to the day you woke up on) and
 // `yesterday` the day before's, for a resting heart rate the watch hasn't
 // worked out for today yet. `normal` is restingNormal's answer.
-export function minutesWatchParts(today, yesterday, normal) {
+//
+// `night: false` leaves out Slept and Up. Today passes that while the
+// morning check-in is on the page, since its one line already says when
+// you were up and how long you slept; after that they're back here.
+export function minutesWatchParts(today, yesterday, normal, { night = true } = {}) {
   const parts = [];
-  const slept = num(today?.asleep_min);
-  if (slept) parts.push({ label: "Slept", value: fmtMins(slept), sub: null });
+  const slept = night ? watchSlept(today) : null;
+  if (slept) parts.push({ label: "Slept", value: slept, sub: null });
   // The wake-up automation's moment, or else when the watch saw you wake.
-  const up = today?.woke_at ?? today?.sleep_end;
+  const up = night ? today?.woke_at ?? today?.sleep_end : null;
   if (up) parts.push({ label: "Up", value: clock(up), sub: null });
   const own = num(today?.resting_hr);
   const hr = own ?? num(yesterday?.resting_hr);
@@ -118,12 +133,12 @@ export function minutesWatchParts(today, yesterday, normal) {
 // minutesWatchParts for a date, from the health_days rows around it (the
 // month before, for the normal). The normal is taken as of the day whose
 // reading is shown, so yesterday's reading isn't set beside itself.
-export function minutesWatch(days, date) {
+export function minutesWatch(days, date, opts) {
   const byDate = new Map((days ?? []).map((d) => [String(d?.date ?? "").slice(0, 10), d]));
   const today = byDate.get(date) ?? null;
   const yesterday = byDate.get(addDays(date, -1)) ?? null;
   const shown = num(today?.resting_hr) ? date : addDays(date, -1);
-  return minutesWatchParts(today, yesterday, restingNormal(days, shown));
+  return minutesWatchParts(today, yesterday, restingNormal(days, shown), opts);
 }
 
 // "Shortcut, 5 min ago" style status for the key: what last used it.

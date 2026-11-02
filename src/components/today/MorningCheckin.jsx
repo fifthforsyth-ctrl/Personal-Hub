@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Sunrise, Check } from "lucide-react";
 import {
   fetchSleepEntries,
@@ -29,7 +29,7 @@ import {
   fmtClock,
   fmtDuration,
 } from "../../lib/honest";
-import { morningWatchLine } from "../../lib/watch";
+import { morningWatchLine, watchSlept } from "../../lib/watch";
 import { Scale } from "./StopFollowUp";
 import { timeOf } from "./minutes";
 import { announceChange } from "./announce";
@@ -50,10 +50,32 @@ import "../../styles/honest.css";
 // reason, as plain information, and shows with tonight's losses.
 //
 // Once it's done it folds to one line, and after noon it's gone either way.
+// When the watch has last night, that line's sleep is the watch's (the
+// same "slept 6h 52m" the Minutes card shows), not lights-out to wake.
 
 const ALARMS = ["04:30", "06:00"];
 const PHONE_OFF = "Phone off by lights-out";
 const skipKey = (date) => `hub.morning-skip.${date}`;
+
+// Whether the check-in is on Today showing last night (its form, or its
+// one line once done), so the watch row under the minutes can leave out
+// Slept and Up instead of saying them a second time a few lines down. Null
+// while that isn't known (the check-in still loading, or not on the page);
+// the Minutes card then goes by the check-in's hours.
+let nightShown = null;
+const nightListeners = new Set();
+function setNightShown(v) {
+  if (nightShown === v) return;
+  nightShown = v;
+  for (const f of nightListeners) f();
+}
+function onNightShown(f) {
+  nightListeners.add(f);
+  return () => nightListeners.delete(f);
+}
+export function useCheckinShowsNight() {
+  return useSyncExternalStore(onNightShown, () => nightShown, () => null);
+}
 
 function noonBefore(date) {
   const d = parseDateStr(addDays(date, -1));
@@ -83,6 +105,7 @@ async function loadMorning(userId, date) {
   ]);
   return {
     watchLine: morningWatchLine(watchDays[0]),
+    watchSlept: watchSlept(watchDays[0]),
     sleep: lastNightSleep(sleeps, date),
     lastAlarm,
     watched,
@@ -113,13 +136,23 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   }, [reload]);
 
   const done = Boolean(dayPlan?.morning_at);
+  const asleep = Boolean(running && isSleep(running));
+  // What the returns below show, for the Minutes card: the night (the form
+  // or the one line), not the night (nothing, or the I'm up button), or not
+  // known yet.
+  const showsNight = !isMorning() && !editing ? false : !data ? null : done && !editing ? true : skipped && !editing ? false : !asleep;
+  useEffect(() => {
+    setNightShown(showsNight);
+  }, [showsNight]);
+  useEffect(() => () => setNightShown(null), []);
+
   if (!isMorning() && !editing) return null;
   if (!data) return null;
-  if (done && !editing) return <Summary plan={dayPlan} onEdit={() => setEditing(true)} />;
+  if (done && !editing) return <Summary plan={dayPlan} slept={data.watchSlept} onEdit={() => setEditing(true)} />;
   if (skipped && !editing) return null;
 
   // Still asleep, as far as the timer knows: one tap ends it.
-  if (running && isSleep(running)) {
+  if (asleep) {
     async function imUp() {
       setWaking(true);
       setWakeError(null);
@@ -174,10 +207,13 @@ export default function MorningCheckin({ userId, date, dayPlan, running, onChang
   );
 }
 
-function Summary({ plan, onEdit }) {
+// `slept` is the watch's sleep for the night ("6h 52m"), or null without
+// one; then it's lights-out to wake, as you gave them.
+function Summary({ plan, slept, onEdit }) {
   const parts = [];
   if (plan.woke_at) parts.push(`Up ${timeOf(plan.woke_at)}`);
-  if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtDuration((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
+  if (slept) parts.push(`slept ${slept}`);
+  else if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtDuration((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
   if (plan.sleep_quality) parts.push(`quality ${plan.sleep_quality}`);
   if (plan.energy) parts.push(`energy ${plan.energy}`);
   return (

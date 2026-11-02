@@ -365,11 +365,25 @@ export function mergeDay(old, fresh) {
 //     entry is only stamped as checked.
 //   * Never so it runs into the entry before or after it: a workout you
 //     forgot to end on the watch stops where your next timer starts.
+//   * A Sleep entry grows by 45 minutes at most on either side; past that,
+//     that side keeps your time. A watch night can span a wake in the
+//     middle (up at 4:30, back to bed at 7), and stretching the part you
+//     logged over it would count your time up as sleep. So on a night
+//     with an hour or more awake in it, or with something else you logged
+//     inside it, the entry only ever shrinks to the watch's times.
+//   * A workout only sets an entry that is plainly that workout: Exercise
+//     and nothing else, mostly filled by the workout, and moved half an
+//     hour or less at either end. A five-hour hike tagged Minister, a date
+//     that was also exercise, or a 90-minute gym session holding one
+//     30-minute run is only linked, so the time you logged stays yours.
 //
 // The times you gave are kept beside the new ones (hand_started_at,
 // hand_ended_at), so a move can always be seen and put back.
 
 const FIX_MIN = 5 * 60000;
+const SLEEP_GROW_MAX = 45 * 60000;
+const AWAKE_SPLIT_MIN = 60;
+const WORKOUT_EDGE_MAX = 30 * 60000;
 const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 const sleepy = (e) => (e?.tags ?? []).includes("Sleep") || e?.category === "Sleep";
 const exercisey = (e) => (e?.tags ?? []).includes("Exercise") || e?.category === "Exercise";
@@ -388,10 +402,11 @@ export function bedtimeOf(night) {
 
 // The watch's times for `mine`, pulled in so they don't run into the
 // entries on either side of it (or a timer that's still going), as
-// { start, end } in ms, or null when nothing is left between them.
+// { start, end } in ms, or null when nothing is left between them. A
+// `mine` still running has no after side, so only its start is pulled in.
 function fitBetween(mine, start, end, entries, now) {
   const s0 = ms(mine.started_at);
-  const f0 = ms(mine.ended_at);
+  const f0 = mine.ended_at ? ms(mine.ended_at) : Infinity;
   let from = start;
   let to = end;
   for (const e of entries ?? []) {
@@ -407,11 +422,68 @@ function fitBetween(mine, start, end, entries, now) {
 // Off by enough to move it?
 const offBy = (mine, fit) => Math.abs(ms(mine.started_at) - fit.start) >= FIX_MIN || Math.abs(ms(mine.ended_at) - fit.end) >= FIX_MIN;
 
+// `fit` with each side that would grow `mine` by more than `grow` ms put
+// back to your time. Shrinking is never held back. A running `mine` has no
+// end of yours to hold, so its end is the watch's.
+function holdGrowth(mine, fit, grow) {
+  const s0 = ms(mine.started_at);
+  const start = s0 - fit.start > grow ? s0 : fit.start;
+  const end = mine.ended_at && fit.end - ms(mine.ended_at) > grow ? ms(mine.ended_at) : fit.end;
+  return end > start ? { start, end } : null;
+}
+
+// A night you were up in the middle of: an hour or more awake inside it
+// (the watch's awake minutes, or the gap between its span and the time it
+// counts as asleep, for stage rows with a hole in them), or something
+// other than Sleep you logged inside it. A few minutes' overlap at either
+// edge (winding down as the watch thinks you've dropped off) doesn't count.
+export function upInTheNight(night, entries, now) {
+  const start = ms(night.start);
+  const end = ms(night.end);
+  const asleep = night.asleep == null ? NaN : Number(night.asleep);
+  const gap = Number.isFinite(asleep) ? (end - start) / 60000 - asleep : 0;
+  if (Math.max(Number(night.awake) || 0, gap) >= AWAKE_SPLIT_MIN) return true;
+  return (entries ?? []).some((e) => {
+    if (!e?.started_at || sleepy(e)) return false;
+    const inside = Math.min(end, e.ended_at ? ms(e.ended_at) : now) - Math.max(start, ms(e.started_at));
+    return inside > FIX_MIN;
+  });
+}
+
+// The watch's times for a Sleep entry you logged (or a Sleep timer still
+// going), fit between its neighbours and held to the growth limits above,
+// or null when there's no room.
+function sleepFit(mine, night, entries, now) {
+  const fit = fitBetween(mine, bedtimeOf(night), ms(night.end), entries, now);
+  if (!fit) return null;
+  return holdGrowth(mine, fit, upInTheNight(night, entries, now) ? 0 : SLEEP_GROW_MAX);
+}
+
+// An entry that is plainly this workout and nothing more, so it can take
+// the workout's times: its category is Exercise and it has no other tag,
+// the workout covers at least 60% of it, it's no more than half again as
+// long as the workout, and neither end moves more than half an hour.
+export function plainlyTheWorkout(mine, workout, fit) {
+  if (mine?.category !== "Exercise" || (mine.tags ?? []).some((t) => t !== "Exercise")) return false;
+  const s = ms(mine.started_at);
+  const f = ms(mine.ended_at);
+  const ws = ms(workout.started_at);
+  const wf = ms(workout.ended_at);
+  const len = f - s;
+  if (!(len > 0) || !(wf > ws)) return false;
+  const shared = Math.min(f, wf) - Math.max(s, ws);
+  if (shared < 0.6 * len || len > 1.5 * (wf - ws)) return false;
+  return Math.abs(fit.start - s) <= WORKOUT_EDGE_MAX && Math.abs(fit.end - f) <= WORKOUT_EDGE_MAX;
+}
+
 // What one night of watch sleep does to the minutes log, given the
 // entries around it (started within a day of it) and now:
 //   { kind: "skip", why }              nothing to do
-//   { kind: "end", id, at }            a Sleep timer still running from
-//                                       that night ends when you woke
+//   { kind: "end", id, at, start }     a Sleep timer still running from
+//                                       that night ends when you woke, and
+//                                       starts at the watch's bedtime when
+//                                       that's 5 minutes or more from yours
+//                                       (start is null when it stays)
 //   { kind: "fix", id, start, end }    the one Sleep entry you logged over
 //                                       it takes the watch's times
 //   { kind: "match", id }              that entry is already within 5
@@ -419,7 +491,9 @@ const offBy = (mine, fit) => Math.abs(ms(mine.started_at) - fit.start) >= FIX_MI
 //   { kind: "add", start, end }        nothing logged: the night goes in
 // A running Sleep timer is only ended when the night is fresh (woke up in
 // the last 18 hours) and the timer began no more than 3 hours before you
-// fell asleep, so an old forgotten timer is left to the fix list.
+// fell asleep, so an old forgotten timer is left to the fix list. Ending it
+// sets the night in one step, start and stamp included, so it never waits
+// on a second send that could land after you've changed it.
 export function sleepAction(night, entries, now = new Date()) {
   const start = ms(night.start);
   const end = ms(night.end);
@@ -429,8 +503,10 @@ export function sleepAction(night, entries, now = new Date()) {
   if (running) {
     const began = ms(running.started_at);
     const fresh = now.getTime() - end < 18 * 3600000;
-    if (fresh && began >= start - 3 * 3600000) return { kind: "end", id: running.id, at: iso(end) };
-    return { kind: "skip", why: "a Sleep timer is running" };
+    if (!fresh || began < start - 3 * 3600000) return { kind: "skip", why: "a Sleep timer is running" };
+    const fit = sleepFit(running, night, entries, now.getTime());
+    const moved = fit && Math.abs(fit.start - began) >= FIX_MIN;
+    return { kind: "end", id: running.id, at: iso(end), start: moved ? iso(fit.start) : null };
   }
   const logged = sleeps.filter((e) => e.ended_at && overlaps(start, end, ms(e.started_at), ms(e.ended_at)));
   if (logged.length > 1) return { kind: "skip", why: "more than one Sleep entry" };
@@ -438,7 +514,7 @@ export function sleepAction(night, entries, now = new Date()) {
     const mine = logged[0];
     if (mine.watch_fixed_at) return { kind: "skip", why: "already set by the watch" };
     if (mine.is_nap) return { kind: "skip", why: "already logged" };
-    const fit = fitBetween(mine, bedtimeOf(night), end, entries, now.getTime());
+    const fit = sleepFit(mine, night, entries, now.getTime());
     if (!fit) return { kind: "skip", why: "no room" };
     if (!offBy(mine, fit)) return { kind: "match", id: mine.id };
     return { kind: "fix", id: mine.id, start: iso(fit.start), end: iso(fit.end) };
@@ -453,6 +529,10 @@ export function sleepAction(night, entries, now = new Date()) {
 //   { kind: "link", id }                      linked, times left alone
 //   { kind: "link", id, match: true }         and already within 5 minutes
 //   { kind: "link", id, fix: { start, end } } and set to the watch's times
+// An entry that isn't plainly the workout (plainlyTheWorkout) is only
+// linked, and isn't stamped either, even when its times are close: the
+// stamp says its times are the watch's, and the watch only saw the
+// workout, not the Minister or Date time on the same entry.
 export function workoutAction(workout, entries, others = [], now = Date.now()) {
   const start = ms(workout.started_at);
   const end = ms(workout.ended_at);
@@ -466,7 +546,7 @@ export function workoutAction(workout, entries, others = [], now = Date.now()) {
   const same = (o) => (o.external_id != null && o.external_id === workout.external_id) || (ms(o.started_at) === start && ms(o.ended_at) === end);
   if ((others ?? []).some((o) => o && !same(o) && overlaps(s, f, ms(o.started_at), ms(o.ended_at)))) return link;
   const fit = fitBetween(mine, start, end, entries, now);
-  if (!fit) return link;
+  if (!fit || !plainlyTheWorkout(mine, workout, fit)) return link;
   if (!offBy(mine, fit)) return { ...link, match: true };
   return { ...link, fix: { start: iso(fit.start), end: iso(fit.end) } };
 }

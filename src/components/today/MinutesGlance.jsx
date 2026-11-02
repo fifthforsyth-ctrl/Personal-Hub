@@ -7,12 +7,13 @@ import { addDays } from "../../lib/planDates";
 import { minutesWatch } from "../../lib/watch";
 import { friendlyError } from "../../lib/errors";
 import { colorFor, fmtMinutes } from "../../lib/categories";
-import { isSleep } from "../../lib/honest";
+import { isSleep, isMorning } from "../../lib/honest";
 import { useCapture } from "../CaptureSheet";
 import { announceChange } from "./announce";
 import { isBedtime } from "./dayParts";
 import StopFollowUp, { needsFollowUp } from "./StopFollowUp";
 import BedButton from "./BedButton";
+import { useCheckinShowsNight } from "./MorningCheckin";
 import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } from "./minutes";
 import "../../styles/watch.css";
 
@@ -37,10 +38,14 @@ import "../../styles/watch.css";
 // That's your baseline to read it against, not a target, so it's never
 // red and never a score. Nothing shows when the watch sent nothing, so a
 // day you logged by hand looks exactly as it did, and the card never waits
-// on the watch or breaks when it can't be read.
+// on the watch or breaks when it can't be read. While the morning check-in
+// is on the page it already says when you were up and how long you slept,
+// so the row leaves those two out until it's gone (noon, or Not today),
+// rather than show the night twice a few lines apart.
 export default function MinutesGlance({ entries, running, loaded, date }) {
   const { user } = useAuth();
-  const watch = useWatchRow(user?.id, date);
+  const checkinShowsNight = useCheckinShowsNight() ?? isMorning();
+  const watch = useWatchRow(user?.id, date, !checkinShowsNight);
   const capture = useCapture();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -143,7 +148,8 @@ export default function MinutesGlance({ entries, running, loaded, date }) {
 // when anything changes and when you come back to the app, since the watch
 // sends its numbers in the background. A failure is only logged (useLoad
 // warns and keeps the last good answer), so the row stays as it was or off.
-function useWatchRow(userId, date) {
+// `night` false leaves out Slept and Up (the check-in has them).
+function useWatchRow(userId, date, night) {
   const { data, reload } = useLoad(() => (userId && date ? fetchHealthDays(userId, addDays(date, -29), date) : []), [userId, date]);
   useEffect(() => {
     if (!date) return undefined;
@@ -155,7 +161,7 @@ function useWatchRow(userId, date) {
       document.removeEventListener("visibilitychange", onShow);
     };
   }, [reload, date]);
-  return date && data?.length ? minutesWatch(data, date) : [];
+  return date && data?.length ? minutesWatch(data, date, { night }) : [];
 }
 
 function WatchRow({ parts }) {

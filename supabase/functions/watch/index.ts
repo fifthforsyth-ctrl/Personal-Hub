@@ -571,6 +571,25 @@ async function fitEntry(db: DB, userId: string, old: Around, start: string, end:
   return (data ?? []).length > 0;
 }
 
+// A Sleep timer still running from a night the watch has: it ends when the
+// watch saw you wake, starts at the watch's bedtime when sleepAction says
+// so, and is stamped in the same update, so a time you change afterwards
+// in the morning check-in is yours and the next send leaves it alone. When
+// the start moves, the start you gave is kept beside it; hand_ended_at
+// stays empty because you never gave an end. The update only lands while
+// the timer is still running (and still starts where it was read, when the
+// start moves), so an "I'm up" or an edit in between wins.
+async function endSleep(db: DB, userId: string, old: Around | undefined, at: string | undefined, start: string | null | undefined) {
+  if (!old || !at) return false;
+  const patch: Record<string, unknown> = { ended_at: at, ended_by: "stop", watch_fixed_at: new Date().toISOString() };
+  if (start) Object.assign(patch, { started_at: start, hand_started_at: old.started_at, hand_ended_at: null });
+  let q = db.from("time_log_entries").update(patch).eq("id", old.id).eq("user_id", userId).is("ended_at", null);
+  if (start) q = q.eq("started_at", old.started_at);
+  const { data, error } = await q.select("id");
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
 // Already within 5 minutes of the watch: nothing moves, but it's marked as
 // checked so a time you change later isn't pulled back.
 async function stampChecked(db: DB, userId: string, id: string) {
@@ -624,8 +643,7 @@ async function importHealth(db: DB, userId: string, tz: string, body: Record<str
       .limit(200);
     const act = sleepAction(night, around ?? []);
     if (act.kind === "end") {
-      await db.from("time_log_entries").update({ ended_at: act.at, ended_by: "stop" }).eq("id", act.id).is("ended_at", null);
-      result.sleepEnded++;
+      if (await endSleep(db, userId, (around ?? []).find((e: Around) => e.id === act.id), act.at, act.start)) result.sleepEnded++;
     } else if (act.kind === "add") {
       const { error } = await db
         .from("time_log_entries")
@@ -642,7 +660,9 @@ async function importHealth(db: DB, userId: string, tz: string, body: Record<str
 
   // Workouts: one row each, and an Exercise entry unless one is logged. A
   // workout already linked to an entry the watch hasn't set yet gets
-  // another look, so a timer you ran by hand takes the watch's times.
+  // another look, so a timer you ran by hand takes the watch's times. One
+  // that isn't plainly the workout (a long hike tagged Minister, say) stays
+  // linked and unset, so each look leaves it as it is.
   if (read.workouts.length) {
     const ids = read.workouts.map((w) => w.external_id);
     const { data: known } = await db.from("health_workouts").select("external_id, time_entry_id").eq("user_id", userId).in("external_id", ids);
