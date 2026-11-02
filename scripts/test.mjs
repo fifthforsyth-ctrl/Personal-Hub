@@ -4729,6 +4729,234 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ---------------------------------------------------------------------------
 
 
+// ===== Review fixes, batch C =====
+{
+  console.log("\nreview fixes: the reflection's draft, Short and Full, saving checks twice, the check editor");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  // A component's own helpers, built with what it imports swapped for
+  // stand-ins, except the modules `keep` names (the FocusSheet pattern above).
+  const helpersOf = async (rel, keep = null) => {
+    const path = fileURLToPath(new URL(`../${rel}`, import.meta.url));
+    const text = readFileSync(path, "utf8");
+    const built = await esbuildBundle({
+      entryPoints: [path],
+      bundle: true,
+      write: false,
+      format: "esm",
+      jsx: "transform",
+      logLevel: "silent",
+      plugins: [
+        {
+          name: "stand-ins",
+          setup(b) {
+            b.onResolve({ filter: /.*/ }, (a) => (a.importer === path && !(keep && keep.test(a.path)) ? { path: a.path, namespace: "stand-in" } : undefined));
+            b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+              const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const names = (text.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+              return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+            });
+          },
+        },
+      ],
+    });
+    return import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  };
+
+  // --- #0 The reflection's draft and the notes below it -------------------------
+  const { mergeDraft } = await helpersOf("src/components/day/ReflectionFlow.jsx");
+  const blank = { godsHand: "", qSavior: "", qLearn: "", thoughts: "" };
+  const typed = Date.parse("2026-11-02T22:00:30-07:00");
+  const noteAt = Date.parse("2026-11-02T22:01:10-07:00");
+  // Card 3 written without tapping Next; then a stress note autosaves and stamps the journal row.
+  const kept = { ...blank, godsHand: "At dinner" };
+  const draft = { answers: { ...kept, qLearn: "A whole paragraph" }, base: kept, at: typed };
+  ok("a note saved after the reflection was typed doesn't throw the reflection's draft away", mergeDraft(kept, draft, noteAt).qLearn === "A whole paragraph" && mergeDraft(kept, draft, noteAt).godsHand === "At dinner");
+  const failed = { answers: { ...blank, qSavior: "Kept on this phone" }, base: blank, at: typed };
+  ok("nor words a failed save left on the phone, once a God note saves later", mergeDraft(blank, failed, noteAt).qSavior === "Kept on this phone");
+  const elsewhere = { answers: { ...blank, godsHand: "Phone's old words", thoughts: "New here" }, base: { ...blank, godsHand: "Phone's old words" }, at: noteAt };
+  const fromLaptop = mergeDraft({ ...blank, godsHand: "Rewritten on the laptop" }, elsewhere, typed);
+  ok("an answer saved elsewhere since stands over one the draft never touched, however new the draft", fromLaptop.godsHand === "Rewritten on the laptop" && fromLaptop.thoughts === "New here", JSON.stringify(fromLaptop));
+  ok("a box you cleared here stays cleared", mergeDraft({ ...blank, thoughts: "Old" }, { answers: { ...blank, thoughts: "" }, base: { ...blank, thoughts: "Old" }, at: typed }, noteAt).thoughts === "");
+  const both = (at, mine, now) => mergeDraft({ ...blank, qLearn: now }, { answers: { ...blank, qLearn: mine }, base: blank, at }, Date.parse("2026-11-02T22:00:00-07:00")).qLearn;
+  ok("both changed: the newer one, or the draft when it only adds to what's saved", both(typed, "Phone", "Laptop") === "Phone" && both(Date.parse("2026-11-02T21:00:00-07:00"), "Phone", "Laptop") === "Laptop" && both(Date.parse("2026-11-02T21:00:00-07:00"), "Laptop, and more", "Laptop") === "Laptop, and more");
+  // A draft written before drafts said where they started: { answers, at }.
+  const old = { answers: { godsHand: "Older words", qSavior: "", qLearn: "Only here", thoughts: "" }, at: typed };
+  const fromOld = mergeDraft({ ...blank, godsHand: "Saved since", qSavior: "Saved too" }, old, noteAt);
+  ok("an old draft still loads: what's only on the phone is kept, a newer saved answer stands, a blank never blanks one", fromOld.qLearn === "Only here" && fromOld.godsHand === "Saved since" && fromOld.qSavior === "Saved too", JSON.stringify(fromOld));
+  ok("and where the old draft is newer, it wins as it did", mergeDraft({ ...blank, godsHand: "Saved" }, { ...old, at: noteAt }, typed).godsHand === "Older words");
+  ok("no draft, or one that isn't one, starts from what's saved", mergeDraft(kept, null, 0) === kept && mergeDraft(kept, { answers: "x" }, 0) === kept && mergeDraft(kept, { answers: { qLearn: 5 } }, 0).qLearn === "");
+  const flowSrc = read("src/components/day/ReflectionFlow.jsx");
+  ok("the draft is written with what the Hub held, and again once a save moves that", /writeDraft\(userId, date, answers, saved\.current, typedAt\.current\)/.test(flowSrc) && /if \(same\(latest\.current, saved\.current\)\) clearDraft\(userId, date\);\s*else writeDraft\(userId, date, latest\.current, saved\.current, typedAt\.current\);/.test(flowSrc));
+  ok("the journal row's updated_at alone no longer throws a draft away", !/draft\.at > savedAt\) return/.test(flowSrc) && /mergeDraft\(saved, draft, savedAt\)/.test(flowSrc));
+
+  // --- #2, #4, #15 Switching Short and Full -----------------------------------------
+  const evening = read("src/pages/Evening.jsx");
+  const sw = evening.slice(evening.indexOf("const setShort = async"), evening.indexOf("// A win captured"));
+  ok("switching waits for the focus arrows, then every other card being left, tonight's shots included", /await flushFocus\.current\?\.\(\);\s*await Promise\.all\(leaving\.map\(\(flush\) => flush\?\.\(\)\)\);/.test(sw) && /short \? \[flushShots\.current, flushShort\.current\] : \[flushShots\.current, flushTasks\.current, flushCheckin\.current\]/.test(sw), sw.slice(0, 400));
+  ok("a save that fails keeps you on the card, and says so", !/allSettled/.test(sw) && sw.indexOf("saved = false") > 0 && sw.indexOf("if (!saved) {") < sw.indexOf("setShortState(v)") && /didn't save yet, so this stays open/.test(sw));
+  ok("the other card opens only once the day is read again", sw.indexOf("await reload()") > sw.indexOf("Promise.all(leaving") && sw.indexOf("setShortState(v)") > sw.indexOf("await reload()") && /if \(!fresh\) \{/.test(sw));
+  ok("one switch at a time, and the toggle says it's busy", /if \(v === short \|\| switchingRef\.current\) return;/.test(sw) && (evening.match(/disabled=\{switching\}/g) ?? []).length === 2);
+  ok("the switch's words have no dashes in them", !/—|–/.test(sw.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n")));
+
+  // --- #8, #24, #9, #25 Saving checks twice, and a kept focus -----------------------
+  const apiPath = fileURLToPath(new URL("../src/lib/api.js", import.meta.url));
+  const apiBuilt = await esbuildBundle({
+    entryPoints: [apiPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-in client",
+        setup(b) {
+          b.onResolve({ filter: /^\.\/supabaseClient$/ }, (a) => (a.importer === apiPath ? { path: "client", namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, () => ({
+            contents: `import { PostgrestClient } from "@supabase/postgrest-js";
+export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch: (...a) => globalThis.__batchCFetch(...a) });`,
+            loader: "js",
+            resolveDir: fileURLToPath(new URL("../src/lib", import.meta.url)),
+          }));
+        },
+      },
+    ],
+  });
+  const api = await import(`data:text/javascript;base64,${Buffer.from(apiBuilt.outputFiles[0].text).toString("base64")}`);
+  // A small database: the rows each table holds, filtered the way PostgREST does.
+  let db = {};
+  let next = 0;
+  let failWhen = () => false;
+  const sent = [];
+  const matches = (row, [col, expr]) => {
+    const [op, ...rest] = expr.split(".");
+    const v = rest.join(".");
+    if (op === "eq") return String(row[col]) === v;
+    if (op === "is") return v === "null" ? row[col] == null : String(row[col]) === v;
+    if (op === "in") return v.replace(/^\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(row[col]));
+    return true;
+  };
+  globalThis.__batchCFetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const table = url.pathname.split("/").pop();
+    const method = init.method ?? "GET";
+    const body = init.body ? JSON.parse(init.body) : null;
+    sent.push({ table, method, body });
+    const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+    if (failWhen({ table, method, body })) return json(500, { message: "dropped", code: "XX000" });
+    const filters = [...url.searchParams].filter(([k]) => !["select", "order", "limit", "offset", "on_conflict", "columns"].includes(k));
+    const rows = (db[table] ??= []);
+    const hit = rows.filter((r) => filters.every((f) => matches(r, f)));
+    let out = [];
+    if (method === "GET") out = [...hit].sort((x, y) => (x.position ?? 0) - (y.position ?? 0));
+    else if (method === "POST") {
+      out = (Array.isArray(body) ? body : [body]).map((r) => ({ id: `new${++next}`, retired_on: null, ...r }));
+      rows.push(...out);
+    } else if (method === "PATCH") {
+      for (const r of hit) Object.assign(r, body);
+      out = hit;
+    } else if (method === "DELETE") {
+      db[table] = rows.filter((r) => !hit.includes(r));
+      out = hit;
+    }
+    const one = (new Headers(init.headers).get("Accept") ?? "").includes("vnd.pgrst.object");
+    return json(200, one ? out[0] ?? null : out);
+  };
+  const check = (id, parent, text, position, more = {}) => ({ id, user_id: "u", ...parent, text, kind: "yn", options: [], pass: { on: "yes" }, unit: null, auto: null, counts: true, focus_id: null, position, retired_on: null, ...more });
+  const live = (table, col, id) => (db[table] ?? []).filter((r) => r[col] === id && !r.retired_on).sort((x, y) => x.position - y.position);
+  const says = (list) => JSON.stringify(list.map((r) => [r.text, r.position]));
+  const pages = { id: null, text: "Pages read", kind: "number", options: [], pass: { min: 10 }, unit: "pages", auto: null, counts: true, focus_id: null };
+
+  // FocusSettings: a new check above "Up by 4:35". The insert lands, then
+  // moving "Up by" down doesn't (or Save's next step, the settings, fails).
+  db = { focus_checks: [check("c1", { goal_id: "g1" }, "Up by 4:35", 0, { kind: "time", pass: { by: "04:35" }, auto: "wake" })] };
+  let before = db.focus_checks.map((r) => ({ ...r }));
+  let rows = [{ ...pages }, { ...before[0] }];
+  failWhen = ({ table, method }) => table === "focus_checks" && method === "PATCH";
+  const first = await api.saveFocusChecks("u", "g1", rows, before).then(() => null, (err) => err);
+  ok("(a focus's first Save fails after its insert)", Boolean(first) && live("focus_checks", "goal_id", "g1").length === 2);
+  failWhen = () => false;
+  sent.length = 0;
+  await api.saveFocusChecks("u", "g1", rows, before);
+  ok("Save tapped again asks the new check once, in its place", says(live("focus_checks", "goal_id", "g1")) === '[["Pages read",0],["Up by 4:35",1]]', says(live("focus_checks", "goal_id", "g1")));
+  ok("and inserts nothing the second time", !sent.some((s) => s.method === "POST"), JSON.stringify(sent.map((s) => s.method)));
+  sent.length = 0;
+  await api.saveFocusChecks("u", "g1", rows, before);
+  ok("a third tap, after the checks all saved and the settings didn't, writes nothing new", says(live("focus_checks", "goal_id", "g1")) === '[["Pages read",0],["Up by 4:35",1]]' && !sent.some((s) => s.method === "POST" || s.method === "PATCH"), JSON.stringify(sent.map((s) => s.method)));
+  // Two of the same new check in one Save, and one more added before the retry.
+  db = { focus_checks: [] };
+  rows = [{ ...pages }, { ...pages }];
+  failWhen = ({ method }) => method === "PATCH";
+  await api.saveFocusChecks("u", "g2", rows, []);
+  rows = [{ ...pages }, { ...pages }, { ...pages, text: "Glasses of water", unit: null }];
+  await api.saveFocusChecks("u", "g2", rows, []);
+  ok("each copy you asked for is one row, and a check added since still goes in", says(live("focus_checks", "goal_id", "g2")) === '[["Pages read",0],["Pages read",1],["Glasses of water",2]]', says(live("focus_checks", "goal_id", "g2")));
+  failWhen = () => false;
+  // Taken off and added again in the same Save: the old one goes, the new one is in.
+  db = { focus_checks: [check("c9", { goal_id: "g3" }, "Pages read", 0, { kind: "number", pass: { min: 10 }, unit: "pages" })] };
+  await api.saveFocusChecks("u", "g3", [{ ...pages }], db.focus_checks.map((r) => ({ ...r })));
+  ok("a check taken off and written again is one new row, not the old one kept", says(live("focus_checks", "goal_id", "g3")) === '[["Pages read",0]]' && live("focus_checks", "goal_id", "g3")[0].id !== "c9");
+  // One you didn't touch, changed on another device while the sheet was open, is still left alone.
+  db = { focus_checks: [check("c5", { goal_id: "g4" }, "Exercised", 0)] };
+  before = db.focus_checks.map((r) => ({ ...r }));
+  db.focus_checks[0].text = "Exercised 20 min";
+  await api.saveFocusChecks("u", "g4", [{ ...before[0] }, { ...pages }], before);
+  ok("a check you didn't touch here isn't written over", says(live("focus_checks", "goal_id", "g4")) === '[["Exercised 20 min",0],["Pages read",1]]', says(live("focus_checks", "goal_id", "g4")));
+  // TargetSheet: the same, through the target's setup.
+  db = { mark_targets: [{ id: "t1", user_id: "u", goal_id: "G", reasons: ["a", "b", "c", "d"] }], mark_aims: [check("a1", { target_id: "t1" }, "Exercised", 0)] };
+  before = db.mark_aims.map((r) => ({ ...r }));
+  const aims = [{ ...pages, text: "Prayed", kind: "yn", pass: { on: "yes" }, unit: null }, { ...before[0] }];
+  failWhen = ({ table, method }) => table === "mark_aims" && method === "PATCH";
+  await api.saveTargetSetup("u", { goal_id: "G" }, { reasons: ["a", "b", "c", "d"], aims }, before).catch(() => null);
+  failWhen = () => false;
+  await api.saveTargetSetup("u", { goal_id: "G" }, { reasons: ["a", "b", "c", "d"], aims }, before);
+  ok("a target's Save tapped again after a failure asks each check once", says(live("mark_aims", "target_id", "t1")) === '[["Prayed",0],["Exercised",1]]', says(live("mark_aims", "target_id", "t1")));
+
+  // Keep on Sunday: the goal lands, its checks don't.
+  db = { focus_goals: [{ id: "last", user_id: "u", lands_by: "checks", quest_id: null, lesson_id: null }], focus_checks: [check("k1", { goal_id: "last" }, "Up by 4:35", 0)] };
+  failWhen = ({ table, method }) => table === "focus_checks" && method === "POST";
+  const kept1 = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Up early", carriedFrom: "last" }).then(() => null, (err) => err);
+  ok("a kept focus whose checks can't follow it isn't left half added", Boolean(kept1) && (db.focus_goals ?? []).length === 1 && db.focus_goals[0].id === "last", JSON.stringify(db.focus_goals));
+  failWhen = () => false;
+  const kept2 = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Up early", carriedFrom: "last" });
+  ok("so Keep tapped again makes the one copy, with its checks", db.focus_goals.length === 2 && live("focus_checks", "goal_id", kept2.id).length === 1 && kept2.lands_by === "checks");
+  failWhen = ({ table, method }) => table === "focus_checks" || (table === "focus_goals" && method === "DELETE");
+  const undoFailed = await api.addFocusGoal("u", { weekStart: "2026-11-02", title: "Again", carriedFrom: "last" }).then(() => null, (err) => err);
+  ok("if taking it back fails too, the add still says it didn't go through", Boolean(undoFailed) && /dropped/.test(undoFailed?.message ?? ""));
+  failWhen = () => false;
+  delete globalThis.__batchCFetch;
+
+  // --- #19, #21 The check editor ---------------------------------------------------------
+  const E = await helpersOf("src/components/checks/CheckEditor.jsx", /\/lib\/checks$/);
+  const editorSrc = read("src/components/checks/CheckEditor.jsx");
+  const scale = { key: "k", id: "a", text: "Did I do my best to be present", kind: "scale", options: [], pass: { min: null }, unit: null, auto: null, counts: true, focus_id: null };
+  ok("a cleared 1 to 10 box saves as 7, and 78 typed into it saves as 10", E.cleanRows([scale])[0].pass.min === 7 && E.cleanRows([{ ...scale, pass: { min: 78 } }])[0].pass.min === 10 && E.cleanRows([{ ...scale, pass: { min: 8 } }])[0].pass.min === 8);
+  ok("the number boxes hold what you type, and nothing while empty", /value=\{r\.pass\.min \?\? ""\} placeholder="7" onChange=\{\(e\) => set\(\{ pass: \{ min: typed\(e\) \} \}\)\}/.test(editorSrc) && /const typed = \(e\) => \(e\.target\.value === "" \? null : Number\(e\.target\.value\)\);/.test(editorSrc) && !/\? 7 : Number|\? 0 : Number/.test(editorSrc));
+  const num = { ...scale, text: "Pages read", kind: "number", pass: { min: null }, unit: "pages" };
+  ok("a cleared count saves at its default, and an emptied at-most asks rather than flipping to at least", E.cleanRows([num])[0].pass.min === 1 && E.rowsProblem([num]) === null && /at most/.test(E.rowsProblem([{ ...num, pass: { max: null } }]) ?? "") && E.rowsProblem([{ ...num, pass: { max: 3 } }]) === null && E.rowsProblem([{ ...num, pass: { max: null }, counts: false }]) === null);
+  ok("an emptied at-most box stays at most while you type", /const most = atMost\(r\);/.test(editorSrc) && /hasOwnProperty\.call\(r\.pass, "max"\)/.test(editorSrc));
+  const yn = { ...scale, kind: "yn", pass: { on: "yes" } };
+  const roundTrip = E.rekind(E.rekind(yn, "note"), "yn");
+  ok("A few words and back counts again", E.rekind(yn, "note").counts === false && roundTrip.counts === true);
+  ok("a check's own Reflection only stays as set when its kind changes", E.rekind({ ...yn, counts: false }, "scale").counts === false);
+  const logged = { ...scale, kind: "minutes", pass: { min: 30 }, focus_id: "f-kids" };
+  ok("a kind the time log can't answer drops the time log", E.rekind(logged, "scale").focus_id === null && E.rekind(logged, "number").focus_id === null && E.rekind(logged, "yn").focus_id === "f-kids");
+  ok("and only a time keeps Fill from when I got up, a number its unit, a pick one its choices", E.rekind({ ...yn, kind: "time", auto: "wake" }, "yn").auto === null && E.rekind({ ...yn, kind: "time", auto: "wake" }, "time").auto === "wake" && E.rekind(num, "minutes").unit === null && E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn").options.length === 0);
+  ok("the kind picker goes through it", /onChange=\{\(e\) => set\(r\.key, \{ \.\.\.rekind\(r, e\.target\.value\), key: r\.key, id: r\.id \}\)\}/.test(editorSrc));
+
+  // --- #20, #22 The editor's checkboxes inside a .field, and long words -------------------
+  const checksCss = read("src/styles/checks.css");
+  const rule = (sel) => checksCss.slice(checksCss.indexOf(sel), checksCss.indexOf("}", checksCss.indexOf(sel)));
+  const box = rule('.ck-edit .ck-edit__toggle input[type="checkbox"] {');
+  ok("the editor's checkbox outweighs .field input: its own size, no fill, beside its words", checksCss.includes('.ck-edit .ck-edit__toggle input[type="checkbox"] {') && /width: auto;/.test(box) && /background: none;/.test(box) && /padding: 0;/.test(box));
+  ok("and its labels outweigh .field label", /\.ck-edit \.ck-edit__grid label,\s*\.ck-edit \.ck-edit__toggle \{ display: inline-flex;[^}]*margin: 0;/.test(checksCss));
+  ok("a question that's one long link wraps instead of running off the card", /\.ck-row__text \{[^}]*overflow-wrap: anywhere;/.test(checksCss) && /\.ck-choices \.chip,\s*\.ck-edit__opts \.chip \{ white-space: normal; overflow-wrap: anywhere;/.test(checksCss));
+}
+
+// (end of review fixes, batch C)
+// ---------------------------------------------------------------------------
+
+
 // ===== Tonight's checks on each target (PR 2, part 1) =====
 // Add this part's tests directly under the line above.
 {

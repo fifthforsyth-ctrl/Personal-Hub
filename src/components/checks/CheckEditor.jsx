@@ -32,10 +32,44 @@ export function rowsProblem(rows) {
     if (r.kind === "choice" && r.counts && !r.pass.on.length) return `Pick which choices pass for "${r.text}", or make it reflection only.`;
     if (r.kind === "time" && r.counts && !r.pass.by) return `Set the time "${r.text}" has to be by, or make it reflection only.`;
   }
+  // An "at most" left empty would save as "at least 1" (normCheck's
+  // default), the opposite of what the box says, so it's asked for instead.
+  for (const r of rows ?? []) {
+    const text = String(r.text ?? "").trim();
+    if (text && r.kind === "number" && r.counts !== false && atMost(r) && !isNumber(r.pass.max)) return `Say how many "${text}" can be at most, or make it reflection only.`;
+  }
   return null;
 }
 
 const ANSWERED_BY_LOG = new Set(["yn", "ysn", "minutes"]);
+
+// A row switched to another kind keeps only what the new kind can show:
+// left behind, a setting would still be saved and read with no way to see
+// it or take it off here (a 1 to 10 still "answered" by the time log, a
+// Yes / No still reflection only from its time as a few words). A few words
+// starts as reflection only; coming back from one, it counts again. A
+// check's own Reflection only stays as you set it, since every other kind
+// shows it.
+export function rekind(r, kind) {
+  return normCheck({
+    ...r,
+    kind,
+    pass: {},
+    counts: kind === "note" ? false : r.kind === "note" ? true : r.counts,
+    focus_id: ANSWERED_BY_LOG.has(kind) ? r.focus_id : null,
+    auto: kind === "time" ? r.auto : null,
+    unit: kind === "number" ? r.unit : null,
+    options: kind === "choice" ? r.options : [],
+  });
+}
+
+// The number boxes hold what you type, and null while one's empty, so a box
+// can be cleared and typed into again (backspace, then 8, is 8, not 78
+// clamped to 10). normCheck's defaults and limits apply when it's saved
+// (cleanRows); the line beside the box already says what that will be.
+const typed = (e) => (e.target.value === "" ? null : Number(e.target.value));
+const isNumber = (v) => v != null && v !== "" && Number.isFinite(Number(v));
+const atMost = (r) => Boolean(r.pass) && Object.prototype.hasOwnProperty.call(r.pass, "max");
 
 export default function CheckEditor({ rows, onChange, focuses = [], max = 6, firstPlaceholder = "Exercised" }) {
   const [tools, setTools] = useState(false);
@@ -81,10 +115,7 @@ export default function CheckEditor({ rows, onChange, focuses = [], max = 6, fir
                 <select
                   className="input"
                   value={r.kind}
-                  onChange={(e) => {
-                    const kind = e.target.value;
-                    set(r.key, { ...normCheck({ ...r, kind, pass: {}, counts: kind === "note" ? false : r.counts }), key: r.key, id: r.id });
-                  }}
+                  onChange={(e) => set(r.key, { ...rekind(r, e.target.value), key: r.key, id: r.id })}
                 >
                   {KINDS.map((k) => (
                     <option key={k.key} value={k.key}>
@@ -173,22 +204,24 @@ function PassFields({ r, set }) {
       return (
         <label>
           Passes at
-          <input className="input" type="number" min={1} max={10} value={r.pass.min} onChange={(e) => set({ pass: { min: e.target.value === "" ? 7 : Number(e.target.value) } })} />
+          <input className="input" type="number" min={1} max={10} value={r.pass.min ?? ""} placeholder="7" onChange={(e) => set({ pass: { min: typed(e) } })} />
           or more
         </label>
       );
     case "number": {
-      const atMost = r.pass.max != null;
-      const n = atMost ? r.pass.max : r.pass.min;
+      // Which way it passes is the box's key, so an emptied "at most" stays
+      // "at most" while you type.
+      const most = atMost(r);
+      const n = most ? r.pass.max : r.pass.min;
       return (
         <>
           <label>
             Passes at
-            <select className="input" value={atMost ? "max" : "min"} onChange={(e) => set({ pass: { [e.target.value]: n } })}>
+            <select className="input" value={most ? "max" : "min"} onChange={(e) => set({ pass: { [e.target.value]: n ?? null } })}>
               <option value="min">at least</option>
               <option value="max">at most</option>
             </select>
-            <input className="input" type="number" min={0} step="any" value={n ?? ""} onChange={(e) => set({ pass: { [atMost ? "max" : "min"]: e.target.value === "" ? 0 : Number(e.target.value) } })} />
+            <input className="input" type="number" min={0} step="any" value={n ?? ""} onChange={(e) => set({ pass: { [most ? "max" : "min"]: typed(e) } })} />
           </label>
           <label>
             Counting
@@ -201,7 +234,7 @@ function PassFields({ r, set }) {
       return (
         <label>
           Passes at
-          <input className="input" type="number" min={0} step={5} value={r.pass.min ?? ""} placeholder="any" onChange={(e) => set({ pass: e.target.value === "" ? {} : { min: Number(e.target.value) } })} />
+          <input className="input" type="number" min={0} step={5} value={r.pass.min ?? ""} placeholder="any" onChange={(e) => set({ pass: { min: typed(e) } })} />
           min or more
         </label>
       );

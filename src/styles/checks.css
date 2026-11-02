@@ -6,7 +6,9 @@
 
 .ck-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .ck-row__q { flex: 1 1 150px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ck-row__text { font-size: 14px; font-weight: 560; line-height: 1.3; }
+/* A pasted link is one long word: it breaks where it has to rather than
+   running under the answer and off the card. */
+.ck-row__text { font-size: 14px; font-weight: 560; line-height: 1.3; overflow-wrap: anywhere; }
 .ck-row__pass { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 11.5px; color: var(--text-3); line-height: 1.35; }
 .ck-row__hint { color: var(--text-2); }
 .ck-row__a { flex-shrink: 0; max-width: 100%; }
@@ -39,6 +41,10 @@
 
 .ck-choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .ck-choices .chip { cursor: pointer; min-height: 34px; padding: 6px 12px; font-size: 12.5px; color: var(--text); border-color: var(--line); background: var(--card); }
+/* A choice is your own words: it wraps inside its chip instead of pushing
+   past the card (.chip alone never wraps). */
+.ck-choices .chip,
+.ck-edit__opts .chip { white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: left; }
 .ck-choices .chip.active { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 
 .ck-note { width: 100%; resize: vertical; min-height: 56px; font: inherit; font-size: 14px; line-height: 1.45; }
@@ -60,6 +66,19 @@
 .ck-edit__toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .ck-edit__toggle input { accent-color: var(--ink); }
 .ck-edit__add { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Both sheets put the editor inside a .field, whose `.field label` (a block
+   with a gap under it) and `.field input` (full width, filled, padded) are
+   meant for one box under one name. Scoped under .ck-edit, these outweigh
+   them, so a checkbox sits beside its words at its own size, and each
+   label stays on the line with the rest. */
+.ck-edit .ck-edit__grid label,
+.ck-edit .ck-edit__toggle { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.ck-edit .ck-edit__toggle input[type="checkbox"] {
+  flex: none; width: auto; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; accent-color: var(--ink);
+}
+.ck-edit .ck-edit__toggle input[type="checkbox"]:focus { box-shadow: none; }
+.ck-edit .ck-edit__toggle input[type="checkbox"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 .ck-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .ck-tool {
