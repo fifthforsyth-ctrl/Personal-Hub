@@ -3618,6 +3618,23 @@ export async function looseShots(userId, date) {
   return data ?? [];
 }
 
+// Tonight's shot at one target, taken back while it's still in hand: the
+// evening's answers no longer give it a ring (a typed answer cleared, the
+// arrow of the focus that fed it taken back), so it mustn't fly when the
+// day is banked. Only a shot not yet loosed: an arrow already on the target
+// stays where it landed.
+export async function deleteTonightShot(userId, targetId, date) {
+  if (!targetId) return;
+  const { error } = await supabase
+    .from("mark_shots")
+    .delete()
+    .eq("user_id", userId)
+    .eq("target_id", targetId)
+    .eq("date", date)
+    .is("loosed_at", null);
+  if (error) throw error;
+}
+
 // What a line says got in the way: the index of one of the four sections,
 // or -1 when it doesn't say. Read by the `mark` function; the key stays there.
 export async function readMarkLine({ target, reasons, line, answers }) {

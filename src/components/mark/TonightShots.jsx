@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Target, Check, ArrowRight } from "lucide-react";
-import { fetchRange, fetchFocusWeek, saveShot, readMarkLine } from "../../lib/api";
+import { fetchRange, fetchFocusWeek, saveShot, deleteTonightShot, readMarkLine } from "../../lib/api";
 import { buildAscent } from "../../lib/ascent";
 import {
   buildRange,
@@ -14,10 +14,12 @@ import {
   tonightDraft,
   checkHint,
   readAnswers,
-  sameShot,
   landsText,
   tonightRing,
-  tonightShot,
+  shotChange,
+  freshAnswers,
+  localDraft,
+  keptText,
 } from "../../lib/mark";
 import { scores } from "../../lib/checks";
 import { focusWeekOf, linkedArrows, countsToward, orderGoals } from "../../lib/focus";
@@ -50,7 +52,11 @@ import "../../styles/mark.css";
 //
 // Each target saves the moment it has a ring, so the evening can be started
 // on the phone and finished at the desk, but nothing lands on the range
-// until the day is banked: then every arrow flies at once.
+// until the day is banked: then every arrow flies at once. One that loses
+// its ring again (a typed answer cleared, the arrow of the focus that fed it
+// taken back) has its saved shot taken back too, so what flies is what the
+// evening shows. Until a target has a ring, what's on it lives only in this
+// phone's draft, and the evening says so by the boxes (keptText).
 //
 //   dayPlan   the day's day_plans row, for "Up by" (woke_at)
 //   flushRef  lets Bank the day save anything still waiting (a line typed a
@@ -71,8 +77,12 @@ const ANSWER_ORDER = [2, 1, 0];
 const TYPED = new Set(["number", "minutes", "time", "note"]);
 
 // The draft on this device: { [target]: { answers: { [check id]: { value,
-// line } }, line } }. Its own key, since before checks had kinds a draft was
-// a list of Yes/Some/No by position; that one is cleared, never read.
+// line, day } }, line, base } }. Its own key, since before checks had kinds
+// a draft was a list of Yes/Some/No by position; that one is cleared, never
+// read. Each target's is made by localDraft (mark.js): `day` marks an
+// answer the day filled in, so the next visit takes the day's newer one, and
+// `base` is the saved shot the draft sits on, so an edit that hasn't saved
+// yet still wins over that shot next time (tonightDraft).
 function draftKey(date) {
   return `hub.mark.checks.${date}`;
 }
@@ -87,18 +97,12 @@ function readLocal(date) {
   }
 }
 
-function writeLocal(date, targets, drafts) {
+function writeLocal(date, targets, drafts, saved) {
   try {
     const out = {};
     for (const t of targets) {
       const d = drafts[t.key];
-      if (!d) continue;
-      const answers = {};
-      t.aims.forEach((a, i) => {
-        const x = d.answers[i];
-        if (x && (x.value != null || x.line)) answers[a.id] = { value: x.value ?? null, line: x.line ?? "" };
-      });
-      out[t.key] = { answers, line: d.line };
+      if (d) out[t.key] = localDraft(t, d, saved.get(t.key));
     }
     localStorage.setItem(draftKey(date), JSON.stringify(out));
   } catch {
@@ -148,6 +152,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
   const chains = useRef(new Map());
   // Each target's shot as it was last saved, to save again only on a change.
   const saved = useRef(new Map());
+  const alive = useRef(true);
 
   // The week as saves read it. Bank the day puts a fresh read here before
   // the last saves; a render only replaces it once the hook has newer data,
@@ -181,13 +186,15 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
   }, [range, drafts, date, focusesById, entries, dayPlan]);
 
   useEffect(() => {
-    if (drafts) writeLocal(date, targetsRef.current, drafts);
+    if (drafts) writeLocal(date, targetsRef.current, drafts, saved.current);
   }, [drafts, date]);
 
-  useEffect(() => {
-    const map = timers.current;
-    return () => map.forEach((id) => clearTimeout(id));
-  }, []);
+  // Once a save lands the draft is written again, over the shot now saved,
+  // so an edit made while that save was on its way still counts as newer.
+  // Not once the card has gone: the one opened next keeps its own.
+  const keepLocal = useCallback(() => {
+    if (alive.current && draftsRef.current) writeLocal(date, targetsRef.current, draftsRef.current, saved.current);
+  }, [date]);
 
   const ringOf = (t) => (drafts?.[t.key] ? tonightRing(t, drafts[t.key], linked.get(t.key) ?? []) : { level: null, tap: null, label: null });
   const readyCount = drafts ? askable.filter((t) => ringOf(t).level != null).length : 0;
@@ -213,13 +220,27 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
         const t = targetsRef.current.find((x) => x.key === key);
         const d = draftsRef.current?.[key];
         if (!t || !d) return;
-        const shot = tonightShot(t, d, { linked: linkOf(t), today: date });
-        if (!shot) return;
         const was = saved.current.get(key);
-        if (was && sameShot(was, shot)) return;
+        const change = shotChange(t, d, was, { linked: linkOf(t), today: date, weekRead: Boolean(weekRef.current) });
+        if (!change) return;
+        if (change.takeBack) {
+          // No ring any more, so the shot saved for it is taken back: left
+          // there, it would fly at bank while the evening shows it blank.
+          // The draft keeps every answer and line.
+          try {
+            await deleteTonightShot(userId, was.target_id ?? t.targetId, date);
+            saved.current.delete(key);
+            keepLocal();
+          } catch (err) {
+            toast.error(err, "Couldn't take that arrow back just now. It tries again when you bank the day.");
+          }
+          return;
+        }
+        const shot = change.shot;
         try {
           const row = await saveShot(userId, refOf(t), t.targetId ?? was?.target_id ?? null, date, shot, []);
           saved.current.set(key, row ?? shot);
+          keepLocal();
         } catch (err) {
           toast.error(err, "Couldn't save that shot. It's kept here; try again in a moment.");
         }
@@ -228,7 +249,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
       chains.current.set(key, next);
       return next;
     },
-    [userId, date, toast, linkOf]
+    [userId, date, toast, linkOf, keepLocal]
   );
 
   // The section, once a miss has its ring: yours if you picked one, the
@@ -242,7 +263,12 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
       clearTimeout(timers.current.get(key));
       timers.current.delete(key);
       const level = tonightRing(t, d, linkOf(t)).level;
-      if (level == null) return;
+      // No ring: nothing to read or file, but a shot saved earlier is taken
+      // back (persist), after any save still on its way.
+      if (level == null) {
+        persist(key);
+        return;
+      }
       if (level === 0 || d.pick?.how === "yours") {
         persist(key);
         return;
@@ -286,6 +312,53 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
     },
     [date, persist, update, linkOf]
   );
+
+  // Waits for a pause before settling: the line, a check's own line, and an
+  // answer typed rather than tapped.
+  const later = useCallback(
+    (key) => {
+      clearTimeout(timers.current.get(key));
+      timers.current.set(
+        key,
+        setTimeout(() => settle(key), READ_AFTER_MS)
+      );
+    },
+    [settle]
+  );
+
+  // Leaving the card (The Range, a link, Short or Full) with something
+  // still waiting for its pause settles it now rather than dropping it: a
+  // number typed a moment ago is saved, and a line is filed on the app's own
+  // reading. The saves read refs, so they run after the card has gone.
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+  useEffect(() => {
+    alive.current = true;
+    const map = timers.current;
+    return () => {
+      alive.current = false;
+      for (const key of [...map.keys()]) {
+        clearTimeout(map.get(key));
+        settleRef.current(key, { now: true });
+      }
+    };
+  }, []);
+
+  // The day goes on while the evening is open: a timer stopped from the
+  // capture sheet, a wake time logged late. An answer that's still the
+  // day's takes its newer one and the target settles again, after a pause
+  // in case more is on its way; one he gave himself stays put. Only a real
+  // change is set, so a fresh read of the page with nothing new does nothing.
+  useEffect(() => {
+    const all = draftsRef.current;
+    if (!all) return;
+    for (const t of targetsRef.current) {
+      const d = all[t.key];
+      if (!d || freshAnswers(t, d.answers, { focusesById, entries, dayPlan }) === d.answers) continue;
+      update(t.key, (x) => ({ ...x, answers: freshAnswers(t, x.answers, { focusesById, entries, dayPlan }) }));
+      later(t.key);
+    }
+  }, [focusesById, entries, dayPlan, update, later]);
 
   // An arrow placed on a focus that counts toward a target changes that
   // target's shot: settle it again. Only a change counts (the first read of
@@ -337,21 +410,12 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
     };
   }, [flushRef, settle, userId, date, setWeek]);
 
-  // Waits for a pause before settling: the line, a check's own line, and an
-  // answer typed rather than tapped.
-  function later(key) {
-    clearTimeout(timers.current.get(key));
-    timers.current.set(
-      key,
-      setTimeout(() => settle(key), READ_AFTER_MS)
-    );
-  }
-
-  // An answer. Once every check has one, the checks set the ring, taking
+  // An answer, his own (`day: false`), so the day's newer one never takes
+  // its place. Once every check has one, the checks set the ring, taking
   // over from a short evening's tap.
   function answer(t, j, value) {
     update(t.key, (x) => {
-      const answers = x.answers.map((a, i) => (i === j ? { ...a, value } : a));
+      const answers = x.answers.map((a, i) => (i === j ? { ...a, value, day: false } : a));
       const byChecks = x.quick != null && tonightLevel(t, answers, linkOf(t)) != null;
       return { ...x, answers, quick: byChecks ? null : x.quick };
     });
@@ -464,8 +528,10 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
   const level = ring.level;
   const tLinked = t ? linked.get(t.key) ?? [] : [];
   const tFeeds = t ? feeds.get(t.key) ?? [] : [];
-  const scored = t ? t.aims.some((a) => scores(a)) : false;
   const asked = t ? t.aims.length > 0 || tFeeds.length > 0 : false;
+  // Said by the boxes while this target has no ring, so nothing written
+  // here looks saved when it can't be yet.
+  const kept = t && d ? keptText(t, d, { level, feeds: tFeeds }) : null;
   const checksRing = t && d ? tonightLevel(t, d.answers, tLinked) : null;
   const nextUp = drafts ? nextOpen(askable, at, (x) => ringOf(x).level != null) : null;
 
@@ -558,9 +624,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
                   </ul>
                 )}
                 {!t.aims.length && tFeeds.length > 0 && <p className="card-note">No checks of its own: its arrow lands where this week's focus does.</p>}
-                {t.aims.length > 0 && !scored && !tFeeds.length && (
-                  <p className="card-note">These are all reflection only, so there's no ring to land in tonight. Make one count on The Range to give it an arrow.</p>
-                )}
+                {kept && <p className="card-note mk-shot__kept">{kept}</p>}
 
                 <textarea
                   className="input mk-shot__line"

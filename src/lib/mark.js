@@ -309,6 +309,8 @@ export function answersOf(shot) {
       level,
       line: String(a?.line ?? ""),
       counts: a?.counts !== false,
+      // Filled in by the day (the time log, when you got up), not by him.
+      day: a?.day === true,
     };
   });
 }
@@ -373,23 +375,57 @@ export function watchSaw(focus, entries) {
   return bits.join(", ");
 }
 
-// Tonight's answers for a target, one { value, line } per check in the
+// Tonight's answers for a target, one { value, line, day } per check in the
 // order they're asked: what's already saved, else what the day holds (the
 // time log's minutes for a check with a focus, when you got up for "Up by"),
 // else blank. A saved answer that no longer fits its check (a Some on what
-// is now a Yes/No) starts blank.
+// is now a Yes/No, a choice that's been taken out) starts blank.
+//
+// `day` says the answer is still the day's to give: it filled it in, or
+// nobody has answered it yet. One the day gave is saved marked as the day's,
+// so it never freezes: open the evening at six and "Time drawing" starts
+// with the 20 minutes logged by then; open it again at ten with 60 in the
+// log and the day's newer answer takes over. One he gave himself always
+// stays put. The focus side does the same (focus.js, focusAnswers).
 export function startingAnswers(target, { focusesById, entries, dayPlan } = {}) {
   const saved = new Map(answersOf(target?.tonight).filter((a) => a.aim).map((a) => [a.aim, a]));
   return (target?.aims ?? []).map((a) => {
     const s = saved.get(a.id);
-    if (s && fits(a, s.value)) return { value: s.value, line: s.line };
-    return { value: autoValue(a, { focusesById, entries, dayPlan, focusMinutes }), line: s?.line ?? "" };
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes });
+    const line = s?.line ?? "";
+    if (s?.day === true && fresh != null) return { value: fresh, line, day: true };
+    if (s && fits(a, s.value)) return { value: s.value, line, day: s.day === true };
+    return { value: fresh, line, day: true };
   });
 }
 
 function fits(check, value) {
   if (!answered(check, value)) return false;
-  return !scores(check) || markOf(check, value) != null;
+  // A choice whose option has since been taken out (Calm renamed Peaceful
+  // on The Range) isn't an answer to the check as it is now, even on one
+  // that only asks: no chip would light for it.
+  const c = normCheck(check);
+  if (c.kind === "choice" && !c.options.includes(String(value))) return false;
+  return !scores(c) || markOf(c, value) != null;
+}
+
+// Tonight's answers with the day's newer ones in, while the evening is
+// open: a timer stopped from the capture sheet, a wake time logged late.
+// An answer still the day's (`day`) takes what the day holds now; one he
+// gave himself stays put, and so does the day's when it now has nothing.
+// The same list comes back when nothing changed, so the evening knows not
+// to save again.
+export function freshAnswers(target, answers, { focusesById, entries, dayPlan } = {}) {
+  let changed = false;
+  const next = (target?.aims ?? []).map((a, i) => {
+    const x = answers?.[i];
+    if (!x || x.day !== true) return x;
+    const fresh = autoValue(a, { focusesById, entries, dayPlan, focusMinutes });
+    if (fresh == null || fresh === x.value) return x;
+    changed = true;
+    return { ...x, value: fresh, day: true };
+  });
+  return changed ? next : answers;
 }
 
 // What a line says got in the way, when the reader can't be reached: the
@@ -460,14 +496,15 @@ export function tonightLevel(target, answers, linked = []) {
 }
 
 // The shot tonight's answers make, ready to save: null until every check
-// that scores is answered. A bullseye has no section.
+// that scores is answered. A bullseye has no section. An answer the day
+// filled in is saved marked as the day's (`day`, see startingAnswers).
 export function shotFrom(target, answers, { line = "", reason = null, how = null, linked = [] } = {}) {
   const level = tonightLevel(target, answers, linked);
   if (level == null) return null;
   const note = String(line ?? "").trim();
   return {
     answers: [
-      ...(target?.aims ?? []).map((a, i) => answerEntry(a, answers?.[i]?.value ?? null, answers?.[i]?.line)),
+      ...(target?.aims ?? []).map((a, i) => dayMarked(answerEntry(a, answers?.[i]?.value ?? null, answers?.[i]?.line), answers?.[i])),
       ...(linked ?? []).map((l) => focusEntry(l.goal, l.level)),
     ],
     level,
@@ -475,6 +512,12 @@ export function shotFrom(target, answers, { line = "", reason = null, how = null
     reason_how: level === 0 ? null : how,
     note: note ? note.slice(0, 2000) : null,
   };
+}
+
+// A saved answer, marked as the day's when the day gave it. Only one with a
+// value: a blank one is nobody's yet.
+function dayMarked(entry, answer) {
+  return answer?.day === true && entry.value != null ? { ...entry, day: true } : entry;
 }
 
 // The checks on a target, cleaned, as the sheet edits them and the evening
@@ -526,9 +569,9 @@ export function quickShot(target, v, answers = [], { reason = null, how = null }
   if (v !== 0 && v !== 1 && v !== 2) return null;
   const level = levelFrom([v]);
   const known = (target?.aims ?? [])
-    .map((a, i) => ({ a, value: answers?.[i]?.value ?? null, line: answers?.[i]?.line }))
+    .map((a, i) => ({ a, value: answers?.[i]?.value ?? null, line: answers?.[i]?.line, x: answers?.[i] }))
     .filter((x) => answered(x.a, x.value))
-    .map((x) => ({ ...answerEntry(x.a, x.value, x.line), counts: false }));
+    .map((x) => ({ ...dayMarked(answerEntry(x.a, x.value, x.line), x.x), counts: false }));
   return {
     answers: [{ aim: null, text: WHOLE, kind: "ysn", value: ANSWER_VALUES[v], v, counts: true, whole: true }, ...known],
     level,
@@ -566,47 +609,79 @@ export function checkHint(check, { focusesById, entries, dayPlan } = {}) {
 
 // Tonight's answers with what a draft on this device was in the middle of,
 // laid over where the evening starts. `mine` is { [check id]: { value,
-// line } }. A draft is only ever a convenience, so anything in it that
+// line, day } }. A draft is only ever a convenience, so anything in it that
 // doesn't fit its check as it is now (a Some on what's become a Yes/No, a
 // word where a number goes, a choice that's been taken out) is passed over,
-// and a broken or old-shaped draft changes nothing.
+// and a broken or old-shaped draft changes nothing. An answer the draft
+// holds as the day's (`day`) takes the day's newer one when there is one,
+// the way a saved one does in startingAnswers; one he gave himself wins.
 export function restoreAnswers(target, starting, mine) {
   const ok = mine && typeof mine === "object" && !Array.isArray(mine);
   return (target?.aims ?? []).map((a, i) => {
-    const base = starting?.[i] ?? { value: null, line: "" };
+    const base = starting?.[i] ?? { value: null, line: "", day: true };
     const m = ok && a?.id ? mine[a.id] : null;
     if (!m || typeof m !== "object" || Array.isArray(m)) return base;
-    return {
-      value: fitsKind(a, m.value) ? m.value : base.value,
-      line: typeof m.line === "string" ? m.line.slice(0, 500) : base.line,
-    };
+    const line = typeof m.line === "string" ? m.line.slice(0, 500) : base.line;
+    if (m.day === true && base.day === true && base.value != null) return { ...base, line };
+    if (fitsKind(a, m.value)) return { value: m.value, line, day: m.day === true };
+    return { ...base, line };
   });
 }
 
+// What this device keeps of one target's evening, the draft tonightDraft
+// reads back: each answer given or with a line, by check id, with `day` on
+// the ones the day filled in so the next visit takes the day's newer one;
+// the line about the day; and `base`, the shot saved under it (shotKey), so
+// an edit that hasn't saved yet still wins over that shot next time.
+export function localDraft(target, draft, savedShot) {
+  const answers = {};
+  (target?.aims ?? []).forEach((a, i) => {
+    const x = draft?.answers?.[i];
+    if (x && (x.value != null || x.line)) answers[a.id] = { value: x.value ?? null, line: x.line ?? "", day: x.day === true };
+  });
+  return { answers, line: draft?.line ?? "", base: shotKey(savedShot) };
+}
+
+// A shot as one string, for telling whether tonight's saved shot is still
+// the one a draft on this device was laid over: the same fields sameShot
+// compares, with the answers' keys in order. Null for no shot.
+export function shotKey(shot) {
+  if (!shot) return null;
+  return canon({ level: shot.level ?? null, reason: shot.reason ?? null, reason_how: shot.reason_how ?? null, note: shot.note ?? null, answers: shot.answers ?? [] });
+}
+
 // Where one target's evening starts: { answers, line, quick, pick, readFor,
-// reading }. Tonight's saved shot wins (its answers through
+// reading }. Tonight's saved shot comes first (its answers through
 // startingAnswers, its line, its tap if it was a short evening's, and the
-// section it was filed under); with nothing saved, a draft this device kept
-// (`mine`, { answers: { [check id]: { value, line } }, line }) is laid over
-// what the day knows. A draft of any other shape, an old one from before
-// checks had kinds included, is simply not used.
+// section it was filed under). A draft this device kept (`mine`, { answers:
+// { [check id]: { value, line, day } }, line, base }) is laid over it when
+// it's newer: there's no shot saved yet, or the shot saved is still the one
+// the draft was laid over (`base`, its shotKey). That's an edit made the
+// moment before leaving the page, or one whose save didn't go through:
+// kept, never put back to what was saved before it. When the shot saved has
+// moved on since (the desk finished what the phone started), the shot wins.
+// A draft of any other shape, an old one from before checks had kinds
+// included, is simply not used.
 export function tonightDraft(target, { focusesById, entries, dayPlan, mine } = {}) {
   const shot = target?.tonight ?? null;
+  const kept = mine && typeof mine === "object" && !Array.isArray(mine) ? mine : null;
+  const newer = Boolean(kept && (!shot || (typeof kept.base === "string" && kept.base === shotKey(shot))));
   let answers = startingAnswers(target, { focusesById, entries, dayPlan });
   let line = String(shot?.note ?? "");
-  if (!shot && mine && typeof mine === "object" && !Array.isArray(mine)) {
-    answers = restoreAnswers(target, answers, mine.answers);
-    if (typeof mine.line === "string") line = mine.line.slice(0, 2000);
+  if (newer) {
+    answers = restoreAnswers(target, answers, kept.answers);
+    if (typeof kept.line === "string") line = kept.line.slice(0, 2000);
   }
   const filed = Boolean(shot && shot.level > 0 && shot.reason != null);
+  const savedLine = String(shot?.note ?? "").trim();
   return {
     answers,
     line,
     quick: quickOf(shot),
     pick: filed ? { k: shot.reason, how: shot.reason_how ?? "guess" } : null,
-    // A line already read (or read and found to say nothing) isn't sent to
-    // the reader again.
-    readFor: filed && shot.reason_how !== "yours" && line.trim() ? line.trim() : null,
+    // The saved line was already read (or read and found to say nothing),
+    // so it isn't sent to the reader again; a newer one from the draft is.
+    readFor: filed && shot.reason_how !== "yours" && savedLine ? savedLine : null,
     reading: false,
   };
 }
@@ -733,4 +808,53 @@ export function tonightShot(target, draft, { linked = [], today } = {}) {
     return s && { ...s, note: note ? note.slice(0, 2000) : null };
   }
   return shotFrom(target, d.answers, { ...opts, line: d.line, linked });
+}
+
+// What saving one target does now, given the shot last saved for it
+// (`was`): { shot } to save, { takeBack: true } to take tonight's saved
+// shot back, or null when there's nothing to do. A target that has lost its
+// ring (a typed answer cleared, the arrow of the focus that fed it taken
+// back) has its shot taken back, or the arrow would fly at bank while the
+// evening shows it blank. Not while the week is still unread (`weekRead`: a
+// focus may be what gives it its ring), and never one already loosed, which
+// stays where it landed. Only a real change is saved, which is what keeps a
+// re-save from ever looping.
+export function shotChange(target, draft, was, { linked = [], today, weekRead = true } = {}) {
+  const shot = tonightShot(target, draft, { linked, today });
+  if (!shot) return was && !isLoosed(was) && weekRead ? { takeBack: true } : null;
+  return was && sameShot(was, shot) ? null : { shot };
+}
+
+// What the evening says by the boxes on a target with no ring tonight. A
+// shot is its ring (mark_shots.level is never empty), so answers and lines
+// on a target without one have nowhere to be saved yet: they stay in this
+// phone's draft until it has an arrow, and the evening says so plainly
+// rather than let them look kept. A target whose checks are all reflection
+// only can only get its arrow from a focus that counts toward it, and it
+// says which, or that it has none. `feeds` is this week's focuses that
+// count toward it, `level` tonight's ring as it stands. Null when there's
+// nothing to say: it has its ring, or nothing's been given on it yet.
+export function keptText(target, draft, { level = null, feeds = [] } = {}) {
+  const aims = target?.aims ?? [];
+  const names = (feeds ?? []).map((g) => String(g?.title ?? "").trim()).filter(Boolean);
+  const from = names.length ? names.join(" and ") : "this week's focus";
+  if (aims.length && !aims.some((a) => scores(a))) {
+    if (!feeds?.length) {
+      return level != null
+        ? null
+        : "These are all reflection only, so there's no ring to land in tonight, and what you write here stays only on this phone. Make one count on The Range to give it an arrow.";
+    }
+    const why = `These are all reflection only, so its arrow comes from ${from}.`;
+    return level != null ? why : `${why} What you write here stays only on this phone until that arrow lands tonight.`;
+  }
+  if (level != null || !gaveAny(draft)) return null;
+  if (!aims.length) return feeds?.length ? `Your line stays only on this phone until ${from} lands its arrow tonight.` : null;
+  return "What you've answered and written stays only on this phone until every check that counts is answered. Then it's saved with its arrow.";
+}
+
+// Whether he's given anything on a target himself: a line, or an answer the
+// day didn't fill in.
+function gaveAny(draft) {
+  if (String(draft?.line ?? "").trim()) return true;
+  return (draft?.answers ?? []).some((x) => String(x?.line ?? "").trim() || (x?.value != null && x.value !== "" && x.day !== true));
 }

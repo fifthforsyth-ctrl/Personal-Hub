@@ -4428,6 +4428,162 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 
+// ===== Review fixes, batch A =====
+// Tonight's shots on each target: taken back when the ring goes, the day's
+// answers never frozen, an edit made just before leaving kept, what can't
+// be saved yet said plainly, and a removed choice dropped.
+{
+  console.log("\nreview fixes, batch A: tonight's shots");
+  const M = await import("../src/lib/mark.js");
+  const today = "2026-11-02";
+  const shipIt = { id: "w1", title: "Ship settings" };
+  const asRow = (shot) => ({ id: "row", target_id: "t1", date: today, loosed_at: null, ...shot, answers: shot.answers.map((a) => Object.fromEntries(Object.entries(a).reverse())) });
+
+  // --- #1, #7, #13: a shot whose ring goes back to none is taken back --------
+  const plugin = { key: "q1", kind: "quest", ref: { id: "q1" }, targetId: "t1", aims: [], shots: [], reasons: ["a", "b", "c", "d"] };
+  const placed = { answers: [], line: "", quick: null, pick: null };
+  const fedShot = M.shotChange(plugin, placed, null, { linked: [{ goal: shipIt, level: 1 }], today });
+  ok("a target fed only by a focus saves the ring the focus landed", fedShot?.shot?.level === 1 && fedShot.shot.answers[0].focus_goal === "w1");
+  const fedRow = asRow(fedShot.shot);
+  ok("and saves nothing more while that arrow stays", M.shotChange(plugin, placed, fedRow, { linked: [{ goal: shipIt, level: 1 }], today }) === null);
+  ok("taking the focus's arrow back takes the target's shot back too", M.shotChange(plugin, placed, fedRow, { linked: [], today })?.takeBack === true);
+  const pages = { key: "g1", kind: "goal", ref: { id: "g1" }, targetId: "t1", shots: [], reasons: ["a", "b", "c", "d"], aims: [{ id: "p", text: "Pages read", kind: "number", pass: { min: 10 } }, { id: "x", text: "Exercised", kind: "yn" }] };
+  const bull = M.shotChange(pages, { answers: [{ value: 12, line: "" }, { value: "yes", line: "" }], line: "" }, null, { today });
+  const cleared = { answers: [{ value: null, line: "", day: false }, { value: "yes", line: "" }], line: "" };
+  ok("so does clearing a typed answer it was landed by", bull?.shot?.level === 0 && M.shotChange(pages, cleared, asRow(bull.shot), { today })?.takeBack === true);
+  ok("nothing saved, nothing to take back", M.shotChange(pages, cleared, null, { today }) === null);
+  ok("an arrow already loosed stays where it landed", M.shotChange(pages, cleared, { ...asRow(bull.shot), loosed_at: "2026-11-02T22:00:00Z" }, { today }) === null);
+  ok("and nothing is taken back before the week's been read: a focus may be what gives it its ring", M.shotChange(plugin, placed, fedRow, { linked: [], today, weekRead: false }) === null);
+  const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
+  ok(
+    "the evening sends a ring that's gone through the same per-target chain, and takes the shot back there",
+    /if \(level == null\) \{\s*persist\(key\);\s*return;\s*\}/.test(shotsSrc) &&
+      /change\.takeBack/.test(shotsSrc) &&
+      /await deleteTonightShot\(userId, was\.target_id \?\? t\.targetId, date\);\s*saved\.current\.delete\(key\);/.test(shotsSrc) &&
+      /\(chains\.current\.get\(key\) \?\? Promise\.resolve\(\)\)\.then\(run\)/.test(shotsSrc)
+  );
+  const apiSrc = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
+  const delFrom = apiSrc.indexOf("export async function deleteTonightShot");
+  ok("deleteTonightShot sits right after looseShots", delFrom > apiSrc.indexOf("export async function looseShots") && delFrom < apiSrc.indexOf("export async function readMarkLine"));
+  const delSrc = apiSrc.slice(delFrom, apiSrc.indexOf("\n}\n", delFrom) + 2).replace(/^export /, "");
+  const calls = [];
+  const fakeDb = {
+    from: (table) => {
+      const q = { table, ops: [] };
+      calls.push(q);
+      const chain = {
+        delete: () => (q.ops.push(["delete"]), chain),
+        eq: (c, v) => (q.ops.push(["eq", c, v]), chain),
+        is: (c, v) => (q.ops.push(["is", c, v]), chain),
+        then: (res) => res({ error: null }),
+      };
+      return chain;
+    },
+  };
+  const deleteTonightShot = new Function("supabase", `${delSrc}; return deleteTonightShot;`)(fakeDb);
+  await deleteTonightShot("u1", "t1", today);
+  await deleteTonightShot("u1", null, today);
+  const ops = JSON.stringify(calls[0]?.ops);
+  ok(
+    "and deletes only that target's shot for the day, only while it's still in hand",
+    calls.length === 1 && calls[0].table === "mark_shots" && ops === JSON.stringify([["delete"], ["eq", "user_id", "u1"], ["eq", "target_id", "t1"], ["eq", "date", today], ["is", "loosed_at", null]]),
+    ops
+  );
+
+  // --- #3, #12: an answer the day filled in takes the day's newer one --------
+  const drawing = { id: "f-draw", categories: ["Drawing"] };
+  const byId = new Map([[drawing.id, drawing]]);
+  const log = (mins) => [{ tags: ["Drawing"], duration_minutes: mins }];
+  const drew = { key: "g2", kind: "goal", ref: { id: "g2" }, shots: [], reasons: ["a", "b", "c", "d"], tonight: null, aims: [{ id: "m", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f-draw" }, { id: "k", text: "Kept it", kind: "yn" }] };
+  const at6 = M.tonightDraft(drew, { focusesById: byId, entries: log(20) });
+  const kept6 = M.localDraft(drew, at6, null);
+  ok("the time log's minutes are kept on this phone marked as the day's", kept6.answers.m?.value === 20 && kept6.answers.m.day === true && !("k" in kept6.answers));
+  const at10 = M.tonightDraft(drew, { focusesById: byId, entries: log(60), mine: kept6 });
+  ok("so reopening later takes the day's newer number, not the one from six o'clock", at10.answers[0].value === 60 && at10.answers[0].day === true);
+  at10.answers[1] = { value: "yes", line: "", day: false };
+  ok("and the shot lands where the day really put it", M.tonightShot(drew, at10, { today })?.level === 0);
+  const mineKept = M.localDraft(drew, { ...at6, answers: [{ value: 25, line: "", day: false }, at6.answers[1]] }, null);
+  ok("a number he typed himself stays put however the log moves", M.tonightDraft(drew, { focusesById: byId, entries: log(60), mine: mineKept }).answers[0].value === 25);
+  const savedDay = M.shotFrom(drew, [{ value: 20, line: "", day: true }, { value: "yes", line: "", day: false }]);
+  ok("a saved shot marks the day's answer as the day's, and only that one", savedDay.answers[0].day === true && savedDay.answers[1].day === undefined);
+  const fromSavedDay = M.startingAnswers({ ...drew, tonight: asRow(savedDay) }, { focusesById: byId, entries: log(60) });
+  ok("and the day's newer answer wins over it, his own still his", fromSavedDay[0].value === 60 && fromSavedDay[0].day === true && fromSavedDay[1].value === "yes" && fromSavedDay[1].day === false);
+  const savedMine = M.shotFrom(drew, [{ value: 20, line: "", day: false }, { value: "yes", line: "" }]);
+  ok("a saved answer he gave himself is never replaced by the day's", M.startingAnswers({ ...drew, tonight: asRow(savedMine) }, { focusesById: byId, entries: log(60) })[0].value === 20);
+  ok("the day with nothing now keeps the answer it gave", M.startingAnswers({ ...drew, tonight: asRow(savedDay) }, { focusesById: byId, entries: [] })[0].value === 20);
+  const running = [{ value: 1, line: "", day: true }, { value: null, line: "", day: true }];
+  const stopped = M.freshAnswers(drew, running, { focusesById: byId, entries: log(45) });
+  ok("while the evening is open, a timer stopped since gives the day's answer its real minutes", stopped !== running && stopped[0].value === 45 && stopped[0].day === true && stopped[1] === running[1]);
+  ok("and nothing new gives back the very same answers, so nothing saves again", M.freshAnswers(drew, stopped, { focusesById: byId, entries: log(45) }) === stopped);
+  ok("one he gave himself is left alone", M.freshAnswers(drew, [{ value: 10, line: "", day: false }, running[1]], { focusesById: byId, entries: log(45) })[0].value === 10);
+  ok(
+    "the evening marks his own answers as his and takes the day's newer ones while it's open",
+    /\{ \.\.\.a, value, day: false \}/.test(shotsSrc) && /freshAnswers\(t, x\.answers, \{ focusesById, entries, dayPlan \}\)/.test(shotsSrc) && /localDraft\(t, d, saved\.get\(t\.key\)\)/.test(shotsSrc)
+  );
+
+  // --- The quick card and the full card still agree, with no save loop -------
+  const quickSaved = M.quickShot(drew, 1, [{ value: 20, line: "", day: true }, { value: null, line: "", day: true }], { reason: 0, how: "guess" });
+  ok("a quick tap keeps the day's answer marked as the day's", quickSaved.answers[1].aim === "m" && quickSaved.answers[1].day === true && quickSaved.answers[1].counts === false);
+  const fullOnQuick = M.tonightDraft({ ...drew, tonight: asRow(quickSaved) }, { focusesById: byId, entries: log(20) });
+  ok("the full card opens on the quick card's tap, and re-making it saves nothing", fullOnQuick.quick === 1 && M.shotChange(drew, fullOnQuick, asRow(quickSaved), { today }) === null);
+  const fullSaved = M.tonightShot(drew, { answers: [{ value: 20, line: "", day: true }, { value: "no", line: "", day: false }], line: "late", pick: { k: 1, how: "read" } }, { today });
+  const quickOnFull = M.tonightDraft({ ...drew, tonight: asRow(fullSaved) }, { focusesById: byId, entries: log(20) });
+  ok("the quick card opens on the full card's answers, and saves nothing until it's tapped", quickOnFull.quick === null && M.shotChange(drew, quickOnFull, asRow(fullSaved), { today }) === null);
+  ok("a newer day's minutes save once, then rest", (() => {
+    const moved = { ...quickOnFull, answers: M.freshAnswers(drew, quickOnFull.answers, { focusesById: byId, entries: log(50) }) };
+    const once = M.shotChange(drew, moved, asRow(fullSaved), { today });
+    return once?.shot?.answers[0].value === 50 && M.shotChange(drew, moved, asRow(once.shot), { today }) === null;
+  })());
+
+  // --- #4, #15: an edit made just before leaving isn't put back -------------
+  const scripture = { key: "l1", kind: "lesson", ref: { id: "l1" }, shots: [], reasons: ["a", "b", "c", "d"], aims: [{ id: "s", text: "Minutes in scripture", kind: "minutes", pass: { min: 20 } }] };
+  const s15 = asRow(M.shotFrom(scripture, [{ value: 15, line: "" }], { line: "rushed", reason: 0, how: "read" }));
+  const typed30 = M.localDraft(scripture, { answers: [{ value: 30, line: "", day: false }], line: "slow and good" }, s15);
+  ok("the draft remembers the saved shot it sits on, whatever order its keys come back in", typed30.base === M.shotKey(s15) && M.shotKey(asRow(s15)) === M.shotKey(s15) && M.shotKey(null) === null);
+  const back30 = M.tonightDraft({ ...scripture, tonight: s15 }, { mine: typed30 });
+  ok("so a 30 typed a moment before leaving wins over the 15 still saved", back30.answers[0].value === 30 && back30.line === "slow and good");
+  ok("and the new line is read again, the saved one already was", back30.readFor === "rushed" && back30.pick.k === 0);
+  const s20 = asRow(M.shotFrom(scripture, [{ value: 20, line: "" }]));
+  ok("once the shot saved has moved on since (the desk finished it), the shot wins", M.tonightDraft({ ...scripture, tonight: s20 }, { mine: typed30 }).answers[0].value === 20);
+  ok(
+    "leaving the card settles what was waiting instead of dropping it, and the draft is written again once a save lands",
+    /settleRef\.current\(key, \{ now: true \}\)/.test(shotsSrc) && /return \(\) => \{\s*alive\.current = false;/.test(shotsSrc) && (shotsSrc.match(/keepLocal\(\);/g) ?? []).length === 2
+  );
+
+  // --- #11: what can't be saved yet says so, and stays in the draft ----------
+  const examen = { key: "l2", kind: "lesson", ref: { id: "l2" }, shots: [], tonight: null, reasons: ["a", "b", "c", "d"], aims: [{ id: "e", text: "The Examen", kind: "note" }] };
+  const wrote = { answers: [{ value: "Where I saw God today", line: "", day: false }], line: "a long day", quick: null };
+  ok("an Examen-only target has no shot to save it in", M.tonightShot(examen, wrote, { today }) === null);
+  const examenKept = M.localDraft(examen, wrote, null);
+  ok("so it's kept in the draft, and comes back next time", M.tonightDraft(examen, { mine: examenKept }).answers[0].value === "Where I saw God today" && M.tonightDraft(examen, { mine: examenKept }).line === "a long day");
+  const alone = M.keptText(examen, wrote, { level: null, feeds: [] });
+  ok("and the evening says plainly it stays only on this phone", /reflection only/.test(alone) && /stays only on this phone/.test(alone) && /The Range/.test(alone), alone);
+  const fedNotYet = M.keptText(examen, wrote, { level: null, feeds: [shipIt] });
+  ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands tonight/.test(fedNotYet), fedNotYet);
+  ok("once that arrow has landed it only says where the arrow came from", M.keptText(examen, wrote, { level: 1, feeds: [shipIt] }) === "These are all reflection only, so its arrow comes from Ship settings.");
+  const half = { answers: [{ value: null, line: "only 4 pages", day: true }, { value: "yes", line: "", day: false }], line: "", quick: null };
+  ok("a target still short of an answer says what it holds stays here until every check that counts is answered", /until every check that counts is answered/.test(M.keptText(pages, half, { level: null }) ?? ""));
+  ok("but says nothing before anything's been given, or once it has its ring", M.keptText(pages, { answers: [{ value: null, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null && M.keptText(pages, half, { level: 2 }) === null);
+  ok("nor for what only the day filled in", M.keptText(drew, { answers: [{ value: 20, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null);
+  ok("a target fed only by a focus says the line waits on it", /until Ship settings lands its arrow tonight/.test(M.keptText(plugin, { answers: [], line: "good day" }, { level: null, feeds: [shipIt] }) ?? ""));
+  const allSaid = [alone, fedNotYet, M.keptText(pages, half, { level: null }), M.keptText(plugin, { answers: [], line: "x" }, { level: null, feeds: [shipIt] })];
+  ok("in plain words, no dashes", allSaid.every((s) => typeof s === "string" && !/[—–]/.test(s)));
+  const markCss = readFileSync(new URL("../src/styles/mark.css", import.meta.url), "utf8");
+  ok("the evening shows it by the boxes", /keptText\(t, d, \{ level, feeds: tFeeds \}\)/.test(shotsSrc) && /className="card-note mk-shot__kept"/.test(shotsSrc) && /\.mk-shot__kept \{/.test(markCss) && shotsSrc.indexOf("mk-shot__kept") < shotsSrc.indexOf("mk-shot__line"));
+
+  // --- #16: a choice whose option was taken out starts blank -----------------
+  const how = { aims: [{ id: "h", text: "How I met the evening", kind: "choice", options: ["Peaceful", "Rushed"], pass: { on: ["Peaceful"] } }] };
+  const calm = { answers: [{ aim: "h", text: "How I met the evening", kind: "choice", value: "Calm", v: 2 }] };
+  ok("a saved choice whose option has been taken out starts blank", M.startingAnswers({ ...how, tonight: calm }, {})[0].value === null);
+  ok("one still there is kept", M.startingAnswers({ ...how, tonight: { answers: [{ ...calm.answers[0], value: "Rushed" }] } }, {})[0].value === "Rushed");
+  ok("even on a choice that only asks", M.startingAnswers({ aims: [{ ...how.aims[0], pass: { on: [] } }], tonight: calm }, {})[0].value === null);
+}
+
+// (end of review fixes, batch A)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+
 // ===== Tonight's checks on each target (PR 2, part 1) =====
 // Add this part's tests directly under the line above.
 {
