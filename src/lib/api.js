@@ -2922,6 +2922,58 @@ export async function relinkQuotes(rows) {
 // --- Targets tab, part 4 (linking a quote from where it's read) ------------
 // (add part 4's functions directly under this line)
 
+// What a quote can be linked to from the Board or Today, as rows: the
+// mission, the lifetime goals (goals with nothing above them on the wheel),
+// every quest and lesson, and every week's focus (so a focus's earlier weeks
+// can be followed). LinkToTarget's ladderTargets keeps what's on now, in the
+// Range's order. It's the Range's load without the 30 days of steps, so the
+// sheet opens quickly on a phone.
+export async function fetchLadderTargets(userId) {
+  const [mission, nodes, edges, quests, lessons, focusGoals] = await Promise.all([
+    supabase.from("missions").select("statement, summit").eq("user_id", userId).maybeSingle(),
+    selectAllPages(() => supabase.from("nodes").select("id, title, created_at").eq("user_id", userId).order("id")),
+    // Your own edges only, by row-level security.
+    selectAllPages(() => supabase.from("node_edges").select("id, child_id").order("id")),
+    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("lessons").select("id, title, status, goal_id, started_on, position, created_at").eq("user_id", userId),
+    fetchFocusGoalRows(userId),
+  ]);
+  for (const r of [mission, quests, lessons]) if (r.error) throw r.error;
+  const children = new Set(edges.map((e) => e.child_id));
+  return {
+    mission: mission.data ?? null,
+    goals: nodes.filter((n) => !children.has(n.id)),
+    quests: quests.data ?? [],
+    lessons: lessons.data ?? [],
+    focusGoals,
+  };
+}
+
+// Which target a link is on, and nothing more: what a Link button counts.
+const LINK_ROW = "id, quote_id, note_id, mission, goal_id, quest_id, lesson_id, focus_goal_id, created_at";
+
+// The targets one quote is on ({ quoteId }), or one of his own written-down
+// quotes ({ noteId }), each with its target's name and state along, so a
+// link to a finished quest or an earlier week's focus can still be named.
+export async function fetchLinksForQuote(userId, { quoteId = null, noteId = null } = {}) {
+  const [column, value] = quoteId ? ["quote_id", quoteId] : ["note_id", noteId];
+  if (!value) return [];
+  return selectAllPages(() =>
+    supabase
+      .from("quote_links")
+      .select(`${LINK_ROW}, goal:nodes(id, title), quest:quests(id, title, status), lesson:lessons(id, title, status), focus:focus_goals(id, title, week_start)`)
+      .eq("user_id", userId)
+      .eq(column, value)
+      .order("created_at")
+      .order("id")
+  );
+}
+
+// Every link of his, light, for the Link buttons on a page to share one read.
+export async function fetchQuoteLinkRows(userId) {
+  return selectAllPages(() => supabase.from("quote_links").select(LINK_ROW).eq("user_id", userId).order("id"));
+}
+
 // --- end of part 4 ---------------------------------------------------------
 
 // ---------------------------------------------------------------------------
