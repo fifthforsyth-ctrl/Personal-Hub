@@ -4430,6 +4430,139 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
 // ===== Tonight's checks on each target (PR 2, part 1) =====
 // Add this part's tests directly under the line above.
+{
+  console.log("\ntonight's checks on each target");
+  // Imported here rather than up top, so this part's names stay in this part.
+  const M = await import("../src/lib/mark.js");
+  const at = (h, m) => new Date(2026, 10, 2, h, m).toISOString();
+  const drawing = { id: "f-draw", name: "Drawing", categories: ["Drawing"] };
+  const byId = new Map([[drawing.id, drawing]]);
+  const logged = [
+    { tags: ["Drawing"], duration_minutes: 25, ended_at: at(18, 25) },
+    { tags: ["Drawing"], category: "Drawing", description: "Drawing", duration_minutes: 20, source: "watch", ended_at: at(19, 20) },
+  ];
+  const drew = { id: "m", text: "Time drawing", kind: "minutes", pass: { min: 30 }, focus_id: "f-draw" };
+  const upBy = { id: "u", text: "Up by 4:35", kind: "time", pass: { by: "04:35" }, auto: "wake" };
+
+  const hint = M.checkHint(drew, { focusesById: byId, entries: logged });
+  ok("a check the time log answers says how much it saw, and what the watch did", hint.startsWith("Time log · 45m") && hint.includes(" · watch: "), hint);
+  ok("and says so when the log has nothing", M.checkHint(drew, { focusesById: byId, entries: [] }) === "Not in your time log today");
+  ok("Up by says it came from when you got up", M.checkHint(upBy, { dayPlan: { woke_at: at(4, 32) } }) === "From when you got up" && M.checkHint(upBy, { entries: [] }) === "No wake time in your log");
+  ok("a check only you answer has no hint", M.checkHint({ id: "a", text: "Exercised", kind: "yn" }, { focusesById: byId, entries: logged }) === null);
+
+  const T = {
+    key: "g1",
+    aims: [
+      { id: "a", text: "Exercised", kind: "yn" },
+      { id: "b", text: "Did I do my best to listen", kind: "scale", pass: { min: 7 } },
+      { id: "c", text: "Pages", kind: "number", pass: { min: 10 }, unit: "pages" },
+      { id: "d", text: "Where", kind: "choice", options: ["Home", "Out"], pass: { on: ["Home"] } },
+      { id: "e", text: "Examen", kind: "note" },
+    ],
+  };
+  const blank = T.aims.map(() => ({ value: null, line: "" }));
+  const back = M.restoreAnswers(T, blank, { a: { value: "yes", line: "ran" }, b: { value: 6 }, c: { value: 12 }, d: { value: "Home" }, e: { value: "the walk" } });
+  ok("a draft on this device fills tonight back in, a line and all", back.map((x) => x.value).join() === "yes,6,12,Home,the walk" && back[0].line === "ran");
+  const misfit = M.restoreAnswers(T, blank, { a: { value: "some" }, b: { value: 11 }, c: { value: "lots" }, d: { value: "Gone" }, e: { value: 5 } });
+  ok("anything in it that doesn't fit its check now is passed over", misfit.every((x) => x.value === null));
+  ok("a draft of any other shape changes nothing", [null, "x", [1, 2], { a: "yes" }, { a: [1] }, { a: { value: { v: 2 } } }].every((m) => JSON.stringify(M.restoreAnswers(T, blank, m)) === JSON.stringify(blank)));
+  ok("it's matched by check, not by place, so reordered checks keep their answers", M.restoreAnswers({ aims: [T.aims[2], T.aims[0]] }, [{ value: null, line: "" }, { value: null, line: "" }], { a: { value: "no" }, c: { value: 3 } }).map((x) => x.value).join() === "3,no");
+  ok("a cleared answer falls back to what the day knows", M.restoreAnswers({ aims: [upBy] }, [{ value: "04:32", line: "" }], { u: { value: null, line: "" } })[0].value === "04:32");
+
+  // What a draft looked like before checks had kinds: Yes/Some/No by place.
+  const oldShape = { values: [2, 1, 0, 2, 2], line: "old line" };
+  const fromOld = M.tonightDraft(T, { mine: oldShape });
+  ok("an old-shaped draft never gets an answer in", fromOld.answers.every((x) => x.value === null) && fromOld.quick === null && fromOld.pick === null);
+  const savedShot = { level: 2, reason: 1, reason_how: "read", note: "phone", answers: [{ aim: "a", text: "Exercised", kind: "yn", value: "yes", v: 2 }] };
+  const fromSaved = M.tonightDraft({ ...T, tonight: savedShot }, { mine: { answers: { a: { value: "no" } }, line: "draft" } });
+  ok("tonight's saved shot wins over a draft, with its section and its line already read", fromSaved.answers[0].value === "yes" && fromSaved.line === "phone" && fromSaved.pick.k === 1 && fromSaved.readFor === "phone");
+  const fromTap = M.tonightDraft({ ...T, tonight: M.quickShot(T, 1, [], { reason: 0, how: "guess" }) });
+  ok("a short evening's tap comes back as the tap", fromTap.quick === 1 && fromTap.pick.k === 0 && fromTap.readFor === null);
+
+  const R = {
+    aims: [
+      { id: "a", text: "Exercised", kind: "yn" },
+      { id: "n", text: "Drank caffeine", kind: "yn", pass: { on: "no" } },
+      { id: "b", text: "Did I do my best to listen", kind: "scale", pass: { min: 7 } },
+      { id: "e", text: "Examen", kind: "note" },
+      upBy,
+    ],
+  };
+  const win = { id: "w1", title: "Win by win" };
+  const heard = M.readAnswers(R, [{ value: "yes" }, { value: "no" }, { value: 6 }, { value: "the walk" }, { value: null }], [{ goal: win, level: 1 }]);
+  ok(
+    "the line's reader hears each answer as it reads Yes, Some or No",
+    heard.length === 4 &&
+      heard[0].text === "Exercised" &&
+      heard[0].v === 2 &&
+      heard[1].text === "Drank caffeine (No)" &&
+      heard[1].v === 2 &&
+      heard[2].text === "Did I do my best to listen (6/10)" &&
+      heard[2].v === 1 &&
+      heard[3].text === "This week's focus, Win by win (inner)" &&
+      heard[3].v === 1,
+    JSON.stringify(heard)
+  );
+  ok("reflection-only and unanswered checks aren't sent", !heard.some((a) => a.text.startsWith("Examen") || a.text.startsWith("Up by")));
+  // The reader's own filter (supabase/functions/mark/index.ts), as it stands.
+  const readerKeeps = (list) =>
+    list
+      .slice(0, 8)
+      .map((a) => ({ text: String(a?.text ?? "").slice(0, 120), v: Number(a?.v) }))
+      .filter((a) => a.text && [0, 1, 2].includes(a.v));
+  const many = { aims: Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, text: `${"A long way of asking it ".repeat(7)}${i}`, kind: "scale", pass: { min: 7 } })) };
+  const loud = M.readAnswers(many, many.aims.map((_, i) => ({ value: (i % 10) + 1 })));
+  ok("and what it's sent passes the reader untouched: eight at most, the answer kept inside 120 characters", loud.length === 8 && JSON.stringify(readerKeeps(loud)) === JSON.stringify(loud) && loud.every((a) => a.text.length <= 120 && /…\s\(\d+\/10\)$/.test(a.text)));
+  const markFn = readFileSync(new URL("../supabase/functions/mark/index.ts", import.meta.url), "utf8");
+  ok("the reader still takes { text, v } with v of 0, 1 or 2, so it needs no redeploy", /\.slice\(0, 8\)/.test(markFn) && /\[0, 1, 2\]\.includes\(a\.v\)/.test(markFn) && /String\(a\?\.text \?\? ""\)\.slice\(0, 120\)/.test(markFn));
+
+  const S = { key: "g", kind: "goal", ref: { id: "g" }, shots: [], aims: [{ id: "a", text: "Exercised", kind: "yn" }, { id: "p", text: "Pages", kind: "number", pass: { min: 10 }, unit: "pages" }] };
+  const mine = M.shotFrom(S, [{ value: "yes", line: "ran" }, { value: 9 }], { line: "good", reason: 1, how: "read" });
+  const readBack = { id: "row", target_id: "t", date: "2026-11-02", loosed_at: null, note: "good", reason_how: "read", reason: 1, level: mine.level, answers: mine.answers.map((a) => Object.fromEntries(Object.entries(a).reverse())) };
+  ok("a shot read back with its keys in another order is the same shot", mine.level === 1 && M.sameShot(readBack, mine));
+  ok(
+    "a different answer, line, section or ring is not",
+    !M.sameShot(readBack, M.shotFrom(S, [{ value: "yes", line: "ran" }, { value: 8 }], { line: "good", reason: 1, how: "read" })) &&
+      !M.sameShot(readBack, M.shotFrom(S, [{ value: "yes" }, { value: 9 }], { line: "good", reason: 1, how: "read" })) &&
+      !M.sameShot(readBack, { ...mine, note: "better" }) &&
+      !M.sameShot(readBack, { ...mine, reason: 2 }) &&
+      !M.sameShot(readBack, { ...mine, level: 2 })
+  );
+  ok("nothing saved yet is never the same", !M.sameShot(null, mine) && !M.sameShot(mine, null));
+  ok("where it lands reads plainly", M.landsText(0) === "All passed: a bullseye." && M.landsText(1) === "Lands in the inner ring." && M.landsText(4) === "Lands on the edge." && M.landsText(5) === "A miss this time." && M.landsText(null) === "");
+
+  ok("the short evening's tap sets the ring, whatever the checks say", (() => {
+    const r = M.tonightRing(S, { answers: [{ value: "yes" }, { value: 12 }], quick: 0 });
+    return r.level === 5 && r.tap === 0 && r.label === null;
+  })());
+  ok("with no tap, checks all answered say so", M.tonightRing(S, { answers: [{ value: "yes" }, { value: 9 }] }).label === "Inner, from your checks");
+  ok("a target fed only by a focus says which", M.tonightRing({ aims: [] }, { answers: [] }, [{ goal: win, level: 2 }]).label === "Middle, from Win by win");
+  ok(
+    "and nothing answered is no ring, never a made-up one",
+    M.tonightRing(S, { answers: [{ value: "yes" }, { value: null }] }).level === null && M.tonightRing({ aims: [{ id: "e", text: "Examen", kind: "note" }] }, { answers: [{ value: "the walk" }] }).level === null
+  );
+
+  const full = M.tonightShot(S, { answers: [{ value: "no" }, { value: 12 }], line: "  tired  ", pick: null }, { linked: [{ goal: win, level: 0 }], today: "2026-11-02" });
+  ok(
+    "tonight's shot counts the focus as one more check, guesses a section with nothing to go on, and keeps the line",
+    full.level === 2 && full.reason === 0 && full.reason_how === "guess" && full.note === "tired" && full.answers.length === 3 && full.answers[2].focus_goal === "w1"
+  );
+  const tapped = M.tonightShot(S, { answers: [{ value: "no" }, { value: null }], line: "written in the full evening", quick: 1, pick: { k: 2, how: "yours" } }, { today: "2026-11-02" });
+  ok(
+    "a short evening's tap keeps a line from the full one and the section you picked",
+    tapped.level === 2 && tapped.note === "written in the full evening" && tapped.reason === 2 && tapped.reason_how === "yours" && M.quickOf(tapped) === 1 && tapped.answers.length === 2 && tapped.answers[1].counts === false
+  );
+  ok(
+    "a bullseye has no section, and no tap with a check unanswered is no shot",
+    M.tonightShot(S, { answers: [{ value: "yes" }, { value: 12 }], line: "", pick: { k: 3, how: "yours" } }).reason === null && M.tonightShot(S, { answers: [{ value: "yes" }, { value: null }], line: "" }) === null
+  );
+
+  const ascentSrc = readFileSync(new URL("../src/pages/Ascent.jsx", import.meta.url), "utf8");
+  const saveFrom = ascentSrc.slice(ascentSrc.indexOf("const saveTargetFrom"), ascentSrc.indexOf("saveTargetSetup(userId"));
+  ok("taking out a check answered only tonight retires it: every shot counts, loosed or not", /data\?\.marks\?\.shots/.test(saveFrom) && !/t\.shots\.flatMap/.test(saveFrom));
+  const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
+  ok("tonight's draft has a key of its own, and the old one is only ever cleared", /hub\.mark\.checks\.\$\{date\}/.test(shotsSrc) && /removeItem\(`hub\.mark\.tonight\.\$\{date\}`\)/.test(shotsSrc) && !/getItem\(`hub\.mark\.tonight/.test(shotsSrc));
+}
 
 // (end of tonight's checks)
 // ---------------------------------------------------------------------------

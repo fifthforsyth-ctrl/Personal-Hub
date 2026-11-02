@@ -546,3 +546,191 @@ export function quickOf(shot) {
   const w = (Array.isArray(shot?.answers) ? shot.answers : []).find((a) => a?.whole);
   return w && (w.v === 0 || w.v === 1 || w.v === 2) ? w.v : null;
 }
+
+// --- Tonight's checks, as the evening shows them ----------------------------
+
+// Where an answer the day filled in came from, said under the check: the
+// time log's minutes for a check with a focus (and what the watch saw, so
+// the answer comes with what actually happened), or when you got up for an
+// "Up by". Null for a check only you answer.
+export function checkHint(check, { focusesById, entries, dayPlan } = {}) {
+  const c = normCheck(check);
+  if (c.kind === "time" && c.auto === "wake") return autoValue(c, { dayPlan, entries }) ? "From when you got up" : "No wake time in your log";
+  const focus = c.focus_id ? focusesById?.get?.(c.focus_id) : null;
+  if (!focus) return null;
+  const mins = focusMinutes(focus, entries);
+  if (!mins) return "Not in your time log today";
+  const saw = watchSaw(focus, entries);
+  return `Time log · ${fmtMins(mins)}${saw ? ` · watch: ${saw}` : ""}`;
+}
+
+// Tonight's answers with what a draft on this device was in the middle of,
+// laid over where the evening starts. `mine` is { [check id]: { value,
+// line } }. A draft is only ever a convenience, so anything in it that
+// doesn't fit its check as it is now (a Some on what's become a Yes/No, a
+// word where a number goes, a choice that's been taken out) is passed over,
+// and a broken or old-shaped draft changes nothing.
+export function restoreAnswers(target, starting, mine) {
+  const ok = mine && typeof mine === "object" && !Array.isArray(mine);
+  return (target?.aims ?? []).map((a, i) => {
+    const base = starting?.[i] ?? { value: null, line: "" };
+    const m = ok && a?.id ? mine[a.id] : null;
+    if (!m || typeof m !== "object" || Array.isArray(m)) return base;
+    return {
+      value: fitsKind(a, m.value) ? m.value : base.value,
+      line: typeof m.line === "string" ? m.line.slice(0, 500) : base.line,
+    };
+  });
+}
+
+// Where one target's evening starts: { answers, line, quick, pick, readFor,
+// reading }. Tonight's saved shot wins (its answers through
+// startingAnswers, its line, its tap if it was a short evening's, and the
+// section it was filed under); with nothing saved, a draft this device kept
+// (`mine`, { answers: { [check id]: { value, line } }, line }) is laid over
+// what the day knows. A draft of any other shape, an old one from before
+// checks had kinds included, is simply not used.
+export function tonightDraft(target, { focusesById, entries, dayPlan, mine } = {}) {
+  const shot = target?.tonight ?? null;
+  let answers = startingAnswers(target, { focusesById, entries, dayPlan });
+  let line = String(shot?.note ?? "");
+  if (!shot && mine && typeof mine === "object" && !Array.isArray(mine)) {
+    answers = restoreAnswers(target, answers, mine.answers);
+    if (typeof mine.line === "string") line = mine.line.slice(0, 2000);
+  }
+  const filed = Boolean(shot && shot.level > 0 && shot.reason != null);
+  return {
+    answers,
+    line,
+    quick: quickOf(shot),
+    pick: filed ? { k: shot.reason, how: shot.reason_how ?? "guess" } : null,
+    // A line already read (or read and found to say nothing) isn't sent to
+    // the reader again.
+    readFor: filed && shot.reason_how !== "yours" && line.trim() ? line.trim() : null,
+    reading: false,
+  };
+}
+
+// Whether a value is the kind of answer a check takes at all.
+function fitsKind(check, value) {
+  if (value == null || (typeof value !== "string" && typeof value !== "number")) return false;
+  const c = normCheck(check);
+  switch (c.kind) {
+    case "yn":
+      return value === "yes" || value === "no";
+    case "ysn":
+      return value === "yes" || value === "some" || value === "no";
+    case "scale":
+      return Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10;
+    case "number":
+    case "minutes":
+      return answered(c, value) && Number(value) >= 0;
+    case "time":
+      return /^\d{1,2}:\d{2}$/.test(String(value));
+    case "choice":
+      return c.options.includes(String(value));
+    default:
+      return typeof value === "string";
+  }
+}
+
+// What the line's reader is told about tonight. The reader (the `mark`
+// function) takes up to eight { text, v } and reads each v as Yes, Some or
+// No, so a check whose answer isn't a plain Yes or No carries it in its
+// text ("Did I do my best to listen (6/10)", "Drank caffeine (No)") with its
+// mark as v. A reflection-only check, or one not answered, isn't sent: the
+// reader would drop it anyway. A weekly focus that counts toward the target
+// goes as one more, with the ring its arrow landed in.
+export function readAnswers(target, answers, linked = []) {
+  const out = [];
+  (target?.aims ?? []).forEach((a, i) => {
+    const value = answers?.[i]?.value ?? null;
+    const v = markOf(a, value);
+    if (v == null) return;
+    const c = normCheck(a);
+    const plain = (c.kind === "yn" || c.kind === "ysn") && c.pass.on === "yes";
+    out.push({ text: withSaid(c.text, plain ? "" : valueText(c, value)), v });
+  });
+  for (const l of linked ?? []) {
+    const e = focusEntry(l.goal, l.level);
+    if (e.v == null) continue;
+    out.push({ text: withSaid(`This week's focus, ${e.text}`, LEVELS[l.level]?.name.toLowerCase() ?? ""), v: e.v });
+  }
+  return out.slice(0, 8);
+}
+
+// "Text (what was said)" inside the reader's 120 characters, cutting the
+// text rather than the answer.
+function withSaid(text, said) {
+  const tail = said ? ` (${said})` : "";
+  const room = 120 - tail.length;
+  const t = String(text ?? "");
+  return (t.length > room ? `${t.slice(0, Math.max(0, room - 1))}…` : t) + tail;
+}
+
+// Whether two shots land the same: ring, section, line and every answer.
+// One read back from the database has its answers' keys in another order
+// (jsonb keeps its own), so answers are compared key by key, not as text.
+// The evening saves only when this says something changed, which is what
+// keeps a re-save from ever looping.
+export function sameShot(a, b) {
+  if (!a || !b) return false;
+  if (a.level !== b.level) return false;
+  if ((a.reason ?? null) !== (b.reason ?? null) || (a.reason_how ?? null) !== (b.reason_how ?? null)) return false;
+  if ((a.note ?? null) !== (b.note ?? null)) return false;
+  return canon(a.answers ?? []) === canon(b.answers ?? []);
+}
+
+function canon(v) {
+  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+  if (v && typeof v === "object") {
+    const keys = Object.keys(v)
+      .filter((k) => v[k] !== undefined)
+      .sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+// Where tonight's answers put the arrow, in a few words under the checks.
+const LANDS = ["All passed: a bullseye.", "Lands in the inner ring.", "Lands in the middle ring.", "Lands in the outer ring.", "Lands on the edge.", "A miss this time."];
+
+export function landsText(level) {
+  return LANDS[level] ?? "";
+}
+
+// Tonight's ring for a target as it stands: the short evening's one tap
+// when there's been one (it sets the ring until the checks are answered in
+// the full evening), else the ring the checks and any weekly focus that
+// counts toward it make. `label` says where a ring with no tap came from,
+// for the short evening's row: "Inner, from your checks", or "Inner, from
+// Win by win" when a focus is all it has. Nothing is made up: no tap and
+// not every check answered is no ring.
+export function tonightRing(target, { answers, quick } = {}, linked = []) {
+  if (quick === 0 || quick === 1 || quick === 2) return { level: levelFrom([quick]), tap: quick, label: null };
+  const level = tonightLevel(target, answers, linked);
+  if (level == null) return { level: null, tap: null, label: null };
+  const name = LEVELS[level].name;
+  if ((target?.aims ?? []).some((a) => scores(a))) return { level, tap: null, label: `${name}, from your checks` };
+  const titles = (linked ?? []).map((l) => String(l.goal?.title ?? "").trim()).filter(Boolean);
+  return { level, tap: null, label: titles.length ? `${name}, from ${titles.join(" and ")}` : name };
+}
+
+// The shot one target's evening makes, ready to save, or null while it has
+// no ring. `draft` is the evening's { answers, line, quick, pick }. A miss
+// is filed where you put it or where your line was read to point, else
+// where recent misses gather (guessReason). A short evening's tap keeps a
+// line written in the full one, so switching to Short never loses it.
+export function tonightShot(target, draft, { linked = [], today } = {}) {
+  const d = draft ?? {};
+  const level = tonightRing(target, d, linked).level;
+  if (level == null) return null;
+  const pick = level > 0 ? d.pick ?? { k: guessReason(target, today), how: "guess" } : null;
+  const opts = { reason: pick?.k ?? null, how: pick?.how ?? null };
+  if (d.quick != null) {
+    const s = quickShot(target, d.quick, d.answers, opts);
+    const note = String(d.line ?? "").trim();
+    return s && { ...s, note: note ? note.slice(0, 2000) : null };
+  }
+  return shotFrom(target, d.answers, { ...opts, line: d.line, linked });
+}
