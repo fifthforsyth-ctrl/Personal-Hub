@@ -20,13 +20,16 @@ import TargetFace from "../mark/TargetFace";
 //   why       a line (string) or a node (a focus's "Counts toward")
 //   mission   { summit, statement } on the mission's page
 //   mark      the target on the range (goal, quest, lesson), or null
+//   markWaiting  a quest's or lesson's target is still coming (the ladder
+//             loads after its lists): its row keeps its place, so nothing
+//             under it jumps when it comes
 //   chip      "Done", "Set aside", "Learned", or null
 //   build     the build tile, or null
 //   actions   { onReflect, onNote, onQuote, onEdit, editLabel }; onEdit
 //             null hides the pencil (an earlier week's focus)
 //   onHistory opens the history and goes to it
 
-export default function TargetHead({ crumbs = [], eyebrow, title, why = null, mission = null, mark = null, today, chip = null, build = null, actions, onHistory }) {
+export default function TargetHead({ crumbs = [], eyebrow, title, why = null, mission = null, mark = null, markWaiting = false, today, chip = null, build = null, actions, onHistory }) {
   return (
     <header className="tg-head">
       <nav className="tg-crumbs" aria-label="Up the ladder">
@@ -60,10 +63,16 @@ export default function TargetHead({ crumbs = [], eyebrow, title, why = null, mi
       ) : typeof why === "string" ? (
         why.trim() && <Clamp text={why} />
       ) : (
-        why && <div className="tg-why">{why}</div>
+        // One line, as the words are (a focus's "Counts toward" and its link).
+        why && (
+          <div className="tg-why">
+            <p className="tg-why__text">{why}</p>
+          </div>
+        )
       )}
 
-      {mark && <MarkRow target={mark} today={today} onHistory={onHistory} />}
+      {/* One that's done, set aside or learned has no arrow coming. */}
+      {mark ? <MarkRow target={mark} today={today} onHistory={onHistory} off={Boolean(chip)} /> : markWaiting && <div className="tg-mark" aria-hidden="true" />}
 
       {actions && (
         <div className="tg-actions" role="group" aria-label="Write on it">
@@ -96,11 +105,14 @@ export function todayWords(t) {
   return `${LEVELS[s.level].name} ring tonight`;
 }
 
-function MarkRow({ target: t, today, onHistory }) {
+// `off`: the target isn't on the range any more (done, set aside or
+// learned), so no arrow is coming today; only one that already landed is
+// said.
+function MarkRow({ target: t, today, onHistory, off = false }) {
   return (
     <div className="tg-mark">
       <TargetFace target={t} today={today} range="30" mini arrow className="tg-mark__face" />
-      <span className={"tg-mark__state" + (t.today ? " is-in" : "")}>{todayWords(t)}</span>
+      {(!off || t.today) && <span className={"tg-mark__state" + (t.today ? " is-in" : "")}>{todayWords(t)}</span>}
       {onHistory && (
         <button type="button" className="btn-link tg-mark__history" onClick={onHistory}>
           History

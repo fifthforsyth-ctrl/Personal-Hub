@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { fetchFocusGoalRows, fetchGoalEdges } from "../lib/api";
+import { fetchFocusGoalRows, fetchGoalEdges, fetchQuestBoard } from "../lib/api";
 import { KIND_NAME, MISSION_KEY, crumbsFor, pathOf, resolveRef } from "../lib/ladder";
 import { countsToward, focusWeekOf, lineageIds, towardTitle } from "../lib/focus";
 import { buildRange, shortTarget } from "../lib/mark";
+import { subtreeIds } from "../lib/wheel";
 import { useLoad } from "../lib/useLoad";
 import LoadError from "../components/ui/LoadError";
 import { useLadder } from "../components/targets/useLadder";
@@ -45,7 +46,10 @@ function freshUi(key, hash) {
   return { key, note: null, picking: false, settings: false, history: hash === "#history" };
 }
 
-export default function Target() {
+// `onCanonical(path)` hears the page's own move to the target's address
+// just before it goes, so App.jsx keeps the same page (and all it has
+// loaded) across it.
+export default function Target({ onCanonical = null }) {
   const params = useParams();
   const ref = params.ref ?? MISSION_KEY;
   const location = useLocation();
@@ -61,26 +65,36 @@ export default function Target() {
   const rows = useLoad(() => (userId ? Promise.all([fetchFocusGoalRows(userId), fetchGoalEdges()]) : null), [userId]);
   const focusGoals = rows.data?.[0] ?? null;
   const edges = rows.data?.[1] ?? null;
+  // A quest's or lesson's lists (QuestBody's board), read alongside the
+  // ladder rather than after it: they know every quest and lesson, so its
+  // page shows them without waiting on the whole ladder, or when the
+  // ladder can't load. Which kind an address is isn't known until it's
+  // placed, so every page but the mission's reads them.
+  const wantsBoard = ref !== MISSION_KEY;
+  const board = useLoad(() => (userId && wantsBoard ? fetchQuestBoard(userId) : null), [userId, wantsBoard]);
 
-  // undefined while it can't be told yet, null when it's nothing of his.
-  const resolved = useMemo(() => {
-    if (ref === MISSION_KEY) return resolveRef(ref, {});
-    if (!data) return undefined;
-    const hit = resolveRef(ref, { goals: data.goals, edges: edges ?? [], quests: data.quests, lessons: data.lessons, focusGoals: focusGoals ?? [] });
-    if (hit) return hit;
-    return rows.data ? null : undefined;
-  }, [ref, data, edges, focusGoals, rows.data]);
+  const resolved = useMemo(
+    () => placeRef(ref, { data, board: board.data, edges, focusGoals, rowsIn: Boolean(rows.data), today }),
+    [ref, data, board.data, edges, focusGoals, rows.data, today]
+  );
   const key = resolved?.key ?? null;
 
   // The target's own address, keeping the part of the page and anything
-  // the link carried.
+  // the link carried. It's the same target, so the page stays (App.jsx).
   useEffect(() => {
-    if (key && key !== ref) navigate(`/targets/${key}${location.search}${location.hash}`, { replace: true, state: location.state });
+    if (key && key !== ref) {
+      onCanonical?.(`/targets/${key}`);
+      navigate(`/targets/${key}${location.search}${location.hash}`, { replace: true, state: location.state });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, ref]);
 
   useScrollTop(key);
-  useScrollToPlace(key && key === ref ? key : null, location.hash);
+  // A quest's or lesson's history, notes and quotes are drawn under its
+  // header while its lists load, then move below them, so the page looks
+  // for its part once the lists have answered (or failed), where it stays.
+  const listsIn = !(resolved?.kind === "quest" || resolved?.kind === "lesson") || !board.loading;
+  useScrollToPlace(key && key === ref && listsIn ? key : null, location.hash);
 
   // What's open on this target's page; a new target starts afresh.
   const [ui, setUi] = useState(() => freshUi(key, location.hash));
@@ -93,18 +107,30 @@ export default function Target() {
     [data, view, ladder.focuses, ladder.focusesById, ladder.error, ladder.loading, ladder.reload]
   );
 
-  const info = resolved && data && view ? describe(resolved, { data, view, ladder, focusGoals, edges, today }) : null;
-
   const quest = resolved?.kind === "quest" || resolved?.kind === "lesson";
+  // What the page is drawn from: the ladder, or for a quest or lesson its
+  // lists alone until the ladder's in.
+  const ready = Boolean(data && view) || (quest && Boolean(board.data));
+  const info = resolved && ready ? describe(resolved, { data, view, board: board.data, ladder, focusGoals, edges, today }) : null;
+
   const root = "page ascent mark qs tg-page" + (quest ? " tg-page--climb" : "");
 
   // --- Before there's a page to show -------------------------------------------
 
-  if (!data && ladder.error) {
+  // The ladder failed and the lists can't place it either (or it isn't a
+  // quest's or lesson's page): Try again reads both.
+  if (!data && ladder.error && !quest && !(wantsBoard && board.loading)) {
     return (
       <div className={root}>
         <BackUp />
-        <LoadError what="your targets" error={ladder.error} onRetry={ladder.reload} />
+        <LoadError
+          what="your targets"
+          error={ladder.error}
+          onRetry={() => {
+            ladder.reload();
+            if (board.error) board.reload();
+          }}
+        />
       </div>
     );
   }
@@ -117,7 +143,7 @@ export default function Target() {
     );
   }
   // Nothing of his by that address, or gone from the lists under it.
-  if (resolved === null || (key === ref && data && view && !info)) {
+  if (resolved === null || (key === ref && ready && !info)) {
     return (
       <div className={root}>
         <section className="card tg-gone tg-gone--page">
@@ -148,13 +174,18 @@ export default function Target() {
     requestAnimationFrame(() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
-  function edit() {
-    if (kind === "mission") ladder.open({ kind: "mission" });
-    else if (kind === "goal") ladder.open({ kind: "goal", goal: info.goal });
-    else if (kind === "quest") ladder.open({ kind: "quest", quest: info.quest, onGone: () => navigate("/targets") });
-    else if (kind === "lesson") ladder.open({ kind: "lesson", lesson: info.lesson, onGone: () => navigate("/targets") });
-    else if (kind === "focus") set({ settings: true });
-  }
+  // A quest or lesson drawn from its lists alone (the ladder isn't in yet,
+  // or couldn't load) has no pencil until it is: its sheet edits the
+  // ladder's row, with its camps and the goal it serves.
+  const edit = info.fromBoard
+    ? null
+    : () => {
+        if (kind === "mission") ladder.open({ kind: "mission" });
+        else if (kind === "goal") ladder.open({ kind: "goal", goal: info.goal });
+        else if (kind === "quest") ladder.open({ kind: "quest", quest: info.quest, onGone: () => navigate("/targets") });
+        else if (kind === "lesson") ladder.open({ kind: "lesson", lesson: info.lesson, onGone: () => navigate("/targets") });
+        else if (kind === "focus") set({ settings: true });
+      };
 
   const actions = {
     onReflect: () => set({ note: "reflect" }),
@@ -175,6 +206,7 @@ export default function Target() {
         why={info.why}
         mission={kind === "mission" ? info.mission ?? { summit: "", statement: "" } : null}
         mark={t}
+        markWaiting={quest && !t && ladder.loading}
         today={today}
         chip={info.chip}
         build={build}
@@ -210,6 +242,7 @@ export default function Target() {
       focusGoal={info.focusRow}
       lineage={info.lineage}
       shots={t?.shots ?? null}
+      reasons={t?.reasons ?? null}
       limit={quest ? 5 : 10}
       sheet={ui.note}
       onSheet={(mode) => set({ note: mode })}
@@ -219,16 +252,26 @@ export default function Target() {
   return (
     <div className={root}>
       {quest ? (
-        <QuestBody
-          kind={kind}
-          id={id}
-          ladder={ladder}
-          head={head}
-          quotes={quotes}
-          notes={notes}
-          history={t ? <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set({ history: open })} /> : null}
-          reloadRef={questReload}
-        />
+        <>
+          {/* Only the head's arrows, the history and the climb wait on the
+              ladder: the lists show whatever it does. */}
+          {ladder.error && <LoadError what={`this ${kind}'s arrows and climb`} error={ladder.error} onRetry={ladder.reload} stale={Boolean(data)} />}
+          <QuestBody
+            kind={kind}
+            id={id}
+            ladder={ladder}
+            board={board.data}
+            boardError={board.error}
+            boardLoading={board.loading}
+            reloadBoard={board.reload}
+            mutateBoard={board.mutate}
+            head={head}
+            quotes={quotes}
+            notes={notes}
+            history={t ? <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set({ history: open })} /> : null}
+            reloadRef={questReload}
+          />
+        </>
       ) : (
         <>
           {head()}
@@ -265,41 +308,120 @@ function BackUp() {
   );
 }
 
+// Which target the address means, from what's in so far: undefined while
+// it can't be told yet, null when it's nothing of his. Until the ladder's
+// in, a quest's or lesson's lists (the board) place one of theirs, so its
+// page needn't wait on the whole ladder; anything else waits for it. A
+// focus never moves on past this week (a row already carried into next
+// week stays next week's).
+//   data    the ladder's rows (useLadder's data), or undefined
+//   board   fetchQuestBoard(), or undefined
+//   rowsIn  whether the focus rows and the wheel's links are in
+export function placeRef(ref, { data, board, edges, focusGoals, rowsIn, today }) {
+  if (ref === MISSION_KEY) return resolveRef(ref, {});
+  const upTo = focusWeekOf(today);
+  if (!data) {
+    const hit = board ? resolveRef(ref, { quests: board.quests, lessons: board.lessons, upTo }) : null;
+    return hit && (hit.kind === "quest" || hit.kind === "lesson") ? hit : undefined;
+  }
+  const hit = resolveRef(ref, { goals: data.goals, edges: edges ?? [], quests: data.quests, lessons: data.lessons, focusGoals: focusGoals ?? [], upTo });
+  if (hit) return hit;
+  return rowsIn ? null : undefined;
+}
+
+// The lifetime goals among every goal the board names: the ones the wheel
+// draws under nothing (as fetchAscent tells them). None until its links
+// are in.
+function lifetimeOf(nodes, edges) {
+  if (!edges) return [];
+  const under = new Set(edges.map((e) => e.child_id));
+  return (nodes ?? []).filter((n) => !under.has(n.id));
+}
+
 // What the page shows about a target: its name and kind, why, where it sits
 // on the ladder, its target on the range, and what's needed to edit it.
-function describe(resolved, { data, view, ladder, focusGoals, edges, today }) {
+// A quest or lesson can be drawn from its lists (`board`) before the
+// ladder's in: then it has no target on the range yet (`mark` null), and
+// `fromBoard` says its sheet can't open until the ladder's row is in.
+export function describe(resolved, { data, view, board = null, ladder, focusGoals, edges, today }) {
   const { kind, id } = resolved;
-  const crumbs = crumbsFor(resolved, { goals: data.goals, quests: data.quests, lessons: data.lessons, focusGoals: focusGoals ?? [], edges: edges ?? [] });
+  const rows = data
+    ? { goals: data.goals, quests: data.quests, lessons: data.lessons }
+    : { goals: lifetimeOf(board?.goals, edges), quests: board?.quests ?? [], lessons: board?.lessons ?? [] };
+  const ladderLine = (focusList = []) => crumbsFor(resolved, { ...rows, focusGoals: focusList, edges: edges ?? [] });
   // A quest that's done or set aside, or a lesson learned or set aside,
   // isn't on the range any more; its marks are still its own.
-  const own = (one) => buildRange({ goals: [], quests: [], lessons: [], ...one }, data.marks, today).all[0] ?? null;
+  const own = (one) => (data ? buildRange({ goals: [], quests: [], lessons: [], ...one }, data.marks, today).all[0] ?? null : null);
 
+  if (kind === "quest") {
+    const seen = ladder.questView(id);
+    const quest = seen ?? (board?.quests ?? []).find((q) => q.id === id && !q.lesson_id) ?? null;
+    if (!quest) return null;
+    const mark = data ? ladder.targetOf(id) ?? own({ quests: [quest] }) : null;
+    const chip = quest.status === "done" ? "Done" : quest.status === "set_aside" ? "Set aside" : null;
+    return {
+      crumbs: ladderLine(),
+      title: quest.title,
+      eyebrow: KIND_NAME.quest,
+      why: quest.note ?? "",
+      whyText: quest.note ?? "",
+      name: mark?.short ?? shortTarget("quest", quest.title),
+      quest,
+      chip,
+      editLabel: "Edit the quest and its camps",
+      mark,
+      fromBoard: !seen,
+    };
+  }
+  if (kind === "lesson") {
+    const seen = ladder.lessonView(id);
+    const lesson = seen ?? (board?.lessons ?? []).find((l) => l.id === id) ?? null;
+    if (!lesson) return null;
+    const mark = data ? ladder.targetOf(id) ?? own({ lessons: [lesson] }) : null;
+    const chip = lesson.status === "learned" ? "Learned" : lesson.status === "set_aside" ? "Set aside" : null;
+    return {
+      crumbs: ladderLine(),
+      title: lesson.title,
+      eyebrow: KIND_NAME.lesson,
+      why: lesson.question ?? "",
+      whyText: lesson.question ?? "",
+      name: mark?.short ?? shortTarget("lesson", lesson.title),
+      lesson,
+      chip,
+      editLabel: "Edit the lesson",
+      mark,
+      fromBoard: !seen,
+    };
+  }
+
+  // The rest are drawn from the ladder alone.
+  if (!data || !view) return null;
   if (kind === "mission") {
     const m = view.mission;
-    return { crumbs, title: KIND_NAME.mission, eyebrow: null, mission: m, why: null, whyText: m?.statement ?? "", name: "your mission", editLabel: "Edit your mission", mark: null };
+    return { crumbs: ladderLine(), title: KIND_NAME.mission, eyebrow: null, mission: m, why: null, whyText: m?.statement ?? "", name: "your mission", editLabel: "Edit your mission", mark: null };
   }
   if (kind === "goal") {
     const goal = view.goals.find((g) => g.id === id);
     if (!goal) return null;
     const mark = ladder.targetOf(id) ?? own({ goals: [goal] });
-    return { crumbs, title: goal.title, eyebrow: KIND_NAME.goal, why: goal.description ?? "", whyText: goal.description ?? "", name: goal.short, goal, editLabel: "Edit the goal", mark };
-  }
-  if (kind === "quest") {
-    const quest = ladder.questView(id);
-    if (!quest) return null;
-    const mark = ladder.targetOf(id) ?? own({ quests: [quest] });
-    const chip = quest.status === "done" ? "Done" : quest.status === "set_aside" ? "Set aside" : null;
-    return { crumbs, title: quest.title, eyebrow: KIND_NAME.quest, why: quest.note ?? "", whyText: quest.note ?? "", name: mark?.short ?? shortTarget("quest", quest.title), quest, chip, editLabel: "Edit the quest and its camps", mark };
-  }
-  if (kind === "lesson") {
-    const lesson = ladder.lessonView(id);
-    if (!lesson) return null;
-    const mark = ladder.targetOf(id) ?? own({ lessons: [lesson] });
-    const chip = lesson.status === "learned" ? "Learned" : lesson.status === "set_aside" ? "Set aside" : null;
-    return { crumbs, title: lesson.title, eyebrow: KIND_NAME.lesson, why: lesson.question ?? "", whyText: lesson.question ?? "", name: mark?.short ?? shortTarget("lesson", lesson.title), lesson, chip, editLabel: "Edit the lesson", mark };
+    // Its notes and quotes include the goals under it on the wheel: a
+    // lifetime goal moved under this one keeps what was written on it.
+    return {
+      crumbs: ladderLine(),
+      title: goal.title,
+      eyebrow: KIND_NAME.goal,
+      why: goal.description ?? "",
+      whyText: goal.description ?? "",
+      name: goal.short,
+      goal,
+      editLabel: "Edit the goal",
+      mark,
+      lineage: [...subtreeIds(edges ?? [], id)],
+    };
   }
   // A week's focus: this week's row as the week has it now (its settings
-  // may have just changed), or an earlier week's as it was.
+  // may have just changed), or an earlier week's as it was. Its ladder
+  // line comes from that row too, so a new "counts toward" shows at once.
   const row = (focusGoals ?? []).find((g) => g.id === id);
   if (!row) return null;
   const thisWeek = row.week_start === focusWeekOf(today);
@@ -321,7 +443,7 @@ function describe(resolved, { data, view, ladder, focusGoals, edges, today }) {
     </>
   );
   return {
-    crumbs,
+    crumbs: ladderLine([focusRow]),
     title: focusRow.title,
     eyebrow: thisWeek ? KIND_NAME.focus : "Weekly focus",
     why,
