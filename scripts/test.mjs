@@ -6136,7 +6136,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a print's foot tightens to 4px on a phone, past cork.css's 6px", footGap.length === 1 && footGap[0][0] === ".qprint .qprint__foot" && /gap: 4px;/.test(footGap[0][1]), JSON.stringify(footGap));
 
   // Taps (findings 5 and 33).
-  ok("the build tile's links are 40px tall", /\.tg-build__go \{[^}]*min-height: 40px;/.test(css) && /\.qs-done-btn\.tg-build__today \{ min-height: 40px;/.test(css));
+  ok("the build tile's links are 40px tall", /\.tg-build__go \{[^}]*min-height: 40px;/.test(css) && /\.qs-done-btn\.tg-build__today \{ min-height: 40px; margin: 0 -4px;/.test(css));
   ok("the why's More is the house's 36px", /\.tg-why__more \{ min-height: 36px; \}/.test(css));
 
   // The quests row wraps on a desk; a phone still scrolls it (finding 27).
