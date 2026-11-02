@@ -159,11 +159,12 @@
 .focus-strip__label { margin: 0 0 4px; }
 
 .focus-strip__row {
+  --focus-gap: 4px;
   list-style: none;
   margin: 0;
   padding: 2px 0 4px;
   display: flex;
-  gap: 6px;
+  gap: var(--focus-gap);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   overscroll-behavior-x: contain;
@@ -172,9 +173,12 @@
 }
 .focus-strip__row::-webkit-scrollbar { display: none; }
 
-/* Five across, whatever the phone's width; never wider than a desk needs. */
+/* Five across, whatever the phone's width, and no wider than 88px each on a
+   tablet. The words get the whole cell, with no padding of their own, so a
+   goal as long as "Time developing artistic ability" still fits in three
+   lines at 390 wide. */
 .focus-strip__cell {
-  flex: 0 0 calc((100% - 4 * 6px) / 5);
+  flex: 0 0 calc((100% - 4 * var(--focus-gap)) / 5);
   max-width: 88px;
   min-width: 0;
   scroll-snap-align: start;
@@ -187,7 +191,7 @@
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 4px 2px 6px;
+  padding: 4px 0 6px;
   border: none;
   border-radius: var(--r);
   background: none;
@@ -197,23 +201,36 @@
 }
 @media (hover: hover) { .focus-strip__item:hover { background: var(--card); } }
 
-.focus-strip__item .mk-face { width: 100%; max-width: 64px; }
+/* The face stays a little narrower than its cell, so two targets never touch.
+   (.mark.focus-strip, to outrank mark.css's full-width face whichever of the
+   two files loads first.) */
+.mark.focus-strip .focus-strip__item .mk-face { width: calc(100% - 4px); max-width: 64px; }
 @media (prefers-reduced-motion: no-preference) {
   .focus-strip__item .mk-face { transition: transform 0.12s; }
   .focus-strip__item:active .mk-face { transform: scale(0.94); }
 }
 
+/* There's no hover on a phone to show a title that's cut short, so the words
+   are a touch smaller than the rest of the page and get three lines.
+   When a title is longer still, Chrome can put its "…" a few pixels past the
+   end of a centred line, where the cell cut it off ("and.."). The box reaches 3px
+   into the gap on each side so the "…" stays in view; the words still wrap at
+   the cell's own width. */
 .focus-strip__title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   overflow: hidden;
-  max-width: 100%;
-  font-size: 11.5px;
+  max-width: calc(100% + 6px);
+  margin-inline: -3px;
+  padding-inline: 3px;
+  font-size: 10.5px;
   font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
   overflow-wrap: break-word;
+  /* Even lines, so a two-line title doesn't leave one word on its own. */
+  text-wrap: balance;
 }
 
 /* At this size the Mark's hairlines would vanish, so they keep a fixed width
@@ -246,13 +263,25 @@
 .focus-strip__error { margin-bottom: 12px; }
 
 @media (max-width: 900px) {
-  /* Edge to edge, so a sixth target peeks in from the side. */
-  .focus-strip__row { margin: 0 -14px; padding: 2px 14px 4px; scroll-padding-inline: 14px; }
+  /* Edge to edge, so a sixth target peeks in from the side. The first cell
+     starts 2px nearer the screen's edge than the page does, which the space
+     round its face makes up: the targets still line up with what's below. */
+  .focus-strip__row { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
 }
 
 @media (min-width: 901px) {
-  /* A desk has no thumb to scroll with: they wrap instead. */
-  .focus-strip__row { flex-wrap: wrap; overflow: visible; scroll-snap-type: none; gap: 8px 6px; }
+  /* A desk has no thumb to scroll with, and no reason to cut a title short:
+     the cells are wide enough for a whole goal in a line or two, five still
+     fit across the narrowest desk column, and any more wrap. */
+  .focus-strip__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px 8px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .focus-strip__cell { max-width: none; }
+  .focus-strip__title { font-size: 11.5px; line-height: 1.25; letter-spacing: -0.01em; }
 }
 
 /* --- One focus, in its sheet ---------------------------------------------- */

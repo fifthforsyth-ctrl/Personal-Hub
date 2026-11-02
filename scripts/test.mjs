@@ -9,6 +9,7 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
 import { watchForPrompt } from "../supabase/functions/assistant/body.js";
@@ -3787,6 +3788,132 @@ console.log("\napple watch");
   const iso = "2026-11-02T18:00:00.000Z";
   const ticked = withFields({ tasks: [], work }, "line", "m1a", doneFields("line", true, D, iso));
   ok("a tick under a note shows before it's saved", find(planForToday({ chunks, tasks: [], questWork: ticked.work, nowMin: at(9), date: D }).blocks.find((b) => b.id === "c1"), "m1")?.subs[0]?.done === true);
+}
+
+{
+  console.log("\na focus's half-written note and a deleted note outlive the sheet");
+  // FocusSheet.jsx is a component, so it's built here with what it takes from
+  // React, the page and the database swapped for stand-ins, and only its own
+  // small helpers are run. Each stand-in hands its calls to `standIns`, so a
+  // test can say what "the database" answers.
+  const { build } = await import("esbuild");
+  const sheetPath = fileURLToPath(new URL("../src/components/focus/FocusSheet.jsx", import.meta.url));
+  const sheetSrc = readFileSync(sheetPath, "utf8");
+  const standIns = (globalThis.__focusSheetStandIns = {});
+  const keepReal = /\/lib\/(focus|planDates)$/;
+  const built = await build({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = sheetSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            const lines = names.map((n) => `export const ${n} = (...a) => globalThis.__focusSheetStandIns[${JSON.stringify(n)}]?.(...a);`);
+            return { contents: [...lines, "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { readDraft, keepDraft, dropSavedDraft, loadNotes, deleteLater, onNoteBack } = await import(
+    `data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`
+  );
+  const phone = (init = {}) => {
+    const m = new Map(Object.entries(init));
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k) };
+  };
+  const key = (id) => `hub.focus-note-draft.${id}`;
+
+  // Tap Save, then close the sheet before the note has saved.
+  const s1 = phone();
+  keepDraft("g", "Phone in the kitchen", s1);
+  dropSavedDraft("g", "Phone in the kitchen", s1);
+  ok("a saved note's kept copy goes, even when the sheet closed while it saved", s1.getItem(key("g")) === null);
+  keepDraft("g", "Phone in the kitchen. And the alarm", s1);
+  dropSavedDraft("g", "Phone in the kitchen", s1);
+  ok("what you typed after tapping Save is still kept", s1.getItem(key("g")) === "Phone in the kitchen. And the alarm");
+  keepDraft("g", "  \n", s1);
+  ok("an emptied box keeps nothing", s1.getItem(key("g")) === null);
+  ok(
+    "saving clears the kept copy itself and leaves newer typing in the box",
+    /dropSavedDraft\(goal\.id, sent\)/.test(sheetSrc) && /setDraft\(\(cur\) => \(cur === sent \? "" : cur\)\)/.test(sheetSrc) && !/setDraft\(""\)/.test(sheetSrc)
+  );
+
+  // Saturday's half-written note, after the focus is kept on Sunday.
+  const kept = { id: "new", carried_from: "old" };
+  const s2 = phone({ [key("old")]: "Half a note from Saturday" });
+  ok("a draft left last week opens under the focus kept into this week", readDraft(kept, s2) === "Half a note from Saturday");
+  ok("it moves across, so last week's copy doesn't linger", s2.getItem(key("new")) === "Half a note from Saturday" && s2.getItem(key("old")) === null);
+  ok("and it's still there the next time", readDraft(kept, s2) === "Half a note from Saturday");
+  const s3 = phone({ [key("new")]: "this week's", [key("old")]: "last week's" });
+  ok("this week's own draft comes first", readDraft(kept, s3) === "this week's");
+  ok("a focus set fresh this week only has its own", readDraft({ id: "fresh", carried_from: null }, phone({ [key("old")]: "x" })) === "");
+  const off = { getItem: () => { throw new Error("off"); }, setItem: () => { throw new Error("off"); }, removeItem: () => { throw new Error("off"); } };
+  keepDraft("g", "x", off);
+  dropSavedDraft("g", "x", off);
+  ok("storage turned off just means no draft", readDraft(kept, off) === "");
+  ok("the sheet reads its draft from the whole goal row, carried_from and all", /useState\(\(\) => readDraft\(goal\)\)/.test(sheetSrc));
+
+  // Delete a note, close the sheet, open it again inside the 6 seconds.
+  const n1 = { id: "n1", goal_id: "w2", date: "2026-11-01", text: "Phone in the kitchen", created_at: "2026-11-01T12:00:00Z" };
+  const n2 = { id: "n2", goal_id: "w1", date: "2026-10-28", text: "Lights out by 9:30", created_at: "2026-10-28T13:00:00Z" };
+  let inDb = [n1, n2];
+  const deleted = [];
+  standIns.fetchFocusLineage = async () => [{ id: "w2", carried_from: "w1" }, { id: "w1", carried_from: null }];
+  standIns.fetchFocusNotes = async (_, ids) => inDb.filter((n) => ids.includes(n.goal_id));
+  standIns.deleteFocusNote = async (id) => {
+    deleted.push(id);
+    inDb = inDb.filter((n) => n.id !== id);
+  };
+  const shown = async () => (await loadNotes("u", "w2")).notes.map((n) => n.id).join();
+  ok("both weeks' notes load, newest first", (await shown()) === "n1,n2");
+  const first = deleteLater(n1);
+  ok("a note deleted a moment ago stays gone when the sheet is opened again", (await shown()) === "n2" && deleted.length === 0);
+  await first.run();
+  ok("once Undo has gone it's deleted for real", deleted.join() === "n1" && (await shown()) === "n2");
+  inDb = [n1, n2];
+  ok("nothing is held back after its delete has run", (await shown()) === "n1,n2");
+
+  const back = [];
+  const stop = onNoteBack((note) => back.push(note.id));
+  const second = deleteLater(n2);
+  ok("hidden while Undo is offered", (await shown()) === "n1");
+  second.onUndo();
+  ok("Undo reaches the sheet on screen, even one opened after the delete", back.join() === "n2");
+  ok("and a sheet opened after Undo shows the note again", (await shown()) === "n1,n2");
+  stop();
+  deleteLater(n1).onUndo();
+  ok("a closed sheet hears nothing", back.join() === "n2");
+  standIns.deleteFocusNote = async () => {
+    throw new Error("offline");
+  };
+  const third = deleteLater(n1);
+  const failed = await third.run().then(() => false, () => true);
+  ok("a delete that fails lets the note show again", failed && (await shown()) === "n1,n2");
+  ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(\(note\) =>/.test(sheetSrc));
+  delete globalThis.__focusSheetStandIns;
+
+  // The strip's titles: whole goals on a phone at 390, and on a desk.
+  const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
+  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
+  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
+  const cell = (390 - 2 * pad - 4 * gap) / 5;
+  // 68px is what "Time developing artistic ability" needs for three lines at 10.5px, measured in the app's font.
+  ok("five across at 390 leave each title room for three lines of its words", cell >= 68 && /font-size: 10\.5px;/.test(css), `${cell}px`);
+  const title = css.slice(css.indexOf(".focus-strip__title {"));
+  ok("titles get three lines, not two", /-webkit-line-clamp: 3;/.test(title) && !/-webkit-line-clamp: 2;/.test(title));
+  const least = Number(css.match(/repeat\(auto-fill, minmax\((\d+)px, 1fr\)\)/)?.[1]);
+  const deskGap = Number(css.match(/gap: 10px (\d+)px;/)?.[1]);
+  ok("five fit across the narrowest desk column (613px at 901 wide), each wider than the old 88px", least > 88 && 5 * least + 4 * deskGap <= 613, `${least}px`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

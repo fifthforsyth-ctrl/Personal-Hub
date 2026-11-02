@@ -22,7 +22,8 @@ import "../../styles/focus.css";
 // first), not just this one.
 //
 // A note you're halfway through is kept on this phone until you save it, so
-// a stray tap outside the sheet doesn't lose it. A note changes nothing else
+// a stray tap outside the sheet doesn't lose it, and it goes with the focus
+// when you keep it on Sunday. A note changes nothing else
 // on Today, so saving one doesn't make the whole page load again.
 //
 //   goal       this week's goal, as summarizeWeek gives it (days, counts)
@@ -30,28 +31,90 @@ import "../../styles/focus.css";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
-async function loadNotes(userId, goalId) {
+// A note you delete waits out the few seconds Undo is offered before it's
+// really gone. Close the sheet and open it again inside that time and the
+// list is read fresh from the database, where the note still is, so it would
+// come back. These two sets live outside any one sheet for that reason: the
+// notes still waiting to go, which a reopened sheet leaves out, and the
+// sheets on screen, so Undo puts the note back in the one you're looking at
+// even if it isn't the one you deleted it from.
+const deleting = new Set();
+const onScreen = new Set();
+
+export async function loadNotes(userId, goalId) {
   const chain = await fetchFocusLineage(userId, goalId);
   const notes = await fetchFocusNotes(userId, chain.map((g) => g.id));
-  return { chain, notes: newestFirst(notes) };
+  return { chain, notes: newestFirst(notes.filter((n) => !deleting.has(n.id))) };
 }
 
+// What toast.undoable needs to delete a note once Undo has gone.
+export function deleteLater(note) {
+  deleting.add(note.id);
+  return {
+    run: async () => {
+      try {
+        await deleteFocusNote(note.id);
+      } finally {
+        deleting.delete(note.id);
+      }
+    },
+    onUndo: () => {
+      deleting.delete(note.id);
+      for (const putBack of onScreen) putBack(note);
+    },
+  };
+}
+
+// A sheet hears about an Undo while it's open. Returns the way to stop.
+export function onNoteBack(putBack) {
+  onScreen.add(putBack);
+  return () => onScreen.delete(putBack);
+}
+
+// The half-written note for each focus, kept in localStorage. These take
+// `store` only so the tests can hand in a stand-in.
 const draftKey = (goalId) => `hub.focus-note-draft.${goalId}`;
 
-function readDraft(goalId) {
+// Keeping a focus on Sunday gives it a new row, with a new id, for the new
+// week. A note you left half-written on Saturday sits under last week's id,
+// so the first time you open the focus in its new week the draft moves
+// across instead of being stranded there.
+export function readDraft(goal, store) {
   try {
-    return localStorage.getItem(draftKey(goalId)) ?? "";
+    const s = store ?? localStorage;
+    const own = s.getItem(draftKey(goal.id));
+    if (own != null || !goal.carried_from) return own ?? "";
+    const before = s.getItem(draftKey(goal.carried_from));
+    if (before != null) {
+      s.setItem(draftKey(goal.id), before);
+      s.removeItem(draftKey(goal.carried_from));
+    }
+    return before ?? "";
   } catch {
     return "";
   }
 }
 
-function keepDraft(goalId, text) {
+export function keepDraft(goalId, text, store) {
   try {
-    if (text.trim()) localStorage.setItem(draftKey(goalId), text);
-    else localStorage.removeItem(draftKey(goalId));
+    const s = store ?? localStorage;
+    if (text.trim()) s.setItem(draftKey(goalId), text);
+    else s.removeItem(draftKey(goalId));
   } catch {
     // Private mode or storage off: the draft just isn't kept.
+  }
+}
+
+// Once a note has saved, its kept copy goes, but only if it's still the text
+// that was sent. This clears the phone's copy directly rather than by
+// emptying the box, because you may have closed the sheet while it saved,
+// and anything you typed after tapping Save is yours to keep.
+export function dropSavedDraft(goalId, sent, store) {
+  try {
+    const s = store ?? localStorage;
+    if (s.getItem(draftKey(goalId)) === sent) s.removeItem(draftKey(goalId));
+  } catch {
+    // Nothing was kept, so there's nothing to clear.
   }
 }
 
@@ -59,10 +122,21 @@ export default function FocusSheet({ userId, goal, date, onCheckin, onClose }) {
   const toast = useToast();
   const boxId = useId();
   const notes = useLoad(() => (userId ? loadNotes(userId, goal.id) : null), [userId, goal.id]);
-  const [draft, setDraft] = useState(() => readDraft(goal.id));
+  const [draft, setDraft] = useState(() => readDraft(goal));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => keepDraft(goal.id, draft), [goal.id, draft]);
+
+  const { mutate } = notes;
+  useEffect(
+    () =>
+      onNoteBack((note) =>
+        mutate((d) =>
+          d && d.chain.some((g) => g.id === note.goal_id) ? { ...d, notes: newestFirst([...d.notes.filter((n) => n.id !== note.id), note]) } : d
+        )
+      ),
+    [mutate]
+  );
 
   const today = goal.days.find((d) => d.date === date)?.moved ?? null;
   const titleOf = new Map((notes.data?.chain ?? []).map((g) => [g.id, g.title]));
@@ -72,12 +146,14 @@ export default function FocusSheet({ userId, goal, date, onCheckin, onClose }) {
     e?.preventDefault();
     const text = cleanNote(draft);
     if (!text || saving) return;
+    const sent = draft;
     setSaving(true);
     try {
       const row = await addFocusNote(userId, { goalId: goal.id, date, text });
+      dropSavedDraft(goal.id, sent);
       if (notes.data) notes.mutate((d) => (d ? { ...d, notes: newestFirst([row, ...d.notes]) } : d));
       else notes.reload();
-      setDraft("");
+      setDraft((cur) => (cur === sent ? "" : cur));
       haptic("success");
     } catch (err) {
       toast.error(err, "Couldn't save that note.");
@@ -88,11 +164,7 @@ export default function FocusSheet({ userId, goal, date, onCheckin, onClose }) {
 
   function remove(note) {
     notes.mutate((d) => (d ? { ...d, notes: d.notes.filter((n) => n.id !== note.id) } : d));
-    toast.undoable({
-      message: "Note deleted",
-      run: () => deleteFocusNote(note.id),
-      onUndo: () => notes.mutate((d) => (d ? { ...d, notes: newestFirst([...d.notes.filter((n) => n.id !== note.id), note]) } : d)),
-    });
+    toast.undoable({ message: "Note deleted", ...deleteLater(note) });
   }
 
   return (
