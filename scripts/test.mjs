@@ -6016,5 +6016,33 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
 // (end of targets tab, part 5)
 
+
+// ===== Targets tab (PR 3, review fix 1: the page loads and its head) =====
+// Add this fix group's tests directly under the line above.
+{
+}
+// (end of review fix 1)
+
+
+// ===== Targets tab (PR 3, review fix 2: the ladder, its data and the overview) =====
+// Add this fix group's tests directly under the line above.
+{
+}
+// (end of review fix 2)
+
+
+// ===== Targets tab (PR 3, review fix 3: notes, reflections and linked quotes) =====
+// Add this fix group's tests directly under the line above.
+{
+}
+// (end of review fix 3)
+
+
+// ===== Targets tab (PR 3, review fix 4: the stylesheets) =====
+// Add this fix group's tests directly under the line above.
+{
+}
+// (end of review fix 4)
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
