@@ -6041,6 +6041,166 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, review fix 4: the stylesheets) =====
 // Add this fix group's tests directly under the line above.
 {
+  console.log("\ntargets tab: the stylesheets");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const bare = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = bare(read("src/styles/targets.css"));
+  const qcss = bare(read("src/styles/quests.css"));
+  // Every rule as [selectors, body]; those inside an at-rule come through too.
+  const rules = (s) => [...s.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim().replace(/\s+/g, " "), m[2]]);
+  const all = rules(css);
+  const sels = all.flatMap(([s]) => s.split(",").map((x) => x.trim()));
+  // The bodies of every @media block with this exact head, end to end.
+  const media = (s, head) => {
+    const out = [];
+    for (let at = s.indexOf(`${head} {`); at >= 0; at = s.indexOf(`${head} {`, at + 1)) {
+      const open = s.indexOf("{", at);
+      let depth = 0;
+      for (let i = open; i < s.length; i++) {
+        if (s[i] === "{") depth++;
+        else if (s[i] === "}" && --depth === 0) {
+          out.push(s.slice(open + 1, i));
+          break;
+        }
+      }
+    }
+    return out.join("\n");
+  };
+
+  // targets.css is in the first bundle, ahead of index.css and every later
+  // sheet, so a rule for an element that also wears one of their classes
+  // names that class as well, or the base rule wins (finding 29).
+  const paired = [
+    ["tg-act", "btn"],
+    ["tg-act__edit", "btn-icon"],
+    ["tg-note__del", "btn-icon"],
+    ["ov-chip--aside", "chip"],
+    ["tg-more", "btn"],
+    ["tg-title", "page-title"],
+    ["tg-mark__history", "btn-link"],
+    ["tg-sheet__box", "textarea"],
+    ["tg-build__today", "qs-done-btn"],
+    ["tg-quotes__strip", "picks__strip"],
+  ];
+  const alone = paired.filter(([own, base]) => {
+    const subjects = sels.map((s) => s.split(/[\s>+~]+/).pop()).filter((last) => new RegExp(`\\.${own}(?![\\w-])`).test(last));
+    return subjects.length === 0 || subjects.some((last) => !new RegExp(`\\.${base}(?![\\w-])`).test(last));
+  });
+  ok("every Targets rule on a control that wears a base class names that class too", alone.length === 0, alone.map(([own]) => own).join(", "));
+  ok(
+    "Reflect, Note and Quote are 40px with their own padding, at 420px too",
+    /\.btn\.tg-act \{ min-height: 40px; padding: 8px 16px; \}/.test(css) && /\.btn\.tg-act \{ padding: 8px 13px; \}/.test(media(css, "@media (max-width: 420px)"))
+  );
+  ok("the pencil and a note's delete are 40px", /\.btn-icon\.tg-act__edit \{[^}]*width: 40px; height: 40px;/.test(css) && /\.btn-icon\.tg-note__del \{[^}]*width: 40px; height: 40px;/.test(css));
+  ok("a set-aside lesson's chip stays dashed", /\.chip\.ov-chip--aside \{[^}]*border: 1px dashed/.test(css));
+  ok("the reflection box is 16px on a phone, so it doesn't zoom", /\.textarea\.tg-sheet__box, /.test(media(css, "@media (max-width: 900px)")));
+  // Each class list in a file that holds the Targets class holds the base too.
+  const lists = (p) => [...read(`src/components/targets/${p}`).matchAll(/["`]([^"`]*)["`]/g)].map((m) => m[1].split(/\s+/));
+  const wears = [
+    ["TargetHead.jsx", "tg-act", "btn"],
+    ["TargetHead.jsx", "tg-act__edit", "btn-icon"],
+    ["TargetHead.jsx", "tg-title", "page-title"],
+    ["TargetHead.jsx", "tg-mark__history", "btn-link"],
+    ["NotesSection.jsx", "tg-note__del", "btn-icon"],
+    ["NotesSection.jsx", "tg-more", "btn"],
+    ["OverviewPatches.jsx", "ov-chip--aside", "chip"],
+    ["NoteSheet.jsx", "tg-sheet__box", "textarea"],
+    ["BuildTile.jsx", "tg-build__today", "qs-done-btn"],
+    ["LinkedQuotes.jsx", "tg-quotes__strip", "picks__strip"],
+    ["LinkToTarget.jsx", "qprint__link", "qprint__save"],
+  ].filter(([p, own, base]) => {
+    const withOwn = lists(p).filter((l) => l.includes(own));
+    return withOwn.length === 0 || withOwn.some((l) => !l.includes(base));
+  });
+  ok("the controls still wear the classes those rules name", wears.length === 0, wears.map(([p, own, base]) => `${p}: ${own} without ${base}`).join("; "));
+
+  // The cards keep their own padding: past .card's 20px, and on a phone
+  // past ascent.css's 16px on every card of its pages.
+  ok(
+    "the mission card and Behind you keep their own padding, on a phone too",
+    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 14px 16px 15px; \}/.test(css) &&
+      /\.card\.ov-behind, \.ascent \.card\.ov-behind:not\(\.card--flush\) \{ padding-top: 10px; padding-bottom: 10px; \}/.test(css)
+  );
+  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 3px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
+  ok("a target's history card is flush on a phone too", /\.tg-history\.card, \.ascent \.tg-history\.card:not\(\.card--flush\) \{ padding: 0;/.test(css));
+  ok("the history sits a little apart from the last day, past .qs .card + .card", /\.tg-page \.qs-rest > \.tg-history\.card \{ margin-top: 4px; \}/.test(css));
+  ok("a feeds row is centred on a phone, past ascent.css's own", /\.tg-page \.feeds \.feeds__row \{ min-height: 40px; align-items: center; \}/.test(media(css, "@media (max-width: 900px)")));
+  ok("the overview's eyebrow keeps its 2px, past ascent.css's margin", /\.ov \.ov-top \.eyebrow \{ margin: 0 0 2px; \}/.test(css));
+  ok("the quotes strip keeps its own padding, past the Board's", /\.picks__strip\.tg-quotes__strip \{ padding-top: 12px; padding-bottom: 16px; \}/.test(css));
+
+  // Link's quiet look and the phone's 4px gap beat cork.css (finding 23).
+  const raw = read("src/styles/targets.css");
+  const part4 = bare(raw.slice(raw.indexOf("/* --- Part 4:"), raw.indexOf("/* --- end of part 4 --- */")));
+  ok("Link stays as quiet as Share, past cork.css's .qprint__save", sels.includes(".qprint__foot .qprint__link") && !sels.includes(".qprint__link") && /\.qprint__foot \.qprint__link \{[^}]*border-color: transparent;[^}]*color: var\(--text-2\);/.test(part4));
+  const footGap = rules(media(css, "@media (max-width: 560px)")).filter(([, b]) => /gap:/.test(b));
+  ok("a print's foot tightens to 4px on a phone, past cork.css's 6px", footGap.length === 1 && footGap[0][0] === ".qprint .qprint__foot" && /gap: 4px;/.test(footGap[0][1]), JSON.stringify(footGap));
+
+  // Taps (findings 5 and 33).
+  ok("the build tile's links are 40px tall", /\.tg-build__go \{[^}]*min-height: 40px;/.test(css) && /\.qs-done-btn\.tg-build__today \{ min-height: 40px;/.test(css));
+  ok("the why's More is the house's 36px", /\.tg-why__more \{ min-height: 36px; \}/.test(css));
+
+  // The quests row wraps on a desk; a phone still scrolls it (finding 27).
+  const desk = media(css, "@media (min-width: 901px)");
+  ok("on a desk the quests row wraps, with nothing hidden off the edge", /\.quests-row__list \{ flex-wrap: wrap; overflow: visible; scroll-snap-type: none; \}/.test(desk) && /\.quests-row \{ align-items: flex-start; \}/.test(desk));
+  ok("its label stays level with the first row of pills", /\.quests-row__label \{ display: flex; align-items: center; min-height: 48px; \}/.test(desk) && /\.quests-row__list \{[^}]*padding: 2px 2px 4px;/.test(css) && /\.quests-row__pill \{[^}]*min-height: 44px;/.test(css));
+  const rowList = css.match(/\.quests-row__list \{([^}]*)\}/)?.[1] ?? "";
+  ok("on a phone it still scrolls sideways in one line", /overflow-x: auto;/.test(rowList) && /scroll-snap-type: x proximity;/.test(rowList) && !/flex-wrap/.test(rowList));
+
+  // The quest page's grid on a desk (finding 31): each layout it draws
+  // names every cell it places, each area a rectangle, and with the
+  // clipboard open it sits full width right under the ongoing list.
+  const qdesk = media(qcss, "@media (min-width: 901px)");
+  const grid = Object.fromEntries(
+    rules(qdesk)
+      .filter(([s]) => s.startsWith(".qs-grid"))
+      .map(([s, b]) => [s, { areas: [...(b.match(/grid-template-areas:([^;]*);/)?.[1] ?? "").matchAll(/"([^"]*)"/g)].map((m) => m[1].trim().split(/\s+/)), rows: b.match(/grid-template-rows:([^;]*);/)?.[1].trim().split(/\s+/) }])
+  );
+  const layouts = {
+    plain: { areas: grid[".qs-grid"]?.areas, rows: grid[".qs-grid"]?.rows },
+    board: { areas: grid[".qs-grid--board"]?.areas, rows: grid[".qs-grid"]?.rows },
+    clip: { areas: grid[".qs-grid--clip"]?.areas, rows: grid[".qs-grid--clip"]?.rows },
+    "board and clip": { areas: grid[".qs-grid--board.qs-grid--clip"]?.areas, rows: grid[".qs-grid--clip"]?.rows },
+  };
+  const placed = [...qdesk.matchAll(/\.qs-[\w-]+ \{ grid-area: (\w+);/g)].map((m) => m[1]);
+  const shape = (areas) => {
+    const at = {};
+    areas.forEach((row, r) => row.forEach((n, c) => n !== "." && (at[n] ??= []).push([r, c])));
+    const bad = Object.entries(at).filter(([n, cells]) => {
+      const rs = cells.map((x) => x[0]), cs = cells.map((x) => x[1]);
+      const [r0, r1, c0, c1] = [Math.min(...rs), Math.max(...rs), Math.min(...cs), Math.max(...cs)];
+      return cells.length !== (r1 - r0 + 1) * (c1 - c0 + 1);
+    });
+    return { at, bad: bad.map(([n]) => n) };
+  };
+  const wrong = [];
+  for (const [name, { areas, rows }] of Object.entries(layouts)) {
+    if (!areas?.length || !rows) { wrong.push(`${name}: no areas`); continue; }
+    const { at, bad } = shape(areas);
+    const clip = name.includes("clip");
+    const need = placed.filter((a) => clip || a !== "clip");
+    if (areas.some((r) => r.length !== 2)) wrong.push(`${name}: a row isn't two columns`);
+    if (areas.length !== rows.length) wrong.push(`${name}: ${areas.length} rows of areas, ${rows.length} rows`);
+    if (rows.at(-1) !== "1fr" || rows.slice(0, -1).some((x) => x !== "auto")) wrong.push(`${name}: the spare height isn't one 1fr row at the foot`);
+    if (bad.length) wrong.push(`${name}: ${bad.join(", ")} not a rectangle`);
+    const missing = need.filter((a) => !at[a]);
+    if (missing.length) wrong.push(`${name}: no ${missing.join(", ")}`);
+    if (!clip && at.clip) wrong.push(`${name}: names the clipboard`);
+  }
+  ok("every desk layout of a quest's page names each cell it places, each a rectangle", placed.length === 7 && wrong.length === 0, wrong.join("; "));
+  const rowOf = (areas, n) => areas.findIndex((r) => r.includes(n));
+  const clipUnder = ["clip", "board and clip"].every((k) => {
+    const a = layouts[k].areas ?? [];
+    const c = rowOf(a, "clip");
+    return c === rowOf(a, "ongoing") + 1 && a[c].every((x) => x === "clip") && rowOf(a, "side") === rowOf(a, "rest") && rowOf(a, "rest") === c + 1;
+  });
+  ok("with the clipboard open it spans the page right under the ongoing list, the quotes and notes beside the earlier days", clipUnder);
+  ok("opening the clipboard leaves the build and camps in the first row alone", ["clip", "board and clip"].every((k) => (layouts[k].areas ?? []).filter((r) => r.includes("build")).length === 1 && layouts[k].areas?.[0].join(" ") === "camps build"));
+  const body = read("src/components/targets/QuestBody.jsx");
+  ok("the page draws the clipboard's cell only with the clipboard's grid", /\(clipOpen \? " qs-grid--clip" : ""\)/.test(body) && /clipOpen \? <div className="qs-clip">\{clipCard\}<\/div> : clipCard/.test(body));
+  ok(
+    "a phone keeps one column in the page's order: the page's grid has no areas outside the desk",
+    rules(qcss.replace(qdesk, "")).every(([s, b]) => !s.split(",").some((x) => x.trim().startsWith(".qs-grid")) || !/grid-template-(areas|rows)/.test(b)) && /\.qs-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(qcss)
+  );
 }
 // (end of review fix 4)
 

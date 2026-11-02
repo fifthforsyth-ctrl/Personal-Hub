@@ -70,7 +70,8 @@
    in the order a phone shows them: the camps, Today, the ongoing list, the
    clipboard, the quotes and notes, the earlier days with the history at
    their foot. On a desk the build heads a 340px rail on the right with the
-   quotes and notes under it, beside Today and the ongoing list. Nothing
+   quotes and notes under it, beside Today and the ongoing list (with the
+   clipboard open, beside the earlier days under it). Nothing
    moves in the page as the layout changes, so what's open in a list stays
    open; and the rail's spare height goes into one row at its foot (the
    1fr) rather than gaps between the lists. */
@@ -99,10 +100,13 @@
   .qs-rest { grid-area: rest; }
   /* Today's board in columns (0092): Today spans the page under the camps. */
   .qs-grid--board { grid-template-areas: "camps build" "today today" "ongoing side" "rest side" ". side"; }
-  /* The clipboard (0095) spans the page under the ongoing list, so its
-     columns have room side by side. */
-  .qs-grid--clip { grid-template-rows: auto auto auto 1fr auto auto; grid-template-areas: "camps build" "today side" "ongoing side" ". side" "clip clip" "rest ."; }
-  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps build" "today today" "ongoing side" ". side" "clip clip" "rest ."; }
+  /* The clipboard (0095) spans the page right under the ongoing list, so
+     its columns have room side by side. The quotes and notes go beside the
+     earlier days instead, so however tall they grow they never push the
+     clipboard down. The build stays in the first row alone, as above, so
+     opening or closing the clipboard leaves the camps the same height. */
+  .qs-grid--clip { grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "camps build" "today ." "ongoing ." "clip clip" "rest side" ". side"; }
+  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps build" "today today" "ongoing ." "clip clip" "rest side" ". side"; }
 }
 
 /* --- The floating build ----------------------------------------------------- */
