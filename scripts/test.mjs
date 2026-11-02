@@ -3283,7 +3283,20 @@ console.log("\napple watch");
   ok("the tone keeps reflection and God at the centre", /walk with God at the centre/.test(PUSH_TONE));
   const index = readFileSync(new URL("../supabase/functions/assistant/index.ts", import.meta.url), "utf8");
   ok("the old soft tone line is gone from the spirit prompts", !/warm and direct, like a trusted friend/.test(index));
-  ok("walk and reflection both read the aim", (index.match(/aimDay\(supabase, date\)/g) ?? []).length === 2);
+  ok("walk and reflection both read the aim, in his time zone", (index.match(/aimDay\(supabase, date, tz\)/g) ?? []).length === 2);
+  const evening = aimForPrompt({
+    date: "2026-11-02",
+    tz: "America/Denver",
+    goals: [{ id: "g1", title: "Highly skilled" }],
+    focuses: [{ id: "f1", goal_id: "g1", name: "Draw", categories: ["Art"] }],
+    entries: [
+      // 8 pm on Nov 2 in Denver is Nov 3 in UTC: still tonight.
+      { category: "Art", tags: [], duration_minutes: 45, started_at: "2026-11-03T03:00:00Z" },
+      // 8 pm on Oct 26 in Denver is Oct 27 in UTC: eight local days back, so out.
+      { category: "Art", tags: [], duration_minutes: 60, started_at: "2026-10-27T02:00:00Z" },
+    ],
+  });
+  ok("tonight's evening minutes count and last week's evening doesn't", evening.lifetime_goals[0].focuses[0].minutes_last_7_days === 45, JSON.stringify(evening.lifetime_goals[0]));
 
   ok("no rows is no aim", aimForPrompt({ date: "2026-11-02" }) === null);
   const aim = aimForPrompt({

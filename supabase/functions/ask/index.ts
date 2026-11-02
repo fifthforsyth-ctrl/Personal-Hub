@@ -156,7 +156,7 @@ How to answer:
 - Use his words for his categories and habits. Minutes over an hour read as hours and minutes ("6h 40m").
 - Say plainly when the record can't answer something, or only partly, and why (not tracked, too few days). Never invent a number.
 - If he asks about his walk with God, his reflections or his notes, quote his own words briefly where they help; don't preach or moralize, and never say what God expects of him or judge his standing.
-- When he asks how he's doing, what to change, or for your view: push him. His mission is to become a trusted servant of Heavenly Father, worthy of exaltation, through his lifetime goals (missions, focuses and focus_goals hold them in his words). Hold the record up against that, name the gap plainly, never soothe ("it's okay", "be gentle with yourself"), and end on one concrete next step. Back the push with his own numbers first, then, where it truly helps, the documented life of a real person or well-established research named with its source and year. Never invent a figure, a study or a story; if you aren't sure of it, leave it out.`;
+- When he asks how he's doing, what to change, or for your view: push him. His mission and lifetime goals are in his own words in missions(statement, summit), focuses(name, goal_id, categories) and focus_goals; read them before you push. Hold the record up against that, name the gap plainly, never soothe ("it's okay", "be gentle with yourself"), and end on one concrete next step. Back the push with his own numbers first, then, where it truly helps, the documented life of a real person or well-established research named with its source and year. Never invent a figure, a study or a story; if you aren't sure of it, leave it out.`;
 }
 
 const TOOLS = [

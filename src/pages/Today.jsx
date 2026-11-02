@@ -112,6 +112,9 @@ export default function Today() {
   const lateNight = isLateNight();
   const yesterday = addDays(date, -1);
   const yesterdayOpen = Boolean(data) && !data.yesterdayBanked;
+  // Before four in the morning the evening still belongs to yesterday (that's
+  // the day /evening opens), so the button reads yesterday's state then.
+  const eveningBanked = lateNight ? Boolean(data?.yesterdayBanked) : banked;
   const runaway = data?.running && runawayFor(data.running) ? data.running : null;
 
   return (
@@ -132,7 +135,7 @@ export default function Today() {
       <div className="today-grid">
         <div className="stack">
           {yesterdayOpen && lateNight && <YesterdayBanner date={yesterday} urgent />}
-          {(evening || banked) && !(yesterdayOpen && lateNight) && <EveningButton banked={banked} evening={evening} className="today-evening--phone" />}
+          {(evening || eveningBanked) && !(yesterdayOpen && lateNight) && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--phone" />}
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
           {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
@@ -149,12 +152,12 @@ export default function Today() {
           {userId && data && !runaway && <OldRunaways userId={userId} />}
           {/* On a phone during the day, the way into the evening waits here,
               at the end of the day's own cards. */}
-          {!evening && !banked && !(yesterdayOpen && lateNight) && <EveningButton className="today-evening--phone" />}
+          {!evening && !eveningBanked && !(yesterdayOpen && lateNight) && <EveningButton className="today-evening--phone" />}
         </div>
         <div className="stack">
           {/* Just after midnight the yesterday banner is the way in; a second
               link to the same evening would only compete with it. */}
-          {!(yesterdayOpen && lateNight) && <EveningButton banked={banked} evening={evening} className="today-evening--desk" />}
+          {!(yesterdayOpen && lateNight) && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--desk" />}
           <WalkWithGod userId={userId} date={date} />
           <TempleTrip userId={userId} date={date} />
         </div>
@@ -173,12 +176,12 @@ export default function Today() {
 // The one way into the evening. Always the big black button until the day
 // is banked; then a quiet card that still opens it, since the banked evening
 // is where you'd go to look back at it or open it again.
-function EveningButton({ banked = false, evening = false, className }) {
+function EveningButton({ banked = false, lastNight = false, evening = false, className }) {
   if (banked) {
     return (
       <Link to="/evening" className={`evening-banner evening-banner--done ${className}`}>
         <Archive size={16} />
-        <span style={{ flex: 1 }}>Today is banked</span>
+        <span style={{ flex: 1 }}>{lastNight ? "Last night is banked" : "Today is banked"}</span>
         <ArrowRight size={15} />
       </Link>
     );

@@ -27,6 +27,18 @@ const cut = (s, n) => {
 
 const day = (v) => String(v ?? "").slice(0, 10);
 
+// The local day a timestamp falls on, in his time zone. A plain slice of the
+// ISO string would be the UTC day, which in Denver moves every entry after
+// five or six in the evening onto tomorrow.
+function localDay(v, tz) {
+  if (!tz) return day(v);
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(v));
+  } catch {
+    return day(v);
+  }
+}
+
 function addDays(date, n) {
   const d = new Date(`${date}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
@@ -51,7 +63,7 @@ function counts(entry, categories) {
 // this week's focus and what you've done with it, and the quests and lessons
 // you're on. Everything is optional; a missing table is just a missing line.
 //
-// rows: { date, mission, goals:[{id,title}], focuses:[{id,goal_id,name,categories}],
+// rows: { date, tz, mission, goals:[{id,title}], focuses:[{id,goal_id,name,categories}],
 //   entries:[{category,tags,duration_minutes,started_at}] (the last 7 days),
 //   weekFocus:[{id,title,position}], checkins:[{goal_id,date,moved}],
 //   targets:[{id,goal_id,quest_id,lesson_id}], shots:[{target_id,date,level,note}],
@@ -59,7 +71,10 @@ function counts(entry, categories) {
 export function aimForPrompt(rows = {}) {
   const date = rows.date;
   const since = date ? addDays(date, -6) : null;
+  // Dates (shots, check-ins) compare as they are; timestamps go through his
+  // own time zone first.
   const inWeek = (d) => !since || (day(d) >= since && day(d) <= date);
+  const inWeekAt = (t) => inWeek(localDay(t, rows.tz));
   const out = {};
 
   if (rows.mission?.statement) {
@@ -79,7 +94,7 @@ export function aimForPrompt(rows = {}) {
       });
   const targetOf = (key, id) => targets.find((t) => t[key] === id);
 
-  const entries = (rows.entries ?? []).filter((e) => inWeek(e.started_at));
+  const entries = (rows.entries ?? []).filter((e) => inWeekAt(e.started_at));
   const focuses = rows.focuses ?? [];
   const goals = (rows.goals ?? []).map((g) => {
     const mine = focuses.filter((f) => f.goal_id === g.id);

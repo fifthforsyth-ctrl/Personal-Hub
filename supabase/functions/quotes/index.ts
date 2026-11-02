@@ -56,7 +56,9 @@ const SHELF_SIZE = 6;
 // A shelf still pending after this long was abandoned; asking again restarts it.
 const PENDING_GIVES_UP_MS = 5 * 60_000;
 
-const WHO = `They are a member of The Church of Jesus Christ of Latter-day Saints, pressing hard toward their mission (to become a trusted servant of Heavenly Father, worthy of exaltation) through their discipleship, their family, their work and their goals. They want to be pushed, not comforted: choose words that call them higher, from people whose lives backed the words up.`;
+// Each person's own mission comes in their week ("mission"), read from
+// their own row, so nothing here speaks for one account.
+const WHO = `They are a member of The Church of Jesus Christ of Latter-day Saints, pressing toward the mission they wrote for themselves (under "mission" in their week, when they have one) through their discipleship, their family, their work and their goals. Choose words that call them higher toward it, from people whose lives backed the words up.`;
 
 const SOURCES = `Where quotes come from:
 - Leaders of The Church of Jesus Christ of Latter-day Saints: prophets, apostles, other General Authorities and general officers, past and present. General conference talks and Church magazines are the best sources.
@@ -140,11 +142,17 @@ type Context = Record<string, unknown>;
 type Found = z.infer<typeof ShelfSchema>["quotes"][number];
 
 async function weekContext(db: any, userId: string, tz: string, date: string): Promise<Context> {
-  const { data, error } = await db.rpc("curate_context", { p_user_id: userId, p_tz: tz, p_date: date });
+  const [{ data, error }, mission] = await Promise.all([
+    db.rpc("curate_context", { p_user_id: userId, p_tz: tz, p_date: date }),
+    // Their own mission, when they've written one. A failed read is no
+    // mission, never a failed quote.
+    db.from("missions").select("statement, summit").eq("user_id", userId).maybeSingle(),
+  ]);
   if (error) throw new Error(`curate_context: ${error.message}`);
   // The quote needs the week, not the whole shelf of cards.
   const { cards: _cards, past_feedback: _feedback, ...week } = data ?? {};
-  return week;
+  const statement = mission?.data?.statement?.trim();
+  return statement ? { ...week, mission: statement.slice(0, 400) } : week;
 }
 
 async function quoteHistory(db: any, userId: string, date: string) {

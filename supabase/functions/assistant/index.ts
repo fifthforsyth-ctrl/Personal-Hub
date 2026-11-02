@@ -835,10 +835,12 @@ async function watchDay(supabase: any, date: string, tz: string) {
 // their focuses and the last week's minutes, the targets' arrows this week,
 // this week's focus and its check-ins, and the quests and lessons they're
 // on. Like the watch, it never holds a prompt up: a failed read is no aim.
-async function aimDay(supabase: any, date: string) {
+async function aimDay(supabase: any, date: string, tz: string) {
   try {
+    // A day further back than the week, so no time zone can cut off its
+    // first local day; aimForPrompt keeps only the seven local days.
     const since = new Date(`${date}T00:00:00Z`);
-    since.setUTCDate(since.getUTCDate() - 7);
+    since.setUTCDate(since.getUTCDate() - 8);
     const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
     const ws = new Date(`${date}T12:00:00Z`);
     ws.setUTCDate(ws.getUTCDate() - dow);
@@ -864,6 +866,7 @@ async function aimDay(supabase: any, date: string) {
     ]);
     return aimForPrompt({
       date,
+      tz,
       mission: mission.data ?? null,
       goals: goals.data ?? [],
       focuses: focuses.data ?? [],
@@ -893,7 +896,7 @@ async function walkWithGod(supabase: any, anthropic: Anthropic, tz: string, date
     supabase.from("daily_walk").select("verse_ref").gte("date", since.toISOString().slice(0, 10)).lt("date", date),
     supabase.from("daily_walk").select("verse_ref, verse_text, prompt").eq("date", date).maybeSingle(),
     watchDay(supabase, date, tz),
-    aimDay(supabase, date),
+    aimDay(supabase, date, tz),
   ]);
   if (e1) throw new Error(`day_archive: ${e1.message}`);
   if (e2) throw new Error(`daily_walk: ${e2.message}`);
@@ -987,7 +990,7 @@ async function reflectionQuestions(supabase: any, anthropic: Anthropic, tz: stri
     supabase.rpc("day_archive", { p_date: date, p_tz: tz }),
     recentEvenings(supabase, date),
     watchDay(supabase, date, tz),
-    aimDay(supabase, date),
+    aimDay(supabase, date, tz),
   ]);
   if (error) throw new Error(`day_archive: ${error.message}`);
 
