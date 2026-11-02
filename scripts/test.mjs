@@ -196,6 +196,7 @@ import {
   fmtHours as mirrorHours,
 } from "../src/lib/mirror.js";
 import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields, applyOverrides } from "../src/lib/todayPlan.js";
+import { build as esbuildBundle } from "esbuild";
 
 let pass = 0;
 let fail = 0;
@@ -3273,7 +3274,7 @@ console.log("\napple watch");
   ok("watch saw: nothing for a focus it didn't touch", watchSaw({ categories: ["Draw"] }, entries) === "" && watchSaw({ categories: [] }, entries) === "");
   ok("watch saw: a timer still running isn't counted yet", !watchSaw(exercise, entries).includes("Exercise"));
   const line = morningWatchLine({ asleep_min: 586, deep_min: 51, rem_min: 145, sleep_end: "2026-11-01T15:54:17Z" });
-  ok("morning watch line: asleep, stages, when it saw you wake", /^Your watch: 9h 46m asleep · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
+  ok("morning watch line: slept, stages, when it saw you wake", /^Your watch: slept 9h 46m · 51m deep, 2h 25m REM · awake at \d{1,2}:54/.test(line ?? ""), line);
   ok("morning watch line: no night, no line", morningWatchLine(null) === null && morningWatchLine({ steps: 400 }) === null);
   ok("watch key status names the watch app", lastUsedLine({ last_used_at: new Date().toISOString(), last_used_by: "app" }).includes("the watch app"));
 }
@@ -3652,8 +3653,8 @@ console.log("\napple watch");
   ok("a plain night can grow an entry by up to 45 minutes", grow.kind === "fix" && grow.end === "2026-10-31T10:30:00.000Z", JSON.stringify(grow));
   const far = sleepAction(night, [{ ...hand, started_at: "2026-10-31T05:45:00Z", ended_at: "2026-10-31T10:45:00Z" }], later);
   ok("a side that would grow more than 45 minutes keeps your time; the other side still moves", far.kind === "fix" && far.start === "2026-10-31T05:45:00.000Z" && far.end === "2026-10-31T10:30:00.000Z", JSON.stringify(far));
-  const study = { id: "st", category: "Study", tags: ["Study"], started_at: "2026-10-31T09:40:00Z", ended_at: "2026-10-31T10:20:00Z" };
-  const upped = sleepAction(night, [{ ...hand, ended_at: "2026-10-31T09:30:00Z" }, study], later);
+  const study = { id: "st", category: "Study", tags: ["Study"], started_at: "2026-10-31T08:10:00Z", ended_at: "2026-10-31T08:50:00Z" };
+  const upped = sleepAction(night, [{ ...hand, ended_at: "2026-10-31T08:00:00Z" }, study], later);
   ok("something else logged inside the night keeps the entry from growing", upped.kind === "match", JSON.stringify(upped));
   const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T04:00:00Z", ended_at: "2026-10-31T04:43:00Z" };
   ok("a few minutes' overlap at the edge doesn't count as up in the night", !upInTheNight(night, [reading], later.getTime()));
@@ -3702,7 +3703,7 @@ console.log("\napple watch");
   const checkinSrc = readFileSync(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url), "utf8");
   ok("the check-in's one line says the watch's sleep the Minutes way", /if \(slept\) parts\.push\(`slept \$\{slept\}`\);\s*else if \(plan\.woke_at && plan\.lights_out_at\)/.test(checkinSrc) && /slept=\{data\.watchSlept\}/.test(checkinSrc));
   const glanceSrc = readFileSync(new URL("../src/components/today/MinutesGlance.jsx", import.meta.url), "utf8");
-  ok("the Minutes row follows whether the check-in shows the night", /useCheckinShowsNight\(\) \?\? isMorning\(\)/.test(glanceSrc) && /minutesWatch\(data, date, \{ night \}\)/.test(glanceSrc));
+  ok("the Minutes row follows whether the check-in shows the night", /checkinOnPage \? shown \?\? isMorning\(\) : false/.test(glanceSrc) && /minutesWatch\(data, date, \{ night \}\)/.test(glanceSrc));
 }
 
 {
@@ -4143,6 +4144,157 @@ console.log("\napple watch");
     JSON.stringify({ bleed, padIn, wider, gap })
   );
 }
+
+{
+  console.log("\nthe watch's night stays as it saw it, and says it once, in one word");
+  // Stop and I'm up, against a stand-in database: api.js is bundled with its
+  // Supabase client swapped for a PostgREST client whose fetch answers here.
+  const apiPath = fileURLToPath(new URL("../src/lib/api.js", import.meta.url));
+  const apiBuilt = await esbuildBundle({
+    entryPoints: [apiPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-in client",
+        setup(b) {
+          b.onResolve({ filter: /^\.\/supabaseClient$/ }, (a) => (a.importer === apiPath ? { path: "client", namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, () => ({
+            contents: `import { PostgrestClient } from "@supabase/postgrest-js";
+export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch: (...a) => globalThis.__hubFetch(...a) });`,
+            loader: "js",
+            resolveDir: fileURLToPath(new URL("../src/lib", import.meta.url)),
+          }));
+        },
+      },
+    ],
+  });
+  const api = await import(`data:text/javascript;base64,${Buffer.from(apiBuilt.outputFiles[0].text).toString("base64")}`);
+  const sent = [];
+  let updated = [];
+  globalThis.__hubFetch = async (url, init = {}) => {
+    const method = init.method ?? "GET";
+    const body = init.body ? JSON.parse(init.body) : null;
+    sent.push({ url: decodeURIComponent(String(url)), method, body });
+    const rows = method === "PATCH" ? updated : method === "POST" ? [{ id: "started", ...body }] : [];
+    const one = (new Headers(init.headers).get("Accept") ?? "").includes("vnd.pgrst.object");
+    return new Response(JSON.stringify(one ? rows[0] ?? null : rows), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const lastPatch = () => [...sent].reverse().find((s) => s.method === "PATCH");
+
+  // 4:47 the watch ends Sleep at 4:41 and stamps it; at 4:58 he taps I'm up
+  // on the page he opened at 4:45.
+  updated = [];
+  const late = await api.stopTimeEntry("sleep").then((v) => v, (err) => err);
+  ok("a stop only ends a timer that's still running", /ended_at=is\.null/.test(lastPatch()?.url ?? ""), lastPatch()?.url);
+  ok("one that had already ended (the watch's wake time) is left, and the stop says null, not an error", late === null, String(late));
+  updated = [{ id: "sleep", category: "Sleep", tags: ["Sleep"], started_at: "2026-11-02T04:30:00Z", ended_at: "2026-11-02T11:58:00Z" }];
+  ok("a stop that lands hands back the entry", (await api.stopTimeEntry("sleep"))?.id === "sleep");
+  const at = "2026-11-02T05:10:00.000Z";
+  await api.stopTimeEntry("prep", { endedBy: "overnight_fix", at });
+  ok("the runaway fix still sets the time you give, running or not", !/ended_at=is\.null/.test(lastPatch()?.url ?? "") && lastPatch()?.body?.ended_at === at && lastPatch()?.body?.ended_by === "overnight_fix", JSON.stringify(lastPatch()));
+  updated = [];
+  const bed = await api.goToBed("u", "gone").then((v) => v, (err) => err);
+  ok("Going to bed after its timer already stopped still starts Sleep", bed?.id === "started" && bed?.category === "Sleep", String(bed?.message ?? JSON.stringify(bed)));
+  const switched = await api.switchTimer("u", "gone", { categories: ["Waste"] }).then((v) => v, (err) => err);
+  ok("switching from a timer that already stopped has nothing to ask about", switched?.stopped === null && switched?.started?.category === "Waste", JSON.stringify(switched));
+  delete globalThis.__hubFetch;
+  const glanceSrc = readFileSync(new URL("../src/components/today/MinutesGlance.jsx", import.meta.url), "utf8");
+  ok("the Minutes card's Stop takes a null as already stopped", /if \(stopped && needsFollowUp\(stopped\)\) setFollowUp\(stopped\);\s*\/\/ Today \(and anything else open\) reloads on this, once\.\s*announceChange\(\);/.test(glanceSrc));
+  const checkinSrc = readFileSync(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url), "utf8");
+  ok("I'm up reloads the night whether or not its stop landed", /await stopTimeEntry\(running\.id\);\s*announceChange\(\);\s*await Promise\.all\(\[reload\(\), onChanged\?\.\(\)\]\);/.test(checkinSrc));
+
+  // The check-in reads the night again when you come back to the app.
+  ok("the check-in reads the night again when you come back to the app", /const onShow = \(\) => document\.visibilityState === "visible" && reload\(\);/.test(checkinSrc) && /document\.addEventListener\("visibilitychange", onShow\)/.test(checkinSrc) && /document\.removeEventListener\("visibilitychange", onShow\)/.test(checkinSrc));
+
+  // Slept and Up under the minutes, unless the check-in on the page says them.
+  const todaySrc = readFileSync(new URL("../src/pages/Today.jsx", import.meta.url), "utf8");
+  ok("Today tells the Minutes card whether the check-in is up, by the test it mounts it with", /\{userId && data && !runaway && <MorningCheckin /.test(todaySrc) && /<MinutesGlance [^>]*checkinOnPage=\{Boolean\(userId && data && !runaway\)\}/.test(todaySrc));
+  ok("with no check-in on the page (a runaway asked about instead), the row says Slept and Up", /if \(!loaded\) return isMorning\(\);\s*return checkinOnPage \? shown \?\? isMorning\(\) : false;/.test(glanceSrc) && /const checkinShowsNight = useNightInCheckin\(loaded, checkinOnPage\);/.test(glanceSrc));
+  const sheetPath = fileURLToPath(new URL("../src/components/today/MorningCheckin.jsx", import.meta.url));
+  const keep = /\/lib\/(honest|planDates|watch)$|^\.\/minutes$/;
+  const checkinBuilt = await esbuildBundle({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !keep.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const names = (checkinSrc.match(new RegExp(`^import \\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const { nightParts } = await import(`data:text/javascript;base64,${Buffer.from(checkinBuilt.outputFiles[0].text).toString("base64")}`);
+  const woke = "2026-11-02T11:41:00Z";
+  const lights = "2026-11-02T04:40:00Z";
+  ok("the one line says Up and the watch's sleep", nightParts({ woke_at: woke, lights_out_at: lights }, "6h 52m").join(" · ").match(/^Up \S+.* · slept 6h 52m$/) !== null, nightParts({ woke_at: woke, lights_out_at: lights }, "6h 52m").join(" · "));
+  ok("without the watch, lights-out to wake", nightParts({ woke_at: woke, lights_out_at: lights }, null)[1]?.endsWith("of sleep"));
+  ok("the watch's sleep alone still counts as the night", nightParts({ woke_at: null, lights_out_at: lights }, "6h 52m").join() === "slept 6h 52m");
+  ok("a line with neither Up nor sleep in it doesn't count as showing the night", nightParts({ woke_at: null, lights_out_at: lights }, null).length === 0 && nightParts({ woke_at: null, lights_out_at: null, sleep_quality: 4 }, null).length === 0);
+  ok("a done check-in reports the night only when its line has it", /done && !editing \? nightParts\(dayPlan, data\.watchSlept\)\.length > 0/.test(checkinSrc) && /const parts = nightParts\(plan, slept\);/.test(checkinSrc));
+
+  // One word for the watch's sleep.
+  const day = { date: "2026-11-02", asleep_min: 412, deep_min: 51, rem_min: 80, sleep_end: "2026-11-02T11:41:00Z", woke_at: "2026-11-02T11:41:00Z", resting_hr: 54 };
+  const formLine = morningWatchLine(day);
+  ok("the check-in's form says slept, the way the rest do", /^Your watch: slept 6h 52m · /.test(formLine ?? "") && !/asleep/i.test(formLine ?? ""), formLine);
+  ok(
+    "Slept everywhere the watch's sleep shows: the form, the one line, the Minutes row, the evening",
+    formLine.includes(`slept ${watchSlept(day)}`) &&
+      nightParts({ woke_at: null }, watchSlept(day)).join() === `slept ${watchSlept(day)}` &&
+      minutesWatchParts(day, null, null).some((p) => p.label === "Slept" && p.value === watchSlept(day)) &&
+      eveningWatchParts(day, []).some((p) => p.label === "Slept" && p.value === watchSlept(day))
+  );
+
+  // Something logged over the edge of the night isn't up in the night.
+  const night = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T12:10:00Z"), asleep: 430, awake: 20, bedStart: null };
+  const now = new Date("2026-10-31T15:00:00Z");
+  const hand = { id: "h", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T05:00:00Z", ended_at: "2026-10-31T11:40:00Z", is_nap: false, source: null, watch_fixed_at: null };
+  // Reading 21:30-22:50; the watch has him asleep at 22:40 (as he read) to 6:10.
+  const reading = { id: "r", category: "Reading", tags: ["Reading"], started_at: "2026-10-31T03:30:00Z", ended_at: "2026-10-31T04:50:00Z" };
+  ok("reading over the moment you fell asleep isn't up in the night", !upInTheNight(night, [hand, reading], now.getTime()));
+  const read = sleepAction(night, [hand, reading], now);
+  ok("so the entry still grows, back to where the reading ended and on to when you woke", read.kind === "fix" && read.start === "2026-10-31T04:50:00.000Z" && read.end === "2026-10-31T12:10:00.000Z", JSON.stringify(read));
+  const scripture = { id: "sc", category: "Scripture", tags: ["Scripture"], started_at: "2026-10-31T11:55:00Z", ended_at: "2026-10-31T12:30:00Z" };
+  ok("nor is something you started before the watch thinks you woke", !upInTheNight(night, [hand, scripture], now.getTime()));
+  const morning = sleepAction(night, [hand, scripture], now);
+  ok("and the end grows only to where it started", morning.kind === "fix" && morning.start === "2026-10-31T04:40:00.000Z" && morning.end === "2026-10-31T11:55:00.000Z", JSON.stringify(morning));
+  const inside = { id: "in", category: "Study", tags: ["Study"], started_at: "2026-10-31T08:00:00Z", ended_at: "2026-10-31T08:30:00Z" };
+  ok("something logged well inside the night is up in the night", upInTheNight(night, [hand, inside], now.getTime()));
+  const held = sleepAction(night, [{ ...hand, ended_at: "2026-10-31T07:50:00Z" }, inside], now);
+  ok("and then the entry doesn't grow on either side", held.kind === "match" && held.id === "h", JSON.stringify(held));
+  ok("20 minutes in from each edge is still the edge", !upInTheNight(night, [{ ...inside, started_at: "2026-10-31T05:00:00Z", ended_at: "2026-10-31T05:30:00Z" }], now.getTime()) && !upInTheNight(night, [{ ...inside, started_at: "2026-10-31T11:20:00Z", ended_at: "2026-10-31T11:50:00Z" }], now.getTime()));
+
+  // A send in the middle of the night carries only part of it.
+  const timer = { id: "t", category: "Sleep", tags: ["Sleep"], started_at: "2026-10-31T04:30:00Z", ended_at: null, is_nap: false, source: null, watch_fixed_at: null };
+  const part = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T09:05:00Z"), asleep: 255, awake: 10, bedStart: null };
+  const early = sleepAction(part, [timer], new Date("2026-10-31T09:20:00Z"));
+  ok("a night that ended under 45 minutes ago doesn't end a running Sleep timer", early.kind === "skip" && early.why === "the night only just ended", JSON.stringify(early));
+  const full = { start: new Date("2026-10-31T04:40:00Z"), end: new Date("2026-10-31T12:00:00Z"), asleep: 420, awake: 20, bedStart: null };
+  ok("nor does the whole night sent the moment you're up", sleepAction(full, [timer], new Date("2026-10-31T12:10:00Z")).kind === "skip");
+  const after = sleepAction(full, [timer], new Date("2026-10-31T12:45:00Z"));
+  ok("45 minutes on, the next send ends it at the whole night's wake", after.kind === "end" && after.id === "t" && after.at === "2026-10-31T12:00:00.000Z" && after.start === "2026-10-31T04:40:00.000Z", JSON.stringify(after));
+
+  // Putting a move back, when the watch ended a running timer.
+  const raw0102 = readFileSync(new URL("../supabase/migrations/0102_watch_corrects.sql", import.meta.url), "utf8");
+  ok("0102's put-back keeps the watch's end where you never gave one", /set started_at = hand_started_at,\n--\s+ended_at = coalesce\(hand_ended_at, ended_at\)\n--\s+where hand_started_at is not null;/.test(raw0102) && !/hand_ended_at is not null/.test(raw0102));
+  const healthSrc = readFileSync(new URL("../supabase/functions/watch/health.js", import.meta.url), "utf8");
+  const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
+  ok("and the watch function says so where it explains putting back", /hand_ended_at stays empty/.test(healthSrc) && /0102_watch_corrects\.sql/.test(healthSrc) && /0102_watch_corrects\.sql/.test(watchFn.slice(0, watchFn.indexOf("import "))));
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

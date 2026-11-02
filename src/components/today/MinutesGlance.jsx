@@ -39,12 +39,14 @@ import "../../styles/watch.css";
 // red and never a score. Nothing shows when the watch sent nothing, so a
 // day you logged by hand looks exactly as it did, and the card never waits
 // on the watch or breaks when it can't be read. While the morning check-in
-// is on the page it already says when you were up and how long you slept,
-// so the row leaves those two out until it's gone (noon, or Not today),
-// rather than show the night twice a few lines apart.
-export default function MinutesGlance({ entries, running, loaded, date }) {
+// shows last night (its form, or its one line when that says when you were
+// up or how long you slept), the row leaves those two out until it doesn't
+// (noon, or Not today), rather than show the night twice a few lines apart.
+// `checkinOnPage` is whether Today has the check-in up at all: with a
+// runaway timer asked about in its place, the row says them itself.
+export default function MinutesGlance({ entries, running, loaded, date, checkinOnPage = false }) {
   const { user } = useAuth();
-  const checkinShowsNight = useCheckinShowsNight() ?? isMorning();
+  const checkinShowsNight = useNightInCheckin(loaded, checkinOnPage);
   const watch = useWatchRow(user?.id, date, !checkinShowsNight);
   const capture = useCapture();
   const [busy, setBusy] = useState(false);
@@ -65,9 +67,12 @@ export default function MinutesGlance({ entries, running, loaded, date }) {
     setBusy(true);
     setError(null);
     try {
+      // Null when it had already stopped (the watch ended last night's
+      // Sleep while this page sat open): its end stays where it is, there's
+      // nothing to ask about, and the reload below shows it.
       const stopped = await stopTimeEntry(live.id);
       setStoppedId(live.id);
-      if (needsFollowUp(stopped)) setFollowUp(stopped);
+      if (stopped && needsFollowUp(stopped)) setFollowUp(stopped);
       // Today (and anything else open) reloads on this, once.
       announceChange();
     } catch (err) {
@@ -141,6 +146,17 @@ export default function MinutesGlance({ entries, running, loaded, date }) {
       {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
     </div>
   );
+}
+
+// Whether the check-in is showing last night, so the watch row leaves Slept
+// and Up to it. Only when Today has it on the page: with none there, the
+// row says them. Before Today has loaded (the check-in may be about to
+// appear) and while the check-in reads the night, it goes by the
+// check-in's hours, so the row doesn't show them and then take them away.
+function useNightInCheckin(loaded, checkinOnPage) {
+  const shown = useCheckinShowsNight();
+  if (!loaded) return isMorning();
+  return checkinOnPage ? shown ?? isMorning() : false;
 }
 
 // Last night and this morning from the watch: the 29 days up to today,

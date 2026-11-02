@@ -171,13 +171,21 @@ export async function logPastTimeEntry(userId, { categories, description, minute
 
 // `endedBy` says how it ended: a plain stop, the Going to bed button, or a
 // runaway timer ended after the fact. `at` ends it earlier than now.
+//
+// A stop now only ends a timer that is still running. The page you tap on
+// may have loaded before something else ended it (the watch ends last
+// night's Sleep where it saw you wake, and stamps that), and a late Stop
+// or I'm up would move that end to now. Then nothing changes and this
+// returns null: it had already stopped, and the reload shows where. A stop
+// at `at` is the runaway fix, a time you give for when a timer that isn't
+// Sleep really stopped, so it lands either way (the watch never ends those).
 export async function stopTimeEntry(entryId, { endedBy = "stop", at } = {}) {
-  const { data, error } = await supabase
+  let q = supabase
     .from("time_log_entries")
     .update({ ended_at: (at ? new Date(at) : new Date()).toISOString(), ended_by: endedBy })
-    .eq("id", entryId)
-    .select()
-    .single();
+    .eq("id", entryId);
+  if (!at) q = q.is("ended_at", null);
+  const { data, error } = await q.select().maybeSingle();
   if (error) throw error;
   return data;
 }

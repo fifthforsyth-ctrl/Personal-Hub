@@ -144,7 +144,7 @@ export default function Today() {
           )}
           {/* Sunday: last week in the mirror, before the new one is planned. */}
           {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
-          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} />
+          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} checkinOnPage={Boolean(userId && data && !runaway)} />
           {/* The day's plan, right under the minutes it turns into. */}
           {data && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
           {/* Old timers that ran through the night, offered once, under the

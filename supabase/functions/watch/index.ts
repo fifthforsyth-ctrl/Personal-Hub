@@ -26,7 +26,10 @@
 //    Exercise entry unless you logged one over it. A Sleep or Exercise
 //    entry you logged by hand takes the watch's times, once, and keeps
 //    yours beside them (hand_started_at, hand_ended_at); after that your
-//    edits stay. Nothing here makes a win.
+//    edits stay. A Sleep timer still running when its night arrives had no
+//    end of yours, so only its start is kept (hand_ended_at stays empty),
+//    and putting it back (the SQL in 0102_watch_corrects.sql) keeps the
+//    watch's end. Nothing here makes a win.
 //
 // 4. The Hub app on the watch (watch-app/ in this repo): { api, ... }.
 //    Plain JSON both ways. "today" is everything its screens show (the
@@ -576,7 +579,9 @@ async function fitEntry(db: DB, userId: string, old: Around, start: string, end:
 // so, and is stamped in the same update, so a time you change afterwards
 // in the morning check-in is yours and the next send leaves it alone. When
 // the start moves, the start you gave is kept beside it; hand_ended_at
-// stays empty because you never gave an end. The update only lands while
+// stays empty because you never gave an end, so 0102's put-back SQL puts
+// the start back and keeps this end. sleepAction only says "end" once the
+// night ended 45 minutes ago or more. The update only lands while
 // the timer is still running (and still starts where it was read, when the
 // start moves), so an "I'm up" or an edit in between wins.
 async function endSleep(db: DB, userId: string, old: Around | undefined, at: string | undefined, start: string | null | undefined) {

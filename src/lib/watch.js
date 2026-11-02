@@ -35,9 +35,10 @@ export function workoutName(name) {
 // How long the watch saw you asleep last night ("6h 52m"), or null when it
 // has no night for the day. Every place the Hub shows the watch's sleep
 // takes its number from here, so one night never reads as two different
-// numbers, and the short lines call it "slept" the same way: "Slept 6h 52m"
-// under Today's minutes and in the evening, "slept 6h 52m" in the morning
-// check-in's line once it's done.
+// numbers, and every line calls it "slept" the same way: "Slept 6h 52m"
+// under Today's minutes and in the evening, "Your watch: slept 6h 52m" in
+// the morning check-in's form, and "slept 6h 52m" in its line once it's
+// done.
 export function watchSlept(day) {
   const slept = num(day?.asleep_min);
   return slept ? fmtMins(slept) : null;
@@ -78,7 +79,7 @@ export function eveningWatchParts(day, workouts) {
 export function morningWatchLine(day) {
   const slept = watchSlept(day);
   if (!slept) return null;
-  const parts = [`${slept} asleep`];
+  const parts = [`slept ${slept}`];
   const deep = num(day?.deep_min);
   const rem = num(day?.rem_min);
   if (deep && rem) parts.push(`${fmtMins(deep)} deep, ${fmtMins(rem)} REM`);
