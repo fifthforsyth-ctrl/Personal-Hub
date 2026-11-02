@@ -1,72 +1,264 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, ArrowRight, ChevronDown } from "lucide-react";
 import { colorFor } from "../../lib/categories";
-import { minutesOf, fmtTimeRange } from "../../lib/planDates";
+import { fmtTimeRange } from "../../lib/planDates";
+import { fetchTasks, fetchTodayQuestWork, toggleTask, updateQuestTask, updateStep } from "../../lib/api";
+import { useLoad } from "../../lib/useLoad";
+import { planForToday, doneFields, withFields } from "../../lib/todayPlan";
+import { haptic } from "../../lib/haptics";
+import { useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
+import { announceChange } from "./announce";
 
-// The blocks you laid out for today, on Today.
+// Your plan for today, right under your minutes (Aaron, 2026-11-02): "all
+// daily blocks visible, with just the blocks ahead of me expanded to see all
+// the tasks."
 //
-// Sunday's week plan (and anything you put on the day by hand) lands on each
-// date as blocks. Here they're a plain list in the order you'll live them:
-// what you're in now, then what's next. Blocks already behind you fold into
-// one line so the morning doesn't push the afternoon off the screen; a tap
-// opens them.
+// Every block you laid out for today is listed, in the order you'll live
+// it. The one you're in now is marked and open, and so is each one ahead,
+// with what you'll do in it: the tasks you planned into it on the day page,
+// and what you picked for today on Quests when the block is tied to that
+// quest or camp (src/lib/todayPlan.js decides which block takes what).
+// Blocks behind you shrink to one line with how much of them got done; a
+// tap opens one to tick something you finished late.
 //
-// Changing a block still happens on the day itself, one tap away.
-export default function PlanBlocks({ date, chunks }) {
-  const [showEarlier, setShowEarlier] = useState(false);
+// A tick saves straight away and shows before it's saved. Done things stay
+// where they were, struck through, so nothing jumps out from under your
+// thumb. What fits no block waits at the foot under "Not in a block", so
+// nothing on today is hidden: planned tasks with no time, then each quest's,
+// with a way into that quest.
+//
+// The card loads its own tasks, so Today opens as fast as it did; while
+// they come, or if they don't, the blocks still show from the day's plan.
+// Changing a block still happens on the day page, one tap away.
+export default function PlanBlocks({ userId, date, chunks }) {
+  const toast = useToast();
   const now = useNowMinutes();
+  const [openPast, setOpenPast] = useState(() => new Set());
 
-  const blocks = (chunks ?? [])
-    .filter((c) => c.start_time && c.end_time)
-    .map((c) => {
-      const from = minutesOf(c.start_time);
-      let to = minutesOf(c.end_time);
-      // Sleep at 9:30 PM until 4:30 AM ends tomorrow, not before it starts.
-      if (to <= from) to += 24 * 60;
-      return { ...c, from, to };
-    })
-    .sort((a, b) => a.from - b.from || a.to - b.to);
+  const { data, error, reload, mutate } = useLoad(() => (userId ? loadWork(userId, date) : null), [userId, date]);
 
-  const earlier = blocks.filter((b) => b.to <= now);
-  const ahead = blocks.filter((b) => b.to > now);
-  const shown = showEarlier || ahead.length === 0 ? blocks : ahead;
-  const hidden = shown === blocks ? 0 : earlier.length;
+  // Something changed elsewhere (the capture sheet, the day page, this card
+  // a moment ago), or the phone came back to the app.
+  useEffect(() => {
+    const onVisible = () => document.visibilityState === "visible" && reload();
+    window.addEventListener("hub:changed", reload);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("hub:changed", reload);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [reload]);
+
+  // Tell the rest of Today once the ticks settle, so ticking off three
+  // things in a row reloads the page once. Leaving Today says it straight
+  // away.
+  const tellTimer = useRef(null);
+  const tellSoon = useCallback(() => {
+    clearTimeout(tellTimer.current);
+    tellTimer.current = setTimeout(() => {
+      tellTimer.current = null;
+      announceChange();
+    }, 1200);
+  }, []);
+  useEffect(
+    () => () => {
+      if (!tellTimer.current) return;
+      clearTimeout(tellTimer.current);
+      announceChange();
+    },
+    []
+  );
+
+  const plan = useMemo(
+    () => planForToday({ chunks: chunks ?? [], tasks: data?.tasks ?? [], questWork: data?.work ?? null, nowMin: now, date }),
+    [chunks, data, now, date]
+  );
+
+  // One save at a time for each row, so a double tap can't race itself.
+  const saving = useRef(new Set());
+  const toggle = useCallback(
+    async (item) => {
+      const key = `${item.kind}:${item.id}`;
+      if (saving.current.has(key)) return;
+      saving.current.add(key);
+      const done = !item.done;
+      const fields = doneFields(item.kind, done, date, new Date().toISOString());
+      mutate((d) => withFields(d, item.kind, item.id, fields));
+      haptic(done ? "success" : "tap");
+      try {
+        if (item.kind === "task") await toggleTask(item.id, done);
+        else if (item.kind === "line") await updateQuestTask(item.id, fields);
+        else await updateStep(item.id, fields);
+        tellSoon();
+      } catch (err) {
+        toast.error(err, "Couldn't save that.");
+        reload();
+      } finally {
+        saving.current.delete(key);
+      }
+    },
+    [date, mutate, reload, tellSoon, toast]
+  );
+
+  const flipPast = (id) =>
+    setOpenPast((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Today hasn't answered yet: nothing to show, rather than "nothing planned".
+  if (chunks === undefined) return null;
+
+  const { blocks, loose } = plan;
+  const looseCount = loose.planned.length + loose.quests.length;
+  const blocksMissing = chunks === null;
 
   return (
     <div className="card plan-blocks">
-      <div className="card-head" style={{ marginBottom: 8 }}>
-        <span className="card-title"><CalendarClock size={14} />Today's plan</span>
+      <div className="card-head plan-blocks__head">
+        <span className="card-title">
+          <CalendarClock size={14} />
+          Today's plan
+        </span>
         <Link to={`/day/${date}`} className="btn-link plan-blocks__open">
           {blocks.length > 0 ? "Open day" : "Plan it"}
           <ArrowRight size={13} />
         </Link>
       </div>
 
-      {blocks.length === 0 && <p className="card-note">Nothing planned for today yet.</p>}
+      {error && <LoadError what="today's tasks" error={error} onRetry={reload} stale={Boolean(data)} className="plan-blocks__error" />}
 
-      {hidden > 0 && (
-        <button type="button" className="plan-blocks__earlier" onClick={() => setShowEarlier(true)}>
-          <ChevronDown size={13} />
-          {hidden === 1 ? "1 earlier block" : `${hidden} earlier blocks`}
-        </button>
+      {blocksMissing ? (
+        <p className="card-note">Couldn't load today's blocks. They'll be back when Today reloads.</p>
+      ) : (
+        blocks.length === 0 && looseCount === 0 && <p className="card-note">Nothing planned for today yet.</p>
       )}
 
-      {shown.map((b) => {
-        const isNow = b.from <= now && now < b.to;
-        const past = b.to <= now;
-        return (
-          <div key={b.id} className={"plan-blocks__row" + (isNow ? " is-now" : "") + (past ? " is-past" : "")}>
-            <span className="plan-blocks__time mono">{fmtTimeRange(b.start_time, b.end_time)}</span>
-            <span className="plan-blocks__title">
-              {b.category && <span className="dot" style={{ background: colorFor(b.category) }} />}
-              <span className="truncate">{b.title || "Untitled block"}</span>
-            </span>
-            {isNow && <span className="plan-blocks__now">Now</span>}
-          </div>
-        );
-      })}
+      {!blocksMissing && blocks.length > 0 && (
+        <ol className="plan-blocks__list">
+          {blocks.map((b) => (
+            <Block key={b.id} block={b} open={b.state !== "past" || openPast.has(b.id)} onFlip={() => flipPast(b.id)} onToggle={toggle} />
+          ))}
+        </ol>
+      )}
+
+      {!blocksMissing && looseCount > 0 && <Loose loose={loose} date={date} onToggle={toggle} />}
     </div>
+  );
+}
+
+async function loadWork(userId, date) {
+  const [tasks, work] = await Promise.all([fetchTasks(userId, date), fetchTodayQuestWork(userId, date)]);
+  return { tasks, work };
+}
+
+// One block: its time and name, and what's in it when it's open. A block
+// behind you opens and closes with a tap on its line.
+function Block({ block: b, open, onFlip, onToggle }) {
+  const past = b.state === "past";
+  const isNow = b.state === "now";
+  const canFlip = past && b.items.length > 0;
+  const head = (
+    <>
+      <span className="plan-blocks__time mono">{fmtTimeRange(b.start_time, b.end_time)}</span>
+      <span className="plan-blocks__title">
+        {b.category && <span className="dot" style={{ background: colorFor(b.category) }} />}
+        <span className="truncate">{b.title || "Untitled block"}</span>
+      </span>
+      <span className="plan-blocks__aside">
+        {isNow && <span className="plan-blocks__now">Now</span>}
+        {past && b.total > 0 && <span className="plan-blocks__count">{b.done} of {b.total} done</span>}
+        {canFlip && <ChevronDown size={14} className={"plan-blocks__chev" + (open ? " is-open" : "")} />}
+      </span>
+    </>
+  );
+  const rowClass = "plan-blocks__row" + (isNow ? " is-now" : "") + (past ? " is-past" : "");
+  const showItems = open && b.items.length > 0;
+
+  return (
+    <li className={"plan-block" + (isNow ? " plan-block--now" : "") + (showItems ? " has-items" : "")}>
+      {canFlip ? (
+        <button type="button" className={rowClass + " plan-blocks__row--tap"} aria-expanded={open} onClick={onFlip}>
+          {head}
+        </button>
+      ) : (
+        <div className={rowClass}>{head}</div>
+      )}
+      {showItems && <Items items={b.items} onToggle={onToggle} />}
+    </li>
+  );
+}
+
+// What's not tied to any block: tasks planned with no time, then each
+// quest's, under its name (a way into that quest).
+function Loose({ loose, date, onToggle }) {
+  const many = loose.quests.length > 1;
+  return (
+    <div className="plan-blocks__loose">
+      <div className="eyebrow plan-blocks__loose-head">Not in a block</div>
+      {loose.planned.length > 0 && <Items items={loose.planned} onToggle={onToggle} />}
+      {loose.quests.map((g) => (
+        <div key={g.questId ?? "none"} className="plan-blocks__group">
+          {g.questId ? (
+            <Link to={`/quests/${g.questId}`} className="plan-blocks__group-title">
+              <span className="truncate">{g.title}</span>
+              <ArrowRight size={13} />
+            </Link>
+          ) : (
+            <span className="plan-blocks__group-title">{g.title}</span>
+          )}
+          <Items items={g.items} hideFrom={g.title} onToggle={onToggle} />
+        </div>
+      ))}
+      {loose.quests.length > 0 && (
+        <p className="plan-blocks__hint">
+          {many ? "Tie a block to one of these quests on the " : "Tie a block to this quest on the "}
+          <Link to={`/day/${date}`}>day page</Link>
+          {many ? " and its tasks show inside it." : " and these show inside it."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Items({ items, onToggle, hideFrom = null, sub = false }) {
+  return (
+    <ul className={sub ? "plan-item__subs" : "plan-blocks__items"}>
+      {items.map((item) => (
+        <Item key={`${item.kind}:${item.id}`} item={item} hideFrom={hideFrom} onToggle={onToggle} />
+      ))}
+    </ul>
+  );
+}
+
+// A thing to do: a box to tick, its words, where it's from on Quests, and
+// what's under it.
+function Item({ item, onToggle, hideFrom }) {
+  const from = item.from && item.from !== hideFrom ? item.from : null;
+  return (
+    <li className={"plan-item" + (item.done ? " is-done" : "")}>
+      <div className="plan-item__row">
+        {/* The tick plays its own feel (a firmer one for done), so the
+            plain tap every label gets is skipped here. */}
+        <label className="plan-item__check" data-haptic-skip="">
+          <input
+            type="checkbox"
+            checked={item.done}
+            onChange={() => onToggle(item)}
+            aria-label={item.done ? `Mark “${item.title}” not done` : `Mark “${item.title}” done`}
+          />
+        </label>
+        <div className="plan-item__main">
+          <span className="plan-item__title">{item.title}</span>
+          {from && <span className="plan-item__from">{from}</span>}
+        </div>
+      </div>
+      {item.subs.length > 0 && <Items items={item.subs} onToggle={onToggle} sub />}
+    </li>
   );
 }
 

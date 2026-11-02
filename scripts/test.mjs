@@ -191,6 +191,7 @@ import {
   andList,
   fmtHours as mirrorHours,
 } from "../src/lib/mirror.js";
+import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields } from "../src/lib/todayPlan.js";
 
 let pass = 0;
 let fail = 0;
@@ -3313,6 +3314,133 @@ console.log("\napple watch");
   ok("this week's focus is in his order with moved and not days", aim.this_weeks_focus[0].focus === "Up at 4:30" && aim.this_weeks_focus[0].days_moved === 1 && aim.this_weeks_focus[0].days_not === 1);
   ok("only quests still on, with their arrows", aim.quests.length === 1 && aim.quests[0].arrows_last_7_days[0] === "2026-11-02 middle ring", JSON.stringify(aim.quests));
   ok("only lessons still being learned", aim.lessons.length === 1 && aim.lessons[0].lesson === "More integrity");
+  console.log("\ntoday's plan, block by block");
+  const D = "2026-11-02";
+  const at = (h, m = 0) => h * 60 + m;
+  const chunks = [
+    { id: "c5", start_time: "21:30:00", end_time: "04:30:00", title: "Sleep" },
+    { id: "c3", start_time: "13:00:00", end_time: "15:00:00", title: "Multicam", quest_id: "q1", camp_id: "k1" },
+    { id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Morning" },
+    { id: "c4", start_time: "16:00:00", end_time: "18:00:00", title: "Plugin again", quest_id: "q1", camp_id: null },
+    { id: "c2", start_time: "10:00:00", end_time: "12:00:00", title: "Plugin", quest_id: "q1", camp_id: null },
+    { id: "c6", start_time: null, end_time: null, title: "No time" },
+  ];
+  const tasks = [
+    { id: "t1", title: "Inbox", time_chunk_id: "c1", parent_task_id: null, status: true, position: 0 },
+    { id: "t1a", title: "Reply to Sam", time_chunk_id: "c1", parent_task_id: "t1", status: false, position: 0 },
+    { id: "t2", title: "Export clips", time_chunk_id: "c3", parent_task_id: null, status: false, position: 1 },
+    { id: "t3", title: "Call the bank", time_chunk_id: null, parent_task_id: null, status: false, position: 2 },
+    { id: "t4", title: "Moved block", time_chunk_id: "gone", parent_task_id: null, status: false, position: 3 },
+  ];
+  const work = {
+    quests: [
+      { id: "q1", title: "Plugin", status: "on", position: 0 },
+      { id: "q2", title: "House", status: "on", position: 1 },
+    ],
+    camps: [
+      { id: "k1", quest_id: "q1", title: "Multicam", position: 0 },
+      { id: "k2", quest_id: "q1", title: "Audio", position: 1 },
+      { id: "k3", quest_id: "q2", title: "Kitchen", position: 0 },
+    ],
+    sections: [
+      { id: "sA", camp_id: "k2", title: "Mixer", today_on: D, position: 0 },
+      { id: "sB", camp_id: "k2", title: "Later", today_on: null, position: 1 },
+    ],
+    steps: [
+      { id: "s1", camp_id: "k1", section_id: null, parent_id: null, kind: "task", text: "Sync angles", today_on: D, done_on: null, position: 0 },
+      { id: "s1a", camp_id: "k1", section_id: null, parent_id: "s1", kind: "task", text: "Check audio drift", today_on: D, done_on: null, position: 0 },
+      { id: "s2", camp_id: "k2", section_id: null, parent_id: null, kind: "task", text: "Pick a limiter", today_on: D, done_on: null, position: 0 },
+      { id: "s3", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done last week", today_on: null, done_on: "2026-10-30", position: 1 },
+      { id: "s4", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done this morning", today_on: null, done_on: D, position: 2 },
+      { id: "s7", camp_id: "k2", section_id: "sA", parent_id: null, kind: "task", text: "Done before, one left", today_on: null, done_on: "2026-10-29", position: 3 },
+      { id: "s7a", camp_id: "k2", section_id: "sA", parent_id: "s7", kind: "task", text: "The one left", today_on: null, done_on: null, position: 0 },
+      { id: "s5", camp_id: "k3", section_id: null, parent_id: null, kind: "task", text: "Measure the sink", today_on: D, done_on: null, position: 0 },
+      { id: "n1", camp_id: "k1", section_id: null, parent_id: null, kind: "note", text: "Remember the tripod", today_on: D, done_on: null, position: 5 },
+      { id: "s6", camp_id: "k2", section_id: "sB", parent_id: null, kind: "task", text: "Not today", today_on: null, done_on: null, position: 0 },
+    ],
+    lines: [
+      { id: "l1", quest_id: "q1", parent_id: null, kind: "task", text: "Write release notes", day: D, ongoing: false, today_on: null, done_on: null, position: 0 },
+      { id: "l1a", quest_id: "q1", parent_id: "l1", kind: "task", text: "List the fixes", day: D, ongoing: false, today_on: null, done_on: D, position: 0 },
+      { id: "l2", quest_id: "q1", parent_id: null, kind: "task", text: "Ongoing, not picked", day: "2026-10-20", ongoing: true, today_on: null, done_on: null, position: 1 },
+      { id: "l3", quest_id: "q2", parent_id: null, kind: "task", text: "Order tiles", day: "2026-10-30", ongoing: false, today_on: D, done_on: null, position: 0 },
+      { id: "l4", quest_id: "q1", parent_id: null, kind: "note", text: "A note line", day: D, ongoing: false, today_on: null, done_on: null, position: 2 },
+      { id: "l5", quest_id: "q1", parent_id: "l2", kind: "task", text: "Under the ongoing one", day: D, ongoing: false, today_on: null, done_on: null, position: 0 },
+    ],
+  };
+  const planAt = (nowMin, extra = {}) => planForToday({ chunks, tasks, questWork: work, nowMin, date: D, ...extra });
+  const ids = (items) => items.map((i) => i.id);
+  const everyId = (p) => {
+    const walk = (items) => items.flatMap((i) => [i.id, ...walk(i.subs)]);
+    return [...p.blocks.flatMap((b) => walk(b.items)), ...walk(p.loose.planned), ...p.loose.quests.flatMap((g) => walk(g.items))];
+  };
+  const blockOf = (p, id) => p.blocks.find((b) => b.items.some((i) => i.id === id))?.id ?? null;
+
+  const p = planAt(at(11));
+  ok("every block with a time is listed, in day order", JSON.stringify(ids(p.blocks)) === JSON.stringify(["c1", "c2", "c3", "c4", "c5"]), JSON.stringify(ids(p.blocks)));
+  const sleep = p.blocks.find((b) => b.id === "c5");
+  ok("a block that ends before it starts ends tomorrow", sleep.startMin === at(21, 30) && sleep.endMin === at(4, 30) + 24 * 60, JSON.stringify([sleep.startMin, sleep.endMin]));
+  ok("blocks are past, now or ahead against the clock", JSON.stringify(p.blocks.map((b) => b.state)) === JSON.stringify(["past", "now", "ahead", "ahead", "ahead"]), JSON.stringify(p.blocks.map((b) => b.state)));
+  ok("just after midnight the night's block is still ahead", blocksOf(chunks, at(0, 30)).find((b) => b.id === "c5").state === "ahead");
+  ok("a block ends as the next one starts", blocksOf(chunks, at(10)).find((b) => b.id === "c1").state === "past" && blocksOf(chunks, at(10)).find((b) => b.id === "c2").state === "now");
+
+  const morning = p.blocks.find((b) => b.id === "c1");
+  ok("a planned task goes in the block it was planned into", ids(morning.items).join() === "t1", JSON.stringify(ids(morning.items)));
+  ok("its sub-tasks sit under it, not beside it", ids(morning.items[0].subs).join() === "t1a" && morning.items[0].subs[0].kind === "task", JSON.stringify(morning.items[0]));
+  ok("a block counts what's in it and under it", morning.done === 1 && morning.total === 2, JSON.stringify([morning.done, morning.total]));
+  ok("planned tasks with no block, or a block that isn't today's, wait at the foot", ids(p.loose.planned).join() === "t3,t4", JSON.stringify(ids(p.loose.planned)));
+
+  const multicam = p.blocks.find((b) => b.id === "c3");
+  ok("a camp step goes to the block tied to its camp, after the block's own tasks", ids(multicam.items).join() === "t2,s1", JSON.stringify(ids(multicam.items)));
+  ok("a step under a picked step shows under it once, not again on its own", ids(multicam.items[1].subs).join() === "s1a" && everyId(p).filter((x) => x === "s1a").length === 1, JSON.stringify(everyId(p)));
+  ok("a camp step says which camp it's from", multicam.items[1].from === "Multicam" && multicam.items[1].kind === "step", JSON.stringify(multicam.items[1]));
+  ok("a step whose camp has no block goes to a block tied to its quest", blockOf(p, "s2") === "c2", blockOf(p, "s2"));
+  ok("a quest line goes to the quest's block, not to one of its camps", blockOf(p, "l1") === "c2" && blockOf(planAt(at(14)), "l1") === "c4", JSON.stringify([blockOf(p, "l1"), blockOf(planAt(at(14)), "l1")]));
+  ok("a quest line says which quest it's from", p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "l1").from === "Plugin");
+  ok("a quest line's sub-tasks come with it", ids(p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "l1").subs).join() === "l1a");
+
+  ok("two blocks on one quest: the one running now takes it", blockOf(planAt(at(16, 30)), "s2") === "c4", blockOf(planAt(at(16, 30)), "s2"));
+  ok("two blocks on one quest: before both, the next one ahead takes it", blockOf(planAt(at(9)), "s2") === "c2", blockOf(planAt(at(9)), "s2"));
+  ok("two blocks on one quest: between them, the one still ahead takes it", blockOf(planAt(at(12, 30)), "s2") === "c4", blockOf(planAt(at(12, 30)), "s2"));
+  ok("two blocks on one quest: after both, the last one keeps it", blockOf(planAt(at(19)), "s2") === "c4", blockOf(planAt(at(19)), "s2"));
+  ok("with only a camp's block on the quest, a quest line goes there", blockOf(planForToday({ chunks: chunks.filter((c) => c.id === "c3"), tasks: [], questWork: work, nowMin: at(11), date: D }), "l1") === "c3");
+  ok("pickBlock with nothing to pick is null", pickBlock([]) === null);
+
+  ok("done things stay, marked done", morning.items[0].done === true && p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "s4")?.done === true);
+  ok("a step in a section picked for today that was finished before today is left out", !everyId(p).includes("s3"), JSON.stringify(everyId(p)));
+  ok("one finished before today with something under it still open stays, with it", blockOf(p, "s7") === "c2" && ids(p.blocks.find((b) => b.id === "c2").items.find((i) => i.id === "s7").subs).join() === "s7a");
+  ok("a step in a section that isn't picked isn't on today", !everyId(p).includes("s6"));
+  ok("notes are never things to do", !everyId(p).includes("n1") && !everyId(p).includes("l4"), JSON.stringify(everyId(p)));
+  ok("a quest line that isn't picked, from the ongoing list, isn't on today", !everyId(p).includes("l2"));
+  ok("a sub-task never comes on its own without its task", !everyId(p).includes("l5"));
+
+  ok("a quest with no block gets its own group at the foot, by name", p.loose.quests.length === 1 && p.loose.quests[0].questId === "q2" && p.loose.quests[0].title === "House", JSON.stringify(p.loose.quests));
+  ok("in a quest's group, its camps' steps come before its lines", ids(p.loose.quests[0].items).join() === "s5,l3", JSON.stringify(ids(p.loose.quests[0].items)));
+  ok("with no blocks at all, everything waits at the foot", (() => {
+    const bare = planForToday({ chunks: [], tasks, questWork: work, nowMin: at(11), date: D });
+    return bare.blocks.length === 0 && ids(bare.loose.planned).join() === "t1,t2,t3,t4" && bare.loose.quests.map((g) => g.questId).join() === "q1,q2";
+  })());
+  ok("the quests' own order holds", ids(questItemsForToday(work, D)).join() === "s1,s2,s4,s7,l1,s5,l3", JSON.stringify(ids(questItemsForToday(work, D))));
+  ok("a line picked from elsewhere comes before today's own", (() => {
+    const two = questItemsForToday({ quests: work.quests, lines: [work.lines[0], { ...work.lines[2], id: "lp", today_on: D }] }, D);
+    return ids(two).join() === "lp,l1";
+  })());
+  ok("nothing loaded yet is an empty plan, not a crash", (() => {
+    const empty = planForToday({ chunks: null, tasks: null, questWork: null, nowMin: 0, date: D });
+    return empty.blocks.length === 0 && empty.loose.planned.length === 0 && empty.loose.quests.length === 0 && empty.total === 0;
+  })());
+  ok("a count takes in everything under each item, too", JSON.stringify(tallyItems([{ done: true, subs: [{ done: false, subs: [{ done: true, subs: [] }] }] }])) === JSON.stringify({ done: 2, total: 3 }));
+
+  const iso = "2026-11-02T18:00:00.000Z";
+  ok("ticking a task sets its status and when", JSON.stringify(doneFields("task", true, D, iso)) === JSON.stringify({ status: true, completed_at: iso }) && doneFields("task", false, D, iso).completed_at === null);
+  ok("ticking a line keeps the day and the moment and stops working on it", JSON.stringify(doneFields("line", true, D, iso)) === JSON.stringify({ done_on: D, done_at: iso, working_since: null }));
+  ok("unticking a line clears both", JSON.stringify(doneFields("line", false, D, iso)) === JSON.stringify({ done_on: null, done_at: null }));
+  ok("ticking a step keeps the day and stops working on it; unticking clears it", JSON.stringify(doneFields("step", true, D, iso)) === JSON.stringify({ done_on: D, working_since: null }) && JSON.stringify(doneFields("step", false, D, iso)) === JSON.stringify({ done_on: null }));
+  const loaded = { tasks, work };
+  const ticked = withFields(loaded, "step", "s1", doneFields("step", true, D, iso));
+  ok("a tick changes only that row, and shows in the plan before it's saved", ticked.work.steps.find((s) => s.id === "s1").done_on === D && ticked.work.steps.find((s) => s.id === "s2").done_on === null && loaded.work.steps.find((s) => s.id === "s1").done_on === null && planForToday({ chunks, tasks: ticked.tasks, questWork: ticked.work, nowMin: at(11), date: D }).blocks.find((b) => b.id === "c3").items[1].done === true);
+  const unticked = withFields(loaded, "task", "t1", doneFields("task", false, D, iso));
+  ok("unticking a task keeps it where it was", planForToday({ chunks, tasks: unticked.tasks, questWork: work, nowMin: at(11), date: D }).blocks.find((b) => b.id === "c1").items[0].done === false && blockOf(planForToday({ chunks, tasks: unticked.tasks, questWork: work, nowMin: at(11), date: D }), "t1") === "c1");
+  ok("unticking a step in a picked section keeps it on today", everyId(planForToday({ chunks, tasks, questWork: withFields(loaded, "step", "s4", doneFields("step", false, D, iso)).work, nowMin: at(11), date: D })).includes("s4"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
