@@ -72,6 +72,244 @@
 
 /* --- Part 2: the Targets overview (add part 2's rules directly under this line) --- */
 
+/* The overview (/targets): the ladder, biggest to smallest, small enough
+   that the four tiers come close to fitting a phone's first screen. The
+   page wears .ascent and .mark for the bow, the patches and the faces. */
+.ov-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.ov-top .eyebrow { margin: 0 0 2px; }
+.ov-top .page-title { margin: 0; }
+.ov-top .btn { flex: none; min-height: 40px; }
+
+.ov-tier { margin: 0 0 14px; min-width: 0; }
+.ov-tier__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 6px; }
+.ov-note { font-size: 11.5px; color: var(--text-3); line-height: 1.3; }
+.ov-go { flex: none; color: var(--text-3); }
+.ov-none { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.ov-none .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; }
+
+/* Tier 1: the mission. White like every card; the words carry it. */
+.ov-mission { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px 15px; color: var(--text); text-decoration: none; }
+a.ov-mission { transition: background 0.14s; }
+@media (hover: hover) { a.ov-mission:hover { background: var(--card-hover); } }
+.ov-mission__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ov-mission__summit { margin: 0; font-family: var(--font-serif); font-variant-caps: small-caps; font-size: 15px; font-weight: 600; letter-spacing: 0.05em; line-height: 1.25; overflow-wrap: anywhere; }
+.ov-mission__creed {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.ov-mission--empty { align-items: flex-start; gap: 8px; }
+.ov-mission__none { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
+.ov-mission--empty .btn { min-height: 40px; }
+
+/* Tiers 2 and 4: a row of small targets, the same measurements as the
+   week's focus at the top of Today (focus.css, .focus-strip__row), under
+   names of their own so neither page can move the other. Five across a
+   phone and the rest scroll inside the row; on a desk they wrap. */
+.ov-faces {
+  --ov-gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 4px;
+  display: flex;
+  gap: var(--ov-gap);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ov-faces::-webkit-scrollbar { display: none; }
+.ov-faces__cell {
+  flex: 0 0 calc((100% - 4 * var(--ov-gap)) / 5);
+  max-width: 88px;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.ov-face {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0 6px;
+  border-radius: var(--r);
+  color: var(--text);
+  text-align: center;
+  text-decoration: none;
+  transition: background 0.14s;
+}
+@media (hover: hover) { .ov-face:hover { background: var(--card); } }
+.mark .ov-face .mk-face { width: calc(100% - 4px); max-width: 64px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ov-face .mk-face { transition: transform 0.12s; }
+  .ov-face:active .mk-face { transform: scale(0.94); }
+}
+.ov-face__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-width: calc(100% + 8px);
+  margin-inline: -4px;
+  padding-inline: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+/* A goal's gear goes beside its name where there's room for both. */
+.ov-face__gear { display: none; margin-right: 3px; vertical-align: -2px; color: var(--text-2); }
+@media (min-width: 521px) { .ov-face__gear { display: inline-block; } }
+
+/* At this size the Mark's hairlines would vanish, so they keep a fixed
+   width on screen, the marks are a little bigger, and the four section
+   lines go (as on Today's strip). The same for the quests' small faces. */
+.mark .ov-faces .mk-board, .mark .ov-climb .mk-board,
+.mark .ov-faces .mk-ring, .mark .ov-climb .mk-ring,
+.mark .ov-faces .mk-bull, .mark .ov-climb .mk-bull,
+.mark .ov-faces .mk-miss, .mark .ov-climb .mk-miss { vector-effect: non-scaling-stroke; }
+.mark .ov-faces .mk-board, .mark .ov-climb .mk-board { stroke-width: 1.25px; }
+.mark .ov-faces .mk-ring, .mark .ov-climb .mk-ring { stroke-width: 0.75px; stroke-opacity: 0.4; }
+.mark .ov-faces .mk-bull, .mark .ov-climb .mk-bull { stroke-width: 1px; }
+.mark .ov-faces .mk-miss, .mark .ov-climb .mk-miss { stroke-width: 0.75px; stroke-opacity: 0.3; stroke-dasharray: 1.5 2.5; }
+.mark .ov-faces .mk-div, .mark .ov-climb .mk-div { display: none; }
+.mark .ov-faces .mk-dot, .mark .ov-climb .mk-dot { r: 8.5px; stroke-width: 1.4; }
+/* On the week's row, orange is today's answer only, as on Today. */
+.mark .ov-faces--week .ov-face:not(.is-answered) .mk-dot--last { fill: var(--ink); }
+
+@media (max-width: 900px) {
+  /* Edge to edge, so a sixth target peeks in from the side. */
+  .ov-faces { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
+}
+@media (max-width: 380px) {
+  .ov-face__name { font-size: 10px; }
+}
+@media (min-width: 901px) {
+  .ov-faces {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px 8px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .ov-faces__cell { max-width: none; }
+  .ov-face__name { font-size: 11.5px; line-height: 1.25; letter-spacing: -0.01em; }
+  .mark .ov-face .mk-face { max-width: 72px; }
+}
+
+/* Tier 3: the quests and lessons, a compact row each. One column on a
+   phone, two from 520 wide. */
+.ov-climbs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+@media (min-width: 520px) { .ov-climbs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ov-climbs > li { min-width: 0; }
+.ov-climb {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 3px 10px 3px 6px;
+  background: var(--card);
+  border: 1px solid rgba(20, 18, 14, 0.04);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.14s;
+}
+@media (hover: hover) { .ov-climb:hover { background: var(--card-hover); } }
+.mark .ov-climb .mk-face { flex: none; width: 48px; height: 48px; }
+.ov-climb__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ov-climb__txt b { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
+.ov-climb__txt small { font-size: 11.5px; color: var(--text-2); line-height: 1.3; }
+.ov-adds { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ov-adds .btn { min-height: 40px; }
+
+/* Below the ladder: the bow, and what's behind. Side by side from a
+   tablet up, and beside the ladder only where the ladder still has room
+   for five goals across (the desk's sidebar takes 232px of the window). */
+.ov-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ov-side > .card + .card { margin-top: 0; }
+.ov-side .mk-rack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 701px) and (max-width: 1239px) {
+  .ov-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .ov-side > :only-child { grid-column: 1 / -1; }
+}
+@media (min-width: 1240px) {
+  .ov-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 28px; align-items: start; }
+  .ov-ladder > .ov-tier:last-child { margin-bottom: 0; }
+}
+
+/* A fold: its line opens it, with a chevron that turns. */
+.ov-fold > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ov-fold > summary::-webkit-details-marker { display: none; }
+.ov-fold__chev { flex: none; margin-left: auto; color: var(--text-3); transition: transform 0.15s; }
+.ov-fold[open] > summary .ov-fold__chev { transform: rotate(180deg); }
+
+.ov-bow { display: flex; flex-direction: column; gap: 6px; }
+.ov-fold--rack > summary { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.ov-fold--rack .mk-rack { margin-top: 4px; }
+
+.ov-behind { padding-top: 10px; padding-bottom: 10px; }
+.ov-behind .ov-fold > summary { min-height: 44px; }
+.ov-behind .ov-fold > summary .eyebrow { margin: 0; flex: none; }
+.ov-behind .ov-fold > summary .ov-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-behind__body { display: flex; flex-direction: column; gap: 14px; padding: 6px 0; }
+.ov-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ov-group__label { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.ov-patches { list-style: none; margin: 0; padding: 0; }
+.ascent .ov-patches .patch { color: inherit; text-decoration: none; }
+.ov-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ov-chips > li { min-width: 0; max-width: 100%; }
+.ov-chips .chip--tap { min-height: 40px; max-width: 100%; text-decoration: none; }
+.ov-chip--aside { background: none; border: 1px dashed var(--line-strong); color: var(--text-2); }
+
+/* What a focus counts toward, as a link to that target's page: under the
+   week in Today's focus sheet, and on each focus on the Week tab. */
+.ladder-toward {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.ladder-toward svg { flex-shrink: 0; color: var(--text-3); }
+@media (hover: hover) { .ladder-toward:hover { color: var(--accent-text); } }
+.ladder-toward--row { flex: 0 1 auto; font-size: inherit; font-weight: 500; }
+
+/* In that sheet the arrow's settings gear sits on the "Today's arrow" line
+   instead of a line of its own, since what it counts toward is said above. */
+.ladder-arrow { position: relative; }
+.ladder-arrow > .eyebrow { display: flex; align-items: center; min-height: 30px; padding-right: 44px; }
+.ladder-arrow .focus-arrow__head { position: absolute; top: 0; right: 0; }
+.ladder-arrow .focus-arrow__gear { margin: -3px -8px 0 0; }
+
 /* --- end of part 2 --- */
 
 

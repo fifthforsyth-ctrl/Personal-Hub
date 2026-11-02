@@ -3,25 +3,28 @@ import { Link } from "react-router-dom";
 import { ArrowRight, X } from "lucide-react";
 import { fetchFocusLineage, fetchFocusNotes, addFocusNote, deleteFocusNote, fetchTimeEntriesForDate, fetchDayPlan } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
-import { arrowsLabel, cleanNote, newestFirst, noteDay, landsBy, checksFor, checkinOn, checkinLevel, countsToward } from "../../lib/focus";
+import { arrowsLabel, cleanNote, newestFirst, noteDay, landsBy, checksFor, checkinOn, checkinLevel, countsToward, towardTitle } from "../../lib/focus";
 import { LEVELS } from "../../lib/mark";
+import { pathOf } from "../../lib/ladder";
 import { parseDateStr } from "../../lib/planDates";
 import { haptic } from "../../lib/haptics";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import Sheet from "../ascent/Sheet";
-import { GoalArrow, towardLabel } from "./FocusArrows";
+import { GoalArrow } from "./FocusArrows";
 import FocusSettings from "./FocusSettings";
 import { useAscentView } from "./useFocusWeek";
 import "../../styles/focus.css";
+import "../../styles/targets.css";
 
 // One focus, opened from its small target on Today.
 //
 // It answers the two things you'd want with a focus in hand: where today's
 // arrow landed, and what have you noticed about it. The week's seven days
-// sit at the top so you can see how it's going, then today's arrow, landed
-// the way this focus lands (FocusArrows.jsx): placed where the day landed,
-// or by its checks. The evening shows the same arrow, so one placed at noon
+// sit at the top so you can see how it's going, and what it counts toward
+// under them, a tap from that target's page. Then today's arrow, landed the
+// way this focus lands (FocusArrows.jsx): placed where the day landed, or
+// by its checks. The evening shows the same arrow, so one placed at noon
 // is already there by night. Under that, a box for a note, any time of day:
 // what helped, what got in the way, a line from a talk. Notes stay with the
 // focus as it's kept from week to week, so the list reaches back through
@@ -230,6 +233,11 @@ export default function FocusSheet({ userId, goal, date, fw, onClose }) {
   const needsDay = byChecks && checks.some((c) => c.auto === "wake" || c.focus_id);
   const day = useLoad(() => (userId && needsDay ? loadDay(userId, date) : null), [userId, date, needsDay]);
   const ascent = useAscentView(userId, date, Boolean(countsToward(goal)) || (byChecks && checks.some((c) => c.focus_id)));
+  // What it counts toward, by name once the names are in: a link to that
+  // target's page. (A goal further down the wheel opens the lifetime goal
+  // it sits under.)
+  const toward = countsToward(goal);
+  const towardName = toward ? towardTitle(goal, ascent.view, ascent.data) : null;
 
   useEffect(() => keepDraft(goal.id, draft), [goal.id, draft]);
 
@@ -302,7 +310,14 @@ export default function FocusSheet({ userId, goal, date, fw, onClose }) {
               <span className="focus-sheet__count">{arrowsLabel(goal)}</span>
             </div>
 
-            <div className="focus-sheet__arrow">
+            {towardName && (
+              <Link to={pathOf(toward.kind, toward.id)} className="ladder-toward" onClick={onClose}>
+                <span className="truncate">Counts toward {towardName}</span>
+                <ArrowRight size={13} aria-hidden="true" />
+              </Link>
+            )}
+
+            <div className="focus-sheet__arrow ladder-arrow">
               <span className="eyebrow">Today's arrow</span>
               <GoalArrow
                 key={`${goal.id}:${landsBy(goal)}:${date}`}
@@ -312,7 +327,8 @@ export default function FocusSheet({ userId, goal, date, fw, onClose }) {
                 entries={day.data?.entries}
                 dayPlan={day.data?.dayPlan}
                 focusesById={ascent.focusesById}
-                toward={towardLabel(goal, ascent)}
+                // Said once, above, as the link to its page.
+                toward={null}
                 onSettings={() => setSettings(true)}
                 showTitle={false}
               />

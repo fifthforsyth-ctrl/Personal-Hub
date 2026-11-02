@@ -4570,7 +4570,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const examenKept = M.localDraft(examen, wrote, null);
   ok("so it's kept in the draft, and comes back next time", M.tonightDraft(examen, { mine: examenKept }).answers[0].value === "Where I saw God today" && M.tonightDraft(examen, { mine: examenKept }).line === "a long day");
   const alone = M.keptText(examen, wrote, { level: null, feeds: [] });
-  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /The Range/.test(alone), alone);
+  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /on Targets/.test(alone), alone);
   const fedNotYet = M.keptText(examen, wrote, { level: null, feeds: [shipIt] });
   ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands, and isn't kept if you bank the day without it/.test(fedNotYet), fedNotYet);
   ok("once that arrow has landed it only says where the arrow came from", M.keptText(examen, wrote, { level: 1, feeds: [shipIt] }) === "These are all reflection only, so its arrow comes from Ship settings.");
@@ -5548,6 +5548,144 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, part 2) =====
 // Add this part's tests directly under the line above.
 {
+  console.log("\ntargets tab: the overview, the tab and the links into it");
+  const { existsSync } = await import("node:fs");
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+
+  // --- The tab ---------------------------------------------------------------
+  const nav = src("components/NavBar.jsx");
+  const listOf = (name) => {
+    const from = nav.indexOf(`export const ${name} = [`);
+    return from < 0 ? "" : nav.slice(from, nav.indexOf("];", from));
+  };
+  const tos = (list) => [...list.matchAll(/to: "([^"]*)"/g)].map((m) => m[1]);
+  ok("Targets is the third tab, where Quests was", tos(listOf("NAV"))[2] === "/targets" && listOf("NAV").includes('{ to: "/targets", label: "Targets", Icon: Target }'), tos(listOf("NAV")).join());
+  ok("no Quests tab, and the Range is out of More", !tos(listOf("NAV")).includes("/quests") && tos(listOf("MORE")).every((t) => !/^\/(ascent|quests)\b/.test(t)) && !/The Range/.test(nav));
+  ok("the Range's old page is gone", !existsSync(new URL("../src/pages/Ascent.jsx", import.meta.url)));
+
+  // Every link this part touches goes to its new address, and nothing it
+  // shows still calls it the Range.
+  const owned = [
+    "pages/Targets.jsx",
+    "components/targets/OverviewTiers.jsx",
+    "components/targets/OverviewPatches.jsx",
+    "components/targets/OverviewBow.jsx",
+    "components/NavBar.jsx",
+    "pages/Today.jsx",
+    "components/mark/TonightShots.jsx",
+    "components/today/PlanBlocks.jsx",
+    "pages/Plans.jsx",
+    "pages/Camp.jsx",
+    "pages/Village.jsx",
+    "components/focus/FocusSheet.jsx",
+    "components/focus/FocusWeek.jsx",
+    "components/focus/FocusSettings.jsx",
+  ];
+  const stale = owned.filter((p) => /["`]\/(quests|ascent)\b|The Range/.test(src(p)));
+  ok("no old Quests or Range links left", stale.length === 0, stale.join());
+  ok("the Mark's copy says Targets", /on Targets/.test(src("lib/mark.js")) && !/the Range/.test(src("lib/mark.js").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n")));
+
+  const today = src("pages/Today.jsx");
+  const at = (s) => today.indexOf(s);
+  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at("<QuestsRow userId={userId} date={date} />") && at("<QuestsRow") < at("<WeekStrip"));
+  const shots = src("components/mark/TonightShots.jsx");
+  ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
+  ok("a plan's quest opens its page", src("components/today/PlanBlocks.jsx").includes("<Link to={`/targets/${g.questId}`}"));
+  const camp = src("pages/Camp.jsx");
+  ok("a camp goes back to its own quest or lesson", /if \(data\?\.lesson\) return pathOf\("lesson", data\.lesson\.id\);/.test(camp) && /pathOf\("quest", data\.camp\.quest_id\) : "\/targets"/.test(camp) && camp.includes("`/targets/camp/${c.id}`"));
+  const plans = src("pages/Plans.jsx");
+  ok("plans live under Targets, and new camps open where they went", plans.includes('<Back to="/targets">Targets</Back>') && /mt\.lessonId \? pathOf\("lesson", mt\.lessonId\) : pathOf\("quest", questId\)\}#camps/.test(plans));
+  const sheet = src("components/focus/FocusSheet.jsx");
+  ok("a focus's sheet says what it counts toward, as a link that closes the sheet", /<Link to=\{pathOf\(toward\.kind, toward\.id\)\} className="ladder-toward" onClick=\{onClose\}>/.test(sheet) && /toward=\{null\}/.test(sheet));
+  const week = src("components/focus/FocusWeek.jsx");
+  ok("each focus on Week links what it counts toward", /pathOf\(g\.quest_id \? "quest" : "lesson", g\.quest_id \?\? g\.lesson_id\)/.test(week) && /pathOf\("goal", g\.node_id\)/.test(week));
+
+  // --- The overview's own pieces, drawn ----------------------------------------
+  // The pieces built with React, the router's Link as a plain <a> and the
+  // drawings left out, then turned into HTML to see where each one goes.
+  const { build } = await import("esbuild");
+  const dir = fileURLToPath(new URL("../src/components/targets/", import.meta.url));
+  const standIns = {
+    "react-router-dom": 'import { createElement } from "react"; export const Link = ({ to, children, className, ...p }) => createElement("a", { href: to, className, "aria-label": p["aria-label"] }, children);',
+    "lucide-react": "export const ChevronRight = () => null; export const ChevronDown = () => null;",
+  };
+  const built = await build({
+    stdin: {
+      contents: 'export * from "./OverviewTiers.jsx"; export * from "./OverviewPatches.jsx"; export { renderToStaticMarkup } from "react-dom/server"; export { createElement } from "react";',
+      resolveDir: dir,
+      loader: "jsx",
+    },
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    jsx: "automatic",
+    logLevel: "silent",
+    // React's server build asks for Node's own modules by require().
+    banner: { js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(import.meta.url)});` },
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /^(react-router-dom|lucide-react)$|\/(TargetFace|Gear)$/ }, (a) => ({ path: a.path, namespace: "stand-in" }));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => ({ contents: standIns[a.path] ?? "export default () => null;", loader: "jsx", resolveDir: dir }));
+        },
+      },
+    ],
+  });
+  const O = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  const html = (C, props) => O.renderToStaticMarkup(O.createElement(C, props));
+  const hrefs = (h) => [...h.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+  const M = await import("../src/lib/mark.js");
+  const day = "2026-11-02";
+
+  const t = { shots: [{ date: "2026-11-01", level: 0 }, { date: "2026-10-01", level: 0 }, { date: day, level: 2 }], today: { level: 2 } };
+  ok("a small target's words count the bullseyes in its 30 days", O.markWords(t, day) === `1 bullseye in 30 days, today's arrow in the ${M.LEVELS[2].name.toLowerCase()} ring`, O.markWords(t, day));
+  ok("and say how today's arrow landed", /a bullseye today$/.test(O.markWords({ ...t, today: { level: 0 } }, day)) && /today's arrow missed$/.test(O.markWords({ ...t, today: { level: M.LEVELS.length - 1 } }, day)) && /no arrow yet today$/.test(O.markWords({ ...t, today: null }, day)));
+  ok("nothing yet is said plainly", O.markWords(null, day) === "no marks yet" && O.markWords(O.NO_MARKS, day) === "no marks yet");
+  ok("a double dash in a focus's name doesn't break", O.keepDashes("Daily form--win by win") === "Daily form‑‑win by win" && O.keepDashes(null) === "");
+
+  const empty = html(O.MissionCard, { mission: null, onWrite: () => {} });
+  ok("no mission yet: a button to write it, no link", empty.includes("Write your mission") && !empty.includes("<a ") && empty.includes("ov-mission--empty"));
+  const mission = html(O.MissionCard, { mission: { summit: "An exalted servant", statement: "To become an exalted servant of God" } });
+  ok("the mission's card opens its page", hrefs(mission).join() === "/targets/mission" && mission.includes("An exalted servant") && mission.includes("ov-mission__creed"));
+
+  const climbs = html(O.ClimbRows, {
+    today: day,
+    climbs: [
+      { key: "q1", kind: "quest", title: "Build the plugin", camps: 2, today: 3, target: t },
+      { key: "l1", kind: "lesson", title: "Stop drinking caffeine", camps: 1, today: 0, target: null },
+    ],
+  });
+  ok("each quest and lesson opens its own page", hrefs(climbs).join() === "/targets/q1,/targets/l1", hrefs(climbs).join());
+  ok("with what's waiting there", climbs.includes("Quest · 2 camps · 3 today") && climbs.includes(">Lesson · 1 camp<"));
+  ok("and says it all to a screen reader", climbs.includes('aria-label="Stop drinking caffeine. Lesson from God, 1 camp. No marks yet."') && climbs.includes('aria-label="Build the plugin. Quest, 2 camps, 3 today. 1 bullseye in 30 days'));
+
+  const faces = html(O.FaceRow, { week: true, label: "This week's focus", items: [{ key: "f1", to: "/targets/f1", label: "Up at 4:30", name: "Up at 4:30", answered: true }, { key: "f2", to: "/targets/f2", label: "Scripture", name: "Scripture" }] });
+  ok("a row of small targets, each a link", hrefs(faces).join() === "/targets/f1,/targets/f2" && faces.includes("ov-faces--week") && (faces.match(/is-answered/g) ?? []).length === 1);
+
+  const view = {
+    patches: [{ id: "q3", title: "Finish the garage", finished_on: "2026-10-20" }, { id: "m2", lesson_id: "l5", title: "Patience", finished_on: "2026-10-25" }],
+    learned: [{ id: "l2", title: "More integrity" }],
+    setAside: [{ id: "q4", title: "Learn Spanish" }],
+    lessonsAside: [{ id: "l3", title: "Patience with the kids" }],
+  };
+  const behind = html(O.BehindYou, { view });
+  ok("behind you: each patch, lesson learned and thing set aside opens its page", hrefs(behind).join() === "/targets/q3,/targets/l5,/targets/l2,/targets/q4,/targets/l3", hrefs(behind).join());
+  ok("a lesson's patch opens the lesson, never its mountain", !hrefs(behind).includes("/targets/m2"));
+  ok("the fold says what's in it, and stays shut", behind.includes("2 patches · 1 learned · 2 set aside") && !/<details[^>]* open/.test(behind));
+  ok("it opens by itself for a patch just earned", /<details[^>]* open=""/.test(html(O.BehindYou, { view, fresh: "q3" })));
+  ok("nothing behind you, no fold", html(O.BehindYou, { view: { patches: [], learned: [], setAside: [], lessonsAside: [] } }) === "" && html(O.BehindYou, { view: null }) === "");
+
+  // --- Copy and colour ----------------------------------------------------------
+  const pageSrc = ["pages/Targets.jsx", "components/targets/OverviewTiers.jsx", "components/targets/OverviewPatches.jsx", "components/targets/OverviewBow.jsx"].map(src).join("\n");
+  ok("no dashes in the overview's words", !/[–—]| -- /.test(pageSrc));
+  ok("a new lesson's page opens once its camps are saved too", /onAdded: \(id\) => \{\s*afterSave\.current = pathOf\("lesson", id\);/.test(pageSrc) && /if \(to && alive\.current\) navigate\(to\);/.test(pageSrc));
+  ok("a new quest's page opens as soon as it's added", /open\(\{ kind: "quest", quest: null, onAdded: \(id\) => navigate\(pathOf\("quest", id\)\) \}\)/.test(pageSrc));
+  const css = src("styles/targets.css");
+  const part2 = css.slice(css.indexOf("/* --- Part 2:"), css.indexOf("/* --- end of part 2 --- */"));
+  const missionRules = [...part2.matchAll(/([^{}]*ov-mission[^{}]*)\{([^}]*)\}/g)].map((m) => m[2]);
+  ok("the mission's card is white like the rest", missionRules.length > 0 && missionRules.every((r) => !/background:\s*var\(--ink\)/.test(r)));
 }
 
 // (end of targets tab, part 2)

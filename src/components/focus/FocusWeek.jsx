@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Target, Plus, GitBranch, X, Check, Pencil, SlidersHorizontal } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Target, Plus, GitBranch, X, Check, Pencil, SlidersHorizontal, ArrowRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { addFocusGoal, updateFocusGoal, deleteFocusGoal, reviewFocusGoal, fetchFocusWeek, fetchGoalPaths } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
@@ -9,9 +10,11 @@ import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import GoalPicker from "../GoalPicker";
 import { announceChange } from "../today/announce";
+import { pathOf } from "../../lib/ladder";
 import { useFocusWeek, useAscentView } from "./useFocusWeek";
 import FocusSettings from "./FocusSettings";
 import "../../styles/focus.css";
+import "../../styles/targets.css";
 
 // What the week is for, at the top of the Week tab.
 //
@@ -19,7 +22,8 @@ import "../../styles/focus.css";
 // it, and Keep, Adjust or Let go. Keeping one carries it into this week as
 // a new goal, so last week still shows exactly what it was aiming at. Then
 // add whatever else this week needs, typed fresh or taken from the goal
-// wheel. There's no limit and no required shape.
+// wheel. There's no limit and no required shape. What each one counts
+// toward is a tap from that target's page on Targets.
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -243,15 +247,22 @@ export default function FocusWeek({ anchorDate }) {
                 {g.quest_id || g.lesson_id ? (
                   <>
                     <Target size={12} aria-hidden="true" />
-                    <span className="truncate">
-                      Counts toward {towardTitle(g, ascent.view, ascent.data) ?? (g.quest_id ? "a quest" : "a lesson")}
-                    </span>
+                    <Link to={pathOf(g.quest_id ? "quest" : "lesson", g.quest_id ?? g.lesson_id)} className="ladder-toward ladder-toward--row">
+                      <span className="truncate">
+                        Counts toward {towardTitle(g, ascent.view, ascent.data) ?? (g.quest_id ? "a quest" : "a lesson")}
+                      </span>
+                      <ArrowRight size={12} aria-hidden="true" />
+                    </Link>
                     <button type="button" className="btn-link" onClick={() => setSettingsFor(g.id)}>Change</button>
                   </>
                 ) : g.node_id ? (
                   <>
                     <GitBranch size={12} aria-hidden="true" />
-                    <span className="truncate">{pathById.get(g.node_id) ?? "A goal on the wheel"}</span>
+                    {/* Its page is the lifetime goal it sits under. */}
+                    <Link to={pathOf("goal", g.node_id)} className="ladder-toward ladder-toward--row">
+                      <span className="truncate">{pathById.get(g.node_id) ?? "A goal on the wheel"}</span>
+                      <ArrowRight size={12} aria-hidden="true" />
+                    </Link>
                     <button type="button" className="btn-link" onClick={() => setLink(g.id, null)}>Unlink</button>
                   </>
                 ) : (
