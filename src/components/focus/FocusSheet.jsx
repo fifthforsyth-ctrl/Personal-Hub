@@ -168,7 +168,7 @@ export async function saveNote(userId, { goalId, date, sent }, store) {
   if (left.length) sending.set(goalId, left);
   else sending.delete(goalId);
   if (failed) {
-    if (!readDraft({ id: goalId }, store)) keepDraft(goalId, sent, store);
+    keepDraft(goalId, withUnsent(readDraft({ id: goalId }, store), sent), store);
   } else {
     dropSavedDraft(goalId, sent, store);
   }
@@ -189,7 +189,15 @@ export function onNoteLanded(heard) {
 // note comes back into a box that's been left empty.
 export function draftAfterSave(cur, sent, saved) {
   if (saved) return cur === sent ? "" : cur;
-  return cur.trim() ? cur : sent;
+  return withUnsent(cur, sent);
+}
+
+// A note that didn't save is never thrown away: it goes back in the box,
+// above anything typed since, unless the box already holds it.
+export function withUnsent(cur, sent) {
+  const now = cur ?? "";
+  if (!now.trim()) return sent;
+  return now.includes(sent) ? now : `${sent}\n\n${now}`;
 }
 
 export default function FocusSheet({ userId, goal, date, onCheckin, onClose }) {

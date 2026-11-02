@@ -4084,7 +4084,7 @@ console.log("\napple watch");
   keepDraft("g5", "Stretch before bed", s4);
   inserts[3].fail();
   await failing2.catch(() => {});
-  ok("but it doesn't write over what's been typed since", s4.getItem(key("g5")) === "Stretch before bed");
+  ok("and keeps what's been typed since, under the note that didn't save", s4.getItem(key("g5")) === "Walk after dinner\n\nStretch before bed", s4.getItem(key("g5")));
 
   // Two notes on their way for the same focus.
   const s5 = phone();
@@ -4115,7 +4115,8 @@ console.log("\napple watch");
   ok("a box still holding just what was sent empties when it lands", draftAfterSave(lunch, lunch, true) === "");
   ok("typing added after Save stays when it lands", draftAfterSave(lunch + ". And water", lunch, true) === lunch + ". And water");
   ok("a box left empty gets the note back when it doesn't save", draftAfterSave("", lunch, false) === lunch && draftAfterSave("  ", lunch, false) === lunch);
-  ok("newer typing isn't replaced when it doesn't save", draftAfterSave("Stretch", lunch, false) === "Stretch");
+  ok("newer typing is kept, with the note that didn't save above it", draftAfterSave("Stretch", lunch, false) === `${lunch}\n\nStretch`);
+  ok("a box that already holds the unsaved note isn't doubled", draftAfterSave(`${lunch}\n\nStretch`, lunch, false) === `${lunch}\n\nStretch`);
   ok(
     "every sheet on screen hears a note land, and one with nothing loaded yet reads its list again",
     /onNoteLanded\(\(\{ goalId, sent, row \}\) =>/.test(sheetSrc) && /if \(shown\.current\) putBack\(row\);\s*else reload\(\);/.test(sheetSrc) && /mutate\(\(d\) => withNote\(d, note\)\)/.test(sheetSrc)
