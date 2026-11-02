@@ -3646,14 +3646,20 @@ export async function saveShot(userId, ref, targetId, date, shot, reasons) {
 
 // Banking the day: every shot answered for it flies. Returns the ones that
 // were still in hand.
-export async function looseShots(userId, date) {
-  const { data, error } = await supabase
+//
+// `keep` is targets whose shot the evening tried to take back and couldn't
+// (no signal): those stay in hand rather than fly an arrow the evening
+// shows as blank.
+export async function looseShots(userId, date, keep = []) {
+  const skip = [...new Set((keep ?? []).filter(Boolean))];
+  let q = supabase
     .from("mark_shots")
     .update({ loosed_at: new Date().toISOString() })
     .eq("user_id", userId)
     .eq("date", date)
-    .is("loosed_at", null)
-    .select(MARK_SHOT);
+    .is("loosed_at", null);
+  if (skip.length) q = q.not("target_id", "in", `(${skip.join(",")})`);
+  const { data, error } = await q.select(MARK_SHOT);
   if (error) throw error;
   return data ?? [];
 }

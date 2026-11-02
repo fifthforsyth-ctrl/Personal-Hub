@@ -77,7 +77,11 @@ export default function FocusArrows({ userId, date, entries, dayPlan, quick = fa
     if (!flushRef) return;
     flushRef.current = async () => {
       for (const flush of [...flushers.current]) flush();
-      await settled();
+      // A failed save resolves to false. Then the day isn't banked (CloseOut
+      // says why and the tap can go again), or tonight's shots would fly
+      // without that arrow and its answers would be lost.
+      const done = await settled();
+      if (done.includes(false)) throw new Error("A focus arrow didn't save. Check your signal and try again.");
     };
     return () => {
       flushRef.current = null;
@@ -242,6 +246,10 @@ export function GoalArrow({ goal, date, fw, entries, dayPlan, focusesById, towar
   function save(next) {
     failedRef.current = null;
     setFailedKey(null);
+    // What was just sent is what the row will be: a second flush in the
+    // same moment (the card's own, as it unmounts) then sees nothing to
+    // send again, so an older copy can't land after a newer answer.
+    rowRef.current = next ? { ...(rowRef.current ?? {}), goal_id: goal.id, date, ...next } : null;
     arrowRef.current(goal.id, date, next).then((saved) => {
       if (saved) settleArrowDraft(date, goal.id, checksRef.current, next);
       else if (next) setFailedKey(arrowKey(next));

@@ -109,6 +109,7 @@ export default function Evening() {
   const flushCheckin = useRef(null);
   const flushFocus = useRef(null);
   const flushTasks = useRef(null);
+  const flushReflection = useRef(null);
   const [shortLine, setShortLine] = useState(false);
 
   const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
@@ -134,6 +135,9 @@ export default function Evening() {
     setSwitching(true);
     let saved = true;
     try {
+      // The reflection's words go first and alone: the short card's God's
+      // hand line and the full card's notes save to the same journal row.
+      if (!short) await flushReflection.current?.();
       await flushFocus.current?.();
       await Promise.all(leaving.map((flush) => flush?.()));
     } catch (err) {
@@ -174,8 +178,8 @@ export default function Evening() {
   const [volley, setVolley] = useState(null);
 
   const loose = useCallback(async () => {
-    await flushShots.current?.();
-    const flown = await looseShots(userId, date);
+    const keep = await flushShots.current?.();
+    const flown = await looseShots(userId, date, Array.isArray(keep) ? keep : []);
     if (!flown.length) return;
     const fresh = await fetchRange(userId, date);
     const range = buildRange(buildAscent(fresh, date), fresh.marks, date);
@@ -187,6 +191,7 @@ export default function Evening() {
   // their way, then how it felt. A note that didn't save stops the bank, so
   // nothing typed is lost; CloseOut says so and the tap can go again.
   const beforeBank = useCallback(async () => {
+    await flushReflection.current?.();
     await flushFocus.current?.();
     await flushTasks.current?.();
     await flushCheckin.current?.();
@@ -258,7 +263,7 @@ export default function Evening() {
           onChanged={reload}
         />
       ) : short ? (
-        <div className="stack">
+        <div className={"stack" + (switching ? " evening__switching" : "")} inert={switching ? "" : undefined} aria-busy={switching || undefined}>
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
           <ShortEvening
             key={`short-${date}`}
@@ -300,12 +305,12 @@ export default function Evening() {
           />
         </div>
       ) : (
-        <div className="stack">
+        <div className={"stack" + (switching ? " evening__switching" : "")} inert={switching ? "" : undefined} aria-busy={switching || undefined}>
           <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
           <MinutesCard archive={a} />
           <WatchLine userId={userId} date={date} />
           <CuratedCards slot="day" date={date} title="From your board" compact />
-          <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
+          <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} flushRef={flushReflection} />
           <FocusArrows key={`focus-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} dayPlan={data.dayPlan} flushRef={flushFocus} />
           <TonightShots
             key={`shots-${date}`}

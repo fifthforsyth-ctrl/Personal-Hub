@@ -1,7 +1,7 @@
 import { addDays } from "./planDates.js";
 import { gearFor, shortGoal } from "./ascent.js";
 import { workoutName, fmtMins } from "./watch.js";
-import { normCheck, answered, markOf, scores, autoValue, answerEntry, focusEntry, checksLevel, shareOfLevel, legacyValue, valueText } from "./checks.js";
+import { normCheck, answered, allAnswered, markOf, scores, autoValue, answerEntry, focusEntry, checksLevel, shareOfLevel, legacyValue, valueText } from "./checks.js";
 
 // The Mark: every goal is a target (supabase/migrations/0075_the_mark.sql).
 //
@@ -623,6 +623,8 @@ export function restoreAnswers(target, starting, mine) {
     if (!m || typeof m !== "object" || Array.isArray(m)) return base;
     const line = typeof m.line === "string" ? m.line.slice(0, 500) : base.line;
     if (m.day === true && base.day === true && base.value != null) return { ...base, line };
+    // Cleared on purpose: blank, whatever was saved before.
+    if (m.value == null && m.day === false) return { value: null, line, day: false };
     if (fitsKind(a, m.value)) return { value: m.value, line, day: m.day === true };
     return { ...base, line };
   });
@@ -637,7 +639,9 @@ export function localDraft(target, draft, savedShot) {
   const answers = {};
   (target?.aims ?? []).forEach((a, i) => {
     const x = draft?.answers?.[i];
-    if (x && (x.value != null || x.line)) answers[a.id] = { value: x.value ?? null, line: x.line ?? "", day: x.day === true };
+    // An answer he cleared himself is kept too (no value, not the day's), so
+    // a shot saved before he cleared it can't bring the old answer back.
+    if (x && (x.value != null || x.line || x.day === false)) answers[a.id] = { value: x.value ?? null, line: x.line ?? "", day: x.day === true };
   });
   return { answers, line: draft?.line ?? "", base: shotKey(savedShot) };
 }
@@ -821,7 +825,12 @@ export function tonightShot(target, draft, { linked = [], today } = {}) {
 // re-save from ever looping.
 export function shotChange(target, draft, was, { linked = [], today, weekRead = true } = {}) {
   const shot = tonightShot(target, draft, { linked, today });
-  if (!shot) return was && !isLoosed(was) && weekRead ? { takeBack: true } : null;
+  // Before the week is read, only a target whose own scoring checks are
+  // unfinished is sure to have lost its ring (a focus can add to a ring,
+  // never finish its checks for it).
+  const aims = target?.aims ?? [];
+  const sure = weekRead || (aims.some((a) => scores(a)) && !allAnswered(aims, (draft?.answers ?? []).map((x) => x?.value ?? null)));
+  if (!shot) return was && !isLoosed(was) && sure ? { takeBack: true } : null;
   return was && sameShot(was, shot) ? null : { shot };
 }
 
@@ -842,14 +851,14 @@ export function keptText(target, draft, { level = null, feeds = [] } = {}) {
     if (!feeds?.length) {
       return level != null
         ? null
-        : "These are all reflection only, so there's no ring to land in tonight, and what you write here stays only on this phone. Make one count on The Range to give it an arrow.";
+        : "These are all reflection only, so there's no ring to land in tonight, and what you write here isn't kept once you bank the day. Make one count on The Range to give it an arrow.";
     }
     const why = `These are all reflection only, so its arrow comes from ${from}.`;
-    return level != null ? why : `${why} What you write here stays only on this phone until that arrow lands tonight.`;
+    return level != null ? why : `${why} What you write here stays only on this phone until that arrow lands, and isn't kept if you bank the day without it.`;
   }
   if (level != null || !gaveAny(draft)) return null;
-  if (!aims.length) return feeds?.length ? `Your line stays only on this phone until ${from} lands its arrow tonight.` : null;
-  return "What you've answered and written stays only on this phone until every check that counts is answered. Then it's saved with its arrow.";
+  if (!aims.length) return feeds?.length ? `Your line stays only on this phone until ${from} lands its arrow, and isn't kept if you bank the day without it.` : null;
+  return "What you've answered and written stays only on this phone until every check that counts is answered. Then it's saved with its arrow. Bank the day before that and it isn't kept.";
 }
 
 // Whether he's given anything on a target himself: a line, or an answer the

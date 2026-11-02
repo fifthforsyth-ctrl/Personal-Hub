@@ -757,3 +757,9 @@ a.quote-card__source:hover { text-decoration: underline; }
 /* The chips sit under the words, clear of the box. */
 .evening-tasks__reasons { padding: 0 0 10px 29px; }
 .evening-tasks__reasons .honest-add { flex-basis: 100%; }
+
+/* While Short and Full swap, the card being left has already saved what it
+   holds: nothing on it can be changed until the other one opens. */
+.evening__switching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+.evening-length[aria-busy="true"] .seg-btn { cursor: progress; }
+.evening-length[aria-busy="true"] .seg-btn:not(.active) { opacity: 0.6; }

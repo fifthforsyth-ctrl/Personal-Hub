@@ -78,6 +78,10 @@
   flex: none; width: auto; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; accent-color: var(--ink);
 }
 .ck-edit .ck-edit__toggle input[type="checkbox"]:focus { box-shadow: none; }
+/* A long focus name makes a wide select: the label wraps under its words
+   rather than push the sheet sideways on a phone. */
+.ck-edit .ck-edit__grid label { flex-wrap: wrap; max-width: 100%; min-width: 0; }
+.ck-edit .ck-edit__grid select.input { max-width: 100%; min-width: 0; }
 .ck-edit .ck-edit__toggle input[type="checkbox"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 .ck-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }

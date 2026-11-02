@@ -4557,15 +4557,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const examenKept = M.localDraft(examen, wrote, null);
   ok("so it's kept in the draft, and comes back next time", M.tonightDraft(examen, { mine: examenKept }).answers[0].value === "Where I saw God today" && M.tonightDraft(examen, { mine: examenKept }).line === "a long day");
   const alone = M.keptText(examen, wrote, { level: null, feeds: [] });
-  ok("and the evening says plainly it stays only on this phone", /reflection only/.test(alone) && /stays only on this phone/.test(alone) && /The Range/.test(alone), alone);
+  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /The Range/.test(alone), alone);
   const fedNotYet = M.keptText(examen, wrote, { level: null, feeds: [shipIt] });
-  ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands tonight/.test(fedNotYet), fedNotYet);
+  ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands, and isn't kept if you bank the day without it/.test(fedNotYet), fedNotYet);
   ok("once that arrow has landed it only says where the arrow came from", M.keptText(examen, wrote, { level: 1, feeds: [shipIt] }) === "These are all reflection only, so its arrow comes from Ship settings.");
   const half = { answers: [{ value: null, line: "only 4 pages", day: true }, { value: "yes", line: "", day: false }], line: "", quick: null };
   ok("a target still short of an answer says what it holds stays here until every check that counts is answered", /until every check that counts is answered/.test(M.keptText(pages, half, { level: null }) ?? ""));
   ok("but says nothing before anything's been given, or once it has its ring", M.keptText(pages, { answers: [{ value: null, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null && M.keptText(pages, half, { level: 2 }) === null);
   ok("nor for what only the day filled in", M.keptText(drew, { answers: [{ value: 20, line: "", day: true }, { value: null, line: "", day: true }], line: "" }, { level: null }) === null);
-  ok("a target fed only by a focus says the line waits on it", /until Ship settings lands its arrow tonight/.test(M.keptText(plugin, { answers: [], line: "good day" }, { level: null, feeds: [shipIt] }) ?? ""));
+  ok("a target fed only by a focus says the line waits on it", /until Ship settings lands its arrow, and isn't kept if you bank the day without it/.test(M.keptText(plugin, { answers: [], line: "good day" }, { level: null, feeds: [shipIt] }) ?? ""));
   const allSaid = [alone, fedNotYet, M.keptText(pages, half, { level: null }), M.keptText(plugin, { answers: [], line: "x" }, { level: null, feeds: [shipIt] })];
   ok("in plain words, no dashes", allSaid.every((s) => typeof s === "string" && !/[—–]/.test(s)));
   const markCss = readFileSync(new URL("../src/styles/mark.css", import.meta.url), "utf8");
@@ -4577,6 +4577,19 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a saved choice whose option has been taken out starts blank", M.startingAnswers({ ...how, tonight: calm }, {})[0].value === null);
   ok("one still there is kept", M.startingAnswers({ ...how, tonight: { answers: [{ ...calm.answers[0], value: "Rushed" }] } }, {})[0].value === "Rushed");
   ok("even on a choice that only asks", M.startingAnswers({ aims: [{ ...how.aims[0], pass: { on: [] } }], tonight: calm }, {})[0].value === null);
+
+  {
+    // Recheck of batch A: a cleared answer stays cleared, the week-unread
+    // guard only where a focus could matter.
+    const pages = { id: "p", text: "Pages", kind: "number", pass: { min: 10 } };
+    const t1 = { aims: [pages], tonight: { answers: [{ aim: "p", text: "Pages", kind: "number", value: 12, v: 2 }] } };
+    const cleared = M.localDraft(t1, { answers: [{ value: null, line: "", day: false }], line: "" }, t1.tonight);
+    ok("a cleared answer is kept in the phone's draft", cleared.answers.p && cleared.answers.p.value === null && cleared.answers.p.day === false);
+    ok("and reads back blank over the shot saved before", M.restoreAnswers(t1, [{ value: 12, line: "", day: false }], cleared.answers)[0].value === null);
+    const was = { target_id: "T", level: 0, answers: t1.tonight.answers, loosed_at: null };
+    ok("before the week is read, a target whose own check was cleared is still taken back", M.shotChange(t1, { answers: [{ value: null }], line: "" }, was, { weekRead: false })?.takeBack === true);
+    ok("one with nothing of its own to finish waits for the week", M.shotChange({ aims: [] }, { answers: [], line: "" }, was, { weekRead: false }) === null);
+  }
 }
 
 // (end of review fixes, batch A)
@@ -4941,7 +4954,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a check's own Reflection only stays as set when its kind changes", E.rekind({ ...yn, counts: false }, "scale").counts === false);
   const logged = { ...scale, kind: "minutes", pass: { min: 30 }, focus_id: "f-kids" };
   ok("a kind the time log can't answer drops the time log", E.rekind(logged, "scale").focus_id === null && E.rekind(logged, "number").focus_id === null && E.rekind(logged, "yn").focus_id === "f-kids");
-  ok("and only a time keeps Fill from when I got up, a number its unit, a pick one its choices", E.rekind({ ...yn, kind: "time", auto: "wake" }, "yn").auto === null && E.rekind({ ...yn, kind: "time", auto: "wake" }, "time").auto === "wake" && E.rekind(num, "minutes").unit === null && E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn").options.length === 0);
+  ok("and only a time keeps Fill from when I got up, a number its unit, a pick one its choices", E.rekind({ ...yn, kind: "time", auto: "wake" }, "yn").auto === null && E.rekind({ ...yn, kind: "time", auto: "wake" }, "time").auto === "wake" && E.cleanRows([E.rekind(num, "minutes")])[0].unit === null && E.cleanRows([E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn")])[0].options.length === 0);
+  ok("trying another kind and coming back keeps the choices and the unit", E.rekind(E.rekind({ ...yn, kind: "choice", options: ["Calm", "Short"] }, "yn"), "choice").options.join() === "Calm,Short" && E.rekind(E.rekind(num, "minutes"), "number").unit === num.unit);
   ok("the kind picker goes through it", /onChange=\{\(e\) => set\(r\.key, \{ \.\.\.rekind\(r, e\.target\.value\), key: r\.key, id: r\.id \}\)\}/.test(editorSrc));
 
   // --- #20, #22 The editor's checkboxes inside a .field, and long words -------------------
@@ -5212,7 +5226,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const settingsSrc = read("../src/components/focus/FocusSettings.jsx");
   const weekSrc = read("../src/components/focus/FocusWeek.jsx");
   ok("the evening card takes the props the evening hands it", /export default function FocusArrows\(\{ userId, date, entries, dayPlan, quick = false, flushRef \}\)/.test(arrowsSrc));
-  ok("its flush saves what's waiting on every focus, then waits for every save", /for \(const flush of \[\.\.\.flushers\.current\]\) flush\(\);\s*await settled\(\);/.test(arrowsSrc));
+  ok("its flush saves what's waiting on every focus, then waits for every save", /for \(const flush of \[\.\.\.flushers\.current\]\) flush\(\);[\s\S]{0,400}const done = await settled\(\);\s*if \(done\.includes\(false\)\) throw/.test(arrowsSrc));
   ok("the card says what it's for", arrowsSrc.includes("This week's focus") && arrowsSrc.includes("Put the arrow where today landed, or let its checks land it."));
   ok("a placed arrow saves where you put it, with its note", /save\(placedArrow\(\{ x, y \}, noteRef\.current\)\)/.test(arrowsSrc) && /arrowRef\.current\(goal\.id, date, next\)\.then/.test(arrowsSrc) && /Take tonight's arrow back/.test(arrowsSrc));
   ok("an arrow landed by checks saves only when it's ready and new (or its last save failed)", /const next = arrowToSave\(rowRef\.current, readyRef\.current, noteRef\.current, failedRef\.current\);\s*if \(next\) save\(next\);/.test(arrowsSrc));
@@ -5352,10 +5366,10 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // --- The page --------------------------------------------------------------------
   const page = src("src/pages/Evening.jsx");
-  const full = page.slice(page.indexOf(") : (\n        <div className=\"stack\">"), page.indexOf("{volley &&"));
+  const full = page.slice(page.indexOf(") : (\n        <div className={\"stack\""), page.indexOf("{volley &&"));
   const order = ["<WinsAndLosses", "<MinutesCard", "<WatchLine", "<CuratedCards", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningTasks", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
   ok("the full evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
-  const quick = page.slice(page.indexOf(") : short ? ("), page.indexOf(") : (\n        <div className=\"stack\">"));
+  const quick = page.slice(page.indexOf(") : short ? ("), page.indexOf(") : (\n        <div className={\"stack\""));
   const qOrder = ["<WinsAndLosses", "<ShortEvening", "<FocusArrows", "<TonightShots", "<CloseOut"].map((t) => quick.indexOf(t));
   ok("and the short one too", qOrder.every((i, k) => i >= 0 && (k === 0 || i > qOrder[k - 1])) && /quick\s*\/>/.test(quick.slice(quick.indexOf("<FocusArrows"))), qOrder.join());
   ok("FocusDay is gone from the evening", !/FocusDay/.test(page));

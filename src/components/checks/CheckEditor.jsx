@@ -22,7 +22,10 @@ export function blankRow(n = 0, patch = {}) {
 
 export function cleanRows(rows) {
   return (rows ?? [])
-    .map((r) => ({ ...normCheck(r), id: r.id ?? null }))
+    .map((r) => {
+      const c = normCheck(r);
+      return { ...c, options: c.kind === "choice" ? c.options : [], unit: c.kind === "number" ? c.unit : null, id: r.id ?? null };
+    })
     .filter((r) => r.text);
 }
 
@@ -58,8 +61,11 @@ export function rekind(r, kind) {
     counts: kind === "note" ? false : r.kind === "note" ? true : r.counts,
     focus_id: ANSWERED_BY_LOG.has(kind) ? r.focus_id : null,
     auto: kind === "time" ? r.auto : null,
-    unit: kind === "number" ? r.unit : null,
-    options: kind === "choice" ? r.options : [],
+    // Kept while you edit, so trying another kind and coming back doesn't
+    // lose the choices you typed or a number's unit; cleanRows leaves them
+    // off a kind that doesn't use them when it's saved.
+    unit: r.unit,
+    options: r.options,
   });
 }
 

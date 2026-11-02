@@ -404,11 +404,22 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
       }
       for (const t of targetsRef.current) settle(t.key, { now: true });
       await Promise.all([...chains.current.values()]);
+      // The targets whose shot still ought to be taken back (the take-back
+      // failed twice now), for the bank to leave in hand.
+      const keep = [];
+      for (const t of targetsRef.current) {
+        const d = draftsRef.current?.[t.key];
+        const was = saved.current.get(t.key);
+        if (!d || !was) continue;
+        const change = shotChange(t, d, was, { linked: linkOf(t), today: date, weekRead: Boolean(weekRef.current) });
+        if (change?.takeBack) keep.push(was.target_id ?? t.targetId);
+      }
+      return keep.filter(Boolean);
     };
     return () => {
       flushRef.current = null;
     };
-  }, [flushRef, settle, userId, date, setWeek]);
+  }, [flushRef, settle, userId, date, setWeek, linkOf]);
 
   // An answer, his own (`day: false`), so the day's newer one never takes
   // its place. Once every check has one, the checks set the ring, taking

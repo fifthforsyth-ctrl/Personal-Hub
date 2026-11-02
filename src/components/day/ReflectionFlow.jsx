@@ -179,7 +179,7 @@ function startingAnswers(userId, date, journal) {
 // Mount this only once the day has loaded, keyed by the date: what it starts
 // from is then the saved answers with this phone's draft laid over them
 // (mergeDraft), and nothing that arrives later can wipe what's being typed.
-export default function ReflectionFlow({ userId, date, journal, moments = [], onSaved }) {
+export default function ReflectionFlow({ userId, date, journal, moments = [], onSaved, flushRef }) {
   const [opening] = useState(() => startingAnswers(userId, date, journal));
   const [answers, setAnswers] = useState(opening.answers);
   // When you last typed here, kept with the draft. Only your typing moves it.
@@ -204,6 +204,23 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     if (same(answers, saved.current)) clearDraft(userId, date);
     else writeDraft(userId, date, answers, saved.current, typedAt.current);
   }, [answers, userId, date]);
+
+  // Before the evening switches to Short, or the day is banked: whatever is
+  // typed on a card and not yet sent (no Next tapped) goes now, so it's on
+  // the server before anything else can save over the journal. A save that
+  // fails throws, which keeps the page where it is.
+  const saveRef = useRef(null);
+  saveRef.current = save;
+  useEffect(() => {
+    if (!flushRef) return;
+    flushRef.current = async () => {
+      const ok = await saveRef.current?.();
+      if (ok === false) throw new Error("Your reflection didn't save. It's kept on this phone; try again in a moment.");
+    };
+    return () => {
+      flushRef.current = null;
+    };
+  }, [flushRef]);
 
   // Words left on this phone by a save that didn't go through are sent as
   // soon as the evening opens again.
