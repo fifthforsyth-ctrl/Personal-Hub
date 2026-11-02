@@ -310,3 +310,32 @@ export function withFields(data, kind, id, fields) {
   const key = kind === "line" ? "lines" : "steps";
   return { ...data, work: data.work ? { ...data.work, [key]: patch(data.work[key]) } : data.work };
 }
+
+// Your ticks laid over what the card loaded, so a tick holds until the card
+// has read it back. A load that was already on its way when you ticked (the
+// page reloading for something else, another card's change, the phone
+// coming back) answers with the row as it was, and without this the box
+// would clear itself under your thumb until the next reload.
+//
+// `overrides` is a Map of "kind:id" → { kind, id, fields, savedAt }:
+// `fields` as doneFields gives them, and `savedAt` when the save landed, or
+// null while it's still out. `data` carries `startedAt`, when its load began,
+// on the same clock. A tick stands until a load that began after its save
+// landed, since only that one is sure to have read it; that load has the row
+// as saved, so the tick isn't needed any more and goes. Each row is judged
+// on its own.
+//
+// Gives { data, keep }: the data with the ticks that stand laid over it, and
+// those ticks (the ones still needed), in the same Map shape.
+export function applyOverrides(data, overrides) {
+  const keep = new Map();
+  let out = data;
+  for (const [key, o] of overrides ?? []) {
+    if (!o) continue;
+    const read = o.savedAt != null && data?.startedAt != null && data.startedAt > o.savedAt;
+    if (read) continue;
+    keep.set(key, o);
+    out = withFields(out, o.kind, o.id, o.fields);
+  }
+  return { data: out, keep };
+}

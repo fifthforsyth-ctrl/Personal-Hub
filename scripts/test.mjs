@@ -195,7 +195,7 @@ import {
   andList,
   fmtHours as mirrorHours,
 } from "../src/lib/mirror.js";
-import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields } from "../src/lib/todayPlan.js";
+import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields, applyOverrides } from "../src/lib/todayPlan.js";
 
 let pass = 0;
 let fail = 0;
@@ -3914,6 +3914,66 @@ console.log("\napple watch");
   const least = Number(css.match(/repeat\(auto-fill, minmax\((\d+)px, 1fr\)\)/)?.[1]);
   const deskGap = Number(css.match(/gap: 10px (\d+)px;/)?.[1]);
   ok("five fit across the narrowest desk column (613px at 901 wide), each wider than the old 88px", least > 88 && 5 * least + 4 * deskGap <= 613, `${least}px`);
+}
+
+{
+  console.log("\ntoday's plan: a tick holds until a load reads it back");
+  const D = "2026-11-02";
+  const iso = "2026-11-02T18:00:00.000Z";
+  const chunks = [{ id: "c1", start_time: "08:00:00", end_time: "10:00:00", title: "Plugin", quest_id: "q1", camp_id: null }];
+  const tasks = [
+    { id: "t1", title: "Email Sam", status: false, time_chunk_id: "c1", parent_task_id: null, position: 0 },
+    { id: "t2", title: "Book the room", status: false, time_chunk_id: "c1", parent_task_id: null, position: 1 },
+  ];
+  const line = (id, fields) => ({ id, quest_id: "q1", parent_id: null, kind: "task", text: id, day: D, ongoing: false, today_on: null, done_on: null, position: 0, ...fields });
+  const work = {
+    quests: [{ id: "q1", title: "Plugin", status: "on", position: 0 }],
+    camps: [],
+    sections: [],
+    steps: [],
+    lines: [line("n1", { kind: "note", text: "Meeting with the team" }), line("n1a", { parent_id: "n1" }), line("n1b", { parent_id: "n1", position: 1 })],
+  };
+  const loaded = (startedAt, rows = tasks) => ({ tasks: rows, work, startedAt });
+  const tick = (kind, id, done, savedAt) => [`${kind}:${id}`, { kind, id, fields: doneFields(kind, done, D, iso), savedAt }];
+  const status = (data, id) => data.tasks.find((t) => t.id === id).status;
+  const lineDone = (data, id) => data.work.lines.find((l) => l.id === id).done_on;
+
+  const out = new Map([tick("task", "t1", true, null)]);
+  const whileOut = applyOverrides(loaded(500), out);
+  ok("a tick shows while its save is out, even over a load that began after it", status(whileOut.data, "t1") === true && whileOut.keep.has("task:t1"));
+  ok("with nothing loaded yet, a tick waits for the load", (() => {
+    const r = applyOverrides(undefined, out);
+    return r.data === undefined && r.keep.size === 1;
+  })());
+
+  const landed = new Map([tick("task", "t1", true, 100)]);
+  const early = applyOverrides(loaded(90), landed);
+  ok("a load that began before the save landed can't undo the tick", status(early.data, "t1") === true && early.keep.has("task:t1"));
+  ok("a load that began the moment the save landed keeps it too", applyOverrides(loaded(100), landed).keep.has("task:t1"));
+
+  // Since that load the row was unticked somewhere else (on another phone,
+  // say): the load is right and the old tick mustn't cover it.
+  const late = applyOverrides(loaded(150), landed);
+  ok("a load that began after the save landed shows the row as loaded, and the tick goes", status(late.data, "t1") === false && late.keep.size === 0);
+  ok("one that read the tick back shows it ticked", status(applyOverrides(loaded(150, [{ ...tasks[0], status: true }, tasks[1]]), landed).data, "t1") === true);
+
+  const many = new Map([tick("task", "t1", true, 100), tick("line", "n1a", true, null), tick("task", "t2", true, 200)]);
+  const each = applyOverrides(loaded(150), many);
+  ok(
+    "each row's tick is judged on its own",
+    status(each.data, "t1") === false && status(each.data, "t2") === true && lineDone(each.data, "n1a") === D && lineDone(each.data, "n1b") === null && [...each.keep.keys()].join() === "line:n1a,task:t2",
+    JSON.stringify([...each.keep.keys()])
+  );
+  ok("ticks leave what was loaded as it was, and keep when its load began", tasks[1].status === false && work.lines[1].done_on === null && each.data.startedAt === 150);
+  ok("a tick on a task under a note shows in its block", (() => {
+    const c1 = planForToday({ chunks, tasks: each.data.tasks, questWork: each.data.work, nowMin: 9 * 60, date: D }).blocks.find((b) => b.id === "c1");
+    const note = c1.items.find((i) => i.id === "n1");
+    return note?.heading === true && note.subs[0].done === true && note.subs[1].done === false && c1.done === 2 && c1.total === 4;
+  })());
+  ok("an untick holds the same way", (() => {
+    const r = applyOverrides(loaded(90, [{ ...tasks[0], status: true }, tasks[1]]), new Map([tick("task", "t1", false, 100)]));
+    return status(r.data, "t1") === false && r.data.tasks[0].completed_at === null;
+  })());
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
