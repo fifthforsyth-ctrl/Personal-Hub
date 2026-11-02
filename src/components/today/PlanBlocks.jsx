@@ -1,15 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, ArrowRight, ChevronDown, NotebookPen } from "lucide-react";
 import { colorFor } from "../../lib/categories";
 import { fmtTimeRange } from "../../lib/planDates";
-import { fetchTasks, fetchTodayQuestWork, toggleTask, updateQuestTask, updateStep } from "../../lib/api";
-import { useLoad } from "../../lib/useLoad";
-import { planForToday, doneFields, applyOverrides } from "../../lib/todayPlan";
-import { haptic } from "../../lib/haptics";
-import { useToast } from "../ui/Feedback";
+import { planForToday, applyOverrides } from "../../lib/todayPlan";
 import LoadError from "../ui/LoadError";
-import { announceChange } from "./announce";
+import { usePlanTicks } from "./usePlanTicks";
 
 // Your plan for today, right under your minutes (Aaron, 2026-11-02): "all
 // daily blocks visible, with just the blocks ahead of me expanded to see all
@@ -36,117 +32,17 @@ import { announceChange } from "./announce";
 // they come, or if they don't, the blocks still show from the day's plan.
 // Changing a block still happens on the day page, one tap away.
 export default function PlanBlocks({ userId, date, chunks }) {
-  const toast = useToast();
   const now = useNowMinutes();
   const [openPast, setOpenPast] = useState(() => new Set());
 
-  const { data, error, reload } = useLoad(() => (userId ? loadWork(userId, date) : null), [userId, date]);
-
-  // Something changed elsewhere (the capture sheet, the day page, this card
-  // a moment ago), or the phone came back to the app.
-  useEffect(() => {
-    const onVisible = () => document.visibilityState === "visible" && reload();
-    window.addEventListener("hub:changed", reload);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.removeEventListener("hub:changed", reload);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [reload]);
-
-  // Tell the rest of Today once the ticks settle, so ticking off three
-  // things in a row reloads the page once. `owed` is a save that landed and
-  // hasn't been told yet. Leaving Today says it straight away.
-  const tellTimer = useRef(null);
-  const owed = useRef(false);
-  const tellSoon = useCallback(() => {
-    clearTimeout(tellTimer.current);
-    tellTimer.current = setTimeout(() => {
-      tellTimer.current = null;
-      owed.current = false;
-      announceChange();
-    }, 1200);
-  }, []);
-  useEffect(
-    () => () => {
-      if (!owed.current) return;
-      clearTimeout(tellTimer.current);
-      tellTimer.current = null;
-      owed.current = false;
-      announceChange();
-    },
-    []
-  );
-
-  // Your ticks, held over what's loaded until a load that began after the
-  // save has read them back (applyOverrides in src/lib/todayPlan.js). Kept
-  // in a ref too, so a save that lands reads the latest of them.
-  const [overrides, setOverrides] = useState(() => new Map());
-  const overridesNow = useRef(overrides);
-  const changeOverrides = useCallback((change) => {
-    const next = new Map(overridesNow.current);
-    change(next);
-    overridesNow.current = next;
-    setOverrides(next);
-  }, []);
+  // Loading, reloading and ticking live in usePlanTicks, which the evening's
+  // "What got done" shares, so a tick behaves the same in both places.
+  const { data, error, reload, overrides, toggle } = usePlanTicks(userId, date);
 
   const shown = useMemo(() => applyOverrides(data, overrides), [data, overrides]);
   const plan = useMemo(
     () => planForToday({ chunks: chunks ?? [], tasks: shown.data?.tasks ?? [], questWork: shown.data?.work ?? null, nowMin: now, date }),
     [chunks, shown, now, date]
-  );
-
-  // Once a load has read a tick back, let it go.
-  useEffect(() => {
-    const { keep } = applyOverrides(data, overridesNow.current);
-    if (keep.size === overridesNow.current.size) return;
-    overridesNow.current = keep;
-    setOverrides(keep);
-  }, [data]);
-
-  // One save at a time for each row, so a double tap can't race itself.
-  const saving = useRef(new Set());
-  const toggle = useCallback(
-    async (item) => {
-      if (item.heading) return; // a note's words, nothing to tick
-      const key = `${item.kind}:${item.id}`;
-      if (saving.current.has(key)) return;
-      saving.current.add(key);
-      // An earlier tick's "tell the page" waits for this one, so its reload
-      // can't go out while this save is still on its way.
-      clearTimeout(tellTimer.current);
-      tellTimer.current = null;
-      const done = !item.done;
-      const fields = doneFields(item.kind, done, date, new Date().toISOString());
-      const before = overridesNow.current.get(key);
-      const tick = { kind: item.kind, id: item.id, fields, savedAt: null };
-      changeOverrides((m) => m.set(key, tick));
-      haptic(done ? "success" : "tap");
-      try {
-        if (item.kind === "task") await toggleTask(item.id, done);
-        else if (item.kind === "line") await updateQuestTask(item.id, fields);
-        else await updateStep(item.id, fields);
-        const savedAt = clock();
-        changeOverrides((m) => {
-          if (m.get(key) === tick) m.set(key, { ...tick, savedAt });
-        });
-        owed.current = true;
-      } catch (err) {
-        // Back to what showed before this tick: the last one that saved, if
-        // there was one, or what's loaded.
-        changeOverrides((m) => {
-          if (m.get(key) !== tick) return;
-          if (before) m.set(key, before);
-          else m.delete(key);
-        });
-        toast.error(err, "Couldn't save that.");
-        reload();
-      } finally {
-        saving.current.delete(key);
-        if (owed.current && saving.current.size === 0) tellSoon();
-      }
-    },
-    [changeOverrides, date, reload, tellSoon, toast]
   );
 
   const flipPast = (id) =>
@@ -196,17 +92,6 @@ export default function PlanBlocks({ userId, date, chunks }) {
       {!blocksMissing && looseCount > 0 && <Loose loose={loose} date={date} onToggle={toggle} />}
     </div>
   );
-}
-
-// The page's own clock, which never jumps when the phone sets its time.
-const clock = () => performance.now();
-
-// `startedAt` is read before anything goes out, so a load that began after a
-// save landed is sure to have read it.
-async function loadWork(userId, date) {
-  const startedAt = clock();
-  const [tasks, work] = await Promise.all([fetchTasks(userId, date), fetchTodayQuestWork(userId, date)]);
-  return { tasks, work, startedAt };
 }
 
 // One block: its time and name, and what's in it when it's open. A block

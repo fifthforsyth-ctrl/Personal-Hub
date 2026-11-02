@@ -4712,6 +4712,145 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
 // ===== Before you bank it (PR 2, part 3) =====
 // Add this part's tests directly under the line above.
+{
+  console.log("\nbefore you bank it (0103)");
+  const src = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+  // --- The push sees each focus's arrows -------------------------------------
+  const focusAim = (checkins, weekFocus = [{ id: "w1", title: "Win by win", position: 0 }]) => aimForPrompt({ date: "2026-11-02", weekFocus, checkins });
+  const rings = focusAim([
+    { goal_id: "w1", date: "2026-11-02", moved: false, level: 5, note: null },
+    { goal_id: "w1", date: "2026-11-01", moved: true, level: 1, note: "up at 4:40, one snooze" },
+    { goal_id: "w1", date: "2026-10-31", moved: true, level: 0 },
+  ]).this_weeks_focus[0];
+  ok(
+    "each focus's arrows by day, oldest first, ring and his line",
+    JSON.stringify(rings.arrows_this_week) === JSON.stringify(["2026-10-31 bullseye", "2026-11-01 inner ring: up at 4:40, one snooze", "2026-11-02 missed"]),
+    JSON.stringify(rings)
+  );
+  ok("and the moved and not days still count, from the rings", rings.days_moved === 2 && rings.days_not === 1);
+  const old = focusAim([
+    { goal_id: "w1", date: "2026-10-28", moved: true },
+    { goal_id: "w1", date: "2026-10-29", moved: false, level: null },
+  ]).this_weeks_focus[0];
+  ok("a day from before the rings reads as moved or didn't move", JSON.stringify(old.arrows_this_week) === JSON.stringify(["2026-10-28 moved", "2026-10-29 didn't move"]) && old.days_moved === 1 && old.days_not === 1, JSON.stringify(old));
+  ok("the ring wins over moved when a row has both", focusAim([{ goal_id: "w1", date: "2026-11-01", moved: true, level: 3 }]).this_weeks_focus[0].arrows_this_week[0] === "2026-11-01 outer ring");
+  ok(
+    "a check-in from outside the week, or another focus's, stays out",
+    focusAim([
+      { goal_id: "w1", date: "2026-10-20", moved: true, level: 0 },
+      { goal_id: "other", date: "2026-11-01", moved: true, level: 0 },
+    ]).this_weeks_focus[0].arrows_this_week === undefined
+  );
+  ok("a long line is cut, never the whole page", focusAim([{ goal_id: "w1", date: "2026-11-01", moved: true, level: 2, note: "x".repeat(400) }]).this_weeks_focus[0].arrows_this_week[0].length < 200);
+  ok("a focus with no arrows yet still shows, with nothing made up", (() => {
+    const f = focusAim([]).this_weeks_focus[0];
+    return f.focus === "Win by win" && f.days_moved === 0 && f.days_not === 0 && !("arrows_this_week" in f);
+  })());
+  ok("the push never grades what he wrote about God", /never grade it/.test(PUSH_TONE) && /god_note/.test(PUSH_TONE) && /don't speak for God/i.test(PUSH_TONE));
+
+  // --- What the AI is told about the new columns ------------------------------
+  const askDoc = src("supabase/functions/ask/index.ts");
+  const asstDoc = src("supabase/functions/assistant/index.ts");
+  for (const [name, doc] of [
+    ["Ask", askDoc],
+    ["the assistant", asstDoc],
+  ]) {
+    ok(`${name}'s schema notes know the 1–10 feelings and the notes`, ["mood_10 smallint 1-10", "stress_10 smallint 1-10", "god_note text", "mood_note text", "stress_note text"].every((s) => doc.includes(s)));
+    ok(`${name}'s schema notes say the 1–5 is derived since 2026-11-02`, /since 2026-11-02 they are derived from mood_10 and stress_10 \(half, rounded up\)|derived from the 1-10 \(half, rounded up\)/.test(doc));
+    ok(`${name}'s schema notes know a check's kinds and what passes`, doc.includes("kind text 'yn'|'ysn'|'scale'|'number'|'minutes'|'time'|'choice'|'note'") && doc.includes("counts boolean") && doc.includes("auto 'wake'"));
+    ok(`${name}'s schema notes know the focus's arrows and checks`, ["focus_checks(id, goal_id", "lands_by text 'placed'|'checks'", "quest_id uuid, lesson_id uuid", "level smallint, spot_x real, spot_y real, note text, answers jsonb"].every((s) => doc.includes(s)));
+    ok(`${name}'s schema notes know the new shot answers`, /kind, value/.test(doc) && /line \(his/.test(doc) && /focus_goal/.test(doc) && /whole true/.test(doc));
+    ok(`${name}'s schema notes say the old evening questions stopped`, /aren't asked (from|after) 2026-11-02/.test(doc));
+  }
+  ok("Ask's notes still know the older columns", ["mood smallint", "stress smallint", "stress_source", "off_plan_reason", "had_prompting", "sabbath_note", "fast_sunday"].every((s) => askDoc.includes(s)) && askDoc.includes("focus_notes(id, goal_id, date date, text text"));
+  const evenings = asstDoc.slice(asstDoc.indexOf("async function recentEvenings"), asstDoc.indexOf("function dayForPrompt"));
+  ok("the last week of evenings carries the notes and the 1–10 feelings", /god_note, mood_note, stress_note/.test(evenings) && /mood_10, stress_10/.test(evenings) && /mood_of_5/.test(evenings));
+  ok("and still opens before 0103 is in", /r\.error \? journal\(EVENING_COLUMNS\) : r/.test(evenings) && /plans\.error \? \[\]/.test(evenings));
+  const aim = asstDoc.slice(asstDoc.indexOf("async function aimDay"), asstDoc.indexOf("const WalkPromptSchema"));
+  ok("the aim reads only this week's focus arrows, with their ring and line", /select\("goal_id, date, moved, level, note"\)/.test(aim) && /\.gte\("date", weekStart\)/.test(aim) && /\.lte\("date", date\)/.test(aim));
+
+  // --- Before you bank it -------------------------------------------------------
+  // The code without its comments, which still name what went.
+  const code = (s) =>
+    s
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+  const checkin = code(src("src/components/day/EveningCheckin.jsx"));
+  ok("mood and stress save on 1–10 with the 1–5 beside them", /patchDayPlan\(userId, date, \{ mood_10: n, mood: toFive\(n\) \}\)/.test(checkin) && /patchDayPlan\(userId, date, \{ stress_10: n, stress: toFive\(n\) \}\)/.test(checkin));
+  ok("and open where the day already sits on 1–10", /useFollow\(tenOf\(dayPlan, "mood"\)\)/.test(checkin) && /useFollow\(tenOf\(dayPlan, "stress"\)\)/.test(checkin));
+  ok("each feeling has its note, and God has one", /\{ moodNote: t \}/.test(checkin) && /\{ stressNote: t \}/.test(checkin) && /\{ godNote: t \}/.test(checkin) && /journal\?\.god_note/.test(checkin) && checkin.includes("Any communication with God today?") && checkin.includes("What's behind it?"));
+  ok("Fast Sunday is in the God card, on Sundays only", /\{sunday && \(\s*<div className="evening-god__sunday">/.test(checkin) && /fast_sunday: next/.test(checkin));
+  ok("tomorrow's alarm is only asked tonight", /const tonight = date >= eveningDate\(\);/.test(checkin) && /\{tonight && \(/.test(checkin));
+  const gone = ["stress_source", "off_plan_reason", "sabbath_note", "had_prompting", "logPrayer", "logExperience", "LeftUndone", "STRESS_SOURCES", "OFF_PLAN_REASONS", "Prayed"];
+  ok("the chips, the prayer tap, the prompting and the Sabbath line are gone", gone.every((s) => !checkin.includes(s)), gone.filter((s) => checkin.includes(s)).join());
+  ok("tapping what's chosen never takes it back", !/=== n \? null/.test(checkin) && !/alarm === a \? null/.test(checkin) && /if \(n === mood && !saves\.waiting\("mood"\)\) return;/.test(checkin));
+  ok("saves go one at a time, so a tap while one saves still goes", /if \(loop\.current\) return loop\.current;/.test(checkin) && /wanted\.current\.set\(key, \{ run \}\)/.test(checkin));
+  ok("a save that fails stays waiting and says so", /if \(wanted\.current\.get\(key\) === job\) failed\.add\(key\)/.test(checkin) && checkin.includes("Not saved, retry") && /useBackOnline\(retry, status\.failed > 0\)/.test(checkin));
+  ok("flushing saves every note still typed, and fails loudly", /for \(const n of notes\.current\) n\.saveNow\(\);/.test(checkin) && /throw new Error\("Something didn't save\."\)/.test(checkin));
+  ok("the em dash stays out of what he reads", !/>[^<{]*—[^<{]*</.test(checkin) && !/placeholder="[^"]*—/.test(checkin));
+
+  const short = code(src("src/components/day/ShortEvening.jsx"));
+  ok("the short evening: mood on the slider, no note for it", /<Slider label="Mood"/.test(short) && !/moodNote/.test(short) && /mood_10: n, mood: toFive\(n\)/.test(short));
+  ok("the God note in place of the Prayed tap", /\{ godNote: t \}/.test(short) && !/logPrayer|deletePrayer|Prayed/.test(short));
+  ok("God's hand still finishes the reflection, and a blank never blanks it", /\{ godsHand: t, completed: true \}/.test(short) && /keepBlank: true/.test(short) && /flushRef\.current = async/.test(short));
+  ok("and the alarm is only tonight's", /\{date >= eveningDate\(\) && \(/.test(short));
+
+  // --- What got done --------------------------------------------------------------
+  const tasksSrc = src("src/components/day/EveningTasks.jsx");
+  const ticks = src("src/components/today/usePlanTicks.js");
+  const blocks = src("src/components/today/PlanBlocks.jsx");
+  ok("every task and quest pick for the day, examples left out", /usePlanTicks\(userId, date, \{ clearReason: true \}\)/.test(tasksSrc) && /filter\(\(t\) => !t\.is_example\)/.test(tasksSrc) && /planForToday\(/.test(tasksSrc));
+  ok("an open task still asks why, with the old chips", /reasonChips\(pastReasons, 7, TASK_REASONS\)/.test(tasksSrc) && /fetchTaskReasons/.test(tasksSrc) && /onReason\(item\.id/.test(tasksSrc));
+  ok("ticking a task done at night clears why it was left", /const sent = done \? \{ \.\.\.fields, left_reason: null \} : fields;/.test(ticks) && /updateTask\(item\.id, sent\)/.test(ticks));
+  ok("Today's plan ticks the way it always has", /usePlanTicks\(userId, date\);/.test(blocks) && /toggleTask\(item\.id, done\)/.test(ticks) && !/clearReason/.test(blocks));
+  ok("a reason waits for the row's tick, never races it", /ahead \? ahead\.catch\(\(\) => \{\}\)\.then\(run\) : run\(\)/.test(ticks));
+  const night = planForToday({
+    chunks: [
+      { id: "m", start_time: "08:00:00", end_time: "10:00:00", title: "Morning" },
+      { id: "s", start_time: "21:30:00", end_time: "04:30:00", title: "Sleep" },
+    ],
+    tasks: [
+      { id: "a", title: "Inbox", time_chunk_id: "m", status: true },
+      { id: "b", title: "Lay out clothes", time_chunk_id: "s", status: false },
+      { id: "c", title: "Call the bank", time_chunk_id: null, status: false },
+    ],
+    nowMin: 2 * 24 * 60,
+    date: "2026-11-02",
+  });
+  ok("in the evening every block is behind you, even one past midnight, and nothing hides", night.blocks.every((b) => b.state === "past") && night.total === 3 && night.done === 1 && night.loose.planned[0]?.id === "c");
+
+  // --- The page --------------------------------------------------------------------
+  const page = src("src/pages/Evening.jsx");
+  const full = page.slice(page.indexOf(") : (\n        <div className=\"stack\">"), page.indexOf("{volley &&"));
+  const order = ["<WinsAndLosses", "<MinutesCard", "<WatchLine", "<CuratedCards", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningTasks", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
+  ok("the full evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
+  const quick = page.slice(page.indexOf(") : short ? ("), page.indexOf(") : (\n        <div className=\"stack\">"));
+  const qOrder = ["<WinsAndLosses", "<ShortEvening", "<FocusArrows", "<TonightShots", "<CloseOut"].map((t) => quick.indexOf(t));
+  ok("and the short one too", qOrder.every((i, k) => i >= 0 && (k === 0 || i > qOrder[k - 1])) && /quick\s*\/>/.test(quick.slice(quick.indexOf("<FocusArrows"))), qOrder.join());
+  ok("FocusDay is gone from the evening", !/FocusDay/.test(page));
+  ok("the focus arrows and the shots get the day's plan", (page.match(/dayPlan=\{data\.dayPlan\}/g) ?? []).length >= 5 && (page.match(/<FocusArrows[^>]*flushRef=\{flushFocus\}/g) ?? []).length === 2);
+  const before = page.slice(page.indexOf("const beforeBank"), page.indexOf("const a = data?.archive"));
+  ok("banking saves the focus arrows before tonight's checks", before.indexOf("flushFocus") < before.indexOf("flushCheckin") && /onBefore=\{beforeBank\}/.test(page) && /onBefore=\{beforeShortBank\}/.test(page) && /flushShort\.current/.test(before));
+
+  // --- The banked day -----------------------------------------------------------------
+  const banked = src("src/components/day/BankedDayCard.jsx");
+  const line = banked.slice(banked.indexOf("function DayInALine"), banked.indexOf("function TaskLine"));
+  ok("the banked day shows mood and stress out of 10", /tenOf\(p, "mood"\)/.test(line) && /`mood \$\{mood\}\/10`/.test(line) && /`stress \$\{stress\}\/10/.test(line));
+  ok("and the God note and a fast Sunday", /j\.god_note \? `With God: \$\{j\.god_note\}`/.test(line) && /fast Sunday/.test(line) && /<DayInALine plan=\{plan\} journal=\{journal\} \/>/.test(banked));
+  ok("the older questions show only on days that have them", /p\.stress_source \?/.test(line) && /if \(p\.off_plan_reason\)/.test(line) && /p\.sabbath_note \?/.test(line));
+
+  // --- The slider ------------------------------------------------------------------------
+  const slider = src("src/components/ui/Slider.jsx");
+  ok("the slider says what it is to a screen reader", /role="slider"/.test(slider) && /aria-valuemin=\{SLIDER_MIN\}/.test(slider) && /aria-valuemax=\{SLIDER_MAX\}/.test(slider) && /aria-valuenow=\{set \?\? undefined\}/.test(slider));
+  ok("and takes the keys a slider takes", ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"].every((k) => slider.includes(`"${k}"`)));
+  ok("unset until the first touch, and says so", slider.includes('"Tap to set"') && /value == null \? null/.test(slider));
+  ok("it saves once you lift your thumb, and a scroll isn't a pick", /function onPointerUp/.test(slider) && /settle\(n\)/.test(slider) && /onPointerCancel=\{onPointerCancel\}/.test(slider));
+  const daily = src("src/styles/daily.css");
+  const track = daily.slice(daily.indexOf(".slider__track {"), daily.indexOf("}", daily.indexOf(".slider__track {")));
+  ok("the track is thumb-sized, keeps vertical scrolling, and fits a phone", /height: 44px/.test(track) && /touch-action: pan-y/.test(track) && /repeat\(10, minmax\(0, 1fr\)\)/.test(track));
+}
 
 // (end of before you bank it)
 

@@ -12,9 +12,10 @@ import LoadError from "../components/ui/LoadError";
 import ReflectionFlow from "../components/day/ReflectionFlow";
 import CloseOut from "../components/day/CloseOut";
 import EveningCheckin from "../components/day/EveningCheckin";
+import EveningTasks from "../components/day/EveningTasks";
 import ShortEvening from "../components/day/ShortEvening";
 import BankedDayCard from "../components/day/BankedDayCard";
-import FocusDay from "../components/focus/FocusDay";
+import FocusArrows from "../components/focus/FocusArrows";
 import TonightShots from "../components/mark/TonightShots";
 import Volley from "../components/mark/Volley";
 import CuratedCards from "../components/curator/CuratedCards";
@@ -29,19 +30,28 @@ import "../styles/daily.css";
 
 // The evening, on one page, in the order it actually goes: what went well
 // and what didn't, where the hours went, an old thought from the board that
-// fits the day, the four reflection cards, whether today moved this week's
-// focus goals, tonight's shot at each target on The Range, a few taps on how
-// it felt and when tomorrow starts, and then bank it, which is when the
-// arrows fly. Nothing else on the page, so the only way forward is down.
+// fits the day, the four reflection cards, an arrow for each of this week's
+// focuses (placed by you, or landed by its own checks), tonight's checks on
+// each target on The Range, what got done (tick anything you did and didn't
+// mark, and say why the rest was left), how it felt and any communication
+// with God, when tomorrow starts, and then bank it, which is when the arrows
+// fly. Nothing else on the page, so the only way forward is down.
+//
+// Banking saves what's still waiting first, in the order it's needed: the
+// focus arrows (a focus can count toward a target, so its arrow has to be
+// in before the target's shot is worked out), the ticks on their way, and
+// the notes on how it felt. The targets' shots save last, as the arrows fly.
 //
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
 //
-// Past midnight, and on any earlier day you go back to, it opens short: wins and losses, a few taps (mood,
-// prayer, God's hand in a line, tomorrow's alarm), one tap per target for
-// tonight's shots, and bank it. Same day, same records, same arrows; Full
-// switches back at any point and keeps everything tapped. ?short=1 opens it
-// short at any hour.
+// Past midnight, and on any earlier day you go back to, it opens short:
+// wins and losses, a few taps (mood, any communication with God, God's hand
+// in a line, tomorrow's alarm), a quick arrow for each focus, one tap per
+// target for tonight's shots, and bank it. Same day, same records, same
+// arrows; Full switches back at any point and keeps everything tapped: the
+// card being left saves what it holds and the page reads the day again, so
+// the other one opens on it. ?short=1 opens it short at any hour.
 
 function shortKey(date) {
   return `hub.evening-short.${date}`;
@@ -89,18 +99,30 @@ export default function Evening() {
     setShortDate(date);
     setShortState(startShort(date, tonight, search.get("short") === "1"));
   }
+  // What each card still holds, saved before the day is banked (and before
+  // switching between short and full): the short evening's taps and lines,
+  // the full one's notes, the focus arrows, and ticks on their way.
+  const flushShort = useRef(null);
+  const flushCheckin = useRef(null);
+  const flushFocus = useRef(null);
+  const flushTasks = useRef(null);
+  const [shortLine, setShortLine] = useState(false);
+
+  const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
+
+  // The card being left saves what it holds, and then the page reads the day
+  // again, so the one switched to opens on what was just tapped.
   const setShort = (v) => {
+    if (v === short) return;
+    const leaving = [flushFocus.current, short ? flushShort.current : flushCheckin.current];
     setShortState(v);
     try {
       sessionStorage.setItem(shortKey(date), v ? "1" : "0");
     } catch {
       /* the switch still works for this visit */
     }
+    Promise.allSettled(leaving.map((flush) => flush?.())).then(() => reload());
   };
-  const flushShort = useRef(null);
-  const [shortLine, setShortLine] = useState(false);
-
-  const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
 
   // A win captured from the sheet over this page shows up here too.
   useEffect(() => {
@@ -123,6 +145,20 @@ export default function Evening() {
     const range = buildRange(buildAscent(fresh, date), fresh.marks, date);
     setVolley({ range, date, flown: new Set(flown.map((s) => s.id)) });
   }, [userId, date]);
+
+  // Before the summary is written from the day: the focus arrows first
+  // (tonight's shots read them when they fly, in `loose`), then the ticks on
+  // their way, then how it felt. A note that didn't save stops the bank, so
+  // nothing typed is lost; CloseOut says so and the tap can go again.
+  const beforeBank = useCallback(async () => {
+    await flushFocus.current?.();
+    await flushTasks.current?.();
+    await flushCheckin.current?.();
+  }, []);
+  const beforeShortBank = useCallback(async () => {
+    await flushFocus.current?.();
+    await flushShort.current?.();
+  }, []);
 
   const a = data?.archive ?? {};
   const banked = Boolean(data?.dayPlan?.banked_at);
@@ -194,11 +230,28 @@ export default function Evening() {
             date={date}
             dayPlan={data.dayPlan}
             journal={a.journal}
-            prayers={a.prayers ?? []}
             flushRef={flushShort}
             onLine={setShortLine}
           />
-          <TonightShots key={`quick-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} flushRef={flushShots} onReady={setArrows} quick />
+          <FocusArrows
+            key={`focus-quick-${date}`}
+            userId={userId}
+            date={date}
+            entries={a.time_entries ?? []}
+            dayPlan={data.dayPlan}
+            flushRef={flushFocus}
+            quick
+          />
+          <TonightShots
+            key={`quick-${date}`}
+            userId={userId}
+            date={date}
+            entries={a.time_entries ?? []}
+            dayPlan={data.dayPlan}
+            flushRef={flushShots}
+            onReady={setArrows}
+            quick
+          />
           <CloseOut
             userId={userId}
             date={date}
@@ -207,7 +260,7 @@ export default function Evening() {
             arrows={arrows}
             onLoose={loose}
             short
-            onBefore={() => flushShort.current?.()}
+            onBefore={beforeShortBank}
           />
         </div>
       ) : (
@@ -217,20 +270,19 @@ export default function Evening() {
           <WatchLine userId={userId} date={date} />
           <CuratedCards slot="day" date={date} title="From your board" compact />
           <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} />
-          <FocusDay userId={userId} date={date} variant="evening" />
-          <TonightShots key={`shots-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} flushRef={flushShots} onReady={setArrows} />
-          <EveningCheckin
-            key={`checkin-${date}`}
+          <FocusArrows key={`focus-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} dayPlan={data.dayPlan} flushRef={flushFocus} />
+          <TonightShots
+            key={`shots-${date}`}
             userId={userId}
             date={date}
-            dayPlan={data.dayPlan}
-            chunks={data.chunks}
             entries={a.time_entries ?? []}
-            tasks={data.tasks}
-            prayers={a.prayers ?? []}
-            experiences={a.experiences ?? []}
+            dayPlan={data.dayPlan}
+            flushRef={flushShots}
+            onReady={setArrows}
           />
-          <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} arrows={arrows} onLoose={loose} />
+          <EveningTasks key={`tasks-${date}`} userId={userId} date={date} chunks={data.chunks} tasks={data.tasks} flushRef={flushTasks} />
+          <EveningCheckin key={`checkin-${date}`} userId={userId} date={date} dayPlan={data.dayPlan} journal={a.journal} flushRef={flushCheckin} />
+          <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} arrows={arrows} onLoose={loose} onBefore={beforeBank} />
         </div>
       )}
 

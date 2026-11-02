@@ -1,107 +1,84 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Moon, Check } from "lucide-react";
-import {
-  patchDayPlan,
-  fetchDayPlan,
-  fetchLastAlarm,
-  fetchEveningHistory,
-  fetchTaskReasons,
-  updateTask,
-  logPrayer,
-  updatePrayer,
-  deletePrayer,
-  logExperience,
-  updateExperience,
-  deleteExperience,
-} from "../../lib/api";
+import { patchDayPlan, fetchDayPlan, fetchLastAlarm, saveJournalEntry } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
-import { friendlyError } from "../../lib/errors";
 import { addDays } from "../../lib/planDates";
-import { fmtMinutes } from "../../lib/categories";
-import {
-  reasonChips,
-  offPlan,
-  lightsOutFor,
-  eveningStamp,
-  fmtClock,
-  rememberedAlarm,
-  leftUndone,
-  isSunday,
-  STRESS_SOURCES,
-  OFF_PLAN_REASONS,
-  TASK_REASONS,
-  SLEEP_HOURS,
-} from "../../lib/honest";
-import { Scale } from "../today/StopFollowUp";
+import { toFive, tenOf } from "../../lib/checks";
+import { lightsOutFor, fmtClock, rememberedAlarm, isSunday, SLEEP_HOURS } from "../../lib/honest";
 import { timeOf } from "../today/minutes";
+import { eveningDate } from "../today/dayParts";
+import { useBackOnline } from "../today/useBackOnline";
+import Slider from "../ui/Slider";
 import "../../styles/honest.css";
+import "../../styles/daily.css";
 
-// The evening check-in: the day in a few taps, just before banking it.
+// Before you bank it: how the day felt, any communication with God, and
+// when tomorrow starts (Aaron, 2026-11-02).
 //
-// Mood and stress (with where the stress came from), why the day went off
-// plan when planned blocks didn't happen, why any task was left undone, a
-// line of prayer, on Sundays a line about the Sabbath and whether it was a
-// fast Sunday, whether there was a prompting, and when tomorrow starts.
-// Every answer saves the moment it's tapped and every one can be left
-// blank; banking never waits on it.
+// Mood and stress are one to ten now, each a slider with a line under it
+// for what's behind the number. The 1–5 every chart and older reader uses
+// keeps being written beside it (half, rounded up: toFive in
+// src/lib/checks.js), and a day saved before the change opens where its
+// 1–5 sat on the new scale. One note, "Any communication with God today?",
+// takes the place of the Prayed tap, the prompting question and the Sabbath
+// line: it's his to fill in, a word or a page, and nothing scores it. On
+// Sundays the same card has the Fast Sunday tap.
 //
-// An unfinished task stays on its day: the reason is kept on it, and
-// nothing moves to tomorrow.
+// What went: where the stress came from and why the day went off plan
+// (nobody was reading them), and the tasks left undone, which moved to
+// "What got done" (EveningTasks) beside the tick that says they weren't.
 //
-// The prayer goes into your prayer log (context "Evening") and a prompting
-// into your promptings, so both show up where they always have. One you
-// didn't act on stays open there for the weekly review.
+// Every answer saves as you go and any can stay blank; banking never waits
+// on one you left. How the saves go (useSaves below):
+//
+// - One at a time, in the order you made them, so a tap made while another
+//   is saving is never dropped; it goes out next. A key saved twice before
+//   its turn sends only the newer answer.
+// - One that fails stays waiting, shows "Not saved, retry", and goes again
+//   with the next save, when the phone gets its connection back, on a tap
+//   of the retry, or when you bank the day. What you picked stays on the
+//   screen the whole time; it's never quietly put back.
+// - Tapping what's already chosen leaves it chosen (it retries it if it
+//   hadn't saved). An answer changes by picking another, never by a second
+//   tap.
+// - The notes save a moment after you stop typing, when you leave the box,
+//   and once more just before the day is banked (`flushRef`), so a line
+//   typed a second before Bank the day is in the summary.
 //
 // Tomorrow's alarm is written to tomorrow, where the morning check-in picks
-// it up. The lights-out time it implies shows on Today as the evening comes.
+// it up, and it's only asked tonight: going back to an earlier day, its
+// tomorrow is already over.
+//
+// The card reads the day as the page loaded it. Switching from the short
+// evening, the page reads the day again, and anything you haven't touched
+// here takes what the short evening saved.
+//
+//   dayPlan   the day's day_plans row
+//   journal   the day's journal entry (day_archive's journal), for the notes
+//   flushRef  set to an async () => void that saves every note still
+//             waiting and throws if anything didn't save
 
 const ALARMS = ["04:30", "06:00"];
-const PRAYER_CONTEXT = "Evening";
-const PROMPTING_CONTEXT = "Evening check-in";
 
 async function loadEvening(userId, date) {
   const tomorrow = addDays(date, 1);
-  const [next, lastAlarm, history, taskReasons] = await Promise.all([
-    fetchDayPlan(userId, tomorrow),
-    fetchLastAlarm(userId, tomorrow),
-    fetchEveningHistory(userId).catch((err) => {
-      console.warn(err);
-      return { stressSources: [], offPlanReasons: [] };
-    }),
-    fetchTaskReasons(userId).catch((err) => {
-      console.warn(err);
-      return [];
-    }),
-  ]);
-  return { tomorrow, nextAlarm: next?.alarm_at?.slice(0, 5) ?? null, lastAlarm, history, taskReasons };
+  const [next, lastAlarm] = await Promise.all([fetchDayPlan(userId, tomorrow), fetchLastAlarm(userId, tomorrow)]);
+  return { tomorrow, nextAlarm: next?.alarm_at?.slice(0, 5) ?? null, lastAlarm };
 }
 
-export default function EveningCheckin({ userId, date, dayPlan, chunks, entries, tasks, prayers, experiences }) {
+export default function EveningCheckin({ userId, date, dayPlan, journal, flushRef }) {
   const { data } = useLoad(() => loadEvening(userId, date), [userId, date]);
+  const saves = useSaves();
 
-  const [mood, setMood] = useState(dayPlan?.mood ?? null);
-  const [stress, setStress] = useState(dayPlan?.stress ?? null);
-  const [source, setSource] = useState(dayPlan?.stress_source ?? null);
-  const [offReason, setOffReason] = useState(dayPlan?.off_plan_reason ?? null);
-  const [prayer, setPrayer] = useState(() => (prayers ?? []).find((p) => p.context === PRAYER_CONTEXT && !p.is_example) ?? null);
-  const [prayerText, setPrayerText] = useState(() => {
-    const p = (prayers ?? []).find((x) => x.context === PRAYER_CONTEXT && !x.is_example);
-    return p && p.content !== "Prayed" ? p.content : "";
-  });
-  const [prompting, setPrompting] = useState(() => (experiences ?? []).find((e) => e.trigger_context === PROMPTING_CONTEXT && !e.is_example) ?? null);
-  const [hadPrompting, setHadPrompting] = useState(dayPlan?.had_prompting ?? null);
-  const [promptText, setPromptText] = useState(() => {
-    const e = (experiences ?? []).find((x) => x.trigger_context === PROMPTING_CONTEXT && !x.is_example);
-    return e && e.what_came !== "A prompting" ? e.what_came : "";
-  });
-  const [leftReasons, setLeftReasons] = useState({});
-  const [fast, setFast] = useState(dayPlan?.fast_sunday ?? null);
-  const [sabbath, setSabbath] = useState(dayPlan?.sabbath_note ?? "");
-  const savedSabbath = useRef(dayPlan?.sabbath_note ?? "");
+  const [mood, setMood] = useFollow(tenOf(dayPlan, "mood"));
+  const [stress, setStress] = useFollow(tenOf(dayPlan, "stress"));
+  const [fast, setFast] = useFollow(dayPlan?.fast_sunday ?? null);
+  const moodNote = useNote(saves.save, "moodNote", journal?.mood_note, (t) => saveJournalEntry(userId, date, { moodNote: t }));
+  const stressNote = useNote(saves.save, "stressNote", journal?.stress_note, (t) => saveJournalEntry(userId, date, { stressNote: t }));
+  const godNote = useNote(saves.save, "godNote", journal?.god_note, (t) => saveJournalEntry(userId, date, { godNote: t }));
+
   const [alarm, setAlarm] = useState(null);
   const [otherAlarm, setOtherAlarm] = useState(false);
-  const [busy, setBusy] = useState(null);
-  const [error, setError] = useState(null);
   const alarmSeeded = useRef(false);
 
   // Tomorrow's alarm, once it's read: the one set already, if any.
@@ -114,406 +91,314 @@ export default function EveningCheckin({ userId, date, dayPlan, chunks, entries,
     }
   }, [data]);
 
-  const missed = offPlan(chunks, entries, { date });
-  const earlierPromptings = (experiences ?? []).filter((e) => e.kind === "prompting" && !e.is_example && e.trigger_context !== PROMPTING_CONTEXT);
-  const sources = reasonChips(data?.history.stressSources, 8, STRESS_SOURCES);
-  const offReasons = reasonChips(data?.history.offPlanReasons, 8, OFF_PLAN_REASONS);
-  const undone = leftUndone(tasks);
-  const taskReasons = reasonChips(data?.taskReasons, 7, TASK_REASONS);
+  const notes = useRef([]);
+  notes.current = [moodNote, stressNote, godNote];
+  const { flush } = saves;
+  useEffect(() => {
+    if (!flushRef) return undefined;
+    flushRef.current = async () => {
+      for (const n of notes.current) n.saveNow();
+      await flush();
+    };
+    return () => {
+      flushRef.current = null;
+    };
+  }, [flushRef, flush]);
+
+  const tonight = date >= eveningDate();
   const sunday = isSunday(date);
 
-  async function run(what, fn, fallback) {
-    setBusy(what);
-    setError(null);
-    try {
-      await fn();
-      return true;
-    } catch (err) {
-      setError(friendlyError(err, fallback));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  function saveDay(fields) {
-    return run("day", () => patchDayPlan(userId, date, fields), "Couldn't save that. Tap it again.");
-  }
-
   function pickMood(n) {
-    const next = mood === n ? null : n;
-    setMood(next);
-    saveDay({ mood: next });
+    if (n === mood && !saves.waiting("mood")) return;
+    setMood(n);
+    saves.save("mood", () => patchDayPlan(userId, date, { mood_10: n, mood: toFive(n) }));
   }
 
   function pickStress(n) {
-    const next = stress === n ? null : n;
-    setStress(next);
-    saveDay({ stress: next });
+    if (n === stress && !saves.waiting("stress")) return;
+    setStress(n);
+    saves.save("stress", () => patchDayPlan(userId, date, { stress_10: n, stress: toFive(n) }));
   }
 
-  function pickSource(v) {
-    const next = v && source?.toLowerCase() === v.toLowerCase() ? null : v;
-    setSource(next);
-    saveDay({ stress_source: next });
-  }
-
-  function pickOffReason(v) {
-    const next = v && offReason?.toLowerCase() === v.toLowerCase() ? null : v;
-    setOffReason(next);
-    saveDay({ off_plan_reason: next });
-  }
-
-  function pickLeftReason(task, v) {
-    const current = task.id in leftReasons ? leftReasons[task.id] : task.left_reason;
-    const next = v && current?.toLowerCase() === v.toLowerCase() ? null : v;
-    setLeftReasons((r) => ({ ...r, [task.id]: next }));
-    run("task", () => updateTask(task.id, { left_reason: next }), "Couldn't save that. Tap it again.");
-  }
-
-  // Sunday: a fast Sunday is one tap (tapping again says it wasn't), and
-  // the line beside it saves when you leave it.
+  // A fast Sunday is one tap, and tapping again says it wasn't.
   function toggleFast() {
     const next = !fast;
     setFast(next);
-    saveDay({ fast_sunday: next });
-  }
-
-  function saveSabbath() {
-    const t = sabbath.trim();
-    if (t === savedSabbath.current) return;
-    savedSabbath.current = t;
-    saveDay({ sabbath_note: t || null });
-  }
-
-  // Prayed: one tap logs it; the line beside it is optional and saves when
-  // you leave it. Tapping again takes it back out of the log.
-  function togglePrayed() {
-    if (busy) return;
-    if (prayer) {
-      const was = prayer;
-      setPrayer(null);
-      run("prayer", () => deletePrayer(was.id), "Couldn't remove that prayer. Try again.").then((ok) => ok || setPrayer(was));
-      return;
-    }
-    run(
-      "prayer",
-      async () => {
-        const row = await logPrayer(userId, {
-          context: PRAYER_CONTEXT,
-          content: prayerText.trim() || "Prayed",
-          prayedAt: eveningStamp(date).toISOString(),
-        });
-        setPrayer(row);
-      },
-      "Couldn't log the prayer. Try again."
-    );
-  }
-
-  function savePrayerText() {
-    if (!prayer) return;
-    const content = prayerText.trim() || "Prayed";
-    if (content === prayer.content) return;
-    run(
-      "prayer",
-      async () => setPrayer(await updatePrayer(userId, prayer.id, { content })),
-      "Couldn't save that line. Try again."
-    );
-  }
-
-  // "No" is the whole answer most nights. A yes is kept as a prompting:
-  // closed if you acted on it, open (for the weekly review) if not.
-  function pickPrompting(v) {
-    if (busy) return;
-    const next = promptingState() === v ? null : v;
-    run(
-      "prompting",
-      async () => {
-        if (next === null || next === "no") {
-          if (prompting) await deleteExperience(prompting.id);
-          setPrompting(null);
-          setHadPrompting(next === "no" ? false : null);
-          await patchDayPlan(userId, date, { had_prompting: next === "no" ? false : null });
-          return;
-        }
-        const acted = next === "acted";
-        const closing = acted
-          ? { acted_on: true, acted_on_at: new Date().toISOString(), action_taken: "Acted on it" }
-          : { acted_on: false, acted_on_at: null, action_taken: null };
-        let row = prompting;
-        if (!row) {
-          row = await logExperience(userId, {
-            kind: "prompting",
-            whatCame: promptText.trim() || "A prompting",
-            triggerContext: PROMPTING_CONTEXT,
-            occurredAt: eveningStamp(date).toISOString(),
-          });
-        }
-        row = await updateExperience(userId, row.id, closing);
-        setPrompting(row);
-        setHadPrompting(true);
-        await patchDayPlan(userId, date, { had_prompting: true });
-      },
-      "Couldn't save that. Tap it again."
-    );
-  }
-
-  function promptingState() {
-    if (hadPrompting === false) return "no";
-    if (prompting) return prompting.acted_on ? "acted" : "not_acted";
-    return null;
-  }
-
-  function savePromptText() {
-    if (!prompting) return;
-    const whatCame = promptText.trim() || "A prompting";
-    if (whatCame === prompting.what_came) return;
-    run(
-      "prompting",
-      async () => setPrompting(await updateExperience(userId, prompting.id, { what_came: whatCame })),
-      "Couldn't save that line. Try again."
-    );
+    saves.save("fast", () => patchDayPlan(userId, date, { fast_sunday: next }));
   }
 
   function pickAlarm(a) {
-    const next = !otherAlarm && alarm === a ? null : a;
+    if (!data || !a) return;
+    if (!otherAlarm && alarm === a && !saves.waiting("alarm")) return;
     setOtherAlarm(false);
-    setAlarm(next);
-    run("alarm", () => patchDayPlan(userId, data.tomorrow, { alarm_at: next }), "Couldn't save tomorrow's alarm. Try again.");
+    setAlarm(a);
+    saves.save("alarm", () => patchDayPlan(userId, data.tomorrow, { alarm_at: a }));
   }
 
   function setOtherClock(v) {
-    if (!v) return;
+    if (!data || !v) return;
     setAlarm(v);
-    run("alarm", () => patchDayPlan(userId, data.tomorrow, { alarm_at: v }), "Couldn't save tomorrow's alarm. Try again.");
+    saves.save("alarm", () => patchDayPlan(userId, data.tomorrow, { alarm_at: v }));
   }
 
-  const state = promptingState();
   const lightsOut = data && alarm ? lightsOutFor(data.tomorrow, alarm) : null;
   const usual = data ? rememberedAlarm(null, data.lastAlarm) : null;
 
   return (
     <div className="card evening-checkin">
       <div className="card-head" style={{ marginBottom: 4 }}>
-        <span className="card-title"><Moon size={14} />Before you bank it</span>
-        {busy ? <span className="faint evening-checkin__saving">Saving…</span> : null}
+        <span className="card-title">
+          <Moon size={14} />
+          Before you bank it
+        </span>
+        <SaveState saves={saves} />
       </div>
-      <p className="card-note" style={{ marginBottom: 2 }}>A few taps. Each one saves as you go, and any can stay blank.</p>
+      <p className="card-note" style={{ marginBottom: 2 }}>
+        A few taps. Each one saves as you go, and any can stay blank.
+      </p>
 
-      <div className="honest-label">Mood <span className="faint">1 low · 5 good</span></div>
-      <Scale value={mood} onPick={pickMood} label="Mood" />
+      <div className="evening-feel">
+        <Slider label="Mood" value={mood} onChange={pickMood} low="1 low" high="10 good" />
+        <NoteInput note={moodNote} placeholder="What's behind it?" label="What's behind the mood?" max={500} />
+      </div>
 
-      <div className="honest-label">Stress <span className="faint">1 calm · 5 a lot</span></div>
-      <Scale value={stress} onPick={pickStress} label="Stress" />
+      <div className="evening-feel">
+        <Slider label="Stress" value={stress} onChange={pickStress} low="1 calm" high="10 a lot" />
+        <NoteInput note={stressNote} placeholder="What's behind it?" label="What's behind the stress?" max={500} />
+      </div>
 
-      {stress != null && stress >= 2 && (
-        <>
-          <div className="honest-label">Mostly from</div>
-          <Chips options={sources} value={source} onPick={pickSource} label="Where the stress came from" />
-        </>
-      )}
-
-      {missed.length > 0 && (
-        <>
-          <div className="honest-label">Why did today go off plan?</div>
-          <p className="evening-checkin__missed">
-            {missed.map((m, i) => (
-              <span key={m.category}>
-                {i > 0 && " · "}
-                {m.category}: {fmtMinutes(m.tracked)} of {fmtMinutes(m.planned)}
-              </span>
-            ))}
-          </p>
-          <Chips options={offReasons} value={offReason} onPick={pickOffReason} label="Why the day went off plan" max={300} />
-        </>
-      )}
-
-      {undone.length > 0 && (
-        <>
-          <div className="honest-label">{undone.length === 1 ? "Why was this left undone?" : "Why were these left undone?"}</div>
-          <LeftUndone
-            tasks={undone}
-            reasonOf={(t) => (t.id in leftReasons ? leftReasons[t.id] : t.left_reason)}
-            options={taskReasons}
-            onPick={pickLeftReason}
-          />
-        </>
-      )}
-
-      <div className="honest-label">Prayer</div>
-      <div className="evening-checkin__line">
-        <button type="button" className={"name-chip" + (prayer ? " name-chip--on" : "")} aria-pressed={Boolean(prayer)} onClick={togglePrayed} disabled={busy === "prayer"}>
-          {prayer && <Check size={12} />}
-          Prayed
-        </button>
-        <input
-          className="input"
-          value={prayerText}
-          onChange={(e) => setPrayerText(e.target.value)}
-          onBlur={savePrayerText}
-          placeholder="One line about it (optional)"
-          aria-label="A line about tonight's prayer"
-          maxLength={300}
+      <div className="evening-god">
+        <label className="evening-god__q" htmlFor={`god-note-${date}`}>
+          Any communication with God today?
+        </label>
+        <NoteInput
+          id={`god-note-${date}`}
+          note={godNote}
+          placeholder="A prayer, a prompting, a quiet moment, in your words."
+          max={2000}
+          multiline
         />
-      </div>
-
-      {sunday && (
-        <>
-          <div className="honest-label">The Sabbath</div>
-          <div className="evening-checkin__line">
+        {sunday && (
+          <div className="evening-god__sunday">
             <button type="button" className={"name-chip" + (fast ? " name-chip--on" : "")} aria-pressed={Boolean(fast)} onClick={toggleFast}>
               {fast && <Check size={12} />}
               Fast Sunday
             </button>
-            <input
-              className="input"
-              value={sabbath}
-              onChange={(e) => setSabbath(e.target.value)}
-              onBlur={saveSabbath}
-              placeholder="One line about today (optional)"
-              aria-label="A line about the Sabbath"
-              maxLength={300}
-            />
           </div>
+        )}
+      </div>
+
+      {tonight && (
+        <>
+          <div className="honest-label">Tomorrow starts at</div>
+          <div className="honest-chips">
+            {ALARMS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                className={"name-chip" + (!otherAlarm && alarm === a ? " name-chip--on" : "")}
+                aria-pressed={!otherAlarm && alarm === a}
+                onClick={() => pickAlarm(a)}
+                disabled={!data}
+              >
+                {fmtClock(a)}
+              </button>
+            ))}
+            {otherAlarm ? (
+              <input className="input morning__other-alarm" type="time" value={alarm ?? ""} onChange={(e) => setOtherClock(e.target.value)} aria-label="Tomorrow's alarm" />
+            ) : (
+              <button type="button" className="name-chip name-chip--add" onClick={() => setOtherAlarm(true)} disabled={!data}>
+                Other
+              </button>
+            )}
+          </div>
+          <p className="evening-checkin__lights">
+            {lightsOut ? (
+              <>
+                Lights out by {timeOf(lightsOut.toISOString())} for {fmtHours(SLEEP_HOURS)} hours of sleep.
+              </>
+            ) : (
+              usual && <>Usually {fmtClock(usual)}. Pick one to see tonight's lights-out time.</>
+            )}
+          </p>
         </>
       )}
-
-      <div className="honest-label">Any prompting today?</div>
-      {earlierPromptings.length > 0 && (
-        <p className="evening-checkin__earlier">
-          Already noted: {earlierPromptings.map((e) => `“${e.what_came}” (${timeOf(e.occurred_at)})`).join(", ")}
-        </p>
-      )}
-      <div className="seg seg--block" role="group" aria-label="Any prompting today?">
-        {[
-          ["no", "No"],
-          ["acted", "Yes, acted"],
-          ["not_acted", "Yes, didn't"],
-        ].map(([v, text]) => (
-          <button key={v} type="button" className={"seg-btn" + (state === v ? " active" : "")} aria-pressed={state === v} onClick={() => pickPrompting(v)} disabled={busy === "prompting"}>
-            {text}
-          </button>
-        ))}
-      </div>
-      {prompting && (
-        <input
-          className="input evening-checkin__what"
-          value={promptText}
-          onChange={(e) => setPromptText(e.target.value)}
-          onBlur={savePromptText}
-          placeholder="What came? (optional)"
-          aria-label="What the prompting was"
-          maxLength={300}
-        />
-      )}
-
-      <div className="honest-label">Tomorrow starts at</div>
-      <div className="honest-chips">
-        {ALARMS.map((a) => (
-          <button
-            key={a}
-            type="button"
-            className={"name-chip" + (!otherAlarm && alarm === a ? " name-chip--on" : "")}
-            aria-pressed={!otherAlarm && alarm === a}
-            onClick={() => pickAlarm(a)}
-            disabled={!data}
-          >
-            {fmtClock(a)}
-          </button>
-        ))}
-        {otherAlarm ? (
-          <input className="input morning__other-alarm" type="time" value={alarm ?? ""} onChange={(e) => setOtherClock(e.target.value)} aria-label="Tomorrow's alarm" />
-        ) : (
-          <button type="button" className="name-chip name-chip--add" onClick={() => setOtherAlarm(true)} disabled={!data}>Other</button>
-        )}
-      </div>
-      <p className="evening-checkin__lights">
-        {lightsOut ? (
-          <>
-            Lights out by {timeOf(lightsOut.toISOString())} for {fmtHours(SLEEP_HOURS)} hours of sleep.
-          </>
-        ) : (
-          usual && <>Usually {fmtClock(usual)}. Pick one to see tonight's lights-out time.</>
-        )}
-      </p>
-
-      {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
     </div>
   );
 }
 
-// Each unfinished task with its reason chips. Once a reason is picked the
-// row folds to one line; tap it to change the reason.
-function LeftUndone({ tasks, reasonOf, options, onPick }) {
-  const [reopened, setReopened] = useState(null);
-  return (
-    <div className="evening-checkin__tasks">
-      {tasks.map((t) => {
-        const reason = reasonOf(t);
-        const open = !reason || reopened === t.id;
-        return (
-          <div key={t.id} className="evening-checkin__task">
-            {reason ? (
-              <button type="button" className="evening-checkin__task-title" onClick={() => setReopened(open ? null : t.id)} aria-expanded={open}>
-                <span className="truncate">{t.title}</span>
-                <span className="faint evening-checkin__task-reason">{reason}</span>
-              </button>
-            ) : (
-              <div className="evening-checkin__task-title">
-                <span className="truncate">{t.title}</span>
-              </div>
-            )}
-            {open && (
-              <Chips
-                options={options}
-                value={reason}
-                onPick={(v) => {
-                  setReopened(null);
-                  onPick(t, v);
-                }}
-                label={`Why ${t.title} was left`}
-                max={80}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+// "Saving…" while something's on its way; "Not saved, retry" when
+// something didn't go through and is still waiting.
+export function SaveState({ saves }) {
+  if (saves.saving) return <span className="faint evening-checkin__saving">Saving…</span>;
+  if (saves.failed) {
+    return (
+      <button type="button" className="btn-link evening-checkin__retry" onClick={saves.retry}>
+        Not saved, retry
+      </button>
+    );
+  }
+  return null;
 }
 
-// One of a few chips, or your own words. Tapping the chosen one clears it.
-function Chips({ options, value, onPick, label, max = 60 }) {
-  const [adding, setAdding] = useState(false);
-  const all = [...options, ...(value && !options.some((o) => o.toLowerCase() === value.toLowerCase()) ? [value] : [])];
-  return (
-    <div className="honest-chips" role="group" aria-label={label}>
-      {all.map((o) => {
-        const on = value?.toLowerCase() === o.toLowerCase();
-        return (
-          <button key={o} type="button" className={"name-chip" + (on ? " name-chip--on" : "")} aria-pressed={on} onClick={() => onPick(o)}>
-            {o}
-          </button>
-        );
-      })}
-      {adding ? (
-        <form
-          className="honest-add"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = e.currentTarget.elements.own.value.trim();
-            if (t) onPick(t.slice(0, max));
-            setAdding(false);
-          }}
-        >
-          <input name="own" className="input" placeholder="In a few words" aria-label={label} maxLength={max} autoFocus />
-          <button type="submit" className="btn btn--sm">Add</button>
-        </form>
-      ) : (
-        <button type="button" className="name-chip name-chip--add" onClick={() => setAdding(true)}>Other…</button>
-      )}
-    </div>
+// A note's box: one line, or a few for the note to God.
+export function NoteInput({ note, placeholder, label, max, multiline = false, id }) {
+  const props = {
+    id,
+    className: "input " + (multiline ? "evening-god__note" : "evening-feel__note"),
+    value: note.text,
+    onChange: (e) => note.change(e.target.value),
+    onBlur: note.saveNow,
+    placeholder,
+    "aria-label": label,
+    maxLength: max,
+  };
+  return multiline ? <textarea rows={2} {...props} /> : <input {...props} />;
+}
+
+// --- How the evening saves --------------------------------------------------
+
+// The evening's saves, one at a time, each answer under a key ("mood",
+// "alarm", "godNote"). save(key, run) wants that key saved by `run`; a newer
+// save of the same key before its turn replaces it. One that fails stays
+// wanted and goes again on the next save, retry(), flush() or when the
+// phone comes back online.
+//
+//   saving   something is on its way
+//   failed   how many are waiting after a failure
+//   waiting  (key) => whether that key is still to save
+//   flush    () => saves everything waiting; throws if anything didn't
+//
+// save, retry, flush and waiting stay the same function from render to
+// render, so they can sit in an effect's dependencies.
+export function useSaves() {
+  const wanted = useRef(new Map());
+  const loop = useRef(null);
+  const [status, setStatus] = useState({ saving: false, failed: 0 });
+
+  // Works through what's wanted until nothing is left but what failed this
+  // time round. The loop is marked as running before it starts and cleared
+  // the moment it finds nothing more to do, so a save that comes in while
+  // it runs is always picked up, by this loop or the next.
+  const pump = useCallback(() => {
+    if (loop.current) return loop.current;
+    loop.current = (async () => {
+      await null;
+      setStatus((s) => (s.saving ? s : { ...s, saving: true }));
+      const failed = new Set();
+      for (;;) {
+        const next = [...wanted.current].find(([key]) => !failed.has(key));
+        if (!next) break;
+        const [key, job] = next;
+        try {
+          await job.run();
+          if (wanted.current.get(key) === job) wanted.current.delete(key);
+        } catch (err) {
+          console.warn(err);
+          // A newer answer for it came in meanwhile: that one goes next.
+          if (wanted.current.get(key) === job) failed.add(key);
+        }
+      }
+      loop.current = null;
+      setStatus({ saving: false, failed: failed.size });
+      return failed.size === 0;
+    })();
+    return loop.current;
+  }, []);
+
+  const save = useCallback(
+    (key, run) => {
+      wanted.current.set(key, { run });
+      return pump();
+    },
+    [pump]
   );
+
+  const retry = useCallback(() => pump(), [pump]);
+
+  const flush = useCallback(async () => {
+    if (loop.current) await loop.current;
+    if (!(await pump())) throw new Error("Something didn't save.");
+  }, [pump]);
+
+  const waiting = useCallback((key) => wanted.current.has(key), []);
+
+  useBackOnline(retry, status.failed > 0);
+
+  return { saving: status.saving, failed: status.failed, save, retry, flush, waiting };
+}
+
+// A value the card shows, starting from what the page loaded and following
+// it when the page reads the day again, until you change it here.
+export function useFollow(source) {
+  const [value, setValue] = useState(source);
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!touched.current) setValue(source);
+  }, [source]);
+  const set = useCallback((v) => {
+    touched.current = true;
+    setValue(v);
+  }, []);
+  return [value, set];
+}
+
+// A note: what's in the box, saved with `save` (useSaves) under `key` a
+// moment after you stop typing, when you leave the box (saveNow) and before
+// the day is banked. Only a change from what was last sent goes out, and a
+// cleared box clears the note, unless `keepBlank`. `write(text)` saves it.
+export function useNote(save, key, initial, write, { keepBlank = false } = {}) {
+  const [text, setText] = useState(initial ?? "");
+  const textRef = useRef(text);
+  textRef.current = text;
+  // What was last sent, or loaded: a box put back to it needs no save,
+  // unless a different one is still waiting.
+  const sent = useRef(String(initial ?? "").trim());
+  const touched = useRef(false);
+  const timer = useRef(null);
+  const writeRef = useRef(write);
+  writeRef.current = write;
+
+  useEffect(() => {
+    if (touched.current) return;
+    const v = initial ?? "";
+    setText(v);
+    sent.current = String(v).trim();
+  }, [initial]);
+
+  const saveNow = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = null;
+    const t = textRef.current.trim();
+    if (t === sent.current) return;
+    // The short evening's line never blanks one written earlier.
+    if (!t && keepBlank) return;
+    sent.current = t;
+    const run = writeRef.current;
+    save(key, () => run(t));
+  }, [save, key, keepBlank]);
+
+  const change = useCallback(
+    (v) => {
+      touched.current = true;
+      setText(v);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(saveNow, 1500);
+    },
+    [saveNow]
+  );
+
+  // Leaving the evening with a note still typed: it goes now.
+  const saveRef = useRef(saveNow);
+  saveRef.current = saveNow;
+  useEffect(
+    () => () => {
+      if (timer.current) saveRef.current();
+    },
+    []
+  );
+
+  return { text, change, saveNow };
 }
 
 // 8.5 → "8½", 8 → "8".

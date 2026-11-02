@@ -10,7 +10,9 @@ import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
 import Swords from "../ui/Swords";
 import { trackedMinutes, OVERLAP_NOTE } from "../today/minutes";
+import { tenOf } from "../../lib/checks";
 import "../../styles/honest.css";
+import "../../styles/daily.css";
 
 const KIND_LABEL = {
   prompting: "Prompting",
@@ -96,7 +98,7 @@ export default function BankedDayCard({ userId, date, archive, plan, chunks, tas
         ) : (
           <WriteSummary userId={userId} date={date} onWritten={onChanged} />
         )}
-        <DayInALine plan={plan} />
+        <DayInALine plan={plan} journal={journal} />
       </div>
 
       {/* ---- The pictures ------------------------------------------------ */}
@@ -343,27 +345,39 @@ function WriteSummary({ userId, date, onWritten }) {
   );
 }
 
-// What the morning and evening check-ins said, in one quiet line.
-function DayInALine({ plan }) {
-  if (!plan) return null;
+// What the morning and evening check-ins said, in one quiet line, and the
+// evening's notes under it. Mood and stress read on the one to ten they've
+// been asked on since 2026-11-02; an older day's 1–5 shows where it sat on
+// that scale (tenOf). Where the stress came from, why the day went off plan
+// and the Sabbath line aren't asked any more, so they show only on the
+// older days that have them.
+function DayInALine({ plan, journal }) {
+  if (!plan && !journal) return null;
+  const p = plan ?? {};
+  const j = journal ?? {};
+  const mood = tenOf(p, "mood");
+  const stress = tenOf(p, "stress");
   const parts = [];
-  if (plan.woke_at) parts.push(`Up ${timeOf(plan.woke_at)}`);
-  if (plan.woke_at && plan.lights_out_at) parts.push(`${fmtMinutes((new Date(plan.woke_at) - new Date(plan.lights_out_at)) / 60000)} of sleep`);
-  if (plan.energy) parts.push(`energy ${plan.energy}`);
-  if (plan.mood) parts.push(`mood ${plan.mood}`);
-  if (plan.stress) parts.push(`stress ${plan.stress}${plan.stress_source ? ` (${plan.stress_source.toLowerCase()})` : ""}`);
-  if (plan.off_plan_reason) parts.push(`off plan: ${plan.off_plan_reason.toLowerCase()}`);
-  if (plan.fast_sunday) parts.push("fast Sunday");
+  if (p.woke_at) parts.push(`Up ${timeOf(p.woke_at)}`);
+  if (p.woke_at && p.lights_out_at) parts.push(`${fmtMinutes((new Date(p.woke_at) - new Date(p.lights_out_at)) / 60000)} of sleep`);
+  if (p.energy) parts.push(`energy ${p.energy}`);
+  if (mood != null) parts.push(`mood ${mood}/10`);
+  if (stress != null) parts.push(`stress ${stress}/10${p.stress_source ? ` (${p.stress_source.toLowerCase()})` : ""}`);
+  if (p.off_plan_reason) parts.push(`off plan: ${p.off_plan_reason.toLowerCase()}`);
+  if (p.fast_sunday) parts.push("fast Sunday");
   const lines = [
     parts.length ? parts.join(" · ") : null,
-    plan.shipped ? `Shipped: ${plan.shipped}` : null,
-    plan.sabbath_note ? `Sabbath: ${plan.sabbath_note}` : null,
+    j.mood_note ? `Mood: ${j.mood_note}` : null,
+    j.stress_note ? `Stress: ${j.stress_note}` : null,
+    j.god_note ? `With God: ${j.god_note}` : null,
+    p.shipped ? `Shipped: ${p.shipped}` : null,
+    p.sabbath_note ? `Sabbath: ${p.sabbath_note}` : null,
   ].filter(Boolean);
   if (!lines.length) return null;
   return (
     <>
       {lines.map((l) => (
-        <p key={l} className="banked-line">{l}</p>
+        <p key={l} className="banked-line banked-line--words">{l}</p>
       ))}
     </>
   );
