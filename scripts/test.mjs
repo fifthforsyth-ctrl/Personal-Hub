@@ -5557,6 +5557,153 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // ===== Targets tab (PR 3, part 3) =====
 // Add this part's tests directly under the line above.
 {
+  console.log("\ntargets tab: a target's page");
+  const { existsSync, readdirSync } = await import("node:fs");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  // A component's own helpers, with what it imports swapped for stand-ins
+  // except the modules `keep` names (as in "Review fixes, batch C").
+  const helpersOf = async (rel, keep = null) => {
+    const path = fileURLToPath(at(rel));
+    const text = readFileSync(path, "utf8");
+    const built = await esbuildBundle({
+      entryPoints: [path],
+      bundle: true,
+      write: false,
+      format: "esm",
+      jsx: "transform",
+      logLevel: "silent",
+      plugins: [
+        {
+          name: "stand-ins",
+          setup(b) {
+            b.onResolve({ filter: /.*/ }, (a) => (a.importer === path && !(keep && keep.test(a.path)) ? { path: a.path, namespace: "stand-in" } : undefined));
+            b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+              const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const names = (text.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+              return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+            });
+          },
+        },
+      ],
+    });
+    return import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  };
+
+  // --- The Quests page moved into a quest's own page ---------------------------
+  const body = read("src/components/targets/QuestBody.jsx");
+  const camps = read("src/components/targets/QuestCamps.jsx");
+  const page = read("src/pages/Target.jsx");
+  ok("the Quests page is gone, and its pills with it", !existsSync(at("src/pages/Quests.jsx")) && !existsSync(at("src/components/quests/QuestMap.jsx")));
+  const oldLink = /["'`]\/(quests|ascent)\b/;
+  const questsDir = readdirSync(at("src/components/quests/")).filter((f) => f.endsWith(".jsx") || f.endsWith(".js"));
+  const stale = [
+    ["QuestBody", body],
+    ["QuestCamps", camps],
+    ["Target", page],
+    ["TargetView", read("src/components/mark/TargetView.jsx")],
+    ...questsDir.map((f) => [f, read(`src/components/quests/${f}`)]),
+  ].filter(([, src]) => oldLink.test(src) || /from: "quests"/.test(src));
+  ok("no link on a quest's page, its camps or its lists goes to /quests or /ascent", stale.length === 0, stale.map(([n]) => n).join(", "));
+  ok("a quest's page has no notes box of its own any more (its notes are the target's)", !/saveNote|Notes on this/.test(body));
+  ok("a quest's page never moves the address itself (a lesson's new mountain just reloads)", [...body.matchAll(/navigate\(([^)]*)\)/g)].every((m) => /\/village/.test(m[1])));
+  ok("the quest's page has no header, pills or 'Start a quest' of its own", !/qs-head|QuestMap|Start a quest|NewQuest/.test(body));
+
+  // The camps: always there, never behind a pill or a fold.
+  ok("the camps are drawn on every quest's page, not inside a fold", /\n\s*<QuestCamps\b/.test(body) && !/<details/.test(camps) && /id="camps"/.test(camps) && /className="qs-camps"/.test(camps));
+  ok("each camp goes to its own page under Targets, with no state trick", /to=\{`\/targets\/camp\/\$\{c\.id\}`\}/.test(camps) && !/<Link[^>]*\bstate=/.test(camps));
+  ok("the flag at the next camp goes through the ladder (its ceremony and Undo)", /onReach=\{\(\) => ladder\?\.reachNext\(climb\)\}/.test(body) && /Mark the summit reached/.test(camps));
+  ok("'Bring in a plan' goes to the plans under Targets", /to="\/targets\/plans"/.test(camps));
+
+  // The order on a phone: the grid's cells in the source, as a phone stacks them.
+  const order = ["<QuestCamps", 'className="qs-today"', 'className="qs-ongoing"', 'className="qs-clip"', "{quotes}", "{notes}", "qs-earlier", "{history}"];
+  const spots = order.map((s) => body.indexOf(s));
+  ok("a quest's page runs camps, Today, ongoing, clipboard, quotes, notes, earlier days, history", spots.every((n, i) => n > 0 && (i === 0 || n > spots[i - 1])), JSON.stringify(spots));
+  const qcss = read("src/styles/quests.css");
+  ok("the phone keeps that order: the grid only places its cells on a desk", !/grid-area:\s*(camps|today|ongoing|clip|side|rest|build)\b/.test(qcss.slice(0, qcss.indexOf("@media (min-width: 901px)"))));
+  ok("on a desk the build heads the right rail, with the quotes and notes under it", /"camps build" "today side" "ongoing side"/.test(qcss));
+  ok("the closed clipboard's button has a home in the camps' head", /clip=\{clipButton\}/.test(body) && /\{clip\}/.test(camps) && /CLIP_SHUT_KEY = "hub:clip-closed"/.test(body));
+
+  // --- A focus's page -------------------------------------------------------------
+  const focusSrc = read("src/components/targets/TargetFocus.jsx");
+  ok("a focus's page knows this week's row by its week", /const thisWeek = row\.week_start === focusWeekOf\(today\)/.test(focusSrc));
+  ok(
+    "today's arrow shows only on this week's focus, and only once",
+    (focusSrc.match(/<GoalArrow\b/g) ?? []).length === 1 && /\{thisWeek && \(\s*<div className="focus-sheet__arrow[^"]*">\s*<span className="eyebrow">Today's arrow<\/span>\s*<GoalArrow/.test(focusSrc)
+  );
+  ok("an earlier week's focus has no settings pencil", /const weekGoal = thisWeek \?/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
+
+  // --- Notes ---------------------------------------------------------------------
+  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
+  const N = await helpersOf("src/components/targets/NoteSheet.jsx", /lib\/ladder$/);
+  ok("a focus's note takes 2000 characters, every other note and reflection 4000", N.noteLimit("focus", "note") === 2000 && N.noteLimit("focus", "reflect") === 4000 && N.noteLimit("quest", "note") === 4000 && N.FOCUS_NOTE_MAX === 2000);
+  ok("the box's limit is where it saves", /maxLength=\{max\}/.test(sheetSrc) && /const max = noteLimit\(focusNote \? "focus" : kind, mode\)/.test(sheetSrc));
+  const focusSheet = read("src/components/focus/FocusSheet.jsx");
+  ok(
+    "a focus's note keeps Today's draft (hub.focus-note-draft.<id>)",
+    /import \{ readDraft, keepDraft \} from "\.\.\/focus\/FocusSheet";/.test(sheetSrc) && /`hub\.focus-note-draft\.\$\{goalId\}`/.test(focusSheet) && /readDraft\(focusGoal\)/.test(sheetSrc) && /keepDraft\(focusGoal\.id, text\)/.test(sheetSrc)
+  );
+  ok("a focus's note saves through Today's own save", /saveNote\(userId, \{ goalId: target\.id, date: today, sent: text \}\)/.test(read("src/components/targets/NotesSection.jsx")));
+
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const key = "hub.target-note-draft.quest:q1:note";
+  let s1 = store();
+  N.keepNoteDraft(key, "Half a thought", s1);
+  let threw = false;
+  try {
+    await N.sendNote({ key, sent: "Half a thought", save: () => Promise.reject(new Error("offline")), store: s1 });
+  } catch {
+    threw = true;
+  }
+  ok("a note that doesn't save keeps its draft, word for word", threw && N.readNoteDraft(key, s1) === "Half a thought");
+  await N.sendNote({ key, sent: "Half a thought", save: () => Promise.resolve({ id: "n1" }), store: s1 });
+  ok("a note that saved clears its draft", N.readNoteDraft(key, s1) === "");
+  const s2 = store();
+  N.keepNoteDraft(key, "Typed after Save", s2);
+  await N.sendNote({ key, sent: "The words sent", save: () => Promise.resolve({ id: "n2" }), store: s2 });
+  ok("words typed after Save stay, even once the note saved", N.readNoteDraft(key, s2) === "Typed after Save");
+  N.keepNoteDraft(key, "   ", s2);
+  ok("a blank box leaves no draft behind", !s2.m.has(key));
+  const catchBlock = sheetSrc.slice(sheetSrc.indexOf("} catch {", sheetSrc.indexOf("async function save(")), sheetSrc.indexOf("const near ="));
+  ok("the sheet stays open with the words when a save fails", /setProblem\("Couldn't save that\. Your words are still here\."\)/.test(catchBlock) && !/dropNoteDraft|removeItem|onClose|setText/.test(catchBlock));
+  ok("Cancel keeps the draft (it only closes)", /onClick=\{onClose\}>\s*Cancel/.test(sheetSrc));
+  ok("the drafts are kept per target and per kind of writing", /draftKey=\{`\$\{draftBase\}:\$\{sheet\}`\}/.test(read("src/components/targets/NotesSection.jsx")) && /const draftBase = noteDraftKey\(target\)/.test(read("src/components/targets/NotesSection.jsx")));
+
+  // --- Quotes --------------------------------------------------------------------
+  const linked = read("src/components/targets/LinkedQuotes.jsx");
+  ok("Unlink takes off every week's link to that quote", /unlinkQuote\(link\.linkIds\)/.test(linked) && /relinkQuotes\(rows\)/.test(linked));
+  ok("the quotes on a target go in QuoteCard's foot as Unlink", /extra=\{unlinkBtn\(l\)\}/.test(linked) && /className="qprint__save tg-unlink"/.test(linked));
+
+  // --- The head ------------------------------------------------------------------
+  const H = await helpersOf("src/components/targets/TargetHead.jsx", /lib\/mark$/);
+  ok(
+    "today's arrow on a target, in words",
+    H.todayWords({ today: null }) === "No arrow yet today" &&
+      H.todayWords({ today: { level: 0 } }) === "Bullseye tonight" &&
+      H.todayWords({ today: { level: 2 } }) === "Middle ring tonight" &&
+      H.todayWords({ today: { level: 5 } }) === "Missed tonight"
+  );
+  ok("there's always a way up: the ladder line starts at Targets", /<Link to="\/targets">Targets<\/Link>/.test(read("src/components/targets/TargetHead.jsx")));
+  ok("a link to a target that's gone says so, with the way back", /That isn't one of your targets any more\./.test(page) && /Back to Targets/.test(page));
+  ok("a link by another id moves to the target's own, keeping the rest", /navigate\(`\/targets\/\$\{key\}\$\{location\.search\}\$\{location\.hash\}`, \{ replace: true, state: location\.state \}\)/.test(page));
+  const view = read("src/components/mark/TargetView.jsx");
+  ok("TargetView drawn on a page has no back link, tabs or lines of its own", /\{!embedded && \(\s*<>\s*<header/.test(view) && /!embedded && noted\.length > 0/.test(view));
+
+  // --- Copy ----------------------------------------------------------------------
+  const mine = [
+    "src/pages/Target.jsx",
+    ...readdirSync(at("src/components/targets/"))
+      .filter((f) => /^(Target|Quest|Notes|Note|Reflect|Quote|Linked|Build)/.test(f))
+      .map((f) => `src/components/targets/${f}`),
+    ...questsDir.map((f) => `src/components/quests/${f}`),
+    "src/components/mark/TargetView.jsx",
+  ];
+  const dashed = mine.filter((p) => /[—–]|["'`>][^"'`<\n]* -- [^"'`<\n]*["'`<]/.test(read(p)));
+  ok("no em or en dashes in a target's page", dashed.length === 0, dashed.join(", "));
+  ok("no model's name on a target's page", mine.every((p) => !/\b(claude|gpt|openai|anthropic|gemini)\b/i.test(read(p))));
 }
 
 // (end of targets tab, part 3)

@@ -429,7 +429,7 @@ export default function TodayBoard({
             <section key={col.key} className="tb-col" data-col={col.key} aria-label={col.camp ? col.camp.title : `This ${kind}'s list`}>
               <div className="tb-col__head">
                 {col.camp ? (
-                  <Link to={`/ascent/camp/${col.camp.id}`} state={{ from: "quests" }} className="today-group__label tb-col__name">
+                  <Link to={`/targets/camp/${col.camp.id}`} className="today-group__label tb-col__name">
                     <span className="today-group__n" aria-hidden="true">
                       {col.number}
                     </span>
