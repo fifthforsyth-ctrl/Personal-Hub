@@ -39,7 +39,8 @@ import "../../styles/honest.css";
 //
 // It sits on Today from three until noon. Almost everything is filled in
 // already: when you woke and when the lights went out come from the Sleep
-// timer, and the alarm is the one you used last. What's left is a few taps:
+// timer (or from your watch, once it has set the night's times), and the
+// alarm is the one you used last. What's left is a few taps:
 // how well you slept, your energy, whether you snoozed, whether the phone
 // was off by lights-out. If Sleep is still running, the first tap is "I'm
 // up", which ends it.
@@ -203,6 +204,10 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
   const [lights, setLights] = useState(() =>
     plan?.lights_out_at ? hhmm(new Date(plan.lights_out_at)) : sleep ? hhmm(new Date(sleep.started_at)) : ""
   );
+  // The two times as the form opened, so saving an answer about something
+  // else doesn't put older times back over the ones your watch set.
+  const [opened] = useState(() => ({ woke, lights }));
+  const fromWatch = Boolean(sleep && (sleep.watch_fixed_at || sleep.source === "watch"));
   const [alarm, setAlarm] = useState(() => rememberedAlarm(plan?.alarm_at, data.lastAlarm));
   const [otherAlarm, setOtherAlarm] = useState(() => !ALARMS.includes(rememberedAlarm(plan?.alarm_at, data.lastAlarm)));
   const [quality, setQuality] = useState(plan?.sleep_quality ?? null);
@@ -241,12 +246,17 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
     try {
       // The Sleep timer follows what you say: it ends when you woke and
       // starts when the lights went out. With no Sleep timer at all, these
-      // two answers become one.
+      // two answers become one. Once the watch has set the night, a time
+      // goes over it only when you change that time here; then yours wins,
+      // and the watch won't move it again.
       if (sleep) {
+        const set = Boolean(sleep.watch_fixed_at);
+        const wokeSaid = !set || woke !== opened.woke;
+        const lightsSaid = !set || lights !== opened.lights;
         const fields = {};
-        if (wokeDate && (!sleep.ended_at || Math.abs(new Date(sleep.ended_at) - wokeDate) >= 60000)) fields.ended_at = wokeDate.toISOString();
+        if (wokeSaid && wokeDate && (!sleep.ended_at || Math.abs(new Date(sleep.ended_at) - wokeDate) >= 60000)) fields.ended_at = wokeDate.toISOString();
         if (wokeDate && !sleep.ended_at) fields.ended_by = "stop";
-        if (lightsDate && Math.abs(new Date(sleep.started_at) - lightsDate) >= 60000) fields.started_at = lightsDate.toISOString();
+        if (lightsSaid && lightsDate && Math.abs(new Date(sleep.started_at) - lightsDate) >= 60000) fields.started_at = lightsDate.toISOString();
         if (Object.keys(fields).length) await updateTimeEntry(sleep.id, fields);
       } else if (wokeDate && lightsDate && slept > 0) {
         await logPastTimeEntry(userId, { categories: ["Sleep"], minutes: Math.round(slept), startedAt: lightsDate.toISOString() });
@@ -304,7 +314,7 @@ function CheckinForm({ userId, date, plan, data, onSaved, onSkip, onCancel }) {
       </div>
       {slept != null && slept > 0 && (
         <p className="morning__slept">
-          {fmtDuration(slept)} of sleep{(fromSleep.woke || fromSleep.lights) && ", from your Sleep timer"}
+          {fmtDuration(slept)} of sleep{(fromSleep.woke || fromSleep.lights) && (fromWatch ? ", from your watch" : ", from your Sleep timer")}
         </p>
       )}
       {data.watchLine && <p className="morning__slept morning__watch">{data.watchLine}</p>}

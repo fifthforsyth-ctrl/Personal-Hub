@@ -1,10 +1,14 @@
-// The Apple Watch, in words: the one quiet line the evening shows, and the
-// pieces the On your watch page uses. Pure, so it's tested on its own
-// (scripts/test.mjs).
+// The Apple Watch, in words: the one quiet line the evening shows, the
+// row under Today's minutes, and the pieces the On your watch page uses.
+// Pure, so it's tested on its own (scripts/test.mjs).
 //
 // Numbers stay in a supporting role (Aaron, 2026-10-19: words lead, daily
 // numbers stay visible but second). Nothing here is compared to a target or
-// turned into a win.
+// turned into a win. The one comparison is resting heart rate on Today,
+// set beside your own normal (the middle of your last four weeks): your
+// own baseline to read it against, not a target, never a score, never red.
+
+import { addDays } from "./planDates.js";
 
 export function fmtMins(m) {
   const n = Math.round(Number(m) || 0);
@@ -69,6 +73,57 @@ export function morningWatchLine(day) {
   if (deep && rem) parts.push(`${fmtMins(deep)} deep, ${fmtMins(rem)} REM`);
   if (day?.sleep_end) parts.push(`awake at ${clock(day.sleep_end)}`);
   return `Your watch: ${parts.join(" · ")}`;
+}
+
+// Your normal resting heart rate as of a day: the middle reading of the 28
+// days before it (so one odd day doesn't move it), once there are at least
+// 7 of them to go on. Null until then. `days` are health_days rows.
+export function restingNormal(days, date) {
+  const from = addDays(date, -28);
+  const vals = (days ?? [])
+    .filter((d) => {
+      const k = String(d?.date ?? "").slice(0, 10);
+      return k >= from && k < date;
+    })
+    .map((d) => num(d.resting_hr))
+    .filter((v) => v != null)
+    .sort((a, b) => a - b);
+  if (vals.length < 7) return null;
+  const mid = Math.floor(vals.length / 2);
+  return Math.round(vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2);
+}
+
+// The little row under Today's minutes: [{ label, value, sub }] in reading
+// order, or [] when the watch has nothing, so a day you logged by hand
+// looks the same as ever. `today` is today's health_days row (its sleep is
+// last night, since a night belongs to the day you woke up on) and
+// `yesterday` the day before's, for a resting heart rate the watch hasn't
+// worked out for today yet. `normal` is restingNormal's answer.
+export function minutesWatchParts(today, yesterday, normal) {
+  const parts = [];
+  const slept = num(today?.asleep_min);
+  if (slept) parts.push({ label: "Slept", value: fmtMins(slept), sub: null });
+  // The wake-up automation's moment, or else when the watch saw you wake.
+  const up = today?.woke_at ?? today?.sleep_end;
+  if (up) parts.push({ label: "Up", value: clock(up), sub: null });
+  const own = num(today?.resting_hr);
+  const hr = own ?? num(yesterday?.resting_hr);
+  if (hr) {
+    const sub = [own ? null : "yesterday", normal ? `your normal ${Math.round(normal)}` : null].filter(Boolean).join(", ");
+    parts.push({ label: "Resting HR", value: String(Math.round(hr)), sub: sub || null });
+  }
+  return parts;
+}
+
+// minutesWatchParts for a date, from the health_days rows around it (the
+// month before, for the normal). The normal is taken as of the day whose
+// reading is shown, so yesterday's reading isn't set beside itself.
+export function minutesWatch(days, date) {
+  const byDate = new Map((days ?? []).map((d) => [String(d?.date ?? "").slice(0, 10), d]));
+  const today = byDate.get(date) ?? null;
+  const yesterday = byDate.get(addDays(date, -1)) ?? null;
+  const shown = num(today?.resting_hr) ? date : addDays(date, -1);
+  return minutesWatchParts(today, yesterday, restingNormal(days, shown));
 }
 
 // "Shortcut, 5 min ago" style status for the key: what last used it.

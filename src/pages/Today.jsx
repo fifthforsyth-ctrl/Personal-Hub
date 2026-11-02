@@ -143,7 +143,7 @@ export default function Today() {
           {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} />
           {/* The day's plan, right under the minutes it turns into. */}
-          {data?.chunks && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
+          {data && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
           {/* Old timers that ran through the night, offered once, under the
               minutes they'd otherwise keep inflating. */}
           {userId && data && !runaway && <OldRunaways userId={userId} />}

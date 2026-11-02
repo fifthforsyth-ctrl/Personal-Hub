@@ -259,10 +259,13 @@ function ImportLine({ summary }) {
   if (summary.nights) bits.push(`${summary.nights} ${summary.nights === 1 ? "night" : "nights"}`);
   if (summary.workouts) bits.push(`${summary.workouts} ${summary.workouts === 1 ? "workout" : "workouts"}`);
   const added = [summary.sleepAdded && `${summary.sleepAdded} Sleep`, summary.workoutsAdded && `${summary.workoutsAdded} Exercise`].filter(Boolean);
+  // Entries you logged by hand that took the watch's times.
+  const fixed = [summary.sleepFixed && `${summary.sleepFixed} Sleep`, summary.workoutsFixed && `${summary.workoutsFixed} Exercise`].filter(Boolean);
   return (
     <p className="phone-note">
       Last sync: {bits.length ? bits.join(", ") : "nothing new"}
-      {added.length ? `; added ${added.join(" and ")} to your minutes` : ""}.
+      {added.length ? `; added ${added.join(" and ")} to your minutes` : ""}
+      {fixed.length ? `; set the times of ${fixed.join(" and ")} you logged to what the watch saw` : ""}.
       {summary.unknown?.length ? ` Not used yet: ${summary.unknown.slice(0, 6).join(", ")}.` : ""}
     </p>
   );

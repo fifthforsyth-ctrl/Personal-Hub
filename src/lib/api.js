@@ -204,11 +204,12 @@ export async function splitIntoSleep(userId, entry, sleepAt) {
 }
 
 // Sleep entries since a moment, newest first: last night for the morning
-// check-in, the last month for your usual lights-out.
+// check-in, the last month for your usual lights-out. source and
+// watch_fixed_at say whether the times are the watch's.
 export async function fetchSleepEntries(userId, sinceISO) {
   const { data, error } = await supabase
     .from("time_log_entries")
-    .select("id, started_at, ended_at, duration_minutes, tags, category, is_nap")
+    .select("id, started_at, ended_at, duration_minutes, tags, category, is_nap, source, watch_fixed_at")
     .eq("user_id", userId)
     .contains("tags", ["Sleep"])
     .gte("started_at", sinceISO)
