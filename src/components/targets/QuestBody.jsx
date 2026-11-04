@@ -1513,8 +1513,12 @@ export default function QuestBody({
       if (made) await mountainMade();
       else {
         mutateBoard((b) => b && { ...b, camps: [...b.camps, ...rows] });
-        // the climb counts them too (the trail, the next flag to plant)
-        ladder?.mutate((d) => d && { ...d, camps: [...d.camps, ...rows] });
+        // The climb counts them too (the trail, the next flag to plant). A
+        // ladder still loading read its camps before these were made, so it
+        // is read again instead (its stale answer is dropped), or its climb
+        // would offer the summit with a camp still to reach.
+        if (ladder?.data) ladder.mutate((d) => d && { ...d, camps: [...d.camps, ...rows] });
+        else ladder?.reload();
       }
       return true;
     } catch (err) {
@@ -1530,43 +1534,24 @@ export default function QuestBody({
   // the right rail instead (only one is drawn, so only one is painted).
   const tileFor = (props) => (roomy ? null : <BuildTile {...props} />);
 
-  // Whatever the lists are doing, the header comes first in a fragment (the
-  // same place in all three returns), and the quotes, notes and history
-  // are there under it: their sheets open from the header's buttons.
-  if (!board) {
-    return (
-      <>
-        {head(tileFor({ waiting: true }))}
-        {error ? <LoadError what="this list" error={error} onRetry={reload} /> : loading && <p className="empty">Loading…</p>}
-        <div className="tg-body">
-          {quotes}
-          {notes}
-          {history}
-        </div>
-      </>
-    );
-  }
-
-  // Gone from the lists (deleted on another device a moment ago): the
-  // header stays, with a way to read them again.
-  if (!sel) {
-    return (
-      <>
-        {head(null)}
-        <section className="card tg-gone">
-          <p>Couldn't find this {kind === "lesson" ? "lesson's" : "quest's"} lists.</p>
-          <button type="button" className="btn btn--sm btn--on-page" onClick={reload}>
-            Try again
-          </button>
-        </section>
-        <div className="tg-body">
-          {quotes}
-          {notes}
-          {history}
-        </div>
-      </>
-    );
-  }
+  // Whatever the lists are doing, the page is one tree: the header, then
+  // the providers and the grid, where the camps, Today, the ongoing list
+  // and the clipboard are drawn once the lists are in. The quotes, notes
+  // and history keep their place in it as the lists arrive, so a note
+  // being changed, a sheet or the picker open in them stays as it is.
+  const ready = Boolean(board && sel);
+  // While the lists load or can't, or this one's gone from them (deleted
+  // on another device a moment ago), in the place a load error goes.
+  const waiting = !board ? (
+    error ? <LoadError what="this list" error={error} onRetry={reload} /> : loading && <p className="empty">Loading…</p>
+  ) : !sel ? (
+    <section className="card tg-gone">
+      <p>Couldn't find this {kind === "lesson" ? "lesson's" : "quest's"} lists.</p>
+      <button type="button" className="btn btn--sm btn--on-page" onClick={reload}>
+        Try again
+      </button>
+    </section>
+  ) : null;
 
   const [todayList, ...earlierAll] = days;
   // The climb on its mountain (a lesson's own, once it has one), and
@@ -1695,7 +1680,7 @@ export default function QuestBody({
         {clipOpenCount > 0 && <small>{clipOpenCount}</small>}
       </button>
     ) : null;
-  const todayCard = (
+  const todayCard = ready ? (
     <>
       {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
       {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
@@ -1710,8 +1695,8 @@ export default function QuestBody({
         <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind)} />
       </DayList>
     </>
-  );
-  const tile = tileFor({ village, today, todayDone: doneAllCount, onToday: () => setDoneView("all") });
+  ) : null;
+  const tile = !board ? tileFor({ waiting: true }) : !sel ? null : tileFor({ village, today, todayDone: doneAllCount, onToday: () => setDoneView("all") });
   const busyBar = picker.on || select.on;
 
   // Every part is its own cell of one grid, in the order a phone shows them
@@ -1726,56 +1711,60 @@ export default function QuestBody({
       {head(tile)}
       <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
         <SectionTints sections={campData?.sections} steps={campData?.steps}>
-          {error && <LoadError what="this list" error={error} onRetry={reload} stale />}
+          {ready ? error && <LoadError what="this list" error={error} onRetry={reload} stale /> : waiting}
 
           <SketchProvider kind="task" userId={userId} scopeId={questId} about={(lid) => (lines ?? []).find((x) => x.id === lid)?.text} onAddToNote={addToNote}>
             <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "") + (busyBar ? " qs-grid--picking" : "")}>
-              {roomy && (
+              {ready && roomy && (
                 <div className="qs-rail__build">
                   <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
                 </div>
               )}
 
-              <QuestCamps
-                kind={kind}
-                camps={sortedCamps}
-                tally={tally}
-                climb={climb}
-                canReach={canReach}
-                planted={planted}
-                onReach={() => ladder?.reachNext(climb)}
-                onAddCamps={newCamps}
-                clip={clipButton}
-              />
+              {ready && (
+                <QuestCamps
+                  kind={kind}
+                  camps={sortedCamps}
+                  tally={tally}
+                  climb={climb}
+                  canReach={canReach}
+                  planted={planted}
+                  onReach={() => ladder?.reachNext(climb)}
+                  onAddCamps={newCamps}
+                  clip={clipButton}
+                />
+              )}
 
               {/* Today stays where it is in the page whatever the layout
                   (spread or not, it's CSS that moves it), so what's open or
                   focused in it stays so as it moves. */}
-              <div className="qs-today">{todayCard}</div>
+              {ready && <div className="qs-today">{todayCard}</div>}
 
               {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
-              <div className="qs-ongoing">
-                <OngoingList
-                  key={sel.key}
-                  list={ongoing}
-                  kind={kind}
-                  openId={homeOpen}
-                  row={row}
-                  onAddSubs={addSubs}
-                  {...drag}
-                  drop="ongoing"
-                  action={
-                    !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
-                      <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
-                        Pick for today
-                      </button>
-                    ) : null
-                  }
-                >
-                  {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
-                  <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind, true)} />
-                </OngoingList>
-              </div>
+              {ready && (
+                <div className="qs-ongoing">
+                  <OngoingList
+                    key={sel.key}
+                    list={ongoing}
+                    kind={kind}
+                    openId={homeOpen}
+                    row={row}
+                    onAddSubs={addSubs}
+                    {...drag}
+                    drop="ongoing"
+                    action={
+                      !picker.on && ongoing.items.length + ongoing.earlier.length + earlier.length > 0 ? (
+                        <button type="button" className="btn btn--sm today-pick-btn" onClick={startPicking}>
+                          Pick for today
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
+                    <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind, true)} />
+                  </OngoingList>
+                </div>
+              )}
 
               {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
 
@@ -1838,7 +1827,7 @@ export default function QuestBody({
               onClose={() => setColSheet(null)}
             />
           )}
-          {doneView && (
+          {doneView && sel && (
             <DoneToday
               view={doneView}
               quest={{ questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) }}

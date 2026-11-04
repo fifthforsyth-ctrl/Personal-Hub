@@ -11,6 +11,7 @@ import { fetchLadderTargets, fetchLinksForQuote, fetchQuoteLinkRows, linkQuote, 
 import { KIND_NAME, MISSION_KEY, ladderOf, pathOf, refOf } from "../../lib/ladder";
 import { buildAscent } from "../../lib/ascent";
 import { focusWeekOf, lineageIds } from "../../lib/focus";
+import { subtreeIds } from "../../lib/wheel";
 import { shortTarget } from "../../lib/mark";
 import { fmtShortDate, todayStr } from "../../lib/planDates";
 import { announceChange } from "../today/announce";
@@ -43,7 +44,8 @@ export const LINK_GROUPS = [
 // The mission (always, written or not), the lifetime goals in the Range's
 // order, the quests he's on, the lessons he's learning, then this week's
 // focus. A focus carries its earlier weeks (`lineage`), so a quote linked
-// to it last week still shows as linked.
+// to it last week still shows as linked, and a lifetime goal the goals
+// under it.
 export function ladderTargets(rows, today) {
   const statement = String(rows?.mission?.statement ?? "").trim();
   const lessons = (rows?.lessons ?? []).map((l) => ({ ...l, started_on: l.started_on ?? today }));
@@ -62,17 +64,20 @@ export function ladderTargets(rows, today) {
       line: statement ? null : "Not written yet",
       serif: Boolean(statement),
     },
-    ...tiers.goals.map((g) => ({ kind: "goal", id: g.key, key: g.key, title: g.title, short: g.short, group: "goals" })),
+    // A lifetime goal takes in the goals under it on the wheel, as its page
+    // does (one moved under it brings its links along).
+    ...tiers.goals.map((g) => ({ kind: "goal", id: g.key, key: g.key, title: g.title, short: g.short, group: "goals", lineage: [...subtreeIds(rows?.edges ?? [], g.key)] })),
     ...tiers.climbs.map((c) => ({ kind: c.kind, id: c.key, key: c.key, title: c.title, short: c.short, group: "climbs", line: KIND_NAME[c.kind] })),
     ...tiers.focuses.map((f) => ({ kind: "focus", id: f.key, key: f.key, title: f.title, short: f.title, group: "focus", lineage: lineageIds(f.goal, allFocus) })),
   ];
 }
 
-// Whether a link row is on a target (a focus by any week of its line).
+// Whether a link row is on a target (a focus by any week of its line, a
+// lifetime goal by any goal under it).
 export function linkIsOn(link, target) {
   if (!link || !target) return false;
   if (target.kind === "mission") return Boolean(link.mission);
-  if (target.kind === "goal") return Boolean(link.goal_id) && link.goal_id === target.id;
+  if (target.kind === "goal") return Boolean(link.goal_id) && (target.lineage ?? [target.id]).includes(link.goal_id);
   if (target.kind === "quest") return Boolean(link.quest_id) && link.quest_id === target.id;
   if (target.kind === "lesson") return Boolean(link.lesson_id) && link.lesson_id === target.id;
   if (target.kind === "focus") return Boolean(link.focus_goal_id) && (target.lineage ?? [target.id]).includes(link.focus_goal_id);

@@ -96,8 +96,11 @@ export function useLadder({ onSaved } = {}) {
   }, [reload, tally]);
 
   // Every edit goes through here: one toast if it fails, the sheet closed
-  // and a quiet reload if it works. Resolves to whether it worked.
-  async function write(fn, failure, done) {
+  // and a quiet reload if it works. Resolves to whether it worked. With
+  // `leaving`, the write has taken him off this page (a delete), so nothing
+  // here is read again for a page that's going, and the word to the rest
+  // of the app waits until it's gone.
+  async function write(fn, failure, done, { leaving = false } = {}) {
     try {
       await fn();
     } catch (err) {
@@ -106,6 +109,10 @@ export function useLadder({ onSaved } = {}) {
     }
     setSheet(null);
     if (done) toast.show(done);
+    if (leaving) {
+      setTimeout(announceChange, 0);
+      return true;
+    }
     announceChange();
     await reloadAll();
     return true;
@@ -261,15 +268,17 @@ export function useLadder({ onSaved } = {}) {
       }))
     )
       return;
-    // It leaves the page as soon as the delete lands, before the reload:
-    // otherwise its page would say it isn't one of his for a moment.
+    // It leaves the page as soon as the delete lands, with nothing read
+    // again for the page it leaves: otherwise that page would say it isn't
+    // one of his for a moment.
     await write(
       async () => {
         await deleteQuest(quest.id);
         onGone?.();
       },
       "Couldn't delete that quest.",
-      `Deleted ${quest.title}`
+      `Deleted ${quest.title}`,
+      { leaving: Boolean(onGone) }
     );
   }
 
@@ -323,7 +332,8 @@ export function useLadder({ onSaved } = {}) {
         onGone?.();
       },
       "Couldn't delete that lesson.",
-      `Deleted ${lesson.title}`
+      `Deleted ${lesson.title}`,
+      { leaving: Boolean(onGone) }
     );
   }
 

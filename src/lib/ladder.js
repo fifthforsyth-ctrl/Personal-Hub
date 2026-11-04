@@ -307,10 +307,10 @@ export function eveningLines(shots, reasons = []) {
     const at = s.loosed_at ?? s.created_at ?? `${s.date}T23:59:00`;
     const ring = ringOf(s, reasons);
     const note = String(s.note ?? "").trim();
-    if (note) out.push({ id: `shot:${s.id}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: note, prompt: null, ring });
+    if (note) out.push({ id: `shot:${s.id}`, shot: s.id, source: "evening", kind: "evening", date: s.date, created_at: at, text: note, prompt: null, ring });
     answersOf(s).forEach((a, i) => {
       const line = a.line.trim();
-      if (line) out.push({ id: `shot:${s.id}:${i}`, source: "evening", kind: "evening", date: s.date, created_at: at, text: line, prompt: a.text || null, ring });
+      if (line) out.push({ id: `shot:${s.id}:${i}`, shot: s.id, source: "evening", kind: "evening", date: s.date, created_at: at, text: line, prompt: a.text || null, ring });
     });
   }
   return out;

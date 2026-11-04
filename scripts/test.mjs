@@ -5809,12 +5809,12 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a blank box leaves no draft behind", !s2.m.has(key));
   const catchBlock = sheetSrc.slice(sheetSrc.indexOf("} catch {", sheetSrc.indexOf("async function save(")), sheetSrc.indexOf("const near ="));
   ok("the sheet stays open with the words when a save fails", /setProblem\("Couldn't save that\. Your words are still here\."\)/.test(catchBlock) && !/dropNoteDraft|removeItem|onClose|setText/.test(catchBlock));
-  ok("Cancel keeps the draft (it only closes)", /onClick=\{onClose\}>\s*Cancel/.test(sheetSrc));
+  ok("Cancel keeps the draft (it only closes)", /onClick=\{close\}>\s*Cancel/.test(sheetSrc) && /function close\(\) \{\s*if \(sending\.current != null\) closedSending\.add\(sendToken\(draftKey, sending\.current\)\);\s*onClose\(\);\s*\}/.test(sheetSrc));
   ok("the drafts are kept per target and per kind of writing", /draftKey=\{`\$\{draftBase\}:\$\{sheet\}`\}/.test(read("src/components/targets/NotesSection.jsx")) && /const draftBase = noteDraftKey\(target\)/.test(read("src/components/targets/NotesSection.jsx")));
 
   // --- Quotes --------------------------------------------------------------------
   const linked = read("src/components/targets/LinkedQuotes.jsx");
-  ok("Unlink takes off every week's link to that quote", /unlinkQuote\(link\.linkIds\)/.test(linked) && /relinkQuotes\(rows\)/.test(linked));
+  ok("Unlink takes off every week's link to that quote", /unlinkQuote\(link\.linkIds\)/.test(linked) && /relinkQuotes\(await gone\)/.test(linked));
   ok("the quotes on a target go in QuoteCard's foot as Unlink", /extra=\{unlinkBtn\(l\)\}/.test(linked) && /className="qprint__save tg-unlink"/.test(linked));
 
   // --- The head ------------------------------------------------------------------
@@ -5859,7 +5859,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const { build } = await import("esbuild");
   const linkPath = fileURLToPath(new URL("../src/components/targets/LinkToTarget.jsx", import.meta.url));
   const linkSrc = readFileSync(linkPath, "utf8");
-  const keepReal = /\/lib\/(ladder|ascent|focus|mark|planDates)$/;
+  const keepReal = /\/lib\/(ladder|ascent|focus|mark|planDates|wheel)$/;
   const built = await build({
     entryPoints: [linkPath],
     bundle: true,
@@ -5943,6 +5943,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a lesson by its own id", ids.get("l1").join() === "e");
   ok("an old target's link is its own row", ids.get("q3").join() === "c" && ids.get("f0").join() === "d");
   ok("nothing else is checked", ["g1", "g2", "q1", "q2"].every((k) => ids.get(k).length === 0));
+  // A lifetime goal takes in the goals under it, as its page reads them (a
+  // goal moved under it on the wheel brings its links along).
+  const withEdges = M.ladderTargets({ ...rows, edges: [{ id: "e1", parent_id: "g1", child_id: "g9" }, { id: "e2", parent_id: "g9", child_id: "g10" }] }, today);
+  const g1 = withEdges.find((t) => t.id === "g1");
+  ok("a lifetime goal carries the goals under it", g1.lineage.slice().sort().join() === "g1,g10,g9" && withEdges.find((t) => t.id === "g2").lineage.join() === "g2");
+  const deep = [{ id: "s", quote_id: "Q", goal_id: "g10", goal: { id: "g10", title: "Draw daily" } }];
+  ok("so a link on a goal under it shows as linked there, not under Not on right now", M.linkIdsByTarget(withEdges, deep).get("g1").join() === "s" && M.otherTargets(deep, withEdges).length === 0);
+  ok("without the wheel's links read, a goal is just itself", list.find((t) => t.id === "g1").lineage.join() === "g1");
   ok("the count is of targets, not rows", M.targetCount(links) === 6 && M.targetCount([...links, { id: "g", quote_id: "Q", mission: true }]) === 6 && M.targetCount([]) === 0 && M.targetCount(null) === 0);
   ok("what the button says", M.linkName(0) === "Link to a target" && M.linkName(1) === "Linked to 1 target" && M.linkName(3) === "Linked to 3 targets");
   ok("the groups, biggest to smallest, the empty ones left out", M.groupTargets(all).map((g) => g.title).join("|") === "My mission|Lifetime goals|Quests and lessons|This week's focus|Not on right now" && M.groupTargets(list.slice(0, 1)).length === 1);
@@ -6037,19 +6045,34 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const focusSrc = read("src/components/targets/TargetFocus.jsx");
   const app = read("src/App.jsx");
 
-  // --- QuestBody: the header in one place, the sections in every state ----------
-  const loadingBranch = body.slice(body.indexOf("if (!board) {"), body.indexOf("if (!sel) {"));
-  const goneBranch = body.slice(body.indexOf("if (!sel) {"), body.indexOf("const [todayList, ...earlierAll] = days;"));
+  // --- QuestBody: one tree whatever the lists are doing --------------------------
+  const tail = body.slice(body.indexOf("const tileFor = "));
   const mainReturn = body.slice(body.indexOf("// Every part is its own cell of one grid"));
-  const sections = /<div className="tg-body">\s*\{quotes\}\s*\{notes\}\s*\{history\}\s*<\/div>/;
-  ok("while a quest's lists load or fail, its quotes, notes and history still show (so Reflect, Note and Quote open)", loadingBranch.length > 0 && sections.test(loadingBranch) && /<LoadError what="this list"/.test(loadingBranch));
-  ok("and when its lists can't be found", goneBranch.length > 0 && sections.test(goneBranch) && /Couldn't find this/.test(goneBranch));
   ok(
-    "the header is the first thing in each of QuestBody's three returns, so it never remounts as the lists arrive",
-    /return \(\s*<>\s*\{head\(tileFor\(\{ waiting: true \}\)\)\}/.test(loadingBranch) &&
-      /return \(\s*<>\s*\{head\(null\)\}/.test(goneBranch) &&
-      /return \(\s*<>\s*\{head\(tile\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
-      (body.match(/\{head\(/g) ?? []).length === 3
+    "while a quest's lists load, fail or can't be found, QuestBody draws the one tree it draws with them (no early return), so its quotes, notes and history keep their place, and what's open in them, as the lists arrive",
+    tail.length > 0 && !/if \(!(board|sel)\) \{\s*return/.test(tail) && (tail.match(/\n  return \(/g) ?? []).length === 1 && !/tg-body/.test(body)
+  );
+  ok(
+    "the Loading line, the lists' error and Try again for lists that can't be found sit where the lists' load error goes",
+    /const waiting = !board \?/.test(body) &&
+      /<LoadError what="this list" error=\{error\} onRetry=\{reload\} \/>/.test(body) &&
+      /Couldn't find this/.test(body) &&
+      /\{ready \? error && <LoadError what="this list" error=\{error\} onRetry=\{reload\} stale \/> : waiting\}/.test(mainReturn)
+  );
+  ok(
+    "the quotes and notes are always in the grid's side cell and the history at the foot of the rest; the build, camps, Today and the ongoing list are drawn once the lists are in",
+    /\{\(quotes \|\| notes\) && \(\s*<aside className="qs-side"[^>]*>\s*\{quotes\}\s*\{notes\}\s*<\/aside>/.test(mainReturn) &&
+      /\{history\}\s*<\/div>\s*<\/div>\s*<\/SketchProvider>/.test(mainReturn) &&
+      /\{ready && roomy && \(/.test(mainReturn) &&
+      /\{ready && \(\s*<QuestCamps\b/.test(mainReturn) &&
+      /\{ready && <div className="qs-today">/.test(mainReturn) &&
+      /\{ready && \(\s*<div className="qs-ongoing">/.test(mainReturn)
+  );
+  ok(
+    "the header is drawn once, first and outside the providers, so it never remounts as the lists arrive",
+    /return \(\s*<>\s*\{head\(tile\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
+      (body.match(/\{head\(/g) ?? []).length === 1 &&
+      /const tile = !board \? tileFor\(\{ waiting: true \}\) : !sel \? null : tileFor\(/.test(body)
   );
   const providers = body.slice(body.indexOf("<PhotoProvider"), body.indexOf("</PhotoProvider>"));
   ok("nothing inside the photo and tint providers draws the header", providers.length > 0 && !/head\(/.test(providers));
@@ -6515,7 +6538,11 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a sheet closed mid-save doesn't close the one open when it lands", /if \(live\.current\) onClose\(\);/.test(sheetSrc));
   ok(
     "a sheet opened while the words saved, with nothing typed in it, closes once they land",
-    /const closeRef = useRef\(onClose\);\s*closeRef\.current = onClose;/.test(sheetSrc) && /const heard = \(\{ sent, question, saved \}\) => \{\s*if \(saved && !shown\.current\.trim\(\)\) closeRef\.current\(\);/.test(sheetSrc)
+    /const closeRef = useRef\(onClose\);\s*closeRef\.current = onClose;/.test(sheetSrc) && /const heard = \(\{ sent, question, saved \}\) => \{\s*if \(saved && !shown\.current\.trim\(\) && !closedSending\.has\(sendToken\(draftKey, sent\)\)\) closeRef\.current\(\);/.test(sheetSrc)
+  );
+  ok(
+    "a sheet he closed himself while it saved marks its words, so one he opens again stays open when they land",
+    /<Sheet title=\{reflect \? `Reflect on \$\{name\}` : `A note on \$\{name\}`\} onClose=\{close\}>/.test(sheetSrc) && /sending\.current = sent;/.test(sheetSrc) && /\} finally \{\s*sending\.current = null;\s*closedSending\.delete\(sendToken\(draftKey, sent\)\);\s*\}/.test(sheetSrc)
   );
   ok(
     "an open sheet hears its words land, a target note's or a focus note's",
@@ -6718,9 +6745,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const clipUnder = ["clip", "board and clip"].every((k) => {
     const a = layouts[k].areas ?? [];
     const c = rowOf(a, "clip");
-    return c === rowOf(a, "ongoing") + 1 && a[c].every((x) => x === "clip") && rowOf(a, "side") === rowOf(a, "rest") && rowOf(a, "rest") === c + 1;
+    return c === rowOf(a, "ongoing") + 1 && a[c][0] === "clip" && a[c][1] === "side" && rowOf(a, "rest") === c + 1;
   });
-  ok("with the clipboard open it spans the page right under the ongoing list, the quotes and notes beside the earlier days", clipUnder);
+  ok("with the clipboard open it sits right under the ongoing list, in the left column beside the rail", clipUnder);
+  const railFrom = (k) => rowOf(layouts[k].areas ?? [], "side");
+  ok(
+    "opening or closing the clipboard leaves the quotes and notes where they are, beside Today (or the ongoing list under a board), down to the foot",
+    railFrom("clip") === railFrom("plain") && railFrom("board and clip") === railFrom("board") && railFrom("plain") === rowOf(layouts.plain.areas ?? [], "today") &&
+      ["plain", "board", "clip", "board and clip"].every((k) => (layouts[k].areas ?? []).at(-1)?.join(" ") === ". side")
+  );
   ok("opening the clipboard leaves the build and camps in the first row alone", ["clip", "board and clip"].every((k) => (layouts[k].areas ?? []).filter((r) => r.includes("build")).length === 1 && layouts[k].areas?.[0].join(" ") === "camps build"));
   const body = read("src/components/targets/QuestBody.jsx");
   ok("the page draws the clipboard's cell only with the clipboard's grid", /\(clipOpen \? " qs-grid--clip" : ""\)/.test(body) && /clipOpen \? <div className="qs-clip">\{clipCard\}<\/div> : clipCard/.test(body));
@@ -6730,6 +6763,44 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   );
 }
 // (end of review fix 4)
+
+
+// ===== Targets tab (PR 3, review fix 5: the parts checked together) =====
+{
+  console.log("\ntargets tab: the fixes checked together");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const css = read("src/styles/targets.css");
+  const body = read("src/components/targets/QuestBody.jsx");
+  const page = read("src/pages/Target.jsx");
+  const notes = read("src/components/targets/NotesSection.jsx");
+  const view = read("src/components/mark/TargetView.jsx");
+  const hist = read("src/components/targets/TargetHistory.jsx");
+  const hook = read("src/components/targets/useLadder.jsx");
+  const quotes = read("src/components/targets/LinkedQuotes.jsx");
+
+  ok("the Reflect and Note sheets keep their spacing past ascent.css's form rule", /\n\.ascent-sheet \.tg-sheet \{ display: flex; flex-direction: column; gap: 12px; \}/.test(css) && !/\n\.tg-sheet \{/.test(css));
+  ok("an older week's date stays in one piece when its line wraps", /\.tg-why__date \{ white-space: nowrap; \}/.test(css) && /<span className="tg-why__week"> · <span className="tg-why__date">\{weekOfLabel\(row\.week_start\)\}<\/span><\/span>/.test(page));
+  const phone = css.slice(css.indexOf("/* --- A phone ---"));
+  ok("More, Unlink and Another question are 40px under a thumb", /\.btn-link\.tg-why__more, \.qprint__save\.tg-unlink, \.btn-link\.tg-sheet__another \{ min-height: 40px; \}/.test(phone.slice(0, phone.indexOf("@media (max-width: 420px)"))));
+
+  ok("a camp added while the climb still loads has the climb read again, so it can't offer the summit early", /if \(ladder\?\.data\) ladder\.mutate\(\(d\) => d && \{ \.\.\.d, camps: \[\.\.\.d\.camps, \.\.\.rows\] \}\);\s*else ladder\?\.reload\(\);/.test(body));
+
+  const write = hook.slice(hook.indexOf("async function write("), hook.indexOf("// --- The climb"));
+  ok("a delete that leaves the page reads nothing again for the page it leaves", /async function write\(fn, failure, done, \{ leaving = false \} = \{\}\)/.test(write) && /if \(leaving\) \{\s*setTimeout\(announceChange, 0\);\s*return true;\s*\}/.test(write));
+  ok("deleting a quest or a lesson from its page leaves that way", (hook.match(/\{ leaving: Boolean\(onGone\) \}/g) ?? []).length === 2);
+
+  const L = await import("../src/lib/ladder.js");
+  const lines = L.eveningLines([{ id: "s1", date: "2026-11-01", level: 2, reason: 0, note: "Phone in the studio again." }], ["Distracted"]);
+  ok("an evening's line knows its shot", lines.length === 1 && lines[0].shot === "s1" && lines[0].ring === "Middle · Distracted", JSON.stringify(lines));
+  ok("and a tap on it opens that day on the target", /item\.source === "evening" && item\.shot && onOpenDay \? \(\s*<button type="button" className="tg-note__text" onClick=\{\(\) => onOpenDay\(item\.shot\)\}/.test(notes));
+  ok("the page opens its history on that day", /const openDay = t \? \(shotId\) => openHistory\(\{ day: \{ id: shotId \} \}\) : null;/.test(page) && /onOpenDay=\{openDay\}/.test(page) && (page.match(/pick=\{ui\.day\}/g) ?? []).length === 2 && /onHistory=\{t \? \(\) => openHistory\(\) : null\}/.test(page));
+  ok("closing the history forgets the day asked for", /set\(open \? \{ history: true \} : \{ history: false, day: null \}\)/.test(page));
+  ok("the history shows the day asked for, widening the range when it's further back", /pick=\{pick\}/.test(hist) && /setPicked\(pick\.id\);\s*setRange\(\(r\) => \(inRange\(t\.shots, today, r\)\.some\(\(s\) => s\.id === pick\.id\) \? r : "all"\)\);/.test(view) && view.indexOf("setPicked(pick.id)") > view.indexOf("setPicked(null);"));
+
+  ok("a quote tapped again in the picker just after its unlink comes back as it was, as Undo does", /const unlinked = useRef\(new Map\(\)\);/.test(quotes) && /const gone = unlinked\.current\.get\(item\.id\);\s*if \(gone && !list\.find\(linkFor\(item, isNote\)\)\)/.test(quotes) && /relinkQuotes\(await gone\)/.test(quotes));
+  ok("and Undo after that does nothing twice", /if \(unlinked\.current\.get\(id\) !== gone\) return;/.test(quotes));
+}
+// (end of review fix 5)
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

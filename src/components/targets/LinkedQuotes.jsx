@@ -50,28 +50,52 @@ export default function LinkedQuotes({ userId, today, target, name, title, why =
   // at once, and unlinked as soon as the link has saved; a tap on it again
   // before then puts the row back and keeps the link.
   const unlinkAfter = useRef(new Map());
+  // A quote just unlinked here, by quote or note id: the rows it had (a
+  // promise, while the unlink saves). A tap on it again in the picker puts
+  // those rows back, as Undo does, with every week's row and its place,
+  // rather than making a new link that can race the unlink.
+  const unlinked = useRef(new Map());
+  const idOf = (l) => l.quote_id ?? l.note_id;
+
+  async function relink(id, gone) {
+    unlinked.current.delete(id);
+    try {
+      await relinkQuotes(await gone);
+      const fresh = await links.reload();
+      announceChange();
+      // Tapped off again while it went back: off it comes, once it's there.
+      if (unlinkAfter.current.delete(id)) {
+        const there = (fresh ?? []).find((l) => idOf(l) === id);
+        if (there) unlink(there);
+      }
+    } catch (err) {
+      unlinkAfter.current.delete(id);
+      await links.reload();
+      toast.error(err, "Couldn't link it again.");
+    }
+  }
 
   // Off the target at once, and back with Undo, from the card or the picker.
   async function unlink(link) {
     if (!link.linkIds?.length) return;
     mutate((l) => (l ?? []).filter((x) => x.id !== link.id));
     haptic("tap");
+    const id = idOf(link);
+    const gone = unlinkQuote(link.linkIds);
+    unlinked.current.set(id, gone);
     try {
-      const rows = await unlinkQuote(link.linkIds);
+      await gone;
       announceChange();
       toast.show("Unlinked", {
         actionLabel: "Undo",
-        onAction: async () => {
-          try {
-            await relinkQuotes(rows);
-            await links.reload();
-            announceChange();
-          } catch (err) {
-            toast.error(err, "Couldn't link it again.");
-          }
+        onAction: () => {
+          // Put back by a tap in the picker already: nothing more to undo.
+          if (unlinked.current.get(id) !== gone) return;
+          relink(id, gone);
         },
       });
     } catch (err) {
+      if (unlinked.current.get(id) === gone) unlinked.current.delete(id);
       mutate((l) => [...(l ?? []).filter((x) => x.id !== link.id), link].sort(byPlace));
       toast.error(err, "Couldn't unlink that.");
     }
@@ -114,6 +138,14 @@ export default function LinkedQuotes({ userId, today, target, name, title, why =
   }
 
   function toggle(item, isNote) {
+    const gone = unlinked.current.get(item.id);
+    if (gone && !list.find(linkFor(item, isNote))) {
+      // Unlinked a moment ago: back as it was.
+      mutate((l) => [...(l ?? []), { id: `tmp:${item.id}`, quote_id: isNote ? null : item.id, note_id: isNote ? item.id : null, quote: isNote ? null : item, note: isNote ? item : null, why: null, position: list.length, linkIds: [] }]);
+      haptic("tap");
+      relink(item.id, gone);
+      return;
+    }
     const waiting = unlinkAfter.current.get(item.id);
     if (waiting) {
       unlinkAfter.current.delete(item.id);

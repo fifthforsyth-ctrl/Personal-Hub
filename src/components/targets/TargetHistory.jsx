@@ -13,11 +13,14 @@ import TargetView from "../mark/TargetView";
 //   folded    drawn as a fold (quest, lesson); `open`, onOpen(open)
 //   ladder    useLadder(): its focuses and sheets
 //   goalId    a goal's id, for adding a focus to it
+//   pick      { id } of a shot to show its day (an evening's line tapped in
+//             the notes); a new object each tap
 
-export default function TargetHistory({ target: t, today, ladder, folded = true, open = false, onOpen }) {
+export default function TargetHistory({ target: t, today, ladder, folded = true, open = false, onOpen, pick = null }) {
   const view = (
     <TargetView
       embedded
+      pick={pick}
       range={ladder.range}
       target={t}
       today={today}

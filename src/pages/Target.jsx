@@ -43,7 +43,7 @@ import "../styles/targets.css";
 const PLACES = ["#camps", "#history", "#notes", "#quotes"];
 
 function freshUi(key, hash) {
-  return { key, note: null, picking: false, settings: false, history: hash === "#history" };
+  return { key, note: null, picking: false, settings: false, history: hash === "#history", day: null };
 }
 
 // `onCanonical(path)` hears the page's own move to the target's address
@@ -169,10 +169,13 @@ export default function Target({ onCanonical = null }) {
   const { kind, id } = resolved;
   const t = info.mark;
 
-  function openHistory() {
-    set({ history: true });
+  function openHistory(patch = {}) {
+    set({ history: true, ...patch });
     requestAnimationFrame(() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
+  // An evening's line in the notes opens its day on the target (a new
+  // object each tap, so the same line tapped again shows it again).
+  const openDay = t ? (shotId) => openHistory({ day: { id: shotId } }) : null;
 
   // A quest or lesson drawn from its lists alone (the ladder isn't in yet,
   // or couldn't load) has no pencil until it is: its sheet edits the
@@ -211,7 +214,7 @@ export default function Target({ onCanonical = null }) {
         chip={info.chip}
         build={build}
         actions={actions}
-        onHistory={t ? openHistory : null}
+        onHistory={t ? () => openHistory() : null}
       />
       {/* The next quest a tap away (Aaron, 2026-11-02). */}
       {quest && <QuestsRow userId={userId} date={today} current={key} />}
@@ -243,6 +246,7 @@ export default function Target({ onCanonical = null }) {
       lineage={info.lineage}
       shots={t?.shots ?? null}
       reasons={t?.reasons ?? null}
+      onOpenDay={openDay}
       limit={quest ? 5 : 10}
       sheet={ui.note}
       onSheet={(mode) => set({ note: mode })}
@@ -268,7 +272,7 @@ export default function Target({ onCanonical = null }) {
             head={head}
             quotes={quotes}
             notes={notes}
-            history={t ? <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set({ history: open })} /> : null}
+            history={t ? <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set(open ? { history: true } : { history: false, day: null })} pick={ui.day} /> : null}
             reloadRef={questReload}
           />
         </>
@@ -276,7 +280,7 @@ export default function Target({ onCanonical = null }) {
         <>
           {head()}
           <div className="tg-body">
-            {kind === "goal" && t && <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} folded={false} />}
+            {kind === "goal" && t && <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} folded={false} pick={ui.day} />}
             {kind === "focus" && (
               <TargetFocus key={`f:${key}`} userId={userId} today={today} row={info.focusRow} ladder={ladder} ascent={ascent} onSettings={() => set({ settings: true })} />
             )}
@@ -439,7 +443,7 @@ export function describe(resolved, { data, view, board = null, ladder, focusGoal
       ) : (
         "Stands alone"
       )}
-      {!thisWeek && <span className="tg-why__week"> · {weekOfLabel(row.week_start)}</span>}
+      {!thisWeek && <span className="tg-why__week"> · <span className="tg-why__date">{weekOfLabel(row.week_start)}</span></span>}
     </>
   );
   return {

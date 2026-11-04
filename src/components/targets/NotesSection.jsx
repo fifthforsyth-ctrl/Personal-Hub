@@ -29,13 +29,15 @@ import NoteSheet, { noteLimit } from "./NoteSheet";
 //             still written on the target itself)
 //   shots     the target's loosed shots, for the evening's lines
 //   reasons   the target's miss reasons, which the evening's lines name
+//   onOpenDay(shotId) opens that evening's day in the target's history
+//             (an evening's line is a tap away from its day, as on the Range)
 //   limit     how many show before "Show N older"
 //   sheet     "reflect", "note" or null; onSheet opens or closes it
 
 const NONE = [];
 const tmpId = () => `tmp:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
 
-export default function NotesSection({ userId, today, target, name, focusGoal = null, lineage = null, shots = null, reasons = null, limit = 10, sheet = null, onSheet }) {
+export default function NotesSection({ userId, today, target, name, focusGoal = null, lineage = null, shots = null, reasons = null, onOpenDay = null, limit = 10, sheet = null, onSheet }) {
   const toast = useToast();
   const isFocus = target.kind === "focus";
   const ref = useMemo(() => refOf(target), [target]);
@@ -315,6 +317,10 @@ export default function NotesSection({ userId, today, target, name, focusGoal = 
                             <Trash2 size={15} />
                           </button>
                         </div>
+                      ) : item.source === "evening" && item.shot && onOpenDay ? (
+                        <button type="button" className="tg-note__text" onClick={() => onOpenDay(item.shot)} aria-label={`${item.text}: see that day on its target`}>
+                          {item.text}
+                        </button>
                       ) : (
                         <p className="tg-note__text tg-note__text--still">{item.text}</p>
                       )}

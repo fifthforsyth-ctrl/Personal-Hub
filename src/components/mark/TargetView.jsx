@@ -37,7 +37,7 @@ function readRange(id) {
   }
 }
 
-export default function TargetView({ range: all, target: t, today, focusesById, fedBy = [], onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson, embedded = false }) {
+export default function TargetView({ range: all, target: t, today, focusesById, fedBy = [], onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson, embedded = false, pick = null }) {
   const [range, setRange] = useState(() => readRange(t.key));
   const [picked, setPicked] = useState(null);
   const tabs = useRef(null);
@@ -47,6 +47,17 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
     setRange(readRange(t.key));
     setPicked(null);
   }, [t.key]);
+
+  // A day asked for from outside (an evening's line tapped on the target's
+  // page): shown, with the range widened to all of it if it's further back
+  // than the range shows. After the effect above, so a new target's reset
+  // doesn't undo it.
+  useEffect(() => {
+    if (!pick?.id) return;
+    setPicked(pick.id);
+    setRange((r) => (inRange(t.shots, today, r).some((s) => s.id === pick.id) ? r : "all"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick]);
 
   useEffect(() => {
     const on = tabs.current?.querySelector('[aria-current="page"]');

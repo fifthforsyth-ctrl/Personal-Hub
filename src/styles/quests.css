@@ -100,13 +100,15 @@
   .qs-rest { grid-area: rest; }
   /* Today's board in columns (0092): Today spans the page under the camps. */
   .qs-grid--board { grid-template-areas: "camps build" "today today" "ongoing side" "rest side" ". side"; }
-  /* The clipboard (0095) spans the page right under the ongoing list, so
-     its columns have room side by side. The quotes and notes go beside the
-     earlier days instead, so however tall they grow they never push the
-     clipboard down. The build stays in the first row alone, as above, so
-     opening or closing the clipboard leaves the camps the same height. */
-  .qs-grid--clip { grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "camps build" "today ." "ongoing ." "clip clip" "rest side" ". side"; }
-  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps build" "today today" "ongoing ." "clip clip" "rest side" ". side"; }
+  /* The clipboard (0095) sits right under the ongoing list, in the left
+     column, with the quotes and notes beside it in the rail from Today
+     down, as with the clipboard shut: the rail stays where it is when the
+     clipboard opens or closes, and however tall the quotes and notes grow
+     they only lengthen the spare row at the foot, never push the clipboard
+     down or leave a hole beside Today (review, 2026-11-04). The build stays
+     in the first row alone, as above, so the camps keep their height. */
+  .qs-grid--clip { grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "camps build" "today side" "ongoing side" "clip side" "rest side" ". side"; }
+  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps build" "today today" "ongoing side" "clip side" "rest side" ". side"; }
 }
 
 /* --- The floating build ----------------------------------------------------- */

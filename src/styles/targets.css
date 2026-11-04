@@ -364,6 +364,8 @@ a.ov-mission { transition: background 0.14s; }
 .tg-why__more { min-height: 36px; }
 .tg-why a { color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .tg-why__week { color: var(--text-3); }
+/* "Week of Oct 25" stays in one piece when the line wraps. */
+.tg-why__date { white-space: nowrap; }
 
 /* The mission: the summit's words in small caps, the statement in serif. */
 .tg-mission { display: flex; flex-direction: column; gap: 6px; max-width: 64ch; }
@@ -443,7 +445,9 @@ a.ov-mission { transition: background 0.14s; }
 .btn.tg-more { align-self: flex-start; }
 
 /* The sheet for writing one (NoteSheet.jsx). */
-.tg-sheet { display: flex; flex-direction: column; gap: 12px; }
+/* Named with the sheet it sits in: ascent.css sets .ascent-sheet form to
+   block, which one class alone loses to. */
+.ascent-sheet .tg-sheet { display: flex; flex-direction: column; gap: 12px; }
 .tg-sheet__q { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .tg-sheet__prompt { margin: 0; font-family: var(--font-serif); font-size: 19px; line-height: 1.4; color: var(--text); }
 .tg-sheet__another { min-height: 36px; }
@@ -552,6 +556,8 @@ a.ov-mission { transition: background 0.14s; }
   /* 16px, so the phone doesn't zoom in on the box as it's tapped. */
   .textarea.tg-sheet__box, .tg-note__edit .textarea, .tg-picker__search .input { font-size: 16px; }
   .tg-sheet__actions .btn { flex: 1; }
+  /* The text buttons this tab adds are 40px under a thumb too. */
+  .btn-link.tg-why__more, .qprint__save.tg-unlink, .btn-link.tg-sheet__another { min-height: 40px; }
 }
 @media (max-width: 420px) {
   .tg-head__top { gap: 10px; }

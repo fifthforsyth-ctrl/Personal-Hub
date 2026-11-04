@@ -46,6 +46,12 @@ export function noteLimit(kind, mode) {
 const inFlight = new Map(); // draft key -> the texts on their way
 const landing = new Set();
 const isInFlight = (key, text) => inFlight.get(key)?.includes(text) ?? false;
+// Words whose sheet he closed himself while they saved, by draft key and
+// text. A sheet open when they land is then one he opened again on purpose,
+// so it stays open; one drawn afresh as the page around it redrew (its
+// sender gone without being closed) still closes once they've saved.
+const closedSending = new Set();
+const sendToken = (key, text) => `${key}\n${text}`;
 
 // The draft for a target's note or reflection, leaving out words that are
 // still saving. These take `store` only so the tests can hand in a stand-in.
@@ -196,6 +202,12 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
   }, []);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  // The words on their way from this sheet, while they are.
+  const sending = useRef(null);
+  function close() {
+    if (sending.current != null) closedSending.add(sendToken(draftKey, sending.current));
+    onClose();
+  }
 
   // Kept as he types, and a reflection's question with its words, for as
   // long as there are words.
@@ -218,7 +230,7 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
   shown.current = text;
   useEffect(() => {
     const heard = ({ sent, question, saved }) => {
-      if (saved && !shown.current.trim()) closeRef.current();
+      if (saved && !shown.current.trim() && !closedSending.has(sendToken(draftKey, sent))) closeRef.current();
       if (!saved) {
         if (question && !shown.current.trim()) setAsk((a) => keptQuestion(kind, question, a?.turn ?? 0));
         setProblem("Couldn't save that. Your words are still here.");
@@ -248,6 +260,7 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
     e?.preventDefault();
     if (saving || !text.trim()) return;
     const sent = text;
+    sending.current = sent;
     setSaving(true);
     setProblem(null);
     try {
@@ -259,13 +272,16 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
     } catch {
       setSaving(false);
       setProblem("Couldn't save that. Your words are still here.");
+    } finally {
+      sending.current = null;
+      closedSending.delete(sendToken(draftKey, sent));
     }
   }
 
   const near = text.length > max * 0.9;
 
   return (
-    <Sheet title={reflect ? `Reflect on ${name}` : `A note on ${name}`} onClose={onClose}>
+    <Sheet title={reflect ? `Reflect on ${name}` : `A note on ${name}`} onClose={close}>
       <form className="tg-sheet" onSubmit={save}>
         {reflect && (
           <div className="tg-sheet__q">
@@ -302,7 +318,7 @@ export default function NoteSheet({ mode, kind, name, today, draftKey, earlierKe
           </p>
         )}
         <div className="tg-sheet__actions">
-          <button type="button" className="btn btn--on-page" onClick={onClose}>
+          <button type="button" className="btn btn--on-page" onClick={close}>
             Cancel
           </button>
           <button type="submit" className="btn btn--accent" disabled={saving || !text.trim()}>

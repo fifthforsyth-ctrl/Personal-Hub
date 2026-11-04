@@ -2940,7 +2940,7 @@ export async function fetchLadderTargets(userId) {
     supabase.from("missions").select("statement, summit").eq("user_id", userId).maybeSingle(),
     selectAllPages(() => supabase.from("nodes").select("id, title, created_at").eq("user_id", userId).order("id")),
     // Your own edges only, by row-level security.
-    selectAllPages(() => supabase.from("node_edges").select("id, child_id").order("id")),
+    selectAllPages(() => supabase.from("node_edges").select("id, parent_id, child_id").order("id")),
     supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
     supabase.from("lessons").select("id, title, status, goal_id, started_on, position, created_at").eq("user_id", userId),
     fetchFocusGoalRows(userId),
@@ -2953,6 +2953,8 @@ export async function fetchLadderTargets(userId) {
     quests: quests.data ?? [],
     lessons: lessons.data ?? [],
     focusGoals,
+    // so a lifetime goal's link takes in the goals under it, as its page does
+    edges,
   };
 }
 
