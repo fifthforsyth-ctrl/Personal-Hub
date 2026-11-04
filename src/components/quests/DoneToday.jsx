@@ -44,7 +44,7 @@ export default function DoneToday({ view, quest, all, onView, onClose }) {
       {showAll ? (
         all.map((q) => (
           <section key={q.key} className="done-quest" aria-label={q.name}>
-            <Link to={`/quests/${q.key}`} className="done-quest__name" onClick={onClose}>
+            <Link to={`/targets/${q.lessonId ?? q.questId}`} className="done-quest__name" onClick={onClose}>
               <span>{q.name}</span>
               <small>{q.count}</small>
               <ChevronRight size={15} aria-hidden="true" />
@@ -72,7 +72,7 @@ function Groups({ groups, kind }) {
               <small>{g.count}</small>
             </span>
           ) : g.camp ? (
-            <Link to={`/ascent/camp/${g.camp.id}`} state={{ from: "quests" }} className="today-group__label">
+            <Link to={`/targets/camp/${g.camp.id}`} className="today-group__label">
               <span className="today-group__n" aria-hidden="true">
                 {g.number}
               </span>

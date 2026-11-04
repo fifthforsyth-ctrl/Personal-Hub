@@ -1,0 +1,787 @@
+/* The Targets tab, its target pages, and the quests row on Today.
+
+   This file is in the first bundle (Today imports it), ahead of index.css
+   and of every sheet a page brings in later (ascent.css, quests.css,
+   cork.css). So a rule here for an element that also wears one of their
+   classes (.card, .btn, .btn-icon, .chip, .textarea, .qprint__save...)
+   names that class too, or something it sits in: one class alone loses to
+   theirs. */
+
+/* --- The quests row (Today, and a quest's own page) ------------------------ */
+.quests-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0 0 14px;
+}
+.quests-row__label {
+  flex: none;
+  margin: 0;
+}
+.quests-row__list {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 2px 4px;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.quests-row__list::-webkit-scrollbar {
+  display: none;
+}
+.quests-row__list > li {
+  flex: none;
+  scroll-snap-align: start;
+}
+.quests-row__pill {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 44px;
+  padding: 5px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: inherit;
+  text-decoration: none;
+  line-height: 1.15;
+  max-width: 180px;
+}
+.quests-row__pill b {
+  font-size: 13.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quests-row__pill small {
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.quests-row__pill:hover {
+  border-color: var(--ink);
+}
+.quests-row__pill.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--on-ink);
+}
+.quests-row__pill.is-on small {
+  color: rgba(255, 255, 255, 0.75);
+}
+/* A desk has no thumb to scroll with, so the pills wrap and a mouse reaches
+   every one (as the week's focus row does there). The label stays level
+   with the first row of pills: 2px of padding above a 44px pill. */
+@media (min-width: 901px) {
+  .quests-row { align-items: flex-start; }
+  .quests-row__label { display: flex; align-items: center; min-height: 48px; }
+  .quests-row__list { flex-wrap: wrap; overflow: visible; scroll-snap-type: none; }
+}
+
+
+/* --- Part 2: the Targets overview (add part 2's rules directly under this line) --- */
+
+/* The overview (/targets): the ladder, biggest to smallest, small enough
+   that the four tiers come close to fitting a phone's first screen. The
+   page wears .ascent and .mark for the bow, the patches and the faces. */
+.ov-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.ov .ov-top .eyebrow { margin: 0 0 2px; }
+.ov-top .page-title { margin: 0; }
+.ov-top .btn { flex: none; min-height: 40px; }
+
+.ov-tier { margin: 0 0 14px; min-width: 0; }
+.ov-tier__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 6px; }
+.ov-note { font-size: 11.5px; color: var(--text-3); line-height: 1.3; }
+.ov-go { flex: none; color: var(--text-3); }
+.ov-none { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.ov-none .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; }
+
+/* Tier 1: the mission. White like every card; the words carry it. */
+.ov-mission { display: flex; flex-direction: column; gap: 3px; color: var(--text); text-decoration: none; }
+/* Its own padding beats the card's, and on a phone ascent.css's too, which
+   pads every card on its pages (.ascent .card:not(.card--flush)). */
+.card.ov-mission, .ascent .card.ov-mission:not(.card--flush) { padding: 14px 16px 15px; }
+a.ov-mission { transition: background 0.14s; }
+@media (hover: hover) { a.ov-mission:hover { background: var(--card-hover); } }
+.ov-mission__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ov-mission__summit { margin: 0; font-family: var(--font-serif); font-variant-caps: small-caps; font-size: 15px; font-weight: 600; letter-spacing: 0.05em; line-height: 1.25; overflow-wrap: anywhere; }
+.ov-mission__creed {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.ov-mission--empty { align-items: flex-start; gap: 8px; }
+.ov-mission__none { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
+.ov-mission--empty .btn { min-height: 40px; }
+
+/* Tiers 2 and 4: a row of small targets, the same measurements as the
+   week's focus at the top of Today (focus.css, .focus-strip__row), under
+   names of their own so neither page can move the other. Five across a
+   phone and the rest scroll inside the row; on a desk they wrap. */
+.ov-faces {
+  --ov-gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 2px 0 4px;
+  display: flex;
+  gap: var(--ov-gap);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ov-faces::-webkit-scrollbar { display: none; }
+.ov-faces__cell {
+  flex: 0 0 calc((100% - 4 * var(--ov-gap)) / 5);
+  max-width: 88px;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.ov-face {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0 6px;
+  border-radius: var(--r);
+  color: var(--text);
+  text-align: center;
+  text-decoration: none;
+  transition: background 0.14s;
+}
+@media (hover: hover) { .ov-face:hover { background: var(--card); } }
+.mark .ov-face .mk-face { width: calc(100% - 4px); max-width: 64px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ov-face .mk-face { transition: transform 0.12s; }
+  .ov-face:active .mk-face { transform: scale(0.94); }
+}
+.ov-face__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-width: calc(100% + 8px);
+  margin-inline: -4px;
+  padding-inline: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+/* A goal's gear goes beside its name where there's room for both. */
+.ov-face__gear { display: none; margin-right: 3px; vertical-align: -2px; color: var(--text-2); }
+@media (min-width: 521px) { .ov-face__gear { display: inline-block; } }
+
+/* At this size the Mark's hairlines would vanish, so they keep a fixed
+   width on screen, the marks are a little bigger, and the four section
+   lines go (as on Today's strip). The same for the quests' small faces. */
+.mark .ov-faces .mk-board, .mark .ov-climb .mk-board,
+.mark .ov-faces .mk-ring, .mark .ov-climb .mk-ring,
+.mark .ov-faces .mk-bull, .mark .ov-climb .mk-bull,
+.mark .ov-faces .mk-miss, .mark .ov-climb .mk-miss { vector-effect: non-scaling-stroke; }
+.mark .ov-faces .mk-board, .mark .ov-climb .mk-board { stroke-width: 1.25px; }
+.mark .ov-faces .mk-ring, .mark .ov-climb .mk-ring { stroke-width: 0.75px; stroke-opacity: 0.4; }
+.mark .ov-faces .mk-bull, .mark .ov-climb .mk-bull { stroke-width: 1px; }
+.mark .ov-faces .mk-miss, .mark .ov-climb .mk-miss { stroke-width: 0.75px; stroke-opacity: 0.3; stroke-dasharray: 1.5 2.5; }
+.mark .ov-faces .mk-div, .mark .ov-climb .mk-div { display: none; }
+.mark .ov-faces .mk-dot, .mark .ov-climb .mk-dot { r: 8.5px; stroke-width: 1.4; }
+/* On the week's row, orange is today's answer only, as on Today. */
+.mark .ov-faces--week .ov-face:not(.is-answered) .mk-dot--last { fill: var(--ink); }
+
+@media (max-width: 900px) {
+  /* Edge to edge, so a sixth target peeks in from the side. */
+  .ov-faces { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
+}
+@media (max-width: 380px) {
+  .ov-face__name { font-size: 10px; }
+}
+@media (min-width: 901px) {
+  .ov-faces {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px 8px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .ov-faces__cell { max-width: none; }
+  .ov-face__name { font-size: 11.5px; line-height: 1.25; letter-spacing: -0.01em; }
+  .mark .ov-face .mk-face { max-width: 72px; }
+}
+
+/* Tier 3: the quests and lessons, a compact row each. One column on a
+   phone, two from 520 wide. */
+.ov-climbs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+@media (min-width: 520px) { .ov-climbs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ov-climbs > li { min-width: 0; }
+.ov-climb {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 3px 10px 3px 6px;
+  background: var(--card);
+  border: 1px solid rgba(20, 18, 14, 0.04);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.14s;
+}
+@media (hover: hover) { .ov-climb:hover { background: var(--card-hover); } }
+.mark .ov-climb .mk-face { flex: none; width: 48px; height: 48px; }
+.ov-climb__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ov-climb__txt b { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
+.ov-climb__txt small { font-size: 11.5px; color: var(--text-2); line-height: 1.3; }
+.ov-adds { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ov-adds .btn { min-height: 40px; }
+
+/* Below the ladder: the bow, and what's behind. Side by side from a
+   tablet up, and beside the ladder only where the ladder still has room
+   for five goals across (the desk's sidebar takes 232px of the window). */
+.ov-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ov-side > .card + .card { margin-top: 0; }
+.ov-side .mk-rack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 701px) and (max-width: 1239px) {
+  .ov-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .ov-side > :only-child { grid-column: 1 / -1; }
+}
+@media (min-width: 1240px) {
+  .ov-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 28px; align-items: start; }
+  .ov-ladder > .ov-tier:last-child { margin-bottom: 0; }
+}
+
+/* A fold: its line opens it, with a chevron that turns. */
+.ov-fold > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ov-fold > summary::-webkit-details-marker { display: none; }
+.ov-fold__chev { flex: none; margin-left: auto; color: var(--text-3); transition: transform 0.15s; }
+.ov-fold[open] > summary .ov-fold__chev { transform: rotate(180deg); }
+
+.ov-bow { display: flex; flex-direction: column; gap: 6px; }
+.ov-fold--rack > summary { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.ov-fold--rack .mk-rack { margin-top: 4px; }
+
+/* Named as fully as the mission card's padding, for the same reason. */
+.card.ov-behind, .ascent .card.ov-behind:not(.card--flush) { padding-top: 10px; padding-bottom: 10px; }
+.ov-behind .ov-fold > summary { min-height: 44px; }
+.ov-behind .ov-fold > summary .eyebrow { margin: 0; flex: none; }
+.ov-behind .ov-fold > summary .ov-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-behind__body { display: flex; flex-direction: column; gap: 14px; padding: 6px 0; }
+.ov-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ov-group__label { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.ov-patches { list-style: none; margin: 0; padding: 0; }
+.ascent .ov-patches .patch { color: inherit; text-decoration: none; }
+.ov-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ov-chips > li { min-width: 0; max-width: 100%; }
+.ov-chips .chip--tap { min-height: 40px; max-width: 100%; text-decoration: none; }
+.chip.ov-chip--aside { background: none; border: 1px dashed var(--line-strong); color: var(--text-2); }
+
+/* What a focus counts toward, as a link to that target's page: under the
+   week in Today's focus sheet, and on each focus on the Week tab. */
+.ladder-toward {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.ladder-toward svg { flex-shrink: 0; color: var(--text-3); }
+@media (hover: hover) { .ladder-toward:hover { color: var(--accent-text); } }
+.ladder-toward--row { flex: 0 1 auto; font-size: inherit; font-weight: 500; }
+
+/* In that sheet the arrow's settings gear sits on the "Today's arrow" line
+   instead of a line of its own, since what it counts toward is said above. */
+.ladder-arrow { position: relative; }
+.ladder-arrow > .eyebrow { display: flex; align-items: center; min-height: 30px; padding-right: 44px; }
+.ladder-arrow .focus-arrow__head { position: absolute; top: 0; right: 0; }
+.ladder-arrow .focus-arrow__gear { margin: -3px -8px 0 0; }
+
+/* --- end of part 2 --- */
+
+
+/* --- Part 3: a target's page (add part 3's rules directly under this line) --- */
+/* A target's page (Target.jsx): the head, then its own part, then its
+   quotes and what's written on it. On a quest's or lesson's page the body
+   is QuestBody's grid (quests.css); everywhere else a column of cards. */
+.tg-page .card + .card { margin-top: 0; }
+.tg-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* A goal's, focus's or the mission's page is one column: kept to a width
+   that reads well on a desk. A quest's has its lists and a rail. */
+.tg-page:not(.tg-page--climb) { max-width: 880px; }
+
+/* --- The head --------------------------------------------------------------- */
+.tg-head { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; min-width: 0; }
+.tg-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin: 0 0 -4px; padding: 0; list-style: none; }
+.tg-crumbs li { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--text-3); }
+.tg-crumbs a {
+  display: inline-flex; align-items: center; min-height: 36px; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2); font-size: 12.5px; font-weight: 600; text-decoration: none;
+}
+@media (hover: hover) { .tg-crumbs a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; } }
+.tg-head__top { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+.tg-head__name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tg-head__name .eyebrow { margin: 0; }
+.page-title.tg-title { margin: 0; text-wrap: balance; overflow-wrap: anywhere; }
+.tg-chip { margin-top: 2px; }
+.tg-head__build { flex: 0 0 auto; }
+
+.tg-why { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.tg-why__text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 68ch; }
+.tg-why__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tg-why__more { min-height: 36px; }
+.tg-why a { color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.tg-why__week { color: var(--text-3); }
+/* "Week of Oct 25" stays in one piece when the line wraps. */
+.tg-why__date { white-space: nowrap; }
+
+/* The mission: the summit's words in small caps, the statement in serif. */
+.tg-mission { display: flex; flex-direction: column; gap: 6px; max-width: 64ch; }
+.tg-mission__summit { margin: 0; font-size: 13px; font-weight: 650; font-variant-caps: all-small-caps; letter-spacing: 0.08em; color: var(--text-2); }
+.tg-mission__statement { margin: 0; font-family: var(--font-serif); font-size: 19px; line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Its small target and today's arrow in words. */
+.tg-mark { display: flex; align-items: center; gap: 10px; min-height: 44px; min-width: 0; }
+.tg-mark .mk-face.tg-mark__face { flex: 0 0 auto; width: 40px; height: 40px; }
+.tg-mark__state { flex: 1; min-width: 0; font-size: 13px; color: var(--text-2); }
+.tg-mark__state.is-in { color: var(--text); font-weight: 600; }
+.btn-link.tg-mark__history { min-height: 40px; padding: 0 4px; }
+
+/* Reflect, Note, Quote and the pencil: one line, even at 360px. */
+.tg-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.btn.tg-act { min-height: 40px; padding: 8px 16px; }
+.btn-icon.tg-act__edit { margin-left: auto; width: 40px; height: 40px; border-color: var(--line); background: var(--card); color: var(--text); }
+
+/* The build, small, top right (BuildTile.jsx). */
+.tg-build { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 92px; }
+.tg-build__pic {
+  display: block; width: 92px; height: 70px; overflow: hidden; border-radius: var(--r);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); -webkit-tap-highlight-color: transparent;
+}
+.tg-build__host.painting { width: 100%; height: 100%; }
+.tg-build__plot { display: grid; place-items: center; }
+.tg-build__plot .qs-plot { width: 46px; height: 46px; }
+.tg-build--wait .tg-build__pic { background: var(--inset); box-shadow: none; }
+.tg-build__line { display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 11.5px; line-height: 1.3; color: var(--text-2); }
+.tg-build__line > span { padding-top: 4px; }
+.tg-build__go { display: inline-flex; align-items: center; min-height: 40px; color: var(--text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+/* No negative margin above or below: stacked under the link, the done button's
+   bigger phone target would lie over the link's bottom. */
+.qs-done-btn.tg-build__today { min-height: 40px; margin: 0 -4px; color: var(--accent-text); font-weight: 600; font-size: 11.5px; }
+
+/* Gone, or never his. */
+.tg-gone { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.tg-gone p { margin: 0; font-size: 15px; line-height: 1.5; }
+.tg-gone .btn { min-height: 40px; }
+.tg-gone--page { max-width: 520px; margin: 24px auto 0; }
+
+/* --- Sections ------------------------------------------------------------------ */
+.tg-sec__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 36px; margin: -4px 0 8px; }
+.tg-sec__head .eyebrow { margin: 0; }
+.tg-sec__tools { display: inline-flex; align-items: center; gap: 16px; }
+.tg-sec__tools .btn-link, .tg-sec__link { min-height: 40px; }
+.tg-quiet { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-3); }
+.tg-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.tg-empty p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); max-width: 56ch; }
+.tg-empty__btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.tg-empty__btns .btn { display: inline-flex; align-items: center; min-height: 40px; }
+
+/* --- Notes and reflections (NotesSection.jsx) --------------------------------- */
+.tg-notes { min-width: 0; }
+.tg-days { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+.tg-day__label { margin: 0 0 2px; font: 500 10.5px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); }
+.tg-day__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tg-note { padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.tg-note:first-child { border-top: 0; padding-top: 0; }
+.tg-note.is-saving { opacity: 0.55; }
+.tg-note__q { margin: 4px 0 0; font-size: 13px; font-weight: 650; font-variant-caps: all-small-caps; letter-spacing: 0.06em; color: var(--text-2); }
+.tg-note__tag { margin: 4px 0 0; font: 500 10px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.tg-note__tag span { font-family: var(--font); font-size: 11.5px; letter-spacing: 0; text-transform: none; }
+.tg-note__row { display: flex; align-items: flex-start; gap: 4px; }
+.tg-note__text {
+  flex: 1; min-width: 0; min-height: 40px; margin: 0; padding: 7px 0; border: 0; background: none; text-align: left;
+  font: inherit; font-size: 14.5px; line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; cursor: text;
+}
+.tg-note__text--still { min-height: 0; cursor: default; }
+.tg-note--evening .tg-note__text { font-family: var(--font-serif); font-style: italic; color: var(--text-2); }
+.btn-icon.tg-note__del { flex: 0 0 auto; width: 40px; height: 40px; margin-right: -8px; color: var(--text-3); }
+@media (hover: hover) { button.tg-note__text:hover { color: var(--text-2); } }
+.tg-note__edit { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 4px; }
+.tg-note__edit .textarea { min-height: 96px; }
+.tg-note__btns { display: flex; justify-content: flex-end; gap: 8px; }
+.tg-note__btns .btn, .btn.tg-more { min-height: 40px; }
+.btn.tg-more { align-self: flex-start; }
+
+/* The sheet for writing one (NoteSheet.jsx). */
+/* Named with the sheet it sits in: ascent.css sets .ascent-sheet form to
+   block, which one class alone loses to. */
+.ascent-sheet .tg-sheet { display: flex; flex-direction: column; gap: 12px; }
+.tg-sheet__q { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tg-sheet__prompt { margin: 0; font-family: var(--font-serif); font-size: 19px; line-height: 1.4; color: var(--text); }
+.tg-sheet__another { min-height: 36px; }
+.textarea.tg-sheet__box { min-height: 128px; max-height: 50vh; resize: none; overflow-y: auto; font-size: 15px; line-height: 1.6; }
+/* White boxes on the sheet's warm grey, so they read as boxes. */
+.tg-sheet .textarea, .tg-picker__search .input { background: var(--card); border-color: var(--line); }
+.tg-sheet__count { margin: -6px 2px 0; text-align: right; font: 500 11px var(--font-mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tg-sheet .form-error { margin: 0; }
+.tg-sheet__actions { display: flex; justify-content: flex-end; gap: 10px; }
+.tg-sheet__actions .btn { min-height: 44px; padding: 10px 22px; }
+
+/* --- Quotes (LinkedQuotes.jsx, QuotePicker.jsx) ------------------------------ */
+.tg-quotes { min-width: 0; }
+.picks__strip.tg-quotes__strip { padding-top: 12px; padding-bottom: 16px; }
+.tg-qnote { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tg-qnote__foot { padding: 0 2px; }
+.tg-unlink { min-height: 36px; }
+
+.tg-picker { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tg-picker__search { position: relative; display: block; }
+.tg-picker__search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.tg-picker__search .input { padding-left: 38px; }
+.tg-picker__sec { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tg-picker__h { margin: 4px 0 2px; font: 500 10.5px var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-3); }
+.tg-picker__wait { margin-bottom: 4px; }
+.tg-picker__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tg-qrow {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 24px; align-items: center; gap: 12px; width: 100%; min-height: 60px;
+  padding: 8px; border: 0; border-radius: var(--r); background: transparent; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) { .tg-qrow:hover { background: var(--card); } }
+.tg-qrow.is-on { background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tg-qrow__thumb {
+  width: 44px; height: 44px; overflow: hidden; border-radius: 10px; display: grid; place-items: center;
+  background: var(--ink); color: var(--on-ink); font-size: 13px; font-weight: 650; letter-spacing: 0.04em;
+}
+.tg-qrow__thumb img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(1); }
+.tg-qrow__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tg-qrow__text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-family: var(--font-serif); font-size: 14.5px; line-height: 1.4; }
+.tg-qrow__by { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; font-variant-caps: all-small-caps; letter-spacing: 0.06em; color: var(--text-2); }
+.tg-qrow__where { font-weight: 400; font-variant-caps: normal; letter-spacing: 0; font-size: 11.5px; color: var(--text-3); }
+.tg-qrow__check { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.tg-qrow.is-on .tg-qrow__check { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.tg-picker__foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tg-picker__foot .btn { display: inline-flex; align-items: center; min-height: 40px; }
+.tg-picker__foot .form-error { flex-basis: 100%; margin: 0; }
+.tg-picker__board { min-height: 40px; }
+
+/* --- History (TargetHistory.jsx) ----------------------------------------------- */
+/* Flush: its summary and body pad themselves, on a phone too, where
+   ascent.css pads every card (.ascent .card:not(.card--flush)). */
+.tg-history.card, .ascent .tg-history.card:not(.card--flush) { padding: 0; min-width: 0; }
+.tg-history__sum {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 16px; list-style: none; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tg-history__sum::-webkit-details-marker { display: none; }
+.tg-history .mk-face.tg-history__face { flex: 0 0 auto; width: 36px; height: 36px; }
+.tg-history__label { flex: 1; min-width: 0; font-size: 14px; }
+.tg-history__label b { font-weight: 650; }
+.tg-history__label span { color: var(--text-2); }
+.tg-history__chev { flex: 0 0 auto; color: var(--text-3); transition: transform 0.2s ease; }
+.tg-history[open] .tg-history__chev { transform: rotate(180deg); }
+.tg-history__body { padding: 0 16px 16px; }
+/* Its cards sit flat inside the fold. */
+.tg-history__body .mk-target .card { box-shadow: none; border-color: var(--line); }
+.tg-page .qs-rest > .tg-history.card { margin-top: 4px; }
+.tg-page a.feeds__row { color: var(--text); text-decoration: none; }
+
+/* --- A week's focus (TargetFocus.jsx) ------------------------------------------- */
+.tg-focus { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tg-focus .tg-sec__head { margin-bottom: 0; }
+.tg-focus__plan { align-self: flex-start; min-height: 40px; }
+
+/* --- The mission (TargetMission.jsx) ------------------------------------------- */
+.tg-bow { display: flex; flex-direction: column; gap: 10px; }
+.tg-fold__sum {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; list-style: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; color: var(--text-2);
+}
+.tg-fold__sum::-webkit-details-marker { display: none; }
+.tg-fold__chev { transition: transform 0.2s ease; }
+.tg-fold[open] .tg-fold__chev { transform: rotate(180deg); }
+.tg-fold .mk-rack { margin-top: 6px; }
+.tg-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tg-link {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 2px; border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none; -webkit-tap-highlight-color: transparent;
+}
+.tg-links > li:first-child .tg-link { border-top: 0; }
+.tg-link .mk-face.tg-link__face { flex: 0 0 auto; width: 36px; height: 36px; }
+.tg-link__kind { flex: 0 0 52px; font: 500 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.tg-link__name { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.tg-link__n { flex: 0 0 auto; font: 500 11px var(--font-mono); color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tg-link__go { flex: 0 0 auto; color: var(--text-3); }
+@media (hover: hover) { .tg-link:hover .tg-link__name { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; } }
+
+/* --- A phone ---------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .tg-body { gap: 12px; }
+  .tg-crumbs a { min-height: 40px; }
+  .tg-page .feeds .feeds__row { min-height: 40px; align-items: center; }
+  .tg-page .ascent-goal__actions .btn-link { min-height: 40px; }
+  .tg-page .mk-setup .ascent-edit { width: 40px; height: 40px; }
+  /* 16px, so the phone doesn't zoom in on the box as it's tapped. */
+  .textarea.tg-sheet__box, .tg-note__edit .textarea, .tg-picker__search .input { font-size: 16px; }
+  .tg-sheet__actions .btn { flex: 1; }
+  /* The text buttons this tab adds are 40px under a thumb too. */
+  .btn-link.tg-why__more, .qprint__save.tg-unlink, .btn-link.tg-sheet__another { min-height: 40px; }
+}
+@media (max-width: 420px) {
+  .tg-head__top { gap: 10px; }
+  .btn.tg-act { padding: 8px 13px; }
+  .tg-mission__statement { font-size: 17.5px; }
+  .tg-link__kind { flex-basis: 46px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-history__chev, .tg-fold__chev { transition: none; }
+}
+
+/* --- end of part 3 --- */
+
+
+/* --- Part 4: linking a quote from where it's read (add part 4's rules directly under this line) --- */
+
+/* "Link" in a print's foot sits as quietly as Share beside it; once the
+   quote is on a target, its words go dark and the link turns orange. */
+.qprint__foot .qprint__link {
+  position: relative;
+  border-color: transparent;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.qprint .qprint__link.is-linked {
+  color: var(--text);
+}
+.qprint__link.is-linked svg,
+.quote-card__link.is-linked svg {
+  color: var(--accent);
+}
+/* More to tap than the pill shows, so a thumb finds it on a phone. It
+   reaches down more than up, so it never covers a button wrapped above. */
+.qprint__link::after,
+.quote-card__link::after {
+  content: "";
+  position: absolute;
+  inset: -4px -2px -10px;
+}
+
+/* On Today's card it sits beside Share. */
+.quote-card__rate .quote-card__link {
+  position: relative;
+  margin-left: -4px;
+}
+
+/* The foot and Today's row go by their own width, so a narrow print can
+   tighten its buttons without a wide one losing any words. */
+.qprint__foot,
+.quote-card__rate {
+  container-type: inline-size;
+}
+@media (max-width: 560px) {
+  .qprint .qprint__foot {
+    gap: 4px;
+  }
+}
+/* A narrow print (two to a row on a phone): tighter buttons, and a linked
+   quote's Link shows its count without the word, so Save, Share and Link
+   take two lines, never three. */
+@container (max-width: 179px) {
+  .qprint:not(.qprint--cork) .qprint__save {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 4px;
+  }
+  .qprint--cork .qprint__foot .qprint__save {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .qprint__link .link-to__word {
+    display: none;
+  }
+}
+/* Today's card on a phone: Save, Share and Link stay on one line. */
+@container (max-width: 340px) {
+  .quote-card__rate .quote-card__save,
+  .quote-card__rate .quote-card__share,
+  .quote-card__rate .quote-card__link {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+@container (max-width: 315px) {
+  .quote-card__link .link-to__word {
+    display: none;
+  }
+}
+
+/* The sheet: the quote it's about, then the ladder, one white list per tier. */
+.link-to__quote {
+  margin: -4px 0 16px;
+  padding: 0 2px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.link-to__words {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.link-to__words::before {
+  content: "\201C";
+}
+.link-to__words::after {
+  content: "\201D";
+}
+.link-to__by {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.link-to__group + .link-to__group {
+  margin-top: 16px;
+}
+.link-to__eyebrow {
+  margin: 0 0 7px 2px;
+}
+.link-to__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.link-to__row {
+  display: flex;
+  align-items: stretch;
+  min-height: 52px;
+}
+.link-to__row + .link-to__row {
+  border-top: 1px solid var(--line);
+}
+.link-to__toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px 10px 14px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.link-to__toggle:disabled {
+  cursor: default;
+}
+.link-to__check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--on-ink);
+  transition: background 0.14s, border-color 0.14s;
+}
+.link-to__row.is-on .link-to__check {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.link-to__toggle:disabled .link-to__check {
+  opacity: 0.55;
+}
+.link-to__name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.link-to__title {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The mission reads in its own words, in serif, as everywhere else. */
+.link-to__title.is-serif {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.link-to__line {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-to__open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  color: var(--text-3);
+}
+@media (hover: hover) {
+  .link-to__open:hover {
+    color: var(--text);
+  }
+}
+.link-to__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+/* --- end of part 4 --- */

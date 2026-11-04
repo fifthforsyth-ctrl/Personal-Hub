@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { fetchPlans, fetchPlan, fetchMountains, savePlan, deletePlan, readPlan, addPlanToCamps, addPlanAsCamps, addQuest } from "../lib/api";
 import { mountainsOf, outlineFromDocument, planFromOutline, planFileKind, planStepCount, titleFromFilename } from "../lib/camp";
 import { todayStr } from "../lib/planDates";
+import { pathOf } from "../lib/ladder";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
 import { useToast, useConfirm } from "../components/ui/Feedback";
@@ -19,8 +20,8 @@ import "../styles/camp.css";
 // plugin quest), or become the camps of a mountain itself, a lesson's
 // included. What the plan says beside its steps is kept with it.
 //
-// /ascent/plans              bring one in, and the plans you've kept
-// /ascent/plans/:id          one plan: put it on camps, read it
+// /targets/plans             bring one in, and the plans you've kept
+// /targets/plans/:id         one plan: put it on camps, read it
 // ?camp=<id>                 came from a camp: that camp is picked already
 
 const MAX_PDF = 8 * 1024 * 1024;
@@ -86,7 +87,7 @@ function AllPlans() {
     try {
       const newId = await savePlan(userId, { ...p, source: draft.source });
       haptic("success");
-      navigate(`/ascent/plans/${newId}${campId ? `?camp=${campId}` : ""}`, { replace: true });
+      navigate(`/targets/plans/${newId}${campId ? `?camp=${campId}` : ""}`, { replace: true });
     } catch (err) {
       toast.error(err, "Couldn't keep that plan.");
       setBusy(null);
@@ -100,7 +101,7 @@ function AllPlans() {
       await addPlanToCamps(userId, plan, plan.id, [campId]);
       haptic("success");
       toast.show(`Added ${planStepCount(plan)} steps to ${camp?.title ?? "the camp"}`);
-      navigate(`/ascent/camp/${campId}`);
+      navigate(`/targets/camp/${campId}`);
     } catch (err) {
       toast.error(err, "Couldn't add that plan.");
       setApplying(null);
@@ -110,7 +111,7 @@ function AllPlans() {
   return (
     <div className="page ascent camp plans">
       <header className="ascent-head">
-        {campId ? <Back to={`/ascent/camp/${campId}`}>{camp?.title ?? "The camp"}</Back> : <Back to="/ascent">The Range</Back>}
+        {campId ? <Back to={`/targets/camp/${campId}`}>{camp?.title ?? "The camp"}</Back> : <Back to="/targets">Targets</Back>}
         <div className="eyebrow">My goals</div>
         <h1 className="page-title">Plans</h1>
         <p className="card-note plans-lede">Bring in a plan and it's read into sections and steps you can put on any camp, as many at once as you like.</p>
@@ -133,7 +134,7 @@ function AllPlans() {
           <ul className="plans-list">
             {(plans.data ?? []).map((p) => (
               <li key={p.id}>
-                <Link to={`/ascent/plans/${p.id}${campId ? `?camp=${campId}` : ""}`} className="plans-row">
+                <Link to={`/targets/plans/${p.id}${campId ? `?camp=${campId}` : ""}`} className="plans-row">
                   <BookOpen size={16} aria-hidden="true" />
                   <span>
                     <b>{p.title}</b>
@@ -424,7 +425,9 @@ function OnePlan({ id }) {
       await addPlanAsCamps(userId, p, questId, mt.camps.length);
       haptic("success");
       toast.show(`Added ${p.sections.length} camps to ${mt.title}`);
-      navigate("/ascent");
+      // On to the page they were made for, at its camps (a lesson's page is
+      // the lesson's own, not its mountain's).
+      navigate(`${mt.lessonId ? pathOf("lesson", mt.lessonId) : pathOf("quest", questId)}#camps`);
     } catch (err) {
       toast.error(err, "Couldn't make those camps.");
       setBusy(false);
@@ -435,13 +438,13 @@ function OnePlan({ id }) {
     if (!(await confirm({ title: `Delete “${p.title}”?`, body: "The camps it filled keep their sections and steps.", confirmLabel: "Delete plan" }))) return;
     try {
       await deletePlan(p.id);
-      navigate("/ascent/plans", { replace: true });
+      navigate("/targets/plans", { replace: true });
     } catch (err) {
       toast.error(err, "Couldn't delete that plan.");
     }
   }
 
-  const backTo = fromCamp ? `/ascent/plans?camp=${fromCamp}` : "/ascent/plans";
+  const backTo = fromCamp ? `/targets/plans?camp=${fromCamp}` : "/targets/plans";
 
   if (!p) {
     return (
@@ -497,7 +500,7 @@ function OnePlan({ id }) {
               </b>
               <div className="plans-done__links">
                 {done.map((c) => (
-                  <Link key={c.id} to={`/ascent/camp/${c.id}`} className="chip chip--tap">
+                  <Link key={c.id} to={`/targets/camp/${c.id}`} className="chip chip--tap">
                     {c.title}
                   </Link>
                 ))}

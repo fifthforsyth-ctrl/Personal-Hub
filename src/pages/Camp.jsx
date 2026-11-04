@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookOpen, Check, ChevronDown, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, updateCamp, reorder, moveStepToSection, placeSteps, fetchSectionExtras, resolveSection, savePinDrop } from "../lib/api";
 import { buildCamp, kindFields, pickDiff, resolvePlan, resolveWords, resolvedGroups, resolvedLine, stepsUnder, todayPicks } from "../lib/camp";
 import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../lib/stepMoves";
 import { todayStr, fmtShortDate } from "../lib/planDates";
+import { shortTarget } from "../lib/mark";
+import { pathOf } from "../lib/ladder";
 import { appendToNote } from "../lib/sketch";
 import { savesInOrder, undoableSave } from "../lib/inOrder";
 import { useLoad } from "../lib/useLoad";
@@ -89,11 +91,16 @@ const short = (t) => {
 // A step's pick box while its whole section is picked: on, and fixed.
 const LOCKED = { on: true, locked: true, toggle: () => {} };
 
+// The page of the quest or lesson a camp is on, where its camps are marked
+// reached. A lesson's camps sit on its own mountain, so its page is the
+// lesson's (its own id), never the mountain's.
+function homeOf(data) {
+  if (data?.lesson) return pathOf("lesson", data.lesson.id);
+  return data?.camp?.quest_id ? pathOf("quest", data.camp.quest_id) : "/targets";
+}
+
 export default function Camp() {
   const { id } = useParams();
-  const location = useLocation();
-  // Opened from a quest's camps on Quests, it goes back there.
-  const fromQuests = location.state?.from === "quests";
   const { user } = useAuth();
   const userId = user?.id;
   const today = todayStr();
@@ -167,7 +174,7 @@ export default function Camp() {
       if (!rest.length) {
         playClink();
         haptic("win");
-        toast.show(`Every step at ${data.camp.title} is done`, { actionLabel: "Plant the flag", onAction: () => navigate("/ascent") });
+        toast.show(`Every step at ${data.camp.title} is done`, { actionLabel: "Plant the flag", onAction: () => navigate(`${homeOf(data)}#camps`) });
       } else if (st.section_id && !rest.some((x) => x.section_id === st.section_id)) {
         haptic("success");
       } else haptic("tap");
@@ -752,9 +759,9 @@ export default function Camp() {
     return (
       <div className="page ascent camp">
         <header className="ascent-head">
-          <Link to="/ascent" className="btn-link camp-back">
+          <Link to="/targets" className="btn-link camp-back">
             <ChevronLeft size={14} />
-            The Range
+            Targets
           </Link>
         </header>
         {error && <LoadError what="this camp" error={error} onRetry={reload} />}
@@ -767,6 +774,10 @@ export default function Camp() {
   const camps = [...data.camps].sort(byPos);
   const index = camps.findIndex((c) => c.id === id);
   const mountain = data.lesson ? `Lesson · ${data.lesson.title}` : data.quest ? `Quest · ${data.quest.title}` : "Camp";
+  // Back up to the page of the quest or lesson this camp is on.
+  const homeTo = homeOf(data);
+  const homeName = data.lesson?.title ?? data.quest?.title ?? "Targets";
+  const homeShort = data.lesson ? shortTarget("lesson", data.lesson.title) : data.quest ? shortTarget("quest", data.quest.title) : "Targets";
   const next = view.next;
   const nextSection = next?.section_id ? view.sections.find((s) => s.id === next.section_id) : null;
   // Steps of sections resolved here (0097) still count as done.
@@ -830,9 +841,9 @@ export default function Camp() {
       <SketchProvider kind="step" userId={userId} scopeId={id} about={(sid) => data.steps.find((x) => x.id === sid)?.text} onAddToNote={addToNote}>
       <div className="camp-left">
       <header className="ascent-head camp-head">
-        <Link to={fromQuests ? `/quests/${data.camp.quest_id}` : "/ascent"} className="btn-link camp-back">
+        <Link to={homeTo} className="btn-link camp-back" aria-label={`Back to ${homeName}`}>
           <ChevronLeft size={14} />
-          {fromQuests ? "Quests" : "The Range"}
+          {homeShort}
         </Link>
         <div className="eyebrow">{mountain}</div>
         <h1 className="page-title">{data.camp.title}</h1>
@@ -845,7 +856,7 @@ export default function Camp() {
       {camps.length > 1 && (
         <nav className="camp-tabs" aria-label="Camps on this mountain">
           {camps.map((c, i) => (
-            <Link key={c.id} to={`/ascent/camp/${c.id}`} state={location.state} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
+            <Link key={c.id} to={`/targets/camp/${c.id}`} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
               {c.reached_on ? <Flag size={12} aria-hidden="true" /> : <span className="camp-tab__n">{i + 1}</span>}
               {c.title}
             </Link>
@@ -889,8 +900,8 @@ export default function Camp() {
             <p className="camp-now__all">
               Every step here is done.{" "}
               {!data.camp.reached_on && (
-                <Link to="/ascent" className="btn-link btn-link--accent">
-                  Plant the flag on the Range
+                <Link to={`${homeTo}#camps`} className="btn-link btn-link--accent">
+                  Plant the flag
                 </Link>
               )}
             </p>
@@ -933,7 +944,7 @@ export default function Camp() {
                     ? "Nothing open here. Type new steps in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you."
                     : "No steps here yet. Type them in one at a time, paste a whole list, or bring in a plan and it fills in the sections and steps for you."}
                 </p>
-                <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--accent">
+                <Link to={`/targets/plans?camp=${id}`} className="btn btn--sm btn--accent">
                   <BookOpen size={14} />
                   Bring in a plan
                 </Link>
@@ -999,7 +1010,7 @@ export default function Camp() {
                 Add a section
               </button>
               {!empty && (
-                <Link to={`/ascent/plans?camp=${id}`} className="btn btn--sm btn--on-page">
+                <Link to={`/targets/plans?camp=${id}`} className="btn btn--sm btn--on-page">
                   <BookOpen size={14} />
                   Bring in a plan
                 </Link>
@@ -1038,7 +1049,7 @@ export default function Camp() {
                 <span className="ascent-mini">{p.notes ? "Its notes" : ""}</span>
               </summary>
               {p.notes ? <PlanNotes text={p.notes} /> : <p className="ascent-mini">This plan has no notes beyond its steps.</p>}
-              <Link to={`/ascent/plans/${p.id}`} className="btn-link">
+              <Link to={`/targets/plans/${p.id}`} className="btn-link">
                 Open the plan
               </Link>
             </details>

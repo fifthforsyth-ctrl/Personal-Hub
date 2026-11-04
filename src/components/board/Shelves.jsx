@@ -20,6 +20,7 @@ import {
 import { initials } from "../../lib/quotes";
 import { PaperNote } from "./CorkBoard";
 import QuoteCard from "./QuoteCard";
+import LinkToTarget from "../targets/LinkToTarget";
 import { useShelf } from "./useShelf";
 import { useWikiPhoto } from "./useWikiPhoto";
 
@@ -57,7 +58,7 @@ export function TopPicks({ userId, onSaved }) {
       {s.quotes.length > 0 ? (
         <div className="picks__strip">
           {s.quotes.map((q) => (
-            <QuoteCard key={q.id} quote={q} variant="pick" reason={q.pick_reason} onChange={changed} />
+            <QuoteCard key={q.id} quote={q} variant="pick" reason={q.pick_reason} onChange={changed} extra={<LinkToTarget quote={q} />} />
           ))}
           {s.state === "pending" && <WaitingPrint />}
         </div>
@@ -289,7 +290,7 @@ export function ShelfView({ userId, shelf, notes, sorting, onBack, onSaved, onOp
           {items.map((item) => (
             <div key={item.id} className="print-slot">
               {item.kind === "quote" ? (
-                <QuoteCard quote={item.quote} variant="shelf" onChange={changed} />
+                <QuoteCard quote={item.quote} variant="shelf" onChange={changed} extra={<LinkToTarget quote={item.quote} />} />
               ) : (
                 <PaperNote note={item.note} onOpen={onOpenNote} onChanged={onNotesChanged} />
               )}

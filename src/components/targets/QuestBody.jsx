@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { Castle, ClipboardList, Plus } from "lucide-react";
-import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { ClipboardList } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import {
   addCamps,
   addQuest,
@@ -9,7 +9,6 @@ import {
   addSteps,
   deleteQuestTask,
   fetchCampsSteps,
-  fetchQuestBoard,
   fetchQuestTasks,
   fetchTodayOrder,
   reorder,
@@ -30,50 +29,52 @@ import {
   deleteStep,
   placeSteps,
   savePinDrop,
-} from "../lib/api";
-import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../lib/questTasks";
-import { buildCamp, kindFields, pickDiff, questToday, resolvePlan, resolveWords, resolvedLine, stepsUnder } from "../lib/camp";
-import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../lib/stepMoves";
-import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../lib/todayBoard";
-import { villageOf } from "../lib/village";
-import { allDoneToday, earlierOnToday, questDoneToday } from "../lib/doneToday";
-import { appendToNote } from "../lib/sketch";
-import { savesInOrder, undoableSave } from "../lib/inOrder";
-import { fmtDayHeading, todayStr } from "../lib/planDates";
-import { useLoad } from "../lib/useLoad";
-import { markDrop } from "../lib/useDragSort";
-import { haptic } from "../lib/haptics";
-import { playClink } from "../lib/clink";
-import { useConfirm, useToast } from "../components/ui/Feedback";
-import LoadError from "../components/ui/LoadError";
-import Sheet from "../components/ascent/Sheet";
-import FloatingBuild, { buildNow } from "../components/quests/FloatingBuild";
-import { AddLine, DayList, LineTree, OngoingList } from "../components/quests/Lines";
-import QuestMap from "../components/quests/QuestMap";
-import DoneToday from "../components/quests/DoneToday";
-import TodayBoard, { useBoardView } from "../components/quests/TodayBoard";
-import { PickBar, usePick } from "../components/camp/Today";
-import { SectionTints } from "../components/camp/Steps";
-import { SketchProvider } from "../components/sketch/Sketches";
-import { PhotoProvider, PhotoSide } from "../components/photos/Photos";
-import Clipboard, { ColumnSheet } from "../components/camp/Clipboard";
-import { SelectBar, SelectButton, useSelect } from "../components/camp/Select";
-import "../styles/ascent.css";
-import "../styles/camp.css";
-import "../styles/quests.css";
+} from "../../lib/api";
+import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingList, pickedLines, withFinished, withFinishedStep } from "../../lib/questTasks";
+import { buildCamp, kindFields, pickDiff, questToday, resolvePlan, resolveWords, resolvedLine, stepsUnder } from "../../lib/camp";
+import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../../lib/stepMoves";
+import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../../lib/todayBoard";
+import { villageOf } from "../../lib/village";
+import { allDoneToday, earlierOnToday, questDoneToday } from "../../lib/doneToday";
+import { appendToNote } from "../../lib/sketch";
+import { savesInOrder, undoableSave } from "../../lib/inOrder";
+import { fmtDayHeading, todayStr } from "../../lib/planDates";
+import { useLoad } from "../../lib/useLoad";
+import { markDrop } from "../../lib/useDragSort";
+import { haptic } from "../../lib/haptics";
+import { playClink } from "../../lib/clink";
+import { useConfirm, useToast } from "../ui/Feedback";
+import LoadError from "../ui/LoadError";
+import FloatingBuild, { buildNow } from "../quests/FloatingBuild";
+import { AddLine, DayList, OngoingList } from "../quests/Lines";
+import DoneToday from "../quests/DoneToday";
+import TodayBoard, { useBoardView } from "../quests/TodayBoard";
+import { PickBar, usePick } from "../camp/Today";
+import { SectionTints } from "../camp/Steps";
+import { SketchProvider } from "../sketch/Sketches";
+import { PhotoProvider, PhotoSide } from "../photos/Photos";
+import Clipboard, { ColumnSheet } from "../camp/Clipboard";
+import { SelectBar, SelectButton, useSelect } from "../camp/Select";
+import QuestCamps from "./QuestCamps";
+import BuildTile from "./BuildTile";
+import "../../styles/ascent.css";
+import "../../styles/camp.css";
+import "../../styles/quests.css";
 
-// Quests: a running to-do list and notepad for each quest and lesson. Every
-// day he puts in what he'll do for it, ticks things off, writes notes on what
-// he did, and does it again the next day. Lines can be tasks, sub-tasks under
-// them, or note lines, and every one can carry notes, a colour and sketches.
-// Nothing is carried forward (Aaron, 2026-10-14): an earlier day's list stays
-// on its day, still there to tick. Beside the days, each quest keeps an
-// ongoing list (Aaron, 2026-10-27) for what stays on it whatever the day; a
-// line moves onto it or back onto today from its own tools.
+// The body of a quest's or a lesson's page (/targets/<key>): what was the
+// Quests page, under the target's own header (Target.jsx). A running to-do
+// list and notepad for the quest. Every day he puts in what he'll do for
+// it, ticks things off, writes notes on what he did, and does it again the
+// next day. Lines can be tasks, sub-tasks under them, or note lines, and
+// every one can carry notes, a colour and sketches. Nothing is carried
+// forward (Aaron, 2026-10-14): an earlier day's list stays on its day,
+// still there to tick. Beside the days, each quest keeps an ongoing list
+// (Aaron, 2026-10-27) for what stays on it whatever the day; a line moves
+// onto it or back onto today from its own tools.
 //
-// First come the quests and lessons as pills (Aaron, 2026-10-26): the one
-// that's open unfolds to show the camps on its mountain, and tapping another
-// opens its list and its camps. New camps are added there too.
+// First come the camps on its mountain, always in view (Aaron, 2026-11-02:
+// "the camps in the quests are a bit hidden"): each one's progress a tap
+// from its page, new camps, and the flag planted at the next one.
 //
 // Today's list also shows what's picked for today elsewhere (0090, Aaron
 // 2026-10-27): steps and whole sections (0091) picked in any of the quest's
@@ -82,9 +83,10 @@ import "../styles/quests.css";
 // the same steps and lines, not copies, so a tick or a note here is a tick
 // or a note there too.
 //
-// The build going up in the village floats at the top. Every task he ticks,
-// on any list, lays its bricks on it until it stands; then he chooses the
-// next build (/village?choose).
+// The build going up in the village sits at the top right: small in the
+// header on a phone (BuildTile), the full card in the right rail on a desk.
+// Every task he ticks, on any list, lays its bricks on it until it stands;
+// then he chooses the next build (/village?choose).
 //
 // The count on Today, and the build's "N today", open everything finished
 // today (Aaron, 2026-10-27): on this quest, or on every quest.
@@ -99,6 +101,14 @@ import "../styles/quests.css";
 // moment, each in one of the quest's camps, where a meeting's hundred
 // thoughts land as fast as he types; then he selects many, drags them
 // between columns or into a camp's sections, or makes a section of them.
+//
+// The page hands in its own parts (Target.jsx): `head(build)` draws the
+// header with the build in it, `quotes` and `notes` go after the lists of
+// today (beside them on a desk), and `history` (the target's marks) last.
+// The header is drawn at the same place whatever state the lists are in,
+// so it (and the quests row under it) never starts over as they arrive;
+// and while they load, or when they can't, the quotes, notes and history
+// still show under it, so Reflect, Note and Quote always open.
 
 const EARLIER_SHOWN = 10;
 // The clipboard closed down to a small button (Aaron, 2026-11-02), remembered.
@@ -128,8 +138,29 @@ function useWide() {
   return wide;
 }
 
-export default function Quests() {
-  const { key } = useParams();
+// `kind` is "quest" or "lesson" and `id` its id (a lesson's own, never its
+// mountain's). `ladder` is the page's useLadder(): the climb (its camps
+// reached, the flag at the next one) and the ceremony. `board` is
+// fetchQuestBoard() as the page loads it (alongside the ladder, so the
+// lists needn't wait on it), with its `boardError`, `boardLoading`,
+// `reloadBoard` and `mutateBoard`. `reloadRef` is filled with what reads
+// this page's lists again, for after an edit in a sheet (a camp renamed or
+// taken off).
+export default function QuestBody({
+  kind,
+  id,
+  ladder,
+  board,
+  boardError = null,
+  boardLoading = false,
+  reloadBoard,
+  mutateBoard,
+  head,
+  quotes = null,
+  notes = null,
+  history = null,
+  reloadRef = null,
+}) {
   const { user } = useAuth();
   const userId = user?.id;
   const today = todayStr();
@@ -137,16 +168,24 @@ export default function Quests() {
   const toast = useToast();
   const confirm = useConfirm();
 
-  const { data: board, error, loading, reload, mutate: mutateBoard } = useLoad(() => (userId ? fetchQuestBoard(userId) : null), [userId]);
+  const error = boardError;
+  const loading = boardLoading;
+  const reload = reloadBoard;
   const items = useMemo(() => (board ? boardOf(board) : []), [board]);
+  // The quest open here, whatever its status (one that's done or set aside
+  // still opens), or the lesson, with its mountain once it has one: a
+  // lesson's list lives there, made the first time he writes on it.
   const sel = useMemo(() => {
     if (!board) return null;
-    const hit = items.find((i) => i.key === key || (key?.startsWith("lesson-") && i.lessonId === key.slice(7)));
-    if (hit || !key) return hit ?? items[0] ?? null;
-    // A quest that's finished or set aside still opens from a link to it.
-    const q = board.quests.find((x) => x.id === key);
-    return q ? { key: q.id, questId: q.id, lessonId: q.lesson_id ?? null, name: q.title, type: q.lesson_id ? "Lesson" : "Quest", goalId: q.goal_id ?? null, note: q.note ?? null, off: true } : null;
-  }, [board, items, key]);
+    if (kind === "lesson") {
+      const l = board.lessons.find((x) => x.id === id);
+      if (!l) return null;
+      const m = board.quests.find((x) => x.lesson_id === id) ?? null;
+      return { key: l.id, questId: m?.id ?? null, lessonId: l.id, name: l.title, type: "Lesson", goalId: l.goal_id ?? null };
+    }
+    const q = board.quests.find((x) => x.id === id && !x.lesson_id);
+    return q ? { key: q.id, questId: q.id, lessonId: null, name: q.title, type: "Quest", goalId: q.goal_id ?? null } : null;
+  }, [board, kind, id]);
   const questId = sel?.questId ?? null;
 
   const {
@@ -284,13 +323,9 @@ export default function Quests() {
   const photoApi = useRef(null);
   const [saving, setSaving] = useState(false);
   const picker = usePick(saving);
-  const [openKey, setOpenKey] = useState(null);
   const [unfolded, setUnfolded] = useState({});
   const [allEarlier, setAllEarlier] = useState(false);
   const [clipShut, setClipShut] = useState(readClipShut);
-  const [newQuest, setNewQuest] = useState(false);
-  const [note, setNote] = useState("");
-  const [noteSaved, setNoteSaved] = useState(false);
 
   useEffect(() => {
     setOpenId(null);
@@ -302,15 +337,16 @@ export default function Quests() {
     select.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel?.key]);
-  useEffect(() => setNote(sel?.note ?? ""), [sel?.key, sel?.note]);
-  // The quest that's open shows its camps; tapping its pill folds them away.
-  useEffect(() => setOpenKey(sel?.key ?? null), [sel?.key]);
 
-  function pick(item) {
-    haptic("tap");
-    if (item.key === sel?.key) setOpenKey((k) => (k === item.key ? null : item.key));
-    else navigate(`/quests/${item.key}`, { replace: true });
-  }
+  // After an edit in one of the page's sheets (the quest's camps renamed,
+  // reordered or taken off), its lists are read again.
+  useEffect(() => {
+    if (!reloadRef) return undefined;
+    reloadRef.current = () => Promise.all([reload(), reloadLines(), reloadCamps()]);
+    return () => {
+      reloadRef.current = null;
+    };
+  });
 
   // The reload waits for the moves already saving (see inOrder.js).
   const failed = (err, what) => {
@@ -1300,17 +1336,17 @@ export default function Quests() {
       if (subs.length) rows.push(...(await addQuestTasks(userId, subs)));
       haptic("tap");
       if (made) {
-        // The new mountain's list loads with these lines already on it.
-        await reload();
-        navigate(`/quests/${qid}`, { replace: true });
+        // The new mountain's list loads with these lines already on it (the
+        // page stays where it is: a lesson's page goes by the lesson).
+        await mountainMade();
       } else mutateLines((list) => [...(list ?? []), ...rows]);
       // the rows made, so a picture pasted in (0098) can go on the first;
-      // on a mountain made just now the page has moved on
+      // on a mountain made just now the list is still loading
       return made ? true : rows;
     } catch (err) {
       toast.error(err, parsed.length > 1 ? "Couldn't add those." : "Couldn't add that.");
       // A mountain made just now stays; load it so the next try writes there.
-      if (made) reload();
+      if (made) mountainMade();
       return false;
     }
   }
@@ -1457,33 +1493,15 @@ export default function Quests() {
     onToday: pickable(line) ? () => setLineToday(line, !isPicked(line)) : undefined,
   });
 
-  // --- The quest's notes and a new quest ----------------------------------------
+  // --- The camps ---------------------------------------------------------------------
 
-  async function saveNote() {
-    const value = note.trim() || null;
-    if (!sel || value === (sel.note ?? null)) return;
-    let made = false;
-    try {
-      const q = await ensureQuest();
-      const id = q.id;
-      made = q.made;
-      await updateQuest(id, { note: value });
-      mutateBoard((b) => b && { ...b, quests: b.quests.map((q) => (q.id === id ? { ...q, note: value } : q)) });
-      if (made) {
-        await reload();
-        navigate(`/quests/${id}`, { replace: true });
-      }
-      setNoteSaved(true);
-      setTimeout(() => setNoteSaved(false), 1800);
-    } catch (err) {
-      toast.error(err, "Couldn't save your notes.");
-      if (made) reload();
-    }
-  }
+  // A lesson's mountain made just now: the ladder reads it (its camps, the
+  // flag to plant), and with it these lists, which now live on it.
+  const mountainMade = () => (ladder ? ladder.reload() : reload());
 
-  // New camps at the end of a quest's mountain, from its pill.
-  async function newCamps(item, titles) {
-    if (item.key !== sel?.key) return false;
+  // New camps at the end of the quest's mountain (a lesson's is made first).
+  async function newCamps(titles) {
+    if (!sel) return false;
     let made = false;
     try {
       const q = await ensureQuest();
@@ -1492,49 +1510,57 @@ export default function Quests() {
       const startAt = (board?.camps ?? []).filter((c) => c.quest_id === qid).reduce((m, c) => Math.max(m, (c.position ?? 0) + 1), 0);
       const rows = await addCamps(userId, qid, titles, startAt);
       haptic("tap");
-      if (made) {
-        await reload();
-        navigate(`/quests/${qid}`, { replace: true });
-      } else mutateBoard((b) => b && { ...b, camps: [...b.camps, ...rows] });
+      if (made) await mountainMade();
+      else {
+        mutateBoard((b) => b && { ...b, camps: [...b.camps, ...rows] });
+        // The climb counts them too (the trail, the next flag to plant). A
+        // ladder still loading read its camps before these were made, so it
+        // is read again instead (its stale answer is dropped), or its climb
+        // would offer the summit with a camp still to reach.
+        if (ladder?.data) ladder.mutate((d) => d && { ...d, camps: [...d.camps, ...rows] });
+        else ladder?.reload();
+      }
       return true;
     } catch (err) {
       toast.error(err, titles.length > 1 ? "Couldn't add those camps." : "Couldn't add that camp.");
-      if (made) reload();
+      if (made) mountainMade();
       return false;
-    }
-  }
-
-  async function startQuest(title) {
-    try {
-      const position = (board?.quests ?? []).reduce((m, q) => Math.max(m, (q.position ?? 0) + 1), 0);
-      const id = await addQuest(userId, { title, status: "on", today, position });
-      await reload();
-      setNewQuest(false);
-      navigate(`/quests/${id}`);
-    } catch (err) {
-      toast.error(err, "Couldn't start that quest.");
     }
   }
 
   // ---------------------------------------------------------------------------------
 
-  if (!board) {
-    return (
-      <div className="page ascent qs">
-        <header className="qs-head">
-          <div>
-            <div className="eyebrow">Quests</div>
-            <h1 className="page-title">Your quests</h1>
-          </div>
-        </header>
-        {error ? <LoadError what="your quests" error={error} onRetry={reload} /> : loading && <p className="empty">Loading…</p>}
-      </div>
-    );
-  }
+  // The build sits in the header on a phone; on a desk the full card heads
+  // the right rail instead (only one is drawn, so only one is painted).
+  const tileFor = (props) => (roomy ? null : <BuildTile {...props} />);
 
-  const goal = sel?.goalId ? board.goals.find((g) => g.id === sel.goalId)?.title : null;
+  // Whatever the lists are doing, the page is one tree: the header, then
+  // the providers and the grid, where the camps, Today, the ongoing list
+  // and the clipboard are drawn once the lists are in. The quotes, notes
+  // and history keep their place in it as the lists arrive, so a note
+  // being changed, a sheet or the picker open in them stays as it is.
+  const ready = Boolean(board && sel);
+  // While the lists load or can't, or this one's gone from them (deleted
+  // on another device a moment ago), in the place a load error goes.
+  const waiting = !board ? (
+    error ? <LoadError what="this list" error={error} onRetry={reload} /> : loading && <p className="empty">Loading…</p>
+  ) : !sel ? (
+    <section className="card tg-gone">
+      <p>Couldn't find this {kind === "lesson" ? "lesson's" : "quest's"} lists.</p>
+      <button type="button" className="btn btn--sm btn--on-page" onClick={reload}>
+        Try again
+      </button>
+    </section>
+  ) : null;
+
   const [todayList, ...earlierAll] = days;
-  const kind = sel?.type === "Lesson" ? "lesson" : "quest";
+  // The climb on its mountain (a lesson's own, once it has one), and
+  // whether its next flag can go in: a quest he's on, a lesson he's still
+  // learning. One that's done or set aside shows its camps all the same.
+  const lessonNow = kind === "lesson" ? ladder?.lessonView(id) ?? null : null;
+  const climb = kind === "lesson" ? lessonNow?.mountain ?? null : ladder?.questView(id) ?? null;
+  const canReach = Boolean(climb) && climb.status === "on" && (kind === "quest" || lessonNow?.status === "learning");
+  const planted = climb && ladder?.planted?.questId === climb.id ? ladder.planted.turn : null;
   const homeOpen = openId && !String(openId).startsWith("t:") ? openId : null;
   const todayOpen = openId && String(openId).startsWith("t:") ? String(openId).slice(2) : null;
   // Lines drag by their handles, but not while picking for today.
@@ -1629,7 +1655,7 @@ export default function Quests() {
       <PhotoSide>{clipboardOf(true)}</PhotoSide>
     </SketchProvider>
   ) : null;
-  // Closed, the clipboard is a small button by the Village link.
+  // Closed, the clipboard is a small button in the head of the camps.
   const clipOpenCount = clipCols.reduce((n, c) => n + c.section.steps.filter((st) => !st.done_on).length, 0);
   function shutClip(shut) {
     if (shut && select.on) select.stop();
@@ -1640,7 +1666,21 @@ export default function Quests() {
       /* private window: it just won't be remembered */
     }
   }
-  const todayCard = sel ? (
+  const clipButton =
+    hasClip && clipShut ? (
+      <button
+        type="button"
+        className="btn btn--sm btn--on-page qs-campsec__clip"
+        onClick={() => shutClip(false)}
+        aria-label={`Open the clipboard${clipOpenCount ? ` (${clipOpenCount})` : ""}`}
+        title="Open the clipboard"
+      >
+        <ClipboardList size={14} aria-hidden="true" />
+        Clipboard
+        {clipOpenCount > 0 && <small>{clipOpenCount}</small>}
+      </button>
+    ) : null;
+  const todayCard = ready ? (
     <>
       {linesError && <LoadError what="this list" error={linesError} onRetry={reloadLines} stale={Boolean(lines)} />}
       {campsError && <LoadError what="what's picked for today in its camps" error={campsError} onRetry={reloadCamps} stale={Boolean(campData)} />}
@@ -1648,94 +1688,60 @@ export default function Quests() {
       <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} ownInLead={!picker.on} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
         {!todayList.items.length && !linesLoading && (
           <p className="qs-hint">
-            {earlier.length ? "A fresh list for today." : `What will you do for ${sel.type === "Lesson" ? "this lesson" : "this quest"} today?`}{" "}
+            {earlier.length ? "A fresh list for today." : `What will you do for this ${kind} today?`}{" "}
             {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
           </p>
         )}
-        <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind)} />
+        <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind)} />
       </DayList>
     </>
   ) : null;
+  const tile = !board ? tileFor({ waiting: true }) : !sel ? null : tileFor({ village, today, todayDone: doneAllCount, onToday: () => setDoneView("all") });
+  const busyBar = picker.on || select.on;
 
+  // Every part is its own cell of one grid, in the order a phone shows them
+  // (Aaron, 2026-11-02): camps, today, the ongoing list right under it, the
+  // clipboard, quotes, notes and reflections, earlier days, then the
+  // history. On a desk the grid puts the build and the quotes and notes in
+  // the right rail instead (quests.css); nothing moves in the page as it
+  // does, so what's open or focused in a list stays so. The header sits
+  // outside the providers, where it is while the lists load.
   return (
-    <div className="page ascent qs">
+    <>
+      {head(tile)}
       <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
-      <SectionTints sections={campData?.sections} steps={campData?.steps}>
-      <header className="qs-head">
-        <div className="qs-head__name">
-          <div className="eyebrow">{sel ? (sel.type === "Lesson" ? "Lesson" : "Quest") : "Quests"}</div>
-          <h1 className="page-title qs-title">{sel ? sel.name : "Your quests"}</h1>
-          {(goal || sel?.off) && (
-            <span className="ascent-mini">
-              {goal ? `Toward ${goal}` : ""}
-              {goal && sel?.off ? " · " : ""}
-              {sel?.off ? "Not on right now" : ""}
-            </span>
-          )}
-        </div>
-        {hasClip && clipShut && (
-          <button type="button" className="btn btn--sm btn--on-page qs-head__clip" onClick={() => shutClip(false)} aria-label={`Open the clipboard${clipOpenCount ? ` (${clipOpenCount})` : ""}`} title="Open the clipboard">
-            <ClipboardList size={14} />
-            Clipboard
-            {clipOpenCount > 0 && <small>{clipOpenCount}</small>}
-          </button>
-        )}
-        <Link to="/village" className="btn btn--sm btn--on-page qs-head__village">
-          <Castle size={14} />
-          Village
-        </Link>
-      </header>
+        <SectionTints sections={campData?.sections} steps={campData?.steps}>
+          {ready ? error && <LoadError what="this list" error={error} onRetry={reload} stale /> : waiting}
 
-      <QuestMap items={items} sel={sel} camps={board.camps} tally={tally} openKey={openKey} onPick={pick} onNew={() => setNewQuest(true)} onAddCamps={newCamps} />
+          <SketchProvider kind="task" userId={userId} scopeId={questId} about={(lid) => (lines ?? []).find((x) => x.id === lid)?.text} onAddToNote={addToNote}>
+            <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "") + (busyBar ? " qs-grid--picking" : "")}>
+              {ready && roomy && (
+                <div className="qs-rail__build">
+                  <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
+                </div>
+              )}
 
-      {error && <LoadError what="your quests" error={error} onRetry={reload} stale />}
+              {ready && (
+                <QuestCamps
+                  kind={kind}
+                  camps={sortedCamps}
+                  tally={tally}
+                  climb={climb}
+                  canReach={canReach}
+                  planted={planted}
+                  onReach={() => ladder?.reachNext(climb)}
+                  onAddCamps={newCamps}
+                  clip={clipButton}
+                />
+              )}
 
-      <SketchProvider kind="task" userId={userId} scopeId={questId} about={(id) => (lines ?? []).find((x) => x.id === id)?.text} onAddToNote={addToNote}>
-        <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "")}>
-          <div className="qs-rail">
-            <div className="qs-rail__build">
-              <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
-            </div>
+              {/* Today stays where it is in the page whatever the layout
+                  (spread or not, it's CSS that moves it), so what's open or
+                  focused in it stays so as it moves. */}
+              {ready && <div className="qs-today">{todayCard}</div>}
 
-            {sel && (
-              <aside className="qs-side">
-                <section className="card qs-notes" aria-labelledby="qs-notes-h">
-                  <div className="ascent-row">
-                    <h2 className="eyebrow" id="qs-notes-h">
-                      Notes on this {sel.type === "Lesson" ? "lesson" : "quest"}
-                    </h2>
-                    {noteSaved && <span className="ascent-mini camp-saved">Saved</span>}
-                  </div>
-                  <textarea
-                    className="textarea"
-                    rows={5}
-                    value={note}
-                    maxLength={20000}
-                    placeholder="Where it's headed, decisions, ideas, links…"
-                    onChange={(e) => setNote(e.target.value)}
-                    onBlur={saveNote}
-                  />
-                </section>
-              </aside>
-            )}
-          </div>
-
-          <div className={"qs-main" + (picker.on || select.on ? " picking" : "")}>
-            {!sel ? (
-              <section className="card qs-empty">
-                <p>No quests on yet. Start one, and its list lives here: what you'll do for it each day, ticked off, with notes on what you did.</p>
-                <button type="button" className="btn btn--sm btn--accent" onClick={() => setNewQuest(true)}>
-                  <Plus size={14} />
-                  Start a quest
-                </button>
-              </section>
-            ) : (
-              <>
-                {/* Today stays where it is in the page whatever the layout
-                    (spread or not, it's CSS that moves it), so what's
-                    open or focused in it stays so as it moves. */}
-                <div className="qs-today">{todayCard}</div>
-                {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
+              {/* The ongoing list right under Today (Aaron, 2026-11-02). */}
+              {ready && (
                 <div className="qs-ongoing">
                   <OngoingList
                     key={sel.key}
@@ -1755,107 +1761,83 @@ export default function Quests() {
                     }
                   >
                     {picker.on && <p className="today-hint">Tap the lines to pick them for today. Lines on earlier days can be picked too.</p>}
-                    <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, kind) => addLines(parsed, kind, true)} />
+                    <AddLine key={sel.key} ongoing hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind, true)} />
                   </OngoingList>
                 </div>
-                {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
+              )}
 
-                <div className="qs-rest">
-                  {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
-                  {earlierShown.map((d) => (
-                    <DayList
-                      key={d.day}
-                      day={d}
-                      label={dayLabel(d.day, today)}
-                      today={today}
-                      folded={!unfolded[d.day]}
-                      onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
-                      openId={homeOpen}
-                      row={row}
-                      onAddSubs={addSubs}
-                      {...drag}
-                    />
-                  ))}
-                  {earlier.length > earlierShown.length && (
-                    <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
-                      Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
-                    </button>
-                  )}
-                  {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </SketchProvider>
+              {clipCard && (clipOpen ? <div className="qs-clip">{clipCard}</div> : clipCard)}
 
-      {select.on && (
-        <SelectBar
-          count={selected.length}
-          places={clipPlaces}
-          camps={sortedCamps}
-          notes={selected.length > 0 && selected.every((k) => rawStep(k)?.kind === "note")}
-          onMove={moveSelectedTo}
-          onNewSection={newSectionForSelected}
-          onKind={kindOfSelected}
-          onClear={() => select.start()}
-          onDone={select.stop}
-        />
-      )}
-      {colSheet && (
-        <ColumnSheet
-          section={colSheet}
-          onRename={(title) => renameColumn(colSheet, title)}
-          onRemove={() => {
-            const sec = colSheet;
-            setColSheet(null);
-            removeColumn(sec);
-          }}
-          onClose={() => setColSheet(null)}
-        />
-      )}
-      {newQuest && <NewQuest onSave={startQuest} onClose={() => setNewQuest(false)} />}
-      {doneView && (
-        <DoneToday
-          view={doneView}
-          quest={sel ? { questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) } : null}
-          all={doneAll}
-          onView={setDoneView}
-          onClose={() => setDoneView(null)}
-        />
-      )}
-      </SectionTints>
+              {(quotes || notes) && (
+                <aside className="qs-side" aria-label={`On this ${kind}`}>
+                  {quotes}
+                  {notes}
+                </aside>
+              )}
+
+              <div className="qs-rest">
+                {earlier.length > 0 && <h2 className="eyebrow qs-earlier">Earlier</h2>}
+                {earlierShown.map((d) => (
+                  <DayList
+                    key={d.day}
+                    day={d}
+                    label={dayLabel(d.day, today)}
+                    today={today}
+                    folded={!unfolded[d.day]}
+                    onFold={() => setUnfolded((u) => ({ ...u, [d.day]: !u[d.day] }))}
+                    openId={homeOpen}
+                    row={row}
+                    onAddSubs={addSubs}
+                    {...drag}
+                  />
+                ))}
+                {earlier.length > earlierShown.length && (
+                  <button type="button" className="btn btn--sm btn--on-page qs-older" onClick={() => setAllEarlier(true)}>
+                    Show {earlier.length - earlierShown.length} older {earlier.length - earlierShown.length === 1 ? "day" : "days"}
+                  </button>
+                )}
+                {picker.on && <PickBar count={picker.sel.size} busy={saving} onCancel={picker.stop} onDone={savePicks} />}
+                {history}
+              </div>
+            </div>
+          </SketchProvider>
+
+          {select.on && (
+            <SelectBar
+              count={selected.length}
+              places={clipPlaces}
+              camps={sortedCamps}
+              notes={selected.length > 0 && selected.every((k) => rawStep(k)?.kind === "note")}
+              onMove={moveSelectedTo}
+              onNewSection={newSectionForSelected}
+              onKind={kindOfSelected}
+              onClear={() => select.start()}
+              onDone={select.stop}
+            />
+          )}
+          {colSheet && (
+            <ColumnSheet
+              section={colSheet}
+              onRename={(title) => renameColumn(colSheet, title)}
+              onRemove={() => {
+                const sec = colSheet;
+                setColSheet(null);
+                removeColumn(sec);
+              }}
+              onClose={() => setColSheet(null)}
+            />
+          )}
+          {doneView && sel && (
+            <DoneToday
+              view={doneView}
+              quest={{ questId, name: sel.name, kind, ...doneHere, earlier: earlierOnToday([todayList.items, picked.items, ...campToday.map((g) => g.items)], today) }}
+              all={doneAll}
+              onView={setDoneView}
+              onClose={() => setDoneView(null)}
+            />
+          )}
+        </SectionTints>
       </PhotoProvider>
-    </div>
-  );
-}
-
-function NewQuest({ onSave, onClose }) {
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <Sheet title="New quest" onClose={onClose}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (!title.trim() || busy) return;
-          setBusy(true);
-          await onSave(title.trim());
-          setBusy(false);
-        }}
-      >
-        <label className="field">
-          <span>Name</span>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="Build the best Premiere Pro plugin" autoFocus />
-        </label>
-        <p className="ascent-mini">Add its camps from its pill here. Its goal can be set on The Range.</p>
-        <div className="ascent-sheet__actions">
-          <span className="spacer" />
-          <button type="submit" className="btn btn--accent" disabled={busy || !title.trim()}>
-            {busy ? "Starting…" : "Start it"}
-          </button>
-        </div>
-      </form>
-    </Sheet>
+    </>
   );
 }

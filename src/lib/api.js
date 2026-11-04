@@ -7,6 +7,8 @@ import { byPin } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
 import { lineageIds, cleanNote } from "./focus";
 import { checkRow, sameCheck } from "./checks";
+import { questPills, cleanTargetNote } from "./ladder";
+import { questItemsForToday } from "./todayPlan";
 
 // ---------------------------------------------------------------------------
 // Goal tree (nodes + node_edges) — structurally identical to Symposium's,
@@ -2709,6 +2711,279 @@ export function requestShelf(shelf, { more = false, fresh = false } = {}) {
 export function repictureQuotes() {
   return callFunction("quotes", { action: "repicture" }, "Pictures");
 }
+
+// ---------------------------------------------------------------------------
+// The Targets tab (0104): notes, reflections and quotes on any target, the
+// mission down to the week's focus. A target is named by `ref`, which is
+// { mission: true } or { goal_id }, { quest_id }, { lesson_id },
+// { focus_goal_id } (ladder.js refOf). A focus reads back through the
+// earlier weeks it was carried from, and a lifetime goal through the goals
+// under it on the wheel (one moved under it keeps what was written on it):
+// pass those ids as `lineage`.
+// ---------------------------------------------------------------------------
+
+const TARGET_NOTE = "id, mission, goal_id, quest_id, lesson_id, focus_goal_id, kind, prompt, date, text, created_at, updated_at";
+const QUOTE_LINK =
+  "id, quote_id, note_id, mission, goal_id, quest_id, lesson_id, focus_goal_id, why, position, created_at, " +
+  "quote:quotes(*), note:study_notes(id, title, body, excerpt, essence, source_ref, shelf_people, image_url, image_path, image_credit, created_at)";
+
+function refEntry(ref) {
+  const [column, value] = Object.entries(ref ?? {})[0] ?? [];
+  if (!column || value == null || value === false) throw new Error("That target can't be found.");
+  return [column, value];
+}
+
+// Rows on the target, filtered by its column (a focus by its whole line, a
+// lifetime goal with the goals under it). Any other target is only itself.
+function onRef(query, ref, lineage) {
+  const [column, value] = refEntry(ref);
+  if ((column === "goal_id" || column === "focus_goal_id") && lineage?.length) return query.in(column, [...new Set([value, ...lineage])]);
+  return query.eq(column, value);
+}
+
+// The quests on Today: each quest he's on and lesson he's learning, with
+// its camps and what's on today's list there (ladder.js questPills).
+export async function fetchQuestPills(userId, date) {
+  const [quests, lessons, camps, work] = await Promise.all([
+    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("lessons").select("id, title, status, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
+    fetchTodayQuestWork(userId, date),
+  ]);
+  for (const r of [quests, lessons, camps]) if (r.error) throw r.error;
+  return questPills({ quests: quests.data ?? [], lessons: lessons.data ?? [], camps: camps.data ?? [], items: questItemsForToday(work, date) });
+}
+
+// Every week's focus rows, for finding a focus's newest week and its line.
+export async function fetchFocusGoalRows(userId) {
+  return selectAllPages(() =>
+    supabase.from("focus_goals").select("id, title, week_start, carried_from, node_id, quest_id, lesson_id, position, created_at").eq("user_id", userId).order("id")
+  );
+}
+
+// The wheel's parent links, for placing a goal further down under its
+// lifetime goal. Your own edges only, by row-level security.
+// Oldest first: a goal's first edge is the parent it's drawn under.
+export async function fetchGoalEdges() {
+  return selectAllPages(() => supabase.from("node_edges").select("id, parent_id, child_id, created_at").order("created_at").order("id"));
+}
+
+// Notes and reflections on a target, newest first.
+export async function fetchTargetNotes(userId, ref, { lineage } = {}) {
+  return selectAllPages(() =>
+    onRef(supabase.from("target_notes").select(TARGET_NOTE).eq("user_id", userId), ref, lineage)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+  );
+}
+
+// A note (kind "note") or a reflection (kind "reflection", with the
+// question it answered) on a target, dated by his day.
+export async function addTargetNote(userId, ref, { kind = "note", prompt = null, date, text }) {
+  const clean = cleanTargetNote(text);
+  if (!clean) throw new Error("Write something first.");
+  const [column, value] = refEntry(ref);
+  const row = {
+    user_id: userId,
+    [column]: value,
+    kind: kind === "reflection" ? "reflection" : "note",
+    prompt: kind === "reflection" && String(prompt ?? "").trim() ? String(prompt).trim().slice(0, 300) : null,
+    date,
+    text: clean,
+  };
+  const { data, error } = await supabase.from("target_notes").insert(row).select(TARGET_NOTE).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTargetNote(noteId, text) {
+  const clean = cleanTargetNote(text);
+  if (!clean) throw new Error("A note can't be empty. Delete it instead.");
+  const { data, error } = await supabase
+    .from("target_notes")
+    .update({ text: clean, updated_at: new Date().toISOString() })
+    .eq("id", noteId)
+    .select(TARGET_NOTE)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTargetNote(noteId) {
+  const { error } = await supabase.from("target_notes").delete().eq("id", noteId);
+  if (error) throw error;
+}
+
+// Puts a deleted note back as it was (its Undo).
+export async function restoreTargetNote(userId, note) {
+  const { id, mission, goal_id, quest_id, lesson_id, focus_goal_id, kind, prompt, date, text, created_at } = note;
+  const { data, error } = await supabase
+    .from("target_notes")
+    .insert({ id, user_id: userId, mission: Boolean(mission), goal_id, quest_id, lesson_id, focus_goal_id, kind, prompt, date, text, created_at })
+    .select(TARGET_NOTE)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// His quotes, newest first, for the picker to search on the phone: every
+// one, a page at a time, with only what the picker shows.
+const LIBRARY_QUOTE = "id, text, author, author_kind, source, source_url, year, image_url, saved_at, rating, rated_at, origin, pick_reason, created_at";
+
+export async function fetchQuoteLibrary(userId) {
+  return selectAllPages(() =>
+    supabase.from("quotes").select(LIBRARY_QUOTE).eq("user_id", userId).order("created_at", { ascending: false }).order("id")
+  );
+}
+
+// His own written-down quotes: thoughts that record someone's words (an
+// excerpt, or a person they're filed under). Newest first, every one, a
+// page at a time: the picker searches them on the phone, so one left out
+// could never be found.
+export async function fetchOwnQuotes(userId) {
+  const rows = await selectAllPages(() =>
+    supabase
+      .from("study_notes")
+      .select("id, title, body, excerpt, essence, source_ref, shelf_people, image_url, image_path, image_credit, created_at")
+      .eq("user_id", userId)
+      .or("excerpt.not.is.null,shelf_people.neq.{}")
+      .order("created_at", { ascending: false })
+      .order("id")
+  );
+  return rows.filter((n) => String(n.excerpt ?? "").trim() || (n.shelf_people ?? []).length);
+}
+
+// The quotes linked to a target, in order, each with its quote (or his own
+// note) along. A focus reads its whole line, and a lifetime goal the goals
+// under it: a quote linked in two of them shows once, with `linkIds`
+// holding every row, so Unlink takes them all.
+export async function fetchQuoteLinks(userId, ref, { lineage } = {}) {
+  const rows = await selectAllPages(() =>
+    onRef(supabase.from("quote_links").select(QUOTE_LINK).eq("user_id", userId), ref, lineage)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id")
+  );
+  const byQuote = new Map();
+  for (const r of rows) {
+    if (!r.quote && !r.note) continue;
+    const k = r.quote_id ?? r.note_id;
+    const had = byQuote.get(k);
+    if (had) had.linkIds.push(r.id);
+    else byQuote.set(k, { ...r, linkIds: [r.id] });
+  }
+  return [...byQuote.values()];
+}
+
+// Links a quote ({ quoteId }) or one of his own ({ noteId }) to a target.
+// Linking one that's already there isn't an error: it resolves to null.
+export async function linkQuote(userId, ref, { quoteId = null, noteId = null, why = null, position = 0 } = {}) {
+  const [column, value] = refEntry(ref);
+  const row = {
+    user_id: userId,
+    [column]: value,
+    quote_id: quoteId,
+    note_id: quoteId ? null : noteId,
+    why: String(why ?? "").trim() ? String(why).trim().slice(0, 300) : null,
+    position,
+  };
+  const { data, error } = await supabase.from("quote_links").insert(row).select(QUOTE_LINK).single();
+  if (error?.code === "23505") return null;
+  if (error) throw error;
+  return data;
+}
+
+// Takes a link off: one row's id, or every row of it (a link's linkIds).
+// Resolves to the rows as they were, for Undo (relinkQuotes).
+export async function unlinkQuote(linkIds) {
+  const ids = [linkIds].flat().filter(Boolean);
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from("quote_links")
+    .delete()
+    .in("id", ids)
+    .select("id, user_id, quote_id, note_id, mission, goal_id, quest_id, lesson_id, focus_goal_id, why, position, created_at");
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Puts links back as they were (Unlink's Undo).
+export async function relinkQuotes(rows) {
+  if (!rows?.length) return;
+  const { error } = await supabase.from("quote_links").insert(rows);
+  if (error && error.code !== "23505") throw error;
+}
+
+// --- Targets tab, part 2 (the overview, Today's quests row) -----------------
+// (add part 2's functions directly under this line)
+
+// --- end of part 2 ---------------------------------------------------------
+
+
+// --- Targets tab, part 3 (a target's page) ---------------------------------
+// (add part 3's functions directly under this line)
+
+// --- end of part 3 ---------------------------------------------------------
+
+
+// --- Targets tab, part 4 (linking a quote from where it's read) ------------
+// (add part 4's functions directly under this line)
+
+// What a quote can be linked to from the Board or Today, as rows: the
+// mission, the lifetime goals (goals with nothing above them on the wheel),
+// every quest and lesson, and every week's focus (so a focus's earlier weeks
+// can be followed). LinkToTarget's ladderTargets keeps what's on now, in the
+// Range's order. It's the Range's load without the 30 days of steps, so the
+// sheet opens quickly on a phone.
+export async function fetchLadderTargets(userId) {
+  const [mission, nodes, edges, quests, lessons, focusGoals] = await Promise.all([
+    supabase.from("missions").select("statement, summit").eq("user_id", userId).maybeSingle(),
+    selectAllPages(() => supabase.from("nodes").select("id, title, created_at").eq("user_id", userId).order("id")),
+    // Your own edges only, by row-level security.
+    selectAllPages(() => supabase.from("node_edges").select("id, parent_id, child_id").order("id")),
+    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("lessons").select("id, title, status, goal_id, started_on, position, created_at").eq("user_id", userId),
+    fetchFocusGoalRows(userId),
+  ]);
+  for (const r of [mission, quests, lessons]) if (r.error) throw r.error;
+  const children = new Set(edges.map((e) => e.child_id));
+  return {
+    mission: mission.data ?? null,
+    goals: nodes.filter((n) => !children.has(n.id)),
+    quests: quests.data ?? [],
+    lessons: lessons.data ?? [],
+    focusGoals,
+    // so a lifetime goal's link takes in the goals under it, as its page does
+    edges,
+  };
+}
+
+// Which target a link is on, and nothing more: what a Link button counts.
+const LINK_ROW = "id, quote_id, note_id, mission, goal_id, quest_id, lesson_id, focus_goal_id, created_at";
+
+// The targets one quote is on ({ quoteId }), or one of his own written-down
+// quotes ({ noteId }), each with its target's name and state along, so a
+// link to a finished quest or an earlier week's focus can still be named.
+export async function fetchLinksForQuote(userId, { quoteId = null, noteId = null } = {}) {
+  const [column, value] = quoteId ? ["quote_id", quoteId] : ["note_id", noteId];
+  if (!value) return [];
+  return selectAllPages(() =>
+    supabase
+      .from("quote_links")
+      .select(`${LINK_ROW}, goal:nodes(id, title), quest:quests(id, title, status), lesson:lessons(id, title, status), focus:focus_goals(id, title, week_start)`)
+      .eq("user_id", userId)
+      .eq(column, value)
+      .order("created_at")
+      .order("id")
+  );
+}
+
+// Every link of his, light, for the Link buttons on a page to share one read.
+export async function fetchQuoteLinkRows(userId) {
+  return selectAllPages(() => supabase.from("quote_links").select(LINK_ROW).eq("user_id", userId).order("id"));
+}
+
+// --- end of part 4 ---------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Ask: a conversation about your record. The `ask` function looks things up

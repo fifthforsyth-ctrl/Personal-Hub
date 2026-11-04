@@ -12,6 +12,11 @@ import { fmtShortDate, parseDateStr } from "../../lib/planDates";
 // day you tap. Below that, what a bullseye takes (its checks, each with what
 // passes) and the four sections, which are yours to reword. `fedBy` is this
 // week's focuses that count toward it, each one more check every evening.
+//
+// `embedded`: drawn inside the target's own page (/targets/<key>), which
+// has the title, the way back up and the edit pencil already. So no header
+// or strip of other targets, and no "Your lines" (the page's notes show the
+// evening's lines with everything else written on it).
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -32,7 +37,7 @@ function readRange(id) {
   }
 }
 
-export default function TargetView({ range: all, target: t, today, focusesById, fedBy = [], onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson }) {
+export default function TargetView({ range: all, target: t, today, focusesById, fedBy = [], onSetup, onEditGoal, onFocus, onAddFocus, onEditQuest, onEditLesson, embedded = false, pick = null }) {
   const [range, setRange] = useState(() => readRange(t.key));
   const [picked, setPicked] = useState(null);
   const tabs = useRef(null);
@@ -42,6 +47,17 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
     setRange(readRange(t.key));
     setPicked(null);
   }, [t.key]);
+
+  // A day asked for from outside (an evening's line tapped on the target's
+  // page): shown, with the range widened to all of it if it's further back
+  // than the range shows. After the effect above, so a new target's reset
+  // doesn't undo it.
+  useEffect(() => {
+    if (!pick?.id) return;
+    setPicked(pick.id);
+    setRange((r) => (inRange(t.shots, today, r).some((s) => s.id === pick.id) ? r : "all"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick]);
 
   useEffect(() => {
     const on = tabs.current?.querySelector('[aria-current="page"]');
@@ -66,24 +82,28 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
   const bulls = list.filter((s) => s.level === 0).length;
 
   return (
-    <div className="mk-target">
-      <header className="ascent-head mk-target__head">
-        <Link to="/ascent" className="btn-link mk-back">
-          <ChevronLeft size={14} />
-          The Range
-        </Link>
-        <div className="eyebrow">{t.kindLabel}</div>
-        <h1 className="page-title">{t.title}</h1>
-      </header>
+    <div className={"mk-target" + (embedded ? " mk-target--embedded" : "")}>
+      {!embedded && (
+        <>
+          <header className="ascent-head mk-target__head">
+            <Link to="/targets" className="btn-link mk-back">
+              <ChevronLeft size={14} />
+              Targets
+            </Link>
+            <div className="eyebrow">{t.kindLabel}</div>
+            <h1 className="page-title">{t.title}</h1>
+          </header>
 
-      <nav className="mk-tabs" ref={tabs} aria-label="Targets">
-        {all.all.map((x) => (
-          <Link key={x.key} to={`/ascent/${x.key}`} className="mk-tab" aria-current={x.key === t.key ? "page" : undefined}>
-            <Gear name={x.icon} size={14} />
-            {x.short}
-          </Link>
-        ))}
-      </nav>
+          <nav className="mk-tabs" ref={tabs} aria-label="Targets">
+            {(all?.all ?? []).map((x) => (
+              <Link key={x.key} to={`/targets/${x.key}`} className="mk-tab" aria-current={x.key === t.key ? "page" : undefined}>
+                <Gear name={x.icon} size={14} />
+                {x.short}
+              </Link>
+            ))}
+          </nav>
+        </>
+      )}
 
       <div className="mk-target__grid">
         <section className="card mk-board-card" aria-label="The target">
@@ -134,7 +154,7 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
         <div className="mk-target__side">
           {sel && <DayCard target={t} shot={sel} />}
 
-          {noted.length > 0 && (
+          {!embedded && noted.length > 0 && (
             <section className="card mk-notes" aria-labelledby="mk-notes-h">
               <div className="ascent-row ascent-card-head">
                 <h2 className="eyebrow" id="mk-notes-h">
@@ -218,38 +238,54 @@ export default function TargetView({ range: all, target: t, today, focusesById, 
                     </button>
                   </li>
                 ))}
+                {/* What serves it has a page of its own, a tap away. */}
                 {t.goal.quests.map((q) => (
                   <li key={q.id}>
-                    <span>Quest: {q.title}</span>
-                    <span className="feeds__n">also serves it</span>
+                    <Link to={`/targets/${q.id}`} className="feeds__row">
+                      <span>Quest: {q.title}</span>
+                      <span className="feeds__n">also serves it</span>
+                    </Link>
                   </li>
                 ))}
                 {t.goal.lessons.map((l) => (
                   <li key={l.id}>
-                    <span>Lesson: {l.title}</span>
-                    <span className="feeds__n">also serves it</span>
+                    <Link to={`/targets/${l.id}`} className="feeds__row">
+                      <span>Lesson: {l.title}</span>
+                      <span className="feeds__n">also serves it</span>
+                    </Link>
                   </li>
                 ))}
+                {embedded &&
+                  fedBy.map((g) => (
+                    <li key={g.id}>
+                      <Link to={`/targets/${g.id}`} className="feeds__row">
+                        <span>This week: {g.title}</span>
+                        <span className="feeds__n">counts toward it</span>
+                      </Link>
+                    </li>
+                  ))}
               </ul>
               <div className="ascent-goal__actions">
                 <button type="button" className="btn-link" onClick={onAddFocus}>
                   <Plus size={13} />
                   {t.goal.focuses.length ? "Add a focus" : "Choose a focus"}
                 </button>
-                <button type="button" className="btn-link" onClick={onEditGoal}>
-                  <Pencil size={13} />
-                  Edit goal
-                </button>
+                {!embedded && (
+                  <button type="button" className="btn-link" onClick={onEditGoal}>
+                    <Pencil size={13} />
+                    Edit goal
+                  </button>
+                )}
               </div>
             </section>
           )}
-          {t.kind === "quest" && (
+          {!embedded && t.kind === "quest" && (
             <button type="button" className="btn-link mk-edit-ref" onClick={onEditQuest}>
               <Pencil size={13} />
               Edit the quest and its camps
             </button>
           )}
-          {t.kind === "lesson" && (
+          {!embedded && t.kind === "lesson" && (
             <button type="button" className="btn-link mk-edit-ref" onClick={onEditLesson}>
               <Pencil size={13} />
               Edit the lesson

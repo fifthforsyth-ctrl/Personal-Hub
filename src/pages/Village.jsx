@@ -32,7 +32,7 @@ import "../styles/village.css";
 //
 // Links: /village?build=<id> flies to a build and opens it; /village?choose
 // opens Choose a build, and ?choose=<kind> points at one, drawn in pencil
-// on its plot. The quests page links to all three.
+// on its plot. A quest's or lesson's page (/targets/<id>) links to all three.
 
 const day = (s) => (s ? parseDateStr(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
 const longDay = (s, year) => parseDateStr(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}) });
@@ -882,7 +882,7 @@ function BuildSheet({ sheetRef, p, village, today, onClose, onChoose }) {
             Choose the next build
           </button>
         )}
-        <Link to="/quests" className={`btn btn--sm${going || next ? "" : " btn--accent"}`}>
+        <Link to="/targets" className={`btn btn--sm${going || next ? "" : " btn--accent"}`}>
           Your quests
         </Link>
       </div>
@@ -906,7 +906,7 @@ function Laid({ p, today }) {
           <ul className="vl-items">
             {shown.map((it) => (
               <li key={`${it.src}:${it.id}`}>
-                <Link to={it.questId ? `/quests/${it.questId}` : "/quests"} className="vl-item">
+                <Link to={it.questId ? `/targets/${it.questId}` : "/targets"} className="vl-item">
                   <i className={it.laid === today ? "today" : ""} aria-hidden="true" />
                   <span>
                     <b>{it.text}</b>
@@ -1073,8 +1073,8 @@ function SoldiersSheet({ sheetRef, village, onClose }) {
         </blockquote>
       )}
       <div className="vl-actions">
-        <Link to="/ascent" className="btn btn--sm btn--accent">
-          Open The Range
+        <Link to="/targets" className="btn btn--sm btn--accent">
+          Open Targets
         </Link>
       </div>
     </Sheet>

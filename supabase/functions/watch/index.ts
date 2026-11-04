@@ -217,7 +217,7 @@ async function wrist(db: DB, userId: string, tz: string, body: Record<string, un
 
     case "task": {
       const tasks = await todayTasks(db, userId, date);
-      if (!tasks.length) return done("Nothing open on Today. Pick some on Quests.");
+      if (!tasks.length) return done("Nothing open on Today. Pick some on a quest's page under Targets.");
       if (!answer) return list("Done", tasks.map((t) => t.label), "task");
       const t = tasks.find((x) => x.label === answer);
       if (!t) return done("That one's not on Today any more.");

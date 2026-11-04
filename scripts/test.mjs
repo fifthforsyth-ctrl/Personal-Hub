@@ -4570,7 +4570,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const examenKept = M.localDraft(examen, wrote, null);
   ok("so it's kept in the draft, and comes back next time", M.tonightDraft(examen, { mine: examenKept }).answers[0].value === "Where I saw God today" && M.tonightDraft(examen, { mine: examenKept }).line === "a long day");
   const alone = M.keptText(examen, wrote, { level: null, feeds: [] });
-  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /The Range/.test(alone), alone);
+  ok("and the evening says plainly it isn't kept once the day is banked", /reflection only/.test(alone) && /isn't kept once you bank the day/.test(alone) && /on Targets/.test(alone), alone);
   const fedNotYet = M.keptText(examen, wrote, { level: null, feeds: [shipIt] });
   ok("one a focus feeds says what feeds its arrow, and keeps until it lands", /its arrow comes from Ship settings\./.test(fedNotYet) && /until that arrow lands, and isn't kept if you bank the day without it/.test(fedNotYet), fedNotYet);
   ok("once that arrow has landed it only says where the arrow came from", M.keptText(examen, wrote, { level: 1, feeds: [shipIt] }) === "These are all reflection only, so its arrow comes from Ship settings.");
@@ -5113,7 +5113,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     M.tonightShot(S, { answers: [{ value: "yes" }, { value: 12 }], line: "", pick: { k: 3, how: "yours" } }).reason === null && M.tonightShot(S, { answers: [{ value: "yes" }, { value: null }], line: "" }) === null
   );
 
-  const ascentSrc = readFileSync(new URL("../src/pages/Ascent.jsx", import.meta.url), "utf8");
+  // The Range's edits live in the Targets tab's shared hook now (PR 3).
+  const ascentSrc = readFileSync(new URL("../src/components/targets/useLadder.jsx", import.meta.url), "utf8");
   const saveFrom = ascentSrc.slice(ascentSrc.indexOf("const saveTargetFrom"), ascentSrc.indexOf("saveTargetSetup(userId"));
   ok("taking out a check answered only tonight retires it: every shot counts, loosed or not", /data\?\.marks\?\.shots/.test(saveFrom) && !/t\.shots\.flatMap/.test(saveFrom));
   const shotsSrc = readFileSync(new URL("../src/components/mark/TonightShots.jsx", import.meta.url), "utf8");
@@ -5409,6 +5410,1397 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 
 // (end of before you bank it)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 1) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: the ladder, notes and quotes");
+  const L = await import("../src/lib/ladder.js");
+  const goals = [{ id: "g1", title: "Highly skilled" }, { id: "g2", title: "Highly in tune with God" }];
+  const edges = [{ parent_id: "g1", child_id: "n1" }, { parent_id: "n1", child_id: "n2" }];
+  const quests = [
+    { id: "q1", title: "Build the best Premiere Pro plugin", status: "on", goal_id: "g1", position: 0 },
+    { id: "q2", title: "Old quest", status: "done", goal_id: null, position: 1 },
+    { id: "m1", title: "Quit caffeine", status: "on", lesson_id: "l1", goal_id: "g2", position: 2 },
+  ];
+  const lessons = [
+    { id: "l1", title: "Stop drinking caffeine", status: "learning", goal_id: "g2", position: 0 },
+    { id: "l2", title: "More integrity", status: "set_aside", goal_id: null, position: 1 },
+  ];
+  const focusGoals = [
+    { id: "f1", title: "Win by win", week_start: "2026-10-18", carried_from: null, quest_id: "q1" },
+    { id: "f2", title: "Win by win", week_start: "2026-10-25", carried_from: "f1", quest_id: "q1" },
+    { id: "f3", title: "Win by win", week_start: "2026-11-01", carried_from: "f2", quest_id: "q1" },
+    { id: "f4", title: "Up at 4:30", week_start: "2026-11-01", carried_from: null, node_id: "n2" },
+  ];
+  const data = { goals, edges, quests, lessons, focusGoals };
+  const r = (ref) => L.resolveRef(ref, data);
+  ok("the mission resolves", r("mission")?.kind === "mission" && r("mission").key === "mission");
+  ok("a lifetime goal is itself", r("g1")?.kind === "goal" && r("g1").key === "g1");
+  ok("a goal further down the wheel opens its lifetime goal", r("n2")?.kind === "goal" && r("n2").key === "g1");
+  ok("a quest is itself, whatever its status", r("q1")?.kind === "quest" && r("q2")?.kind === "quest" && r("q2").key === "q2");
+  ok("a lesson's mountain opens the lesson", r("m1")?.kind === "lesson" && r("m1").key === "l1");
+  ok("a lesson by its id or lesson-<id>, set aside too", r("l1")?.key === "l1" && r("lesson-l1")?.key === "l1" && r("l2")?.kind === "lesson");
+  ok("an old week's focus opens its newest week", r("f1")?.kind === "focus" && r("f1").key === "f3" && r("f3").key === "f3");
+  ok("anything else is nothing", r("nope") === null && r("") === null && r("lesson-nope") === null && L.resolveRef("x", null) === null);
+  ok("a loop in carried_from doesn't hang", L.newestInLine("a", [{ id: "a", carried_from: "b" }, { id: "b", carried_from: "a" }]) !== null);
+  ok("the goal walk stops on a loop", L.rootGoalOf("x", goals, [{ parent_id: "y", child_id: "x" }, { parent_id: "x", child_id: "y" }]) === null);
+  ok("a goal under two parents follows the one it's drawn under (its first edge)", L.rootGoalOf("k", goals, [{ parent_id: "g2", child_id: "k" }, { parent_id: "g1", child_id: "k" }]) === "g2");
+  ok("a forked line goes to the later week", L.newestInLine("a", [{ id: "a" }, { id: "b", carried_from: "a", week_start: "2026-10-25" }, { id: "c", carried_from: "a", week_start: "2026-11-01" }]) === "c");
+
+  ok("each kind names its column", JSON.stringify(["mission", "goal", "quest", "lesson", "focus"].map((kind) => L.refOf({ kind, id: "i" }))) ===
+    JSON.stringify([{ mission: true }, { goal_id: "i" }, { quest_id: "i" }, { lesson_id: "i" }, { focus_goal_id: "i" }]));
+  ok("no id, no ref", L.refOf({ kind: "quest", id: null }) === null && L.refOf(null) === null);
+  ok("pages live under /targets", L.pathOf("mission") === "/targets/mission" && L.pathOf("quest", "q1") === "/targets/q1");
+
+  const crumbs = (t) => L.crumbsFor(t, data).map((c) => c.label).join(" › ");
+  ok("a quest's ladder line", crumbs({ kind: "quest", id: "q1" }) === "My mission › Skilled", crumbs({ kind: "quest", id: "q1" }));
+  ok("a quest serving the mission", crumbs({ kind: "quest", id: "q2" }) === "My mission");
+  ok("a focus toward a quest goes through it", crumbs({ kind: "focus", id: "f3" }) === "My mission › Skilled › Plugin", crumbs({ kind: "focus", id: "f3" }));
+  ok("a focus toward a goal down the wheel finds its lifetime goal", crumbs({ kind: "focus", id: "f4" }) === "My mission › Skilled", crumbs({ kind: "focus", id: "f4" }));
+  ok("the mission has none", L.crumbsFor({ kind: "mission" }, data).length === 0);
+
+  const items = [
+    { questId: "q1", done: false },
+    { questId: "q1", done: true },
+    { questId: "q1", heading: true, subs: [{ done: false }, { done: false }] },
+    { questId: "m1", done: false },
+  ];
+  const pills = L.questPills({ quests, lessons, camps: [{ quest_id: "q1" }, { quest_id: "q1" }, { quest_id: "m1" }], items });
+  ok("one pill per quest on and lesson learning", pills.map((p) => p.key).join() === "q1,l1", pills.map((p) => p.key).join());
+  ok("a lesson's pill keys on the lesson and counts its mountain", pills[1].kind === "lesson" && pills[1].camps === 1 && pills[1].today === 1);
+  ok("today counts what's still to do; a note counts what's under it", pills[0].today === 3 && pills[0].done === 1 && pills[0].camps === 2);
+  ok("the pill's line", L.pillLine(pills[0]) === "2 camps · 3 today" && L.pillLine({ camps: 1, today: 0 }) === "1 camp" && L.pillLine({}) === "");
+
+  ok("every kind has questions", ["mission", "goal", "quest", "lesson", "focus"].every((k) => L.REFLECT_PROMPTS[k].length >= 4));
+  ok("questions go round", L.promptFor("focus", 4) === L.promptFor("focus", 0) && L.promptFor("focus", -1) === L.REFLECT_PROMPTS.focus.at(-1));
+  ok("questions say nothing of what God expects", Object.values(L.REFLECT_PROMPTS).flat().every((q) => !/expect|should|ought|\bmust\b|worthy|\bsins?\b/i.test(q)));
+  ok("no dashes in the questions", Object.values(L.REFLECT_PROMPTS).flat().every((q) => !/[–—]| -- /.test(q)));
+  ok("the day's first question is steady", L.promptIndexFor("quest", "2026-11-02") === L.promptIndexFor("quest", "2026-11-02") && L.promptIndexFor("quest", "2026-11-02") < L.REFLECT_PROMPTS.quest.length);
+  ok("a note is trimmed and kept to 4000", L.cleanTargetNote("  hi\r\nthere  ") === "hi\nthere" && L.cleanTargetNote("x".repeat(5000)).length === 4000);
+  ok("drafts are kept per target", L.noteDraftKey({ kind: "quest", key: "q1" }) === "hub.target-note-draft.quest:q1");
+
+  const shots = [{ id: "s1", date: "2026-11-01", note: "Held the line", loosed_at: "2026-11-02T04:00:00Z", answers: [{ aim: "a", text: "Up by 4:35", v: 2, line: "4:31" }, { aim: "b", text: "x", v: 1 }] }];
+  const evening = L.eveningLines(shots);
+  ok("the evening's lines come along, read only", evening.length === 2 && evening[1].prompt === "Up by 4:35" && evening.every((e) => e.source === "evening"));
+  const tl = L.notesTimeline(
+    {
+      notes: [
+        { id: "t1", kind: "reflection", prompt: "Why?", date: "2026-11-02", text: "Because", created_at: "2026-11-02T15:00:00Z" },
+        { id: "t2", kind: "note", date: "2026-11-02", text: "Later", created_at: "2026-11-02T18:00:00Z" },
+      ],
+      focusNotes: [{ id: "fn", date: "2026-10-28", text: "From Today", created_at: "2026-10-28T12:00:00Z" }],
+      evening,
+    },
+    "2026-11-02"
+  );
+  ok("the timeline is newest first, by day", tl.map((g) => g.label).join() === "Today,Yesterday,Wed, Oct 28" || tl.map((g) => g.date).join() === "2026-11-02,2026-11-01,2026-10-28", tl.map((g) => `${g.date}:${g.label}`).join());
+  ok("and newest first within a day", tl[0].items.map((i) => i.id).join() === "t2,t1" && tl[0].items[1].kind === "reflection");
+
+  const lib = [
+    { id: "a", text: "Discipline is choosing between what you want now and what you want most.", author: "Abraham Lincoln", source: null, created_at: "2026-10-01", saved_at: null },
+    { id: "b", text: "The natural man is an enemy to God.", author: "King Benjamin", source: "Mosiah 3:19", created_at: "2026-10-05", saved_at: "2026-10-06", rating: "applies", rated_at: "2026-10-06" },
+    { id: "c", text: "Ce que l'on conçoit bien s'énonce clairement.", author: "Boileau", source: null, created_at: "2026-10-07", saved_at: null },
+  ];
+  ok("every word must match, in words, author or source", L.filterQuotes(lib, "want most").map((q) => q.id).join() === "a" && L.filterQuotes(lib, "mosiah enemy").map((q) => q.id).join() === "b");
+  ok("accents don't matter", L.filterQuotes(lib, "concoit").map((q) => q.id).join() === "c");
+  ok("an empty search finds nothing", L.filterQuotes(lib, "  ").length === 0);
+  const secs = L.pickerSections(lib, { linkedIds: ["a"], pickIds: ["c"] });
+  ok("the picker's sections, no quote twice", secs.map((s) => s.key).join() === "linked,board,picks" && secs.flatMap((s) => s.quotes.map((q) => q.id)).join() === "a,b,c", secs.map((s) => s.key).join());
+  ok("own quotes search their excerpt and people", L.filterOwnQuotes([{ id: "n", title: "x", excerpt: "Ponder the path", shelf_people: ["David A. Bednar"] }], "bednar path").length === 1);
+  const shelf = L.askShelfFor({ key: "q1abcdefgh" }, "Build the best Premiere Pro plugin", "my work");
+  ok("finding new quotes asks the Board's shelf for this target", /^ask:[a-z0-9-]{1,80}$/.test(shelf.key) && shelf.facet === "ask" && shelf.hint.includes("my work") && shelf.label.length <= 80, shelf.key);
+
+  // --- The tables (0104) -----------------------------------------------------
+  const mig = readFileSync(new URL("../supabase/migrations/0104_target_notes_and_quotes.sql", import.meta.url), "utf8");
+  const sql = mig.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  ok("0104 is purely additive", !/\b(drop|truncate|delete\s+from|update\s+public)\b/i.test(sql) && (sql.match(/alter\s+table/gi) ?? []).length === (sql.match(/alter table public\.\w+ enable row level security;/g) ?? []).length);
+  ok("0104 has a rollback", /Rollback \(SQL Editor/.test(mig) && /drop table if exists public\.quote_links;/.test(mig) && /drop table if exists public\.target_notes;/.test(mig));
+  ok("each note and link is on exactly one target", (sql.match(/num_nonnulls\(nullif\(mission, false\), goal_id, quest_id, lesson_id, focus_goal_id\) = 1/g) ?? []).length === 2);
+  ok("each link is one quote", /num_nonnulls\(quote_id, note_id\) = 1/.test(sql) && /create unique index if not exists quote_links_once/.test(sql));
+  ok("both tables are owned and closed to anon", ["target_notes", "quote_links"].every((t) => sql.includes(`alter table public.${t} enable row level security`) && sql.includes(`revoke all on public.${t} from anon, public`)));
+  ok("the policies check every id they're given", ["nodes n where n.id = goal_id", "quests q where q.id = quest_id and q.user_id = auth.uid() and q.lesson_id is null", "lessons l where l.id = lesson_id", "focus_goals f where f.id = focus_goal_id"].every((x) => sql.split(x).length - 1 === 2) &&
+    /quotes x where x\.id = quote_id/.test(sql) && /study_notes s where s\.id = note_id/.test(sql));
+  ok("only a reflection carries a question", /constraint target_notes_prompt check \(kind = 'reflection' or prompt is null\)/.test(sql));
+  ok("a removed target takes its notes and links with it", (sql.match(/on delete cascade/g) ?? []).length === 12 && !/on delete set null/.test(sql));
+
+  const api = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
+  ok("linking twice isn't an error", /error\?\.code === "23505"\) return null/.test(api.slice(api.indexOf("export async function linkQuote"))));
+  ok("the Targets functions sit outside the Mark's", api.indexOf("export async function fetchTargetNotes") < api.indexOf("export async function looseShots") || api.indexOf("export async function fetchTargetNotes") > api.indexOf("export async function readMarkLine"));
+  for (const fn of ["ask", "assistant"]) {
+    const doc = readFileSync(new URL(`../supabase/functions/${fn}/index.ts`, import.meta.url), "utf8");
+    ok(`${fn}'s schema notes know target_notes and quote_links`, doc.includes("target_notes(id, mission boolean, goal_id uuid") && doc.includes("quote_links(id, quote_id uuid, note_id uuid"));
+  }
+
+  // --- Old addresses ----------------------------------------------------------
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  ok("the Targets routes", ['path="/targets"', 'path="/targets/mission"', 'path="/targets/:ref"', 'path="/targets/camp/:id"', 'path="/targets/plans"', 'path="/targets/plans/:id"'].every((p) => app.includes(p)));
+  ok("every old Quests and Range address moves to Targets", ["/quests", "/quests/:key", "/ascent", "/ascent/:ref", "/ascent/camp/:id", "/ascent/plans", "/ascent/plans/:id"].every((p) => new RegExp(`path="${p}" element=\\{<MovedTo to="/targets`).test(app)));
+  ok("and keeps the query and state", /<Navigate to=\{`\$\{path\}\$\{search\}\$\{hash\}`\} state=\{state\} replace \/>/.test(app));
+}
+
+// (end of targets tab, part 1)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 2) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: the overview, the tab and the links into it");
+  const { existsSync } = await import("node:fs");
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+
+  // --- The tab ---------------------------------------------------------------
+  const nav = src("components/NavBar.jsx");
+  const listOf = (name) => {
+    const from = nav.indexOf(`export const ${name} = [`);
+    return from < 0 ? "" : nav.slice(from, nav.indexOf("];", from));
+  };
+  const tos = (list) => [...list.matchAll(/to: "([^"]*)"/g)].map((m) => m[1]);
+  ok("Targets is the third tab, where Quests was", tos(listOf("NAV"))[2] === "/targets" && listOf("NAV").includes('{ to: "/targets", label: "Targets", Icon: Target }'), tos(listOf("NAV")).join());
+  ok("no Quests tab, and the Range is out of More", !tos(listOf("NAV")).includes("/quests") && tos(listOf("MORE")).every((t) => !/^\/(ascent|quests)\b/.test(t)) && !/The Range/.test(nav));
+  ok("the Range's old page is gone", !existsSync(new URL("../src/pages/Ascent.jsx", import.meta.url)));
+
+  // Every link this part touches goes to its new address, and nothing it
+  // shows still calls it the Range.
+  const owned = [
+    "pages/Targets.jsx",
+    "components/targets/OverviewTiers.jsx",
+    "components/targets/OverviewPatches.jsx",
+    "components/targets/OverviewBow.jsx",
+    "components/NavBar.jsx",
+    "pages/Today.jsx",
+    "components/mark/TonightShots.jsx",
+    "components/today/PlanBlocks.jsx",
+    "pages/Plans.jsx",
+    "pages/Camp.jsx",
+    "pages/Village.jsx",
+    "components/focus/FocusSheet.jsx",
+    "components/focus/FocusWeek.jsx",
+    "components/focus/FocusSettings.jsx",
+  ];
+  const stale = owned.filter((p) => /["`]\/(quests|ascent)\b|The Range/.test(src(p)));
+  ok("no old Quests or Range links left", stale.length === 0, stale.join());
+  ok("the Mark's copy says Targets", /on Targets/.test(src("lib/mark.js")) && !/the Range/.test(src("lib/mark.js").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n")));
+
+  const today = src("pages/Today.jsx");
+  const at = (s) => today.indexOf(s);
+  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at("<QuestsRow userId={userId} date={date} />") && at("<QuestsRow") < at("<WeekStrip"));
+  const shots = src("components/mark/TonightShots.jsx");
+  ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
+  ok("a plan's quest opens its page", src("components/today/PlanBlocks.jsx").includes("<Link to={`/targets/${g.questId}`}"));
+  const camp = src("pages/Camp.jsx");
+  ok("a camp goes back to its own quest or lesson", /if \(data\?\.lesson\) return pathOf\("lesson", data\.lesson\.id\);/.test(camp) && /pathOf\("quest", data\.camp\.quest_id\) : "\/targets"/.test(camp) && camp.includes("`/targets/camp/${c.id}`"));
+  const plans = src("pages/Plans.jsx");
+  ok("plans live under Targets, and new camps open where they went", plans.includes('<Back to="/targets">Targets</Back>') && /mt\.lessonId \? pathOf\("lesson", mt\.lessonId\) : pathOf\("quest", questId\)\}#camps/.test(plans));
+  const sheet = src("components/focus/FocusSheet.jsx");
+  ok("a focus's sheet says what it counts toward, as a link that closes the sheet", /<Link to=\{pathOf\(toward\.kind, toward\.id\)\} className="ladder-toward" onClick=\{onClose\}>/.test(sheet) && /toward=\{null\}/.test(sheet));
+  const week = src("components/focus/FocusWeek.jsx");
+  ok("each focus on Week links what it counts toward", /pathOf\(g\.quest_id \? "quest" : "lesson", g\.quest_id \?\? g\.lesson_id\)/.test(week) && /pathOf\("goal", g\.node_id\)/.test(week));
+
+  // --- The overview's own pieces, drawn ----------------------------------------
+  // The pieces built with React, the router's Link as a plain <a> and the
+  // drawings left out, then turned into HTML to see where each one goes.
+  const { build } = await import("esbuild");
+  const dir = fileURLToPath(new URL("../src/components/targets/", import.meta.url));
+  const standIns = {
+    "react-router-dom": 'import { createElement } from "react"; export const Link = ({ to, children, className, ...p }) => createElement("a", { href: to, className, "aria-label": p["aria-label"] }, children);',
+    "lucide-react": "export const ChevronRight = () => null; export const ChevronDown = () => null;",
+  };
+  const built = await build({
+    stdin: {
+      contents: 'export * from "./OverviewTiers.jsx"; export * from "./OverviewPatches.jsx"; export { renderToStaticMarkup } from "react-dom/server"; export { createElement } from "react";',
+      resolveDir: dir,
+      loader: "jsx",
+    },
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    jsx: "automatic",
+    logLevel: "silent",
+    // React's server build asks for Node's own modules by require().
+    banner: { js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(import.meta.url)});` },
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /^(react-router-dom|lucide-react)$|\/(TargetFace|Gear)$/ }, (a) => ({ path: a.path, namespace: "stand-in" }));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => ({ contents: standIns[a.path] ?? "export default () => null;", loader: "jsx", resolveDir: dir }));
+        },
+      },
+    ],
+  });
+  const O = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  const html = (C, props) => O.renderToStaticMarkup(O.createElement(C, props));
+  const hrefs = (h) => [...h.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+  const M = await import("../src/lib/mark.js");
+  const day = "2026-11-02";
+
+  const t = { shots: [{ date: "2026-11-01", level: 0 }, { date: "2026-10-01", level: 0 }, { date: day, level: 2 }], today: { level: 2 } };
+  ok("a small target's words count the bullseyes in its 30 days", O.markWords(t, day) === `1 bullseye in 30 days, today's arrow in the ${M.LEVELS[2].name.toLowerCase()} ring`, O.markWords(t, day));
+  ok("and say how today's arrow landed", /a bullseye today$/.test(O.markWords({ ...t, today: { level: 0 } }, day)) && /today's arrow missed$/.test(O.markWords({ ...t, today: { level: M.LEVELS.length - 1 } }, day)) && /no arrow yet today$/.test(O.markWords({ ...t, today: null }, day)));
+  ok("nothing yet is said plainly", O.markWords(null, day) === "no marks yet" && O.markWords(O.NO_MARKS, day) === "no marks yet");
+  ok("a double dash in a focus's name doesn't break", O.keepDashes("Daily form--win by win") === "Daily form‑‑win by win" && O.keepDashes(null) === "");
+
+  const empty = html(O.MissionCard, { mission: null, onWrite: () => {} });
+  ok("no mission yet: a button to write it, no link", empty.includes("Write your mission") && !empty.includes("<a ") && empty.includes("ov-mission--empty"));
+  const mission = html(O.MissionCard, { mission: { summit: "An exalted servant", statement: "To become an exalted servant of God" } });
+  ok("the mission's card opens its page", hrefs(mission).join() === "/targets/mission" && mission.includes("An exalted servant") && mission.includes("ov-mission__creed"));
+
+  const climbs = html(O.ClimbRows, {
+    today: day,
+    climbs: [
+      { key: "q1", kind: "quest", title: "Build the plugin", camps: 2, today: 3, target: t },
+      { key: "l1", kind: "lesson", title: "Stop drinking caffeine", camps: 1, today: 0, target: null },
+    ],
+  });
+  ok("each quest and lesson opens its own page", hrefs(climbs).join() === "/targets/q1,/targets/l1", hrefs(climbs).join());
+  ok("with what's waiting there", climbs.includes("Quest · 2 camps · 3 today") && climbs.includes(">Lesson · 1 camp<"));
+  ok("and says it all to a screen reader", climbs.includes('aria-label="Stop drinking caffeine. Lesson from God, 1 camp. No marks yet."') && climbs.includes('aria-label="Build the plugin. Quest, 2 camps, 3 today. 1 bullseye in 30 days'));
+
+  const faces = html(O.FaceRow, { week: true, label: "This week's focus", items: [{ key: "f1", to: "/targets/f1", label: "Up at 4:30", name: "Up at 4:30", answered: true }, { key: "f2", to: "/targets/f2", label: "Scripture", name: "Scripture" }] });
+  ok("a row of small targets, each a link", hrefs(faces).join() === "/targets/f1,/targets/f2" && faces.includes("ov-faces--week") && (faces.match(/is-answered/g) ?? []).length === 1);
+
+  const view = {
+    patches: [{ id: "q3", title: "Finish the garage", finished_on: "2026-10-20" }, { id: "m2", lesson_id: "l5", title: "Patience", finished_on: "2026-10-25" }],
+    learned: [{ id: "l2", title: "More integrity" }],
+    setAside: [{ id: "q4", title: "Learn Spanish" }],
+    lessonsAside: [{ id: "l3", title: "Patience with the kids" }],
+  };
+  const behind = html(O.BehindYou, { view });
+  ok("behind you: each patch, lesson learned and thing set aside opens its page", hrefs(behind).join() === "/targets/q3,/targets/l5,/targets/l2,/targets/q4,/targets/l3", hrefs(behind).join());
+  ok("a lesson's patch opens the lesson, never its mountain", !hrefs(behind).includes("/targets/m2"));
+  ok("the fold says what's in it, and stays shut", behind.includes("2 patches · 1 learned · 2 set aside") && !/<details[^>]* open/.test(behind));
+  ok("it opens by itself for a patch just earned", /<details[^>]* open=""/.test(html(O.BehindYou, { view, fresh: "q3" })));
+  ok("nothing behind you, no fold", html(O.BehindYou, { view: { patches: [], learned: [], setAside: [], lessonsAside: [] } }) === "" && html(O.BehindYou, { view: null }) === "");
+
+  // --- Copy and colour ----------------------------------------------------------
+  const pageSrc = ["pages/Targets.jsx", "components/targets/OverviewTiers.jsx", "components/targets/OverviewPatches.jsx", "components/targets/OverviewBow.jsx"].map(src).join("\n");
+  ok("no dashes in the overview's words", !/[–—]| -- /.test(pageSrc));
+  ok("a new lesson's page opens once its camps are saved too", /onAdded: \(id\) => \{\s*afterSave\.current = pathOf\("lesson", id\);/.test(pageSrc) && /if \(to && alive\.current\) navigate\(to\);/.test(pageSrc));
+  ok("a new quest's page opens as soon as it's added", /open\(\{ kind: "quest", quest: null, onAdded: \(id\) => navigate\(pathOf\("quest", id\)\) \}\)/.test(pageSrc));
+  const css = src("styles/targets.css");
+  const part2 = css.slice(css.indexOf("/* --- Part 2:"), css.indexOf("/* --- end of part 2 --- */"));
+  const missionRules = [...part2.matchAll(/([^{}]*ov-mission[^{}]*)\{([^}]*)\}/g)].map((m) => m[2]);
+  ok("the mission's card is white like the rest", missionRules.length > 0 && missionRules.every((r) => !/background:\s*var\(--ink\)/.test(r)));
+}
+
+// (end of targets tab, part 2)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 3) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: a target's page");
+  const { existsSync, readdirSync } = await import("node:fs");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  // A component's own helpers, with what it imports swapped for stand-ins
+  // except the modules `keep` names (as in "Review fixes, batch C").
+  const helpersOf = async (rel, keep = null) => {
+    const path = fileURLToPath(at(rel));
+    const text = readFileSync(path, "utf8");
+    const built = await esbuildBundle({
+      entryPoints: [path],
+      bundle: true,
+      write: false,
+      format: "esm",
+      jsx: "transform",
+      logLevel: "silent",
+      plugins: [
+        {
+          name: "stand-ins",
+          setup(b) {
+            b.onResolve({ filter: /.*/ }, (a) => (a.importer === path && !(keep && keep.test(a.path)) ? { path: a.path, namespace: "stand-in" } : undefined));
+            b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+              const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const names = (text.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+              return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+            });
+          },
+        },
+      ],
+    });
+    return import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+  };
+
+  // --- The Quests page moved into a quest's own page ---------------------------
+  const body = read("src/components/targets/QuestBody.jsx");
+  const camps = read("src/components/targets/QuestCamps.jsx");
+  const page = read("src/pages/Target.jsx");
+  ok("the Quests page is gone, and its pills with it", !existsSync(at("src/pages/Quests.jsx")) && !existsSync(at("src/components/quests/QuestMap.jsx")));
+  const oldLink = /["'`]\/(quests|ascent)\b/;
+  const questsDir = readdirSync(at("src/components/quests/")).filter((f) => f.endsWith(".jsx") || f.endsWith(".js"));
+  const stale = [
+    ["QuestBody", body],
+    ["QuestCamps", camps],
+    ["Target", page],
+    ["TargetView", read("src/components/mark/TargetView.jsx")],
+    ...questsDir.map((f) => [f, read(`src/components/quests/${f}`)]),
+  ].filter(([, src]) => oldLink.test(src) || /from: "quests"/.test(src));
+  ok("no link on a quest's page, its camps or its lists goes to /quests or /ascent", stale.length === 0, stale.map(([n]) => n).join(", "));
+  ok("a quest's page has no notes box of its own any more (its notes are the target's)", !/saveNote|Notes on this/.test(body));
+  ok("a quest's page never moves the address itself (a lesson's new mountain just reloads)", [...body.matchAll(/navigate\(([^)]*)\)/g)].every((m) => /\/village/.test(m[1])));
+  ok("the quest's page has no header, pills or 'Start a quest' of its own", !/qs-head|QuestMap|Start a quest|NewQuest/.test(body));
+
+  // The camps: always there, never behind a pill or a fold.
+  ok("the camps are drawn on every quest's page, not inside a fold", /\n\s*<QuestCamps\b/.test(body) && !/<details/.test(camps) && /id="camps"/.test(camps) && /className="qs-camps"/.test(camps));
+  ok("each camp goes to its own page under Targets, with no state trick", /to=\{`\/targets\/camp\/\$\{c\.id\}`\}/.test(camps) && !/<Link[^>]*\bstate=/.test(camps));
+  ok("the flag at the next camp goes through the ladder (its ceremony and Undo)", /onReach=\{\(\) => ladder\?\.reachNext\(climb\)\}/.test(body) && /Mark the summit reached/.test(camps));
+  ok("'Bring in a plan' goes to the plans under Targets", /to="\/targets\/plans"/.test(camps));
+
+  // The order on a phone: the grid's cells in the source, as a phone stacks them.
+  const order = ["<QuestCamps", 'className="qs-today"', 'className="qs-ongoing"', 'className="qs-clip"', "{quotes}", "{notes}", "qs-earlier", "{history}"];
+  // (the full page's render: while the lists load, the quotes, notes and history sit under the header instead)
+  const grid = body.slice(body.indexOf("<PhotoProvider"));
+  const spots = order.map((s) => grid.indexOf(s));
+  ok("a quest's page runs camps, Today, ongoing, clipboard, quotes, notes, earlier days, history", spots.every((n, i) => n > 0 && (i === 0 || n > spots[i - 1])), JSON.stringify(spots));
+  const qcss = read("src/styles/quests.css");
+  ok("the phone keeps that order: the grid only places its cells on a desk", !/grid-area:\s*(camps|today|ongoing|clip|side|rest|build)\b/.test(qcss.slice(0, qcss.indexOf("@media (min-width: 901px)"))));
+  ok("on a desk the build heads the right rail, with the quotes and notes under it", /"camps build" "today side" "ongoing side"/.test(qcss));
+  ok("the closed clipboard's button has a home in the camps' head", /clip=\{clipButton\}/.test(body) && /\{clip\}/.test(camps) && /CLIP_SHUT_KEY = "hub:clip-closed"/.test(body));
+
+  // --- A focus's page -------------------------------------------------------------
+  const focusSrc = read("src/components/targets/TargetFocus.jsx");
+  ok("a focus's page knows this week's row by its week", /const thisWeek = row\.week_start === focusWeekOf\(today\)/.test(focusSrc));
+  ok(
+    "today's arrow shows only on this week's focus, and only once",
+    (focusSrc.match(/<GoalArrow\b/g) ?? []).length === 1 && /\{thisWeek && \(\s*<div className="focus-sheet__arrow[^"]*">\s*<span className="eyebrow">Today's arrow<\/span>\s*<GoalArrow/.test(focusSrc)
+  );
+  ok("an earlier week's focus has no settings pencil", /const weekGoal = thisWeek \?/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
+
+  // --- Notes ---------------------------------------------------------------------
+  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
+  const N = await helpersOf("src/components/targets/NoteSheet.jsx", /lib\/ladder$/);
+  ok("a focus's note takes 2000 characters, every other note and reflection 4000", N.noteLimit("focus", "note") === 2000 && N.noteLimit("focus", "reflect") === 4000 && N.noteLimit("quest", "note") === 4000 && N.FOCUS_NOTE_MAX === 2000);
+  ok("the box's limit is where it saves", /maxLength=\{max\}/.test(sheetSrc) && /const max = noteLimit\(focusNote \? "focus" : kind, mode\)/.test(sheetSrc));
+  const focusSheet = read("src/components/focus/FocusSheet.jsx");
+  ok(
+    "a focus's note keeps Today's draft (hub.focus-note-draft.<id>)",
+    /import \{ readDraft, keepDraft(?:, \w+)* \} from "\.\.\/focus\/FocusSheet";/.test(sheetSrc) && /`hub\.focus-note-draft\.\$\{goalId\}`/.test(focusSheet) && /readDraft\(focusGoal\)/.test(sheetSrc) && /keepDraft\(focusGoal\.id, text\)/.test(sheetSrc)
+  );
+  ok("a focus's note saves through Today's own save", /saveNote\(userId, \{ goalId: target\.id, date: today, sent: text \}\)/.test(read("src/components/targets/NotesSection.jsx")));
+
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const key = "hub.target-note-draft.quest:q1:note";
+  let s1 = store();
+  N.keepNoteDraft(key, "Half a thought", s1);
+  let threw = false;
+  try {
+    await N.sendNote({ key, sent: "Half a thought", save: () => Promise.reject(new Error("offline")), store: s1 });
+  } catch {
+    threw = true;
+  }
+  ok("a note that doesn't save keeps its draft, word for word", threw && N.readNoteDraft(key, s1) === "Half a thought");
+  await N.sendNote({ key, sent: "Half a thought", save: () => Promise.resolve({ id: "n1" }), store: s1 });
+  ok("a note that saved clears its draft", N.readNoteDraft(key, s1) === "");
+  const s2 = store();
+  N.keepNoteDraft(key, "Typed after Save", s2);
+  await N.sendNote({ key, sent: "The words sent", save: () => Promise.resolve({ id: "n2" }), store: s2 });
+  ok("words typed after Save stay, even once the note saved", N.readNoteDraft(key, s2) === "Typed after Save");
+  N.keepNoteDraft(key, "   ", s2);
+  ok("a blank box leaves no draft behind", !s2.m.has(key));
+  const catchBlock = sheetSrc.slice(sheetSrc.indexOf("} catch {", sheetSrc.indexOf("async function save(")), sheetSrc.indexOf("const near ="));
+  ok("the sheet stays open with the words when a save fails", /setProblem\("Couldn't save that\. Your words are still here\."\)/.test(catchBlock) && !/dropNoteDraft|removeItem|onClose|setText/.test(catchBlock));
+  ok("Cancel keeps the draft (it only closes)", /onClick=\{close\}>\s*Cancel/.test(sheetSrc) && /function close\(\) \{\s*if \(sending\.current != null\) closedSending\.add\(sendToken\(draftKey, sending\.current\)\);\s*onClose\(\);\s*\}/.test(sheetSrc));
+  ok("the drafts are kept per target and per kind of writing", /draftKey=\{`\$\{draftBase\}:\$\{sheet\}`\}/.test(read("src/components/targets/NotesSection.jsx")) && /const draftBase = noteDraftKey\(target\)/.test(read("src/components/targets/NotesSection.jsx")));
+
+  // --- Quotes --------------------------------------------------------------------
+  const linked = read("src/components/targets/LinkedQuotes.jsx");
+  ok("Unlink takes off every week's link to that quote", /unlinkQuote\(link\.linkIds\)/.test(linked) && /relinkQuotes\(await gone\)/.test(linked));
+  ok("the quotes on a target go in QuoteCard's foot as Unlink", /extra=\{unlinkBtn\(l\)\}/.test(linked) && /className="qprint__save tg-unlink"/.test(linked));
+
+  // --- The head ------------------------------------------------------------------
+  const H = await helpersOf("src/components/targets/TargetHead.jsx", /lib\/mark$/);
+  ok(
+    "today's arrow on a target, in words",
+    H.todayWords({ today: null }) === "No arrow yet today" &&
+      H.todayWords({ today: { level: 0 } }) === "Bullseye tonight" &&
+      H.todayWords({ today: { level: 2 } }) === "Middle ring tonight" &&
+      H.todayWords({ today: { level: 5 } }) === "Missed tonight"
+  );
+  ok("there's always a way up: the ladder line starts at Targets", /<Link to="\/targets">Targets<\/Link>/.test(read("src/components/targets/TargetHead.jsx")));
+  ok("a link to a target that's gone says so, with the way back", /That isn't one of your targets any more\./.test(page) && /Back to Targets/.test(page));
+  ok("a link by another id moves to the target's own, keeping the rest", /navigate\(`\/targets\/\$\{key\}\$\{location\.search\}\$\{location\.hash\}`, \{ replace: true, state: location\.state \}\)/.test(page));
+  const view = read("src/components/mark/TargetView.jsx");
+  ok("TargetView drawn on a page has no back link, tabs or lines of its own", /\{!embedded && \(\s*<>\s*<header/.test(view) && /!embedded && noted\.length > 0/.test(view));
+
+  // --- Copy ----------------------------------------------------------------------
+  const mine = [
+    "src/pages/Target.jsx",
+    ...readdirSync(at("src/components/targets/"))
+      .filter((f) => /^(Target|Quest|Notes|Note|Reflect|Quote|Linked|Build)/.test(f))
+      .map((f) => `src/components/targets/${f}`),
+    ...questsDir.map((f) => `src/components/quests/${f}`),
+    "src/components/mark/TargetView.jsx",
+  ];
+  const dashed = mine.filter((p) => /[—–]|["'`>][^"'`<\n]* -- [^"'`<\n]*["'`<]/.test(read(p)));
+  ok("no em or en dashes in a target's page", dashed.length === 0, dashed.join(", "));
+  ok("no model's name on a target's page", mine.every((p) => !/\b(claude|gpt|openai|anthropic|gemini)\b/i.test(read(p))));
+}
+
+// (end of targets tab, part 3)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 4) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: linking a quote from the Board and Today");
+  // LinkToTarget.jsx is a component, so it's built here with React, the
+  // page and the database swapped for stand-ins; only its pure helpers run.
+  const { build } = await import("esbuild");
+  const linkPath = fileURLToPath(new URL("../src/components/targets/LinkToTarget.jsx", import.meta.url));
+  const linkSrc = readFileSync(linkPath, "utf8");
+  const keepReal = /\/lib\/(ladder|ascent|focus|mark|planDates|wheel)$/;
+  const built = await build({
+    entryPoints: [linkPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === linkPath && !keepReal.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = linkSrc.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => {};`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const M = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+
+  // What can be linked to: the ladder, biggest to smallest, only what's on now.
+  const today = "2026-11-04"; // a Wednesday; its week began Sunday Nov 1
+  const rows = {
+    mission: null,
+    goals: [
+      { id: "g2", title: "Highly in tune with God", created_at: "2026-01-01T00:00:00Z" },
+      { id: "g1", title: "Highly skilled", created_at: "2026-01-01T00:00:00Z" },
+    ],
+    quests: [
+      { id: "q2", title: "Redo the kitchen", status: "on", lesson_id: null, goal_id: null, position: 1 },
+      { id: "q1", title: "Build the best Premiere Pro plugin", status: "on", lesson_id: null, goal_id: "g1", position: 0 },
+      { id: "q3", title: "Run a marathon", status: "done", lesson_id: null, position: 2 },
+      { id: "q4", title: "An old idea", status: "set_aside", lesson_id: null, position: 3 },
+      { id: "m1", title: "Quit caffeine", status: "on", lesson_id: "l1", position: 4 },
+    ],
+    lessons: [
+      { id: "l1", title: "Stop drinking caffeine", status: "learning", started_on: "2026-10-01", position: 0 },
+      { id: "l2", title: "More integrity", status: "learned", started_on: "2026-09-01", position: 1 },
+      { id: "l3", title: "Patience", status: "set_aside", position: 2 },
+    ],
+    focusGoals: [
+      { id: "f1", title: "Win by win", week_start: "2026-10-25", carried_from: null, position: 0 },
+      { id: "f2", title: "Win by win", week_start: "2026-11-01", carried_from: "f1", position: 1 },
+      { id: "f3", title: "Up at 4:30", week_start: "2026-11-01", carried_from: null, position: 0 },
+      { id: "f4", title: "Planned ahead", week_start: "2026-11-08", carried_from: null, position: 0 },
+    ],
+  };
+  const list = M.ladderTargets(rows, today);
+  const kinds = list.map((t) => `${t.kind}:${t.key}`).join();
+  ok("mission, goals, quests, lessons, then this week's focus", kinds === "mission:mission,goal:g1,goal:g2,quest:q1,quest:q2,lesson:l1,focus:f3,focus:f2", kinds);
+  ok("only quests he's on, never a lesson's mountain", list.filter((t) => t.kind === "quest").every((t) => ["q1", "q2"].includes(t.id)) && !list.some((t) => t.id === "m1"));
+  ok("only lessons he's learning, keyed on the lesson", list.filter((t) => t.kind === "lesson").map((t) => t.id).join() === "l1");
+  ok("only this week's focus, with the weeks it came from", list.filter((t) => t.kind === "focus").map((t) => t.id).join() === "f3,f2" && list.find((t) => t.id === "f2").lineage.join() === "f2,f1");
+  ok("the mission is offered even unwritten", list[0].title === "My mission" && list[0].line === "Not written yet" && list[0].group === "mission");
+  const written = M.ladderTargets({ ...rows, mission: { statement: "  An exalted servant.  ", summit: null } }, today)[0];
+  ok("a written mission reads in its own words", written.title === "An exalted servant." && written.serif && written.short === "My mission");
+  ok("short names for the toast", list.find((t) => t.id === "q1").short === "Plugin" && list.find((t) => t.id === "g1").short === "Skilled");
+  ok("each in its group", list.map((t) => t.group).join() === "mission,goals,goals,climbs,climbs,climbs,focus,focus");
+  ok("nothing to link to but the mission is still something", M.ladderTargets({}, today).map((t) => t.kind).join() === "mission");
+
+  // What a quote is on.
+  const links = [
+    { id: "a", quote_id: "Q", mission: true },
+    { id: "b", quote_id: "Q", focus_goal_id: "f1" },
+    { id: "c", quote_id: "Q", quest_id: "q3", quest: { id: "q3", title: "Run a marathon", status: "done" } },
+    { id: "d", quote_id: "Q", focus_goal_id: "f0", focus: { id: "f0", title: "Read daily", week_start: "2026-10-18" } },
+    { id: "e", quote_id: "Q", lesson_id: "l1" },
+    { id: "f", quote_id: "Q", lesson_id: "l2", lesson: { id: "l2", title: "More integrity", status: "learned" } },
+  ];
+  const others = M.otherTargets(links, list);
+  ok("what it's on that isn't on now is named, with where it stands", others.map((t) => `${t.title}|${t.line}`).join() === "Run a marathon|Quest · done,Read daily|" + others[1]?.line + ",More integrity|Lesson from God · learned" && /^Focus · week of /.test(others[1]?.line ?? ""), others.map((t) => `${t.title}|${t.line}`).join());
+  ok("and goes under Not on right now", others.every((t) => t.group === "other"));
+  const all = [...list, ...others];
+  const ids = M.linkIdsByTarget(all, links);
+  ok("the mission's link", ids.get("mission").join() === "a");
+  ok("a focus linked last week shows on this week's", ids.get("f2").join() === "b" && ids.get("f3").length === 0);
+  ok("a lesson by its own id", ids.get("l1").join() === "e");
+  ok("an old target's link is its own row", ids.get("q3").join() === "c" && ids.get("f0").join() === "d");
+  ok("nothing else is checked", ["g1", "g2", "q1", "q2"].every((k) => ids.get(k).length === 0));
+  // A lifetime goal takes in the goals under it, as its page reads them (a
+  // goal moved under it on the wheel brings its links along).
+  const withEdges = M.ladderTargets({ ...rows, edges: [{ id: "e1", parent_id: "g1", child_id: "g9" }, { id: "e2", parent_id: "g9", child_id: "g10" }] }, today);
+  const g1 = withEdges.find((t) => t.id === "g1");
+  ok("a lifetime goal carries the goals under it", g1.lineage.slice().sort().join() === "g1,g10,g9" && withEdges.find((t) => t.id === "g2").lineage.join() === "g2");
+  const deep = [{ id: "s", quote_id: "Q", goal_id: "g10", goal: { id: "g10", title: "Draw daily" } }];
+  ok("so a link on a goal under it shows as linked there, not under Not on right now", M.linkIdsByTarget(withEdges, deep).get("g1").join() === "s" && M.otherTargets(deep, withEdges).length === 0);
+  ok("without the wheel's links read, a goal is just itself", list.find((t) => t.id === "g1").lineage.join() === "g1");
+  ok("the count is of targets, not rows", M.targetCount(links) === 6 && M.targetCount([...links, { id: "g", quote_id: "Q", mission: true }]) === 6 && M.targetCount([]) === 0 && M.targetCount(null) === 0);
+  ok("what the button says", M.linkName(0) === "Link to a target" && M.linkName(1) === "Linked to 1 target" && M.linkName(3) === "Linked to 3 targets");
+  ok("the groups, biggest to smallest, the empty ones left out", M.groupTargets(all).map((g) => g.title).join("|") === "My mission|Lifetime goals|Quests and lessons|This week's focus|Not on right now" && M.groupTargets(list.slice(0, 1)).length === 1);
+  ok("the button reads Link, or Linked · N", /<span className="link-to__word">Linked · <\/span>\s*\{count\}/.test(linkSrc) && /\) : \(\s*"Link"\s*\)/.test(linkSrc) && /aria-label=\{linkName\(count\)\}/.test(linkSrc));
+
+  // Where it goes.
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["the picks and shelves", "src/components/board/Shelves.jsx"]]) {
+    const cards = read(file).match(/<QuoteCard [^\n]*\/>/g) ?? [];
+    ok(`every print on ${where} has Link`, cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  }
+  ok("Today's quote has Link beside Share, in its own buttons' style", /<ShareQuote [^\n]*\/>\n\s*<LinkToTarget quote=\{quote\} className="btn btn--sm quote-card__link" \/>/.test(read("src/components/today/QuoteOfDay.jsx")));
+
+  // How it writes.
+  ok("a tap links with linkQuote and unlinks with unlinkQuote", /track\(linkQuote\(userId, refOf\(t\), source\)\)/.test(linkSrc) && /track\(unlinkQuote\(ids\)\)/.test(linkSrc));
+  ok("Unlink has an Undo that puts the rows back", /actionLabel: "Undo", onAction: \(\) => putBack\(userId, source, gone, toast\)/.test(linkSrc) && /track\(relinkQuotes\(gone\)\)/.test(linkSrc));
+  ok("a link that was there already stays checked", /if \(row\) \{[\s\S]{0,120}return;\s*\}\s*\/\/ It was linked already/.test(linkSrc) && !/if \(!row\)[^\n]*filter/.test(linkSrc));
+  ok("a failed write puts the check back and says so", /toast\.error\(err, "Couldn't link it\."\)/.test(linkSrc) && /toast\.error\(err, "Couldn't unlink it\."\)/.test(linkSrc));
+  ok("other pages hear of it once, when the sheet has closed", /announceChange\(\);/.test(linkSrc) && /links\.sheets -= 1;\s*settle\(\);/.test(linkSrc) && /if \(links\.sheets \|\| links\.writes \|\| !links\.dirty\) return;/.test(linkSrc));
+  ok("nothing about the targets is read until the sheet opens", linkSrc.indexOf("fetchLadderTargets(userId)") > linkSrc.indexOf("function LinkSheet("));
+  ok("the sheet sits on the body, so a tilted print doesn't carry it", /createPortal\(<LinkSheet /.test(linkSrc));
+  ok("each row opens its target's page", /<Link className="link-to__open" to=\{pathOf\(t\.kind, t\.key\)\}/.test(linkSrc));
+
+  const api = read("src/lib/api.js");
+  const part4 = api.slice(api.indexOf("// --- Targets tab, part 4"), api.indexOf("// --- end of part 4"));
+  ok("part 4's reads sit in its part of api.js", ["fetchLadderTargets", "fetchLinksForQuote", "fetchQuoteLinkRows"].every((f) => part4.includes(`export async function ${f}(`) && api.split(`export async function ${f}(`).length === 2));
+  ok("a quote's links are only his, and only that quote's", /\["quote_id", quoteId\] : \["note_id", noteId\]/.test(part4) && /\.eq\("user_id", userId\)\s*\.eq\(column, value\)/.test(part4));
+  ok("the targets read skips the Range's 30 days of steps", !/ascent_steps/.test(part4) && /fetchFocusGoalRows\(userId\)/.test(part4));
+
+  const css = read("src/styles/targets.css");
+  const partCss = css.slice(css.indexOf("/* --- Part 4:"), css.indexOf("/* --- end of part 4 --- */"));
+  const outside = css.replace(partCss, "");
+  ok("Link's rules sit in part 4 of targets.css", /\.link-to__row \{/.test(partCss) && !/link-to__|qprint__link|quote-card__link/.test(outside));
+  ok("rows and Open are thumb-sized", /\.link-to__row \{[^}]*min-height: (4[4-9]|[5-9]\d)px/.test(partCss) && /\.link-to__open \{[^}]*width: 44px/.test(partCss));
+  ok("a narrow print's foot takes two lines, not three", /\.qprint__foot,\s*\.quote-card__rate \{\s*container-type: inline-size;/.test(partCss) && /@container \(max-width: 179px\) \{[\s\S]*?\.qprint__link \.link-to__word \{\s*display: none;/.test(partCss));
+  ok("no em or en dashes in Link's words", ![linkSrc, part4, partCss].some((s) => /[–—]| -- /.test(s)));
+}
+
+// (end of targets tab, part 4)
+// ---------------------------------------------------------------------------
+
+
+// ===== Targets tab (PR 3, part 5: the parts together) =====
+// Add this part's tests directly under the line above.
+{
+  console.log("\ntargets tab: the parts together");
+  const { readdirSync, statSync } = await import("node:fs");
+  const root = fileURLToPath(new URL("../src/", import.meta.url));
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`.replace(/\/+/g, "/");
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(jsx?|tsx?)$/.test(name)) files.push(full);
+    }
+  };
+  walk(root.replace(/\/$/, ""));
+  const old = files.filter((f) => !f.endsWith("/App.jsx")).filter((f) => /["'`]\/(quests|ascent)\b/.test(readFileSync(f, "utf8")));
+  ok("no link anywhere in the app goes to the old Quests or Range addresses (only App.jsx's redirects name them)", old.length === 0, old.join(", "));
+  ok("the old pages are gone", !files.some((f) => /\/pages\/(Quests|Ascent)\.jsx$/.test(f)));
+  const range = files.filter((f) => /The Range\b/.test(readFileSync(f, "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("nothing he reads calls it the Range any more", range.length === 0, range.join(", "));
+
+  const ladder = readFileSync(new URL("../src/components/targets/useLadder.jsx", import.meta.url), "utf8");
+  const lessonSave = ladder.slice(ladder.indexOf("const saveLessonFrom"), ladder.indexOf("async function removeLesson"));
+  ok("saving a lesson never deletes its mountain (its daily list and clipboard live there)", lessonSave.length > 0 && !/deleteQuest\(/.test(lessonSave));
+  const sheets = readFileSync(new URL("../src/components/ascent/Sheets.jsx", import.meta.url), "utf8");
+  const remove = sheets.slice(sheets.indexOf("async function remove(r)"), sheets.indexOf("setRows((rs) => rs.filter((x) => x.key !== r.key));"));
+  ok("taking off any saved camp asks first, clipboard and all", /r\.id &&\s*!\(await confirm\(/.test(remove) && /clipboard, photos and sketches/.test(remove));
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  ok(
+    "each target's page starts fresh",
+    /if \(pathname !== at\.current\.key && pathname !== at\.current\.alias\) at\.current = \{ key: pathname, alias: null \};/.test(app) &&
+      /<Target\s+key=\{at\.current\.key\}\s+onCanonical=\{\(path\) => \{\s*at\.current\.alias = path;\s*\}\}/.test(app) &&
+      (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2
+  );
+}
+
+// (end of targets tab, part 5)
+
+
+// ===== Targets tab (PR 3, review fix 1: the page loads and its head) =====
+// Add this fix group's tests directly under the line above.
+{
+  console.log("\ntargets tab, review fix 1: the page loads and its head");
+  const { build } = await import("esbuild");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  const body = read("src/components/targets/QuestBody.jsx");
+  const page = read("src/pages/Target.jsx");
+  const headSrc = read("src/components/targets/TargetHead.jsx");
+  const focusSrc = read("src/components/targets/TargetFocus.jsx");
+  const app = read("src/App.jsx");
+
+  // --- QuestBody: one tree whatever the lists are doing --------------------------
+  const tail = body.slice(body.indexOf("const tileFor = "));
+  const mainReturn = body.slice(body.indexOf("// Every part is its own cell of one grid"));
+  ok(
+    "while a quest's lists load, fail or can't be found, QuestBody draws the one tree it draws with them (no early return), so its quotes, notes and history keep their place, and what's open in them, as the lists arrive",
+    tail.length > 0 && !/if \(!(board|sel)\) \{\s*return/.test(tail) && (tail.match(/\n  return \(/g) ?? []).length === 1 && !/tg-body/.test(body)
+  );
+  ok(
+    "the Loading line, the lists' error and Try again for lists that can't be found sit where the lists' load error goes",
+    /const waiting = !board \?/.test(body) &&
+      /<LoadError what="this list" error=\{error\} onRetry=\{reload\} \/>/.test(body) &&
+      /Couldn't find this/.test(body) &&
+      /\{ready \? error && <LoadError what="this list" error=\{error\} onRetry=\{reload\} stale \/> : waiting\}/.test(mainReturn)
+  );
+  ok(
+    "the quotes and notes are always in the grid's side cell and the history at the foot of the rest; the build, camps, Today and the ongoing list are drawn once the lists are in",
+    /\{\(quotes \|\| notes\) && \(\s*<aside className="qs-side"[^>]*>\s*\{quotes\}\s*\{notes\}\s*<\/aside>/.test(mainReturn) &&
+      /\{history\}\s*<\/div>\s*<\/div>\s*<\/SketchProvider>/.test(mainReturn) &&
+      /\{ready && roomy && \(/.test(mainReturn) &&
+      /\{ready && \(\s*<QuestCamps\b/.test(mainReturn) &&
+      /\{ready && <div className="qs-today">/.test(mainReturn) &&
+      /\{ready && \(\s*<div className="qs-ongoing">/.test(mainReturn)
+  );
+  ok(
+    "the header is drawn once, first and outside the providers, so it never remounts as the lists arrive",
+    /return \(\s*<>\s*\{head\(tile\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
+      (body.match(/\{head\(/g) ?? []).length === 1 &&
+      /const tile = !board \? tileFor\(\{ waiting: true \}\) : !sel \? null : tileFor\(/.test(body)
+  );
+  const providers = body.slice(body.indexOf("<PhotoProvider"), body.indexOf("</PhotoProvider>"));
+  ok("nothing inside the photo and tint providers draws the header", providers.length > 0 && !/head\(/.test(providers));
+
+  // --- Target.jsx: the lists load alongside the ladder ----------------------------
+  ok("the page reads a quest's lists itself, alongside the ladder, and QuestBody no longer does", /useLoad\(\(\) => \(userId && wantsBoard \? fetchQuestBoard\(userId\) : null\), \[userId, wantsBoard\]\)/.test(page) && !/fetchQuestBoard\(\w|^\s+fetchQuestBoard,$/m.test(body));
+  ok(
+    "and hands them down with their error, loading, reload and mutate",
+    /board=\{board\.data\}\s*boardError=\{board\.error\}\s*boardLoading=\{board\.loading\}\s*reloadBoard=\{board\.reload\}\s*mutateBoard=\{board\.mutate\}/.test(page) &&
+      /const error = boardError;\s*const loading = boardLoading;\s*const reload = reloadBoard;/.test(body)
+  );
+  ok(
+    "a ladder that fails on a quest's page is a line above its lists, not the whole page",
+    /\{ladder\.error && <LoadError what=\{`this \$\{kind\}'s arrows and climb`\} error=\{ladder\.error\} onRetry=\{ladder\.reload\} stale=\{Boolean\(data\)\} \/>\}\s*<QuestBody/.test(page) &&
+      /if \(!data && ladder\.error && !quest && !\(wantsBoard && board\.loading\)\) \{/.test(page)
+  );
+  ok("drawn from its lists alone, it has no pencil until the ladder's row is in", /const edit = info\.fromBoard\s*\? null/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
+  const calls = page.match(/resolveRef\(ref, \{[^}]*\}\)/g) ?? [];
+  ok(
+    "every placing of a focus stops at this week (upTo), and the place is told again as the day turns",
+    calls.length === 3 && calls.filter((c) => c !== "resolveRef(ref, {})").every((c) => /\bupTo\b/.test(c)) && /const upTo = focusWeekOf\(today\);/.test(page) && /\[ref, data, board\.data, edges, focusGoals, rows\.data, today\]/.test(page),
+    calls.join(" | ")
+  );
+  ok("the evening's lines get the target's reasons, for the ring and the miss", /reasons=\{t\?\.reasons \?\? null\}/.test(page));
+  ok("a goal's notes and quotes take in the goals under it", /import \{ subtreeIds \} from "\.\.\/lib\/wheel";/.test(page) && /lineage: \[\.\.\.subtreeIds\(edges \?\? \[\], id\)\],/.test(page));
+  ok("a focus's ladder line comes from its row as the week has it now", /crumbs: ladderLine\(\[focusRow\]\),/.test(page));
+  ok("the page tells App.jsx of its own move just before it goes", /onCanonical\?\.\(`\/targets\/\$\{key\}`\);\s*navigate\(`\/targets\/\$\{key\}/.test(page) && /export default function Target\(\{ onCanonical = null \}\)/.test(page));
+  ok("App.jsx keeps the page across that move, and starts afresh for any other", /const at = useRef\(\{ key: pathname, alias: null \}\);/.test(app) && /<Target\s+key=\{at\.current\.key\}/.test(app) && !/<Target key=\{pathname\}/.test(app));
+
+  // --- The head and the focus -----------------------------------------------------
+  ok("a target off the range (done, set aside, learned) doesn't say 'No arrow yet today'", /off=\{Boolean\(chip\)\}/.test(headSrc) && /\{\(!off \|\| t\.today\) && <span className=\{"tg-mark__state"/.test(headSrc));
+  ok("a focus's why line is one line of words", /<div className="tg-why">\s*<p className="tg-why__text">\{why\}<\/p>\s*<\/div>/.test(headSrc));
+  ok("a focus's page says what it counts toward once, above", /toward=\{null\}/.test(focusSrc) && !/towardLabel/.test(focusSrc));
+
+  // --- placeRef and describe, run ---------------------------------------------------
+  // Target.jsx built with everything it imports swapped for stand-ins but
+  // the ladder's, the focus's, the Mark's and the wheel's libraries (and
+  // React's element maker, for a focus's why line).
+  const pagePath = fileURLToPath(at("src/pages/Target.jsx"));
+  const keep = /\/lib\/(ladder|focus|mark|wheel)$|^react\/jsx-runtime$/;
+  const builtPage = await build({
+    entryPoints: [pagePath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "automatic",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === pagePath && !keep.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const clause = page.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
+            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const P = await import(`data:text/javascript;base64,${Buffer.from(builtPage.outputFiles[0].text).toString("base64")}`);
+  const day = "2026-11-04"; // a Wednesday; its week began Sunday Nov 1
+  const board = {
+    quests: [
+      { id: "q1", title: "Build the best Premiere Pro plugin", note: "Ship it by spring.", status: "on", goal_id: "g1", lesson_id: null },
+      { id: "q2", title: "Run a marathon", note: null, status: "done", goal_id: null, lesson_id: null },
+      { id: "m1", title: "Quit caffeine", note: null, status: "on", goal_id: null, lesson_id: "l1" },
+    ],
+    lessons: [{ id: "l1", title: "Stop drinking caffeine", question: "What does it do to my mornings?", status: "learned", goal_id: "g1" }],
+    goals: [
+      { id: "g1", title: "Highly skilled" },
+      { id: "g2", title: "Highly fit" },
+    ],
+  };
+  const place = (ref, more = {}) => P.placeRef(ref, { data: undefined, board: undefined, edges: null, focusGoals: null, rowsIn: false, today: day, ...more });
+  ok("the mission is placed at once", place("mission")?.kind === "mission");
+  ok("before the ladder and the lists, nothing can be told yet", place("q1") === undefined);
+  const fromBoard = place("q1", { board });
+  ok("the lists alone place a quest", fromBoard?.kind === "quest" && fromBoard.key === "q1");
+  const byMountain = place("m1", { board });
+  ok("and a lesson by its mountain's id, at the lesson's own address", byMountain?.kind === "lesson" && byMountain.key === "l1");
+  ok("but not a goal: that waits for the ladder", place("g1", { board }) === undefined);
+  const data = { goals: [{ id: "g1", title: "Highly skilled" }], quests: board.quests, lessons: board.lessons, marks: { targets: [], aims: [], shots: [] } };
+  ok("once the ladder's in, it places a goal", place("g1", { data, board })?.kind === "goal");
+  ok("what it can't place is nothing of his only once the focus rows are in too", place("zz", { data }) === undefined && place("zz", { data, rowsIn: true }) === null);
+
+  const none = { questView: () => null, lessonView: () => null, targetOf: () => null, focusWeek: { week: [] } };
+  const edges = [{ parent_id: "g2", child_id: "g3" }];
+  const q = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges, today: day });
+  ok(
+    "a quest drawn from its lists: its name, why and ladder line, no target yet, and no pencil",
+    q?.title === "Build the best Premiere Pro plugin" && q.why === "Ship it by spring." && q.mark === null && q.fromBoard === true && q.name === "Plugin" && q.crumbs.map((c) => c.label).join() === "My mission,Skilled",
+    JSON.stringify(q?.crumbs)
+  );
+  const l = P.describe({ kind: "lesson", id: "l1", key: "l1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges: null, today: day });
+  ok("a lesson drawn from its lists keeps its question and its Learned chip", l?.why === "What does it do to my mornings?" && l.chip === "Learned" && l.mark === null && l.fromBoard === true);
+  const seen = { ...none, questView: (id) => (id === "q1" ? { ...board.quests[0], state: {} } : null) };
+  const withLadder = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data, view: { goals: [] }, board, ladder: seen, focusGoals: null, edges, today: day });
+  ok("once the ladder's in, its target on the range is there and its pencil with it", withLadder?.mark?.key === "q1" && withLadder.fromBoard === false);
+  ok("a quest in neither is gone", P.describe({ kind: "quest", id: "nope", key: "nope" }, { data, view: { goals: [] }, board, ladder: none, focusGoals: null, edges, today: day }) === null);
+  const goal = P.describe(
+    { kind: "goal", id: "g1", key: "g1" },
+    { data, view: { goals: [{ id: "g1", title: "Highly skilled", short: "Skilled" }] }, board, ladder: none, focusGoals: null, edges: [{ parent_id: "g1", child_id: "g4" }, { parent_id: "g4", child_id: "g5" }, ...edges], today: day }
+  );
+  ok("a goal's page reads its own notes and those of every goal under it", goal?.lineage?.slice().sort().join() === "g1,g4,g5", JSON.stringify(goal?.lineage));
+  const row = { id: "f1", title: "Daily form", week_start: "2026-11-01", node_id: "g1", quest_id: null, lesson_id: null, carried_from: null };
+  const moved = { ...none, focusWeek: { week: [{ ...row, node_id: null, quest_id: "q1" }] } };
+  const f = P.describe(
+    { kind: "focus", id: "f1", key: "f1" },
+    { data, view: { goals: [], quests: board.quests, lessons: board.lessons }, board, ladder: moved, focusGoals: [row], edges, today: day }
+  );
+  ok("a focus moved to count toward a quest shows that quest in its ladder line at once", f?.crumbs.map((c) => c.to).join() === "/targets/mission,/targets/g1,/targets/q1", JSON.stringify(f?.crumbs));
+
+  // --- TargetHead, drawn ------------------------------------------------------------
+  const dir = fileURLToPath(at("src/components/targets/"));
+  const standIns = {
+    "react-router-dom": 'import { createElement } from "react"; export const Link = ({ to, children, className }) => createElement("a", { href: to, className }, children);',
+    "lucide-react": "export const ChevronRight = () => null; export const Pencil = () => null;",
+  };
+  const builtHead = await build({
+    stdin: {
+      contents: 'export { default as TargetHead } from "./TargetHead.jsx"; export { renderToStaticMarkup } from "react-dom/server"; export { createElement, Fragment } from "react";',
+      resolveDir: dir,
+      loader: "jsx",
+    },
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    jsx: "automatic",
+    logLevel: "silent",
+    banner: { js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(import.meta.url)});` },
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /^(react-router-dom|lucide-react)$|\/TargetFace$/ }, (a) => ({ path: a.path, namespace: "stand-in" }));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => ({ contents: standIns[a.path] ?? "export default () => null;", loader: "jsx", resolveDir: dir }));
+        },
+      },
+    ],
+  });
+  const H = await import(`data:text/javascript;base64,${Buffer.from(builtHead.outputFiles[0].text).toString("base64")}`);
+  const drawHead = (props) => H.renderToStaticMarkup(H.createElement(H.TargetHead, { title: "Plugin", eyebrow: "Quest", today: day, onHistory: () => {}, ...props }));
+  const mark = { shots: [], today: null };
+  ok("a quest he's on says no arrow yet today", /No arrow yet today/.test(drawHead({ mark })));
+  const doneHead = drawHead({ mark, chip: "Done" });
+  ok("a finished one doesn't, and keeps its History", !/No arrow yet today/.test(doneHead) && /History/.test(doneHead) && /tg-chip">Done</.test(doneHead));
+  ok("an arrow that did land today on one set aside is still said", /Bullseye tonight/.test(drawHead({ mark: { shots: [], today: { level: 0 } }, chip: "Set aside" })));
+  const why = H.createElement(H.Fragment, null, "Counts toward ", H.createElement("a", { href: "/targets/g1" }, "Skilled"), H.createElement("span", { className: "tg-why__week" }, " · Week of Oct 25"));
+  ok("a focus's why stays one line of words", /<div class="tg-why"><p class="tg-why__text">Counts toward <a href="\/targets\/g1">Skilled<\/a><span class="tg-why__week"> · Week of Oct 25<\/span><\/p><\/div>/.test(drawHead({ why })));
+  ok("while a quest's target is coming, its row keeps its place", /<div class="tg-mark" aria-hidden="true"><\/div>/.test(drawHead({ markWaiting: true })) && !/tg-mark/.test(drawHead({})));
+
+  // --- Target.jsx: a #history, #notes or #quotes link waits on the lists -----------
+  ok(
+    "a quest's or lesson's page looks for #history, #notes or #quotes once its lists have answered, not under the header while they load",
+    /const listsIn = !\(resolved\?\.kind === "quest" \|\| resolved\?\.kind === "lesson"\) \|\| !board\.loading;/.test(page) &&
+      /useScrollToPlace\(key && key === ref && listsIn \? key : null, location\.hash\);/.test(page) &&
+      page.indexOf("const listsIn =") < page.indexOf("useScrollToPlace(key") &&
+      (page.match(/useScrollToPlace\(/g) ?? []).length === 2
+  );
+}
+// (end of review fix 1)
+
+
+// ===== Targets tab (PR 3, review fix 2: the ladder, its data and the overview) =====
+// Add this fix group's tests directly under the line above.
+{
+  console.log("\ntargets tab, review fix 2: the ladder, its data and the overview");
+  const L = await import("../src/lib/ladder.js");
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+
+  // --- This week's focus stays this week's once next week is planned --------
+  const line = [
+    { id: "f1", title: "Win by win", week_start: "2026-10-18", carried_from: null },
+    { id: "f2", title: "Win by win", week_start: "2026-10-25", carried_from: "f1" },
+    { id: "f3", title: "Win by win", week_start: "2026-11-01", carried_from: "f2" },
+    { id: "f5", title: "Win by win", week_start: "2026-11-08", carried_from: "f3" },
+  ];
+  const at = (ref, upTo) => L.resolveRef(ref, { goals: [], quests: [], lessons: [], focusGoals: line, upTo })?.key;
+  ok("kept into next week early, this week's focus still opens this week's row", at("f3", "2026-11-01") === "f3", at("f3", "2026-11-01"));
+  ok("and an older week of it opens this week's, not next week's", at("f1", "2026-11-01") === "f3", at("f1", "2026-11-01"));
+  ok("a link straight to next week's row still opens that row", at("f5", "2026-11-01") === "f5" && L.resolveRef("f5", { focusGoals: line, upTo: "2026-11-01" })?.kind === "focus");
+  ok("with no week given, the walk goes to the newest row as before", at("f3") === "f5" && at("f1") === "f5" && L.newestInLine("f1", line) === "f5");
+  ok("once next week comes, it opens next week's", at("f3", "2026-11-08") === "f5");
+  ok("newestInLine stops before a week past upTo", L.newestInLine("f2", line, "2026-11-01") === "f3" && L.newestInLine("f2", line, "2026-10-25") === "f2");
+  const fork = [{ id: "a", week_start: "2026-10-25" }, { id: "b", carried_from: "a", week_start: "2026-11-01" }, { id: "c", carried_from: "a", week_start: "2026-11-08" }];
+  ok("a stray fork into next week can't hide this week's row", L.newestInLine("a", fork, "2026-11-01") === "b" && L.newestInLine("a", fork) === "c");
+
+  // --- The evening's lines say where the arrow landed ----------------------------
+  const reasons = ["Tired", "Distracted", "Ran out of time"];
+  const shots = [
+    { id: "s1", date: "2026-11-01", level: 3, reason: 1, note: "Ran out of time", loosed_at: "2026-11-02T04:00:00Z", answers: [{ aim: "a", text: "Up by 4:35", v: 0, line: "Overslept" }] },
+    { id: "s2", date: "2026-10-31", level: 0, reason: 2, note: "Clean day", loosed_at: "2026-11-01T04:00:00Z" },
+    { id: "s3", date: "2026-10-30", level: null, note: "No ring", loosed_at: "2026-10-31T04:00:00Z" },
+    { id: "s4", date: "2026-10-29", level: 5, reason: null, note: "Missed it", loosed_at: "2026-10-30T04:00:00Z" },
+  ];
+  const ev = L.eveningLines(shots, reasons);
+  const ringOf = (id) => ev.find((e) => e.id === id)?.ring;
+  ok("an outer-ring miss says its ring and what got in the way", ringOf("shot:s1") === "Outer · Distracted", ringOf("shot:s1"));
+  ok("a check's own line carries its arrow's ring too", ringOf("shot:s1:0") === "Outer · Distracted" && ev.find((e) => e.id === "shot:s1:0").prompt === "Up by 4:35");
+  ok("a bullseye is only its ring, whatever reason is left on the row", ringOf("shot:s2") === "Bullseye");
+  ok("a shot with no ring says none", ringOf("shot:s3") === null);
+  ok("a miss with no reason is only its ring", ringOf("shot:s4") === "Missed");
+  ok("without the target's reasons, only the ring", L.eveningLines(shots).find((e) => e.id === "shot:s1").ring === "Outer" && L.eveningLines(shots, null).find((e) => e.id === "shot:s1").ring === "Outer");
+  ok("the ring comes through the timeline", L.notesTimeline({ evening: ev }, "2026-11-02")[0].items.every((i) => i.ring === "Outer · Distracted"));
+  ok("no dashes in a ring", ev.every((e) => !/[–—]| -- /.test(e.ring ?? "")));
+
+  // --- Two pills never say the same word ----------------------------------------
+  const pills = L.questPills({
+    quests: [
+      { id: "q1", title: "Quit caffeine", status: "on", position: 0 },
+      { id: "q2", title: "Build the best Premiere Pro plugin", status: "on", position: 1 },
+    ],
+    lessons: [{ id: "l1", title: "Stop drinking caffeine", status: "learning", position: 0 }],
+  });
+  ok("a quest and a lesson that shorten alike both show their full names", pills.map((p) => p.short).join("|") === "Quit caffeine|Plugin|Stop drinking caffeine", pills.map((p) => p.short).join("|"));
+  ok("every pill's label is its own", new Set(pills.map((p) => p.short.toLowerCase())).size === pills.length);
+  ok("a pill nothing else shares keeps its one word", L.questPills({ quests: [{ id: "q", title: "Build the best Premiere Pro plugin", status: "on" }] })[0].short === "Plugin");
+
+  // --- Reflect never opens on a follow-up ----------------------------------------
+  ok("each quest question stands alone (no 'the difference' with nothing before it)", L.REFLECT_PROMPTS.quest.length === 6 && L.REFLECT_PROMPTS.quest.every((q) => !/^why was there a difference/i.test(q) && !/\bthe difference\b/i.test(q)));
+
+  // --- A lifetime goal reads the goals under it; a focus its earlier weeks -------
+  const api = src("lib/api.js");
+  ok("the old option name is gone", !/focusLineage/.test(api));
+  ok("notes and quotes on a target take a lineage", /export async function fetchTargetNotes\(userId, ref, \{ lineage \} = \{\}\)/.test(api) && /export async function fetchQuoteLinks\(userId, ref, \{ lineage \} = \{\}\)/.test(api));
+  const refEntrySrc = api.slice(api.indexOf("function refEntry("), api.indexOf("\n}\n", api.indexOf("function refEntry(")) + 2);
+  const onRefSrc = api.slice(api.indexOf("function onRef("), api.indexOf("\n}\n", api.indexOf("function onRef(")) + 2);
+  const onRef = new Function(`${refEntrySrc}\n${onRefSrc}\nreturn onRef;`)();
+  const q = { in: (c, v) => `in:${c}:${v.join(",")}`, eq: (c, v) => `eq:${c}:${v}` };
+  ok("a lifetime goal reads every goal under it, itself once", onRef(q, { goal_id: "g1" }, ["g1", "n1", "n2"]) === "in:goal_id:g1,n1,n2", onRef(q, { goal_id: "g1" }, ["g1", "n1", "n2"]));
+  ok("a focus reads its earlier weeks", onRef(q, { focus_goal_id: "f3" }, ["f2", "f1"]) === "in:focus_goal_id:f3,f2,f1");
+  ok("any other target is only itself, lineage or not", onRef(q, { quest_id: "q1" }, ["x"]) === "eq:quest_id:q1" && onRef(q, { lesson_id: "l1" }, ["x"]) === "eq:lesson_id:l1" && onRef(q, { mission: true }, ["x"]) === "eq:mission:true");
+  ok("no lineage, only itself", onRef(q, { goal_id: "g1" }) === "eq:goal_id:g1" && onRef(q, { focus_goal_id: "f3" }, []) === "eq:focus_goal_id:f3");
+
+  // --- "From you" holds every own quote ----------------------------------------
+  const own = api.slice(api.indexOf("export async function fetchOwnQuotes"), api.indexOf("export async function fetchQuoteLinks"));
+  ok("his own quotes come a page at a time, all of them", /selectAllPages\(\(\) =>/.test(own) && !/\.limit\(/.test(own) && /\.order\("created_at", \{ ascending: false \}\)\s*\.order\("id"\)/.test(own));
+  ok("and only the ones that record someone's words", /\.or\("excerpt\.not\.is\.null,shelf_people\.neq\.\{\}"\)/.test(own) && /rows\.filter\(\(n\) => String\(n\.excerpt \?\? ""\)\.trim\(\) \|\| \(n\.shelf_people \?\? \[\]\)\.length\)/.test(own));
+
+  // --- The shared hook: deletes, a new lesson, and the patch just earned ---------
+  const hook = src("components/targets/useLadder.jsx");
+  const removeQuest = hook.slice(hook.indexOf("async function removeQuest"), hook.indexOf("const saveLessonFrom"));
+  const removeLesson = hook.slice(hook.indexOf("async function removeLesson"), hook.indexOf("const saveTargetFrom"));
+  ok("deleting a quest leaves its page as soon as the delete lands, before the reload", /await deleteQuest\(quest\.id\);\s*onGone\?\.\(\);\s*\}/.test(removeQuest) && !/\)\) onGone\?\.\(\)/.test(removeQuest));
+  ok("and so does deleting a lesson", /await deleteLesson\(lesson\.id\);\s*onGone\?\.\(\);\s*\}/.test(removeLesson) && !/\)\) onGone\?\.\(\)/.test(removeLesson));
+  const lessonSave = hook.slice(hook.indexOf("const saveLessonFrom"), hook.indexOf("async function removeLesson"));
+  ok("a new lesson's page is set to open only once it and its camps are both saved", (lessonSave.match(/onAdded\?\.\(/g) ?? []).length === 1 && /if \(!lesson\) onAdded\?\.\(lessonId\);\s*\},\s*"Couldn't save that lesson\."/.test(lessonSave));
+  ok("the patch just earned waits under one key", /export const FRESH_PATCH_KEY = "hub:freshPatch";/.test(hook));
+  const summit = hook.slice(hook.indexOf("setFreshPatch(q.id);"), hook.indexOf("toast.show(`Patch earned"));
+  ok("it's kept for Targets as the summit's ceremony ends", /sessionStorage\.setItem\(FRESH_PATCH_KEY, q\.id\)/.test(summit));
+  const undo = hook.slice(hook.indexOf("async function undoSummit"), hook.indexOf("// --- Saving from the sheets"));
+  ok("and taken back with the summit", /setFreshPatch\(null\);\s*try \{\s*sessionStorage\.removeItem\(FRESH_PATCH_KEY\);/.test(undo));
+  const page = src("pages/Targets.jsx");
+  ok("Targets reads it once and clears it as it opens", /const \[fresh\] = useState\(\(\) => \{\s*try \{\s*return sessionStorage\.getItem\(FRESH_PATCH_KEY\);/.test(page) && /useEffect\(\(\) => \{\s*try \{\s*sessionStorage\.removeItem\(FRESH_PATCH_KEY\);[\s\S]*?\}, \[\]\);/.test(page));
+  ok("and Behind you opens on it", /<BehindYou view=\{view\} fresh=\{fresh\} \/>/.test(page) && !/freshPatch/.test(page));
+  const storageSafe = (s) => [...s.matchAll(/sessionStorage\./g)].every((m) => /try \{\s*(return )?$/.test(s.slice(0, m.index)));
+  ok("every sessionStorage call can't break the page (each in a try)", storageSafe(hook) && storageSafe(page) && (hook.match(/sessionStorage\./g) ?? []).length === 2 && (page.match(/sessionStorage\./g) ?? []).length === 2);
+
+  // --- Done today links a lesson by its own id ----------------------------------
+  const done = allDoneToday(
+    {
+      items: [{ key: "m1", questId: "m1", lessonId: "l1", name: "Patience" }, { key: "q", questId: "q", lessonId: null, name: "Plugin" }],
+      quests: [{ id: "m1", title: "Mountain", lesson_id: "l1" }, { id: "q", title: "Plugin" }, { id: "m2", title: "Mountain", lesson_id: "l2" }],
+      lessons: [{ id: "l1", title: "Patience" }, { id: "l2", title: "Honesty" }],
+      tasks: [
+        { id: "a", quest_id: "m1", kind: "task", text: "Held my tongue", done_on: "2026-11-02" },
+        { id: "b", quest_id: "q", kind: "task", text: "Shipped", done_on: "2026-11-02" },
+        { id: "c", quest_id: "m2", kind: "task", text: "Told the truth", done_on: "2026-11-02" },
+      ],
+    },
+    "2026-11-02"
+  );
+  ok("done today knows a lesson's own id, along the top or not", done.map((d) => `${d.questId}:${d.lessonId}`).join() === "m1:l1,q:null,m2:l2", done.map((d) => `${d.questId}:${d.lessonId}`).join());
+  const doneSheet = src("components/quests/DoneToday.jsx");
+  ok("and links it there, never by its mountain", /<Link to=\{`\/targets\/\$\{q\.lessonId \?\? q\.questId\}`\}/.test(doneSheet) && !/\/targets\/\$\{q\.key\}/.test(doneSheet));
+
+  // --- The watch says where picks are made now ----------------------------------
+  const watchFn = readFileSync(new URL("../supabase/functions/watch/index.ts", import.meta.url), "utf8");
+  ok("with nothing picked, the watch sends him to a quest's page under Targets", watchFn.includes(`done("Nothing open on Today. Pick some on a quest's page under Targets.")`) && !/Pick some on Quests/.test(watchFn));
+  ok("and the watch page calls it his quests' list", src("pages/Watch.jsx").includes("(today's list from your quests)") && !/from Quests\)/.test(src("pages/Watch.jsx")));
+
+  // --- A lesson's old notes come along (0104) --------------------------------------
+  const mig = readFileSync(new URL("../supabase/migrations/0104_target_notes_and_quotes.sql", import.meta.url), "utf8");
+  const sql = mig.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  const copy = sql.slice(sql.indexOf("insert into public.target_notes"));
+  ok("0104 copies each lesson mountain's note onto its lesson once", /^insert into public\.target_notes \(user_id, lesson_id, kind, date, text\)\nselect q\.user_id, q\.lesson_id, 'note', \(q\.created_at at time zone 'America\/Denver'\)::date, left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)\nfrom public\.quests q\n/.test(copy), copy.slice(0, 300));
+  ok("only a mountain's, and only a note with words in it", /where q\.lesson_id is not null and btrim\(coalesce\(q\.note, ''\), E' \\t\\r\\n'\) <> ''/.test(copy));
+  ok("and never twice", /and not exists \(select 1 from public\.target_notes t where t\.lesson_id = q\.lesson_id and t\.text = left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)\);/.test(copy));
+  ok("a note too long for a note keeps its first 4000 characters instead of stopping the file", (copy.match(/left\(btrim\(q\.note, E' \\t\\r\\n'\), 4000\)/g) ?? []).length === 2);
+  ok("it says why it's there", /The old Quests page kept "Notes on this\n-- lesson" on the lesson's mountain/.test(mig) && /lesson's own page now reads only target_notes/.test(mig));
+  ok("the copy is the last thing 0104 does, and only once", sql.indexOf("insert into public.target_notes") > sql.indexOf("grant select, insert, update, delete on public.quote_links") && (sql.match(/insert into/gi) ?? []).length === 1);
+}
+// (end of review fix 2)
+
+
+// ===== Targets tab (PR 3, review fix 3: notes, reflections and linked quotes) =====
+// Add this fix group's tests directly under the line above.
+{
+  console.log("\ntargets tab, review fix 3: notes, reflections and linked quotes");
+  const at = (p) => new URL(`../${p}`, import.meta.url);
+  const read = (p) => readFileSync(at(p), "utf8");
+  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
+  const notesSrc = read("src/components/targets/NotesSection.jsx");
+  const linked = read("src/components/targets/LinkedQuotes.jsx");
+  const { REFLECT_PROMPTS, promptFor, promptIndexFor, notesTimeline, noteDraftKey } = await import("../src/lib/ladder.js");
+
+  // NoteSheet's own helpers, with everything it imports but ladder.js
+  // swapped for stand-ins (as part 3's tests build it).
+  const sheetPath = fileURLToPath(at("src/components/targets/NoteSheet.jsx"));
+  const sheetBuilt = await esbuildBundle({
+    entryPoints: [sheetPath],
+    bundle: true,
+    write: false,
+    format: "esm",
+    jsx: "transform",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-ins",
+        setup(b) {
+          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !/lib\/ladder$/.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
+            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const names = (sheetSrc.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
+          });
+        },
+      },
+    ],
+  });
+  const N = await import(`data:text/javascript;base64,${Buffer.from(sheetBuilt.outputFiles[0].text).toString("base64")}`);
+  const store = () => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+  };
+  const later = () => {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  // --- 13: a reflection's draft keeps the question it answers ---------------
+  const quests = REFLECT_PROMPTS.quest;
+  const monday = "2026-10-31";
+  const tuesday = "2026-11-01";
+  ok("the day's opening question differs between the two days of the finding", promptIndexFor("quest", monday) !== promptIndexFor("quest", tuesday));
+  const rKey = "hub.target-note-draft.quest:q1:reflect";
+  const s13 = store();
+  const asked = quests[promptIndexFor("quest", monday)];
+  N.keepNoteDraft(rKey, "Half an answer", s13);
+  N.keepNoteDraft(N.promptKey(rKey), asked, s13);
+  const reopened = N.keptQuestion("quest", N.readNoteDraft(N.promptKey(rKey), s13), promptIndexFor("quest", tuesday));
+  ok("a draft reopened the next day comes back under the question he answered", reopened.text === asked && reopened.turn === quests.indexOf(asked));
+  ok("an older draft that kept only the question's place still reads", N.keptQuestion("quest", "1", 5).text === quests[1] && N.keptQuestion("quest", "1", 5).turn === 1);
+  ok("a question no longer on the list is still the one it's saved under", N.keptQuestion("quest", "What did the old list ask?", 3).text === "What did the old list ask?" && N.keptQuestion("quest", "What did the old list ask?", 3).turn === 3);
+  ok("with nothing kept, the day's question", N.keptQuestion("quest", "", 4).text === promptFor("quest", 4) && N.keptQuestion("quest", null, 4).turn === 4);
+  ok(
+    "the question is kept with the words every time they're kept, as its words, and goes when the box empties",
+    /if \(reflect\) keepNoteDraft\(promptKey\(draftKey\), text\.trim\(\) \? prompt : ""\);/.test(sheetSrc) && /\[focusNote, focusGoal, draftKey, text, reflect, prompt\]/.test(sheetSrc)
+  );
+  ok("a kept question is only read with words to go under it", /keptQuestion\(kind, text\.trim\(\) \? readNoteDraft\(promptKey\(draftKey\)\) : "", promptIndexFor\(kind, today\)\)/.test(sheetSrc));
+  ok("what's saved is the question on screen", /const prompt = ask\?\.text \?\? null;/.test(sheetSrc) && /onSave\(\{ text: sent, prompt \}\)/.test(sheetSrc));
+
+  // --- 14: a focus's reflection follows the focus into its new week ---------
+  const keyOf = (id) => `${noteDraftKey({ kind: "focus", key: id })}:reflect`;
+  const s14 = store();
+  N.keepNoteDraft(keyOf("w1"), "Saturday's lines", s14);
+  N.keepNoteDraft(N.promptKey(keyOf("w1")), REFLECT_PROMPTS.focus[2], s14);
+  const carried = N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14);
+  ok(
+    "a reflection left in last week's focus moves to this week's, with its question",
+    carried === "Saturday's lines" && s14.m.get(keyOf("w2")) === "Saturday's lines" && s14.m.get(N.promptKey(keyOf("w2"))) === REFLECT_PROMPTS.focus[2] && !s14.m.has(keyOf("w1")) && !s14.m.has(N.promptKey(keyOf("w1")))
+  );
+  const s14b = store();
+  N.keepNoteDraft(keyOf("w2"), "This week's own", s14b);
+  N.keepNoteDraft(keyOf("w1"), "Last week's", s14b);
+  ok("a week with its own draft keeps it, and the earlier one stays put", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s14b) === "This week's own" && s14b.m.get(keyOf("w1")) === "Last week's");
+  const s14c = store();
+  N.keepNoteDraft(keyOf("w0"), "Two weeks back", s14c);
+  ok("the newest earlier week with a draft is the one that moves", N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14c) === "Two weeks back" && !s14c.m.has(keyOf("w0")));
+  ok("with nothing anywhere, an empty box", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], store()) === "" && N.carryNoteDraft(keyOf("w2"), null, store()) === "");
+  ok(
+    "the page hands the sheet its earlier weeks' keys",
+    /const earlierKeys = isFocus && sheet === "reflect" \? \(lineage \?\? \[\]\)\.filter\(\(id\) => id && id !== target\.id\)\.map\(\(id\) => `\$\{noteDraftKey\(\{ kind: "focus", key: id \}\)\}:\$\{sheet\}`\) : NONE;/.test(notesSrc) &&
+      /earlierKeys=\{earlierKeys\}/.test(notesSrc)
+  );
+  ok(
+    "the move happens before the question is read",
+    /carryNoteDraft\(draftKey, earlierKeys\)/.test(sheetSrc) && sheetSrc.indexOf("carryNoteDraft(draftKey, earlierKeys)") < sheetSrc.indexOf("const [ask, setAsk] = useState(")
+  );
+
+  // --- 16: words still saving aren't offered for a second save ---------------
+  const nKey = "hub.target-note-draft.quest:q1:reflect";
+  const s16 = store();
+  N.keepNoteDraft(nKey, "Sent once", s16);
+  const q16 = quests[2];
+  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
+  const heard = [];
+  const stop = N.onNoteSent((l) => heard.push(l));
+  let d = later();
+  let p = N.sendNote({ key: nKey, sent: "Sent once", question: q16, save: () => d.promise, store: s16 });
+  ok("a sheet opened while it saves finds an empty box", N.readNoteDraft(nKey, s16) === "" && N.carryNoteDraft(nKey, [], s16) === "");
+  d.resolve({ id: "r1" });
+  await p;
+  ok("once saved, the draft and its question are gone", !s16.m.has(nKey) && !s16.m.has(N.promptKey(nKey)));
+  ok("the sheets on screen hear it land", heard.length === 1 && heard[0].key === nKey && heard[0].sent === "Sent once" && heard[0].saved === true);
+
+  // A sheet reopened mid-save empties the box (its keep-as-you-type), and
+  // the first save then fails: the words and their question come back.
+  N.keepNoteDraft(nKey, "Sent again", s16);
+  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "", s16);
+  N.keepNoteDraft(N.promptKey(nKey), "", s16);
+  d.reject(new Error("offline"));
+  let threw = false;
+  try {
+    await p;
+  } catch {
+    threw = true;
+  }
+  ok("a failed save after the box was emptied puts the words back, with their question", threw && N.readNoteDraft(nKey, s16) === "Sent again" && s16.m.get(N.promptKey(nKey)) === q16);
+  ok("and the sheets on screen hear that too", heard.length === 2 && heard[1].saved === false && heard[1].question === q16);
+
+  // Typed since, in a sheet opened meanwhile: nothing of either is lost.
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "Something new", s16);
+  d.reject(new Error("offline"));
+  await p.catch(() => {});
+  ok("words typed since stay, under the ones that didn't save", N.readNoteDraft(nKey, s16) === "Sent again\n\nSomething new");
+  ok("a box that already holds the unsaved words isn't given them twice", N.withUnsentNote("Sent again\n\nmore", "Sent again") === "Sent again\n\nmore" && N.withUnsentNote("  ", "x") === "x");
+
+  // Saved, with words typed since under it: that draft keeps its question.
+  N.keepNoteDraft(nKey, "Sent last", s16);
+  d = later();
+  p = N.sendNote({ key: nKey, sent: "Sent last", question: q16, save: () => d.promise, store: s16 });
+  N.keepNoteDraft(nKey, "Typed after", s16);
+  N.keepNoteDraft(N.promptKey(nKey), quests[0], s16);
+  d.resolve({ id: "r2" });
+  await p;
+  ok("a save that lands leaves a newer draft and its question alone", N.readNoteDraft(nKey, s16) === "Typed after" && s16.m.get(N.promptKey(nKey)) === quests[0]);
+  stop();
+
+  // An earlier week's draft that's still saving isn't moved across.
+  const s16b = store();
+  N.keepNoteDraft(keyOf("w1"), "On its way", s16b);
+  d = later();
+  p = N.sendNote({ key: keyOf("w1"), sent: "On its way", save: () => d.promise, store: s16b });
+  ok("an earlier week's words that are still saving stay where they are", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s16b) === "" && s16b.m.has(keyOf("w1")));
+  d.resolve({ id: "r3" });
+  await p;
+
+  ok("the sheet saves through sendNote, which keeps the words on their way by draft key", /const inFlight = new Map\(\);/.test(sheetSrc) && /sendNote\(\{ key: draftKey, sent, question: prompt, save:/.test(sheetSrc));
+  ok("a sheet closed mid-save doesn't close the one open when it lands", /if \(live\.current\) onClose\(\);/.test(sheetSrc));
+  ok(
+    "a sheet opened while the words saved, with nothing typed in it, closes once they land",
+    /const closeRef = useRef\(onClose\);\s*closeRef\.current = onClose;/.test(sheetSrc) && /const heard = \(\{ sent, question, saved \}\) => \{\s*if \(saved && !shown\.current\.trim\(\) && !closedSending\.has\(sendToken\(draftKey, sent\)\)\) closeRef\.current\(\);/.test(sheetSrc)
+  );
+  ok(
+    "a sheet he closed himself while it saved marks its words, so one he opens again stays open when they land",
+    /<Sheet title=\{reflect \? `Reflect on \$\{name\}` : `A note on \$\{name\}`\} onClose=\{close\}>/.test(sheetSrc) && /sending\.current = sent;/.test(sheetSrc) && /\} finally \{\s*sending\.current = null;\s*closedSending\.delete\(sendToken\(draftKey, sent\)\);\s*\}/.test(sheetSrc)
+  );
+  ok(
+    "an open sheet hears its words land, a target note's or a focus note's",
+    /return onNoteSent\(\(landed\) => landed\.key === draftKey && heard\(landed\)\);/.test(sheetSrc) && /onNoteLanded\(\(\{ goalId, sent, row \}\) => goalId === focusId/.test(sheetSrc)
+  );
+
+  // --- 17: an inline edit isn't thrown away by a tap on another note ---------
+  ok(
+    "a tap on another note is ignored while an edit is changed or saving",
+    /if \(editing && \(editing\.busy \|\| editing\.text !== editing\.orig\)\) \{\s*if \(editBox\.current\) \{\s*editBox\.current\.focus\(\);\s*return;\s*\}/.test(notesSrc) && /setEditing\(\{ id: item\.id, text: item\.text, orig: item\.text, busy: false \}\)/.test(notesSrc)
+  );
+  ok(
+    "a changed edit pushed out of the first notes is shown again, while its note is still there",
+    /if \(groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.id === editing\.id\)\)\) \{\s*setAll\(true\);\s*return;\s*\}/.test(notesSrc)
+  );
+  ok("every note's text opens through that check", /onClick=\{\(\) => startEdit\(item\)\}/.test(notesSrc) && (notesSrc.match(/setEditing\(\{ id: /g) ?? []).length === 1);
+  ok("the box being edited is the one the tap goes back to", /ref=\{editBox\}/.test(notesSrc));
+
+  // --- 18: the picker's unlink has Undo, and a quick second tap counts --------
+  ok("an unlink from the picker is the card's unlink, with Undo", /else if \(hit\.linkIds\?\.length\) unlink\(hit\);/.test(linked) && !/quiet: true|if \(!quiet\)/.test(linked) &&/toast\.show\("Unlinked", \{\s*actionLabel: "Undo"/.test(linked));
+  ok(
+    "a second tap on a link still saving takes it off, and unlinks it once saved",
+    /const unlinkAfter = useRef\(new Map\(\)\);/.test(linked) &&
+      /unlinkAfter\.current\.set\(item\.id, hit\);/.test(linked) &&
+      /const off = unlinkAfter\.current\.delete\(item\.id\);/.test(linked) &&
+      /if \(off\) unlink\(saved\);/.test(linked)
+  );
+  ok("a third tap before it saved keeps the link", /const waiting = unlinkAfter\.current\.get\(item\.id\);/.test(linked) && /mutate\(\(l\) => \[\.\.\.\(l \?\? \[\]\), waiting\]\);/.test(linked));
+  ok("a link tapped off before it failed says nothing", /if \(!unlinkAfter\.current\.delete\(item\.id\)\) toast\.error\(err, "Couldn't link that quote\."\);/.test(linked));
+
+  // --- I1: a lifetime goal reads the goals under it, a focus its weeks -------
+  const lineageCall = /\{ lineage: isFocus \|\| target\.kind === "goal" \? lineage \?\? \[\] : undefined \}/;
+  ok("notes are read with the target's lineage, on a goal as on a focus", lineageCall.test(notesSrc) && /fetchTargetNotes\(userId, ref, \{ lineage:/.test(notesSrc));
+  ok("linked quotes are read the same way", lineageCall.test(linked) && /fetchQuoteLinks\(userId, ref, \{ lineage:/.test(linked));
+  ok("the old option name is gone from these files", ![sheetSrc, notesSrc, linked].some((src) => /focusLineage/.test(src)));
+
+  // --- I3: the evening's lines name their ring --------------------------------
+  ok("the notes take the target's reasons for the evening's lines", /reasons = null/.test(notesSrc) && /eveningLines\(shots \?\? \[\], reasons \?\? \[\]\)/.test(notesSrc) && /\[pending, own, focusNotes\.data, shots, reasons, today\]/.test(notesSrc));
+  ok("the tag reads From the evening, then the ring, then the check's question", /From the evening\s*\{item\.ring \? <span> · \{item\.ring\}<\/span> : null\}\s*\{item\.prompt \? <span> · \{item\.prompt\}<\/span> : null\}/.test(notesSrc));
+  const ringed = notesTimeline({ evening: [{ id: "shot:s1", source: "evening", kind: "evening", date: "2026-11-01", created_at: "2026-11-01T21:00:00Z", text: "Ran out of time", prompt: null, ring: "Outer · Distracted" }] }, "2026-11-02");
+  ok("the ring reaches the timeline's rows", ringed[0]?.items[0]?.ring === "Outer · Distracted");
+
+  // --- Copy ----------------------------------------------------------------------
+  const dashed = [sheetSrc, notesSrc, linked].filter((src) => /[—–]/.test(src));
+  ok("no em or en dashes in the notes, the sheet or the quotes", dashed.length === 0);
+}
+// (end of review fix 3)
+
+
+// ===== Targets tab (PR 3, review fix 4: the stylesheets) =====
+// Add this fix group's tests directly under the line above.
+{
+  console.log("\ntargets tab: the stylesheets");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const bare = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = bare(read("src/styles/targets.css"));
+  const qcss = bare(read("src/styles/quests.css"));
+  // Every rule as [selectors, body]; those inside an at-rule come through too.
+  const rules = (s) => [...s.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim().replace(/\s+/g, " "), m[2]]);
+  const all = rules(css);
+  const sels = all.flatMap(([s]) => s.split(",").map((x) => x.trim()));
+  // The bodies of every @media block with this exact head, end to end.
+  const media = (s, head) => {
+    const out = [];
+    for (let at = s.indexOf(`${head} {`); at >= 0; at = s.indexOf(`${head} {`, at + 1)) {
+      const open = s.indexOf("{", at);
+      let depth = 0;
+      for (let i = open; i < s.length; i++) {
+        if (s[i] === "{") depth++;
+        else if (s[i] === "}" && --depth === 0) {
+          out.push(s.slice(open + 1, i));
+          break;
+        }
+      }
+    }
+    return out.join("\n");
+  };
+
+  // targets.css is in the first bundle, ahead of index.css and every later
+  // sheet, so a rule for an element that also wears one of their classes
+  // names that class as well, or the base rule wins (finding 29).
+  const paired = [
+    ["tg-act", "btn"],
+    ["tg-act__edit", "btn-icon"],
+    ["tg-note__del", "btn-icon"],
+    ["ov-chip--aside", "chip"],
+    ["tg-more", "btn"],
+    ["tg-title", "page-title"],
+    ["tg-mark__history", "btn-link"],
+    ["tg-sheet__box", "textarea"],
+    ["tg-build__today", "qs-done-btn"],
+    ["tg-quotes__strip", "picks__strip"],
+  ];
+  const alone = paired.filter(([own, base]) => {
+    const subjects = sels.map((s) => s.split(/[\s>+~]+/).pop()).filter((last) => new RegExp(`\\.${own}(?![\\w-])`).test(last));
+    return subjects.length === 0 || subjects.some((last) => !new RegExp(`\\.${base}(?![\\w-])`).test(last));
+  });
+  ok("every Targets rule on a control that wears a base class names that class too", alone.length === 0, alone.map(([own]) => own).join(", "));
+  ok(
+    "Reflect, Note and Quote are 40px with their own padding, at 420px too",
+    /\.btn\.tg-act \{ min-height: 40px; padding: 8px 16px; \}/.test(css) && /\.btn\.tg-act \{ padding: 8px 13px; \}/.test(media(css, "@media (max-width: 420px)"))
+  );
+  ok("the pencil and a note's delete are 40px", /\.btn-icon\.tg-act__edit \{[^}]*width: 40px; height: 40px;/.test(css) && /\.btn-icon\.tg-note__del \{[^}]*width: 40px; height: 40px;/.test(css));
+  ok("a set-aside lesson's chip stays dashed", /\.chip\.ov-chip--aside \{[^}]*border: 1px dashed/.test(css));
+  ok("the reflection box is 16px on a phone, so it doesn't zoom", /\.textarea\.tg-sheet__box, /.test(media(css, "@media (max-width: 900px)")));
+  // Each class list in a file that holds the Targets class holds the base too.
+  const lists = (p) => [...read(`src/components/targets/${p}`).matchAll(/["`]([^"`]*)["`]/g)].map((m) => m[1].split(/\s+/));
+  const wears = [
+    ["TargetHead.jsx", "tg-act", "btn"],
+    ["TargetHead.jsx", "tg-act__edit", "btn-icon"],
+    ["TargetHead.jsx", "tg-title", "page-title"],
+    ["TargetHead.jsx", "tg-mark__history", "btn-link"],
+    ["NotesSection.jsx", "tg-note__del", "btn-icon"],
+    ["NotesSection.jsx", "tg-more", "btn"],
+    ["OverviewPatches.jsx", "ov-chip--aside", "chip"],
+    ["NoteSheet.jsx", "tg-sheet__box", "textarea"],
+    ["BuildTile.jsx", "tg-build__today", "qs-done-btn"],
+    ["LinkedQuotes.jsx", "tg-quotes__strip", "picks__strip"],
+    ["LinkToTarget.jsx", "qprint__link", "qprint__save"],
+  ].filter(([p, own, base]) => {
+    const withOwn = lists(p).filter((l) => l.includes(own));
+    return withOwn.length === 0 || withOwn.some((l) => !l.includes(base));
+  });
+  ok("the controls still wear the classes those rules name", wears.length === 0, wears.map(([p, own, base]) => `${p}: ${own} without ${base}`).join("; "));
+
+  // The cards keep their own padding: past .card's 20px, and on a phone
+  // past ascent.css's 16px on every card of its pages.
+  ok(
+    "the mission card and Behind you keep their own padding, on a phone too",
+    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 14px 16px 15px; \}/.test(css) &&
+      /\.card\.ov-behind, \.ascent \.card\.ov-behind:not\(\.card--flush\) \{ padding-top: 10px; padding-bottom: 10px; \}/.test(css)
+  );
+  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 3px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
+  ok("a target's history card is flush on a phone too", /\.tg-history\.card, \.ascent \.tg-history\.card:not\(\.card--flush\) \{ padding: 0;/.test(css));
+  ok("the history sits a little apart from the last day, past .qs .card + .card", /\.tg-page \.qs-rest > \.tg-history\.card \{ margin-top: 4px; \}/.test(css));
+  ok("a feeds row is centred on a phone, past ascent.css's own", /\.tg-page \.feeds \.feeds__row \{ min-height: 40px; align-items: center; \}/.test(media(css, "@media (max-width: 900px)")));
+  ok("the overview's eyebrow keeps its 2px, past ascent.css's margin", /\.ov \.ov-top \.eyebrow \{ margin: 0 0 2px; \}/.test(css));
+  ok("the quotes strip keeps its own padding, past the Board's", /\.picks__strip\.tg-quotes__strip \{ padding-top: 12px; padding-bottom: 16px; \}/.test(css));
+
+  // Link's quiet look and the phone's 4px gap beat cork.css (finding 23).
+  const raw = read("src/styles/targets.css");
+  const part4 = bare(raw.slice(raw.indexOf("/* --- Part 4:"), raw.indexOf("/* --- end of part 4 --- */")));
+  ok("Link stays as quiet as Share, past cork.css's .qprint__save", sels.includes(".qprint__foot .qprint__link") && !sels.includes(".qprint__link") && /\.qprint__foot \.qprint__link \{[^}]*border-color: transparent;[^}]*color: var\(--text-2\);/.test(part4));
+  const footGap = rules(media(css, "@media (max-width: 560px)")).filter(([, b]) => /gap:/.test(b));
+  ok("a print's foot tightens to 4px on a phone, past cork.css's 6px", footGap.length === 1 && footGap[0][0] === ".qprint .qprint__foot" && /gap: 4px;/.test(footGap[0][1]), JSON.stringify(footGap));
+
+  // Taps (findings 5 and 33).
+  ok("the build tile's links are 40px tall", /\.tg-build__go \{[^}]*min-height: 40px;/.test(css) && /\.qs-done-btn\.tg-build__today \{ min-height: 40px; margin: 0 -4px;/.test(css));
+  ok("the why's More is the house's 36px", /\.tg-why__more \{ min-height: 36px; \}/.test(css));
+
+  // The quests row wraps on a desk; a phone still scrolls it (finding 27).
+  const desk = media(css, "@media (min-width: 901px)");
+  ok("on a desk the quests row wraps, with nothing hidden off the edge", /\.quests-row__list \{ flex-wrap: wrap; overflow: visible; scroll-snap-type: none; \}/.test(desk) && /\.quests-row \{ align-items: flex-start; \}/.test(desk));
+  ok("its label stays level with the first row of pills", /\.quests-row__label \{ display: flex; align-items: center; min-height: 48px; \}/.test(desk) && /\.quests-row__list \{[^}]*padding: 2px 2px 4px;/.test(css) && /\.quests-row__pill \{[^}]*min-height: 44px;/.test(css));
+  const rowList = css.match(/\.quests-row__list \{([^}]*)\}/)?.[1] ?? "";
+  ok("on a phone it still scrolls sideways in one line", /overflow-x: auto;/.test(rowList) && /scroll-snap-type: x proximity;/.test(rowList) && !/flex-wrap/.test(rowList));
+
+  // The quest page's grid on a desk (finding 31): each layout it draws
+  // names every cell it places, each area a rectangle, and with the
+  // clipboard open it sits full width right under the ongoing list.
+  const qdesk = media(qcss, "@media (min-width: 901px)");
+  const grid = Object.fromEntries(
+    rules(qdesk)
+      .filter(([s]) => s.startsWith(".qs-grid"))
+      .map(([s, b]) => [s, { areas: [...(b.match(/grid-template-areas:([^;]*);/)?.[1] ?? "").matchAll(/"([^"]*)"/g)].map((m) => m[1].trim().split(/\s+/)), rows: b.match(/grid-template-rows:([^;]*);/)?.[1].trim().split(/\s+/) }])
+  );
+  const layouts = {
+    plain: { areas: grid[".qs-grid"]?.areas, rows: grid[".qs-grid"]?.rows },
+    board: { areas: grid[".qs-grid--board"]?.areas, rows: grid[".qs-grid"]?.rows },
+    clip: { areas: grid[".qs-grid--clip"]?.areas, rows: grid[".qs-grid--clip"]?.rows },
+    "board and clip": { areas: grid[".qs-grid--board.qs-grid--clip"]?.areas, rows: grid[".qs-grid--clip"]?.rows },
+  };
+  const placed = [...qdesk.matchAll(/\.qs-[\w-]+ \{ grid-area: (\w+);/g)].map((m) => m[1]);
+  const shape = (areas) => {
+    const at = {};
+    areas.forEach((row, r) => row.forEach((n, c) => n !== "." && (at[n] ??= []).push([r, c])));
+    const bad = Object.entries(at).filter(([n, cells]) => {
+      const rs = cells.map((x) => x[0]), cs = cells.map((x) => x[1]);
+      const [r0, r1, c0, c1] = [Math.min(...rs), Math.max(...rs), Math.min(...cs), Math.max(...cs)];
+      return cells.length !== (r1 - r0 + 1) * (c1 - c0 + 1);
+    });
+    return { at, bad: bad.map(([n]) => n) };
+  };
+  const wrong = [];
+  for (const [name, { areas, rows }] of Object.entries(layouts)) {
+    if (!areas?.length || !rows) { wrong.push(`${name}: no areas`); continue; }
+    const { at, bad } = shape(areas);
+    const clip = name.includes("clip");
+    const need = placed.filter((a) => clip || a !== "clip");
+    if (areas.some((r) => r.length !== 2)) wrong.push(`${name}: a row isn't two columns`);
+    if (areas.length !== rows.length) wrong.push(`${name}: ${areas.length} rows of areas, ${rows.length} rows`);
+    if (rows.at(-1) !== "1fr" || rows.slice(0, -1).some((x) => x !== "auto")) wrong.push(`${name}: the spare height isn't one 1fr row at the foot`);
+    if (bad.length) wrong.push(`${name}: ${bad.join(", ")} not a rectangle`);
+    const missing = need.filter((a) => !at[a]);
+    if (missing.length) wrong.push(`${name}: no ${missing.join(", ")}`);
+    if (!clip && at.clip) wrong.push(`${name}: names the clipboard`);
+  }
+  ok("every desk layout of a quest's page names each cell it places, each a rectangle", placed.length === 7 && wrong.length === 0, wrong.join("; "));
+  const rowOf = (areas, n) => areas.findIndex((r) => r.includes(n));
+  const clipUnder = ["clip", "board and clip"].every((k) => {
+    const a = layouts[k].areas ?? [];
+    const c = rowOf(a, "clip");
+    return c === rowOf(a, "ongoing") + 1 && a[c][0] === "clip" && a[c][1] === "side" && rowOf(a, "rest") === c + 1;
+  });
+  ok("with the clipboard open it sits right under the ongoing list, in the left column beside the rail", clipUnder);
+  const railFrom = (k) => rowOf(layouts[k].areas ?? [], "side");
+  ok(
+    "opening or closing the clipboard leaves the quotes and notes where they are, beside Today (or the ongoing list under a board), down to the foot",
+    railFrom("clip") === railFrom("plain") && railFrom("board and clip") === railFrom("board") && railFrom("plain") === rowOf(layouts.plain.areas ?? [], "today") &&
+      ["plain", "board", "clip", "board and clip"].every((k) => (layouts[k].areas ?? []).at(-1)?.join(" ") === ". side")
+  );
+  ok("opening the clipboard leaves the build and camps in the first row alone", ["clip", "board and clip"].every((k) => (layouts[k].areas ?? []).filter((r) => r.includes("build")).length === 1 && layouts[k].areas?.[0].join(" ") === "camps build"));
+  const body = read("src/components/targets/QuestBody.jsx");
+  ok("the page draws the clipboard's cell only with the clipboard's grid", /\(clipOpen \? " qs-grid--clip" : ""\)/.test(body) && /clipOpen \? <div className="qs-clip">\{clipCard\}<\/div> : clipCard/.test(body));
+  ok(
+    "a phone keeps one column in the page's order: the page's grid has no areas outside the desk",
+    rules(qcss.replace(qdesk, "")).every(([s, b]) => !s.split(",").some((x) => x.trim().startsWith(".qs-grid")) || !/grid-template-(areas|rows)/.test(b)) && /\.qs-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(qcss)
+  );
+}
+// (end of review fix 4)
+
+
+// ===== Targets tab (PR 3, review fix 5: the parts checked together) =====
+{
+  console.log("\ntargets tab: the fixes checked together");
+  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+  const css = read("src/styles/targets.css");
+  const body = read("src/components/targets/QuestBody.jsx");
+  const page = read("src/pages/Target.jsx");
+  const notes = read("src/components/targets/NotesSection.jsx");
+  const view = read("src/components/mark/TargetView.jsx");
+  const hist = read("src/components/targets/TargetHistory.jsx");
+  const hook = read("src/components/targets/useLadder.jsx");
+  const quotes = read("src/components/targets/LinkedQuotes.jsx");
+
+  ok("the Reflect and Note sheets keep their spacing past ascent.css's form rule", /\n\.ascent-sheet \.tg-sheet \{ display: flex; flex-direction: column; gap: 12px; \}/.test(css) && !/\n\.tg-sheet \{/.test(css));
+  ok("an older week's date stays in one piece when its line wraps", /\.tg-why__date \{ white-space: nowrap; \}/.test(css) && /<span className="tg-why__week"> · <span className="tg-why__date">\{weekOfLabel\(row\.week_start\)\}<\/span><\/span>/.test(page));
+  const phone = css.slice(css.indexOf("/* --- A phone ---"));
+  ok("More, Unlink and Another question are 40px under a thumb", /\.btn-link\.tg-why__more, \.qprint__save\.tg-unlink, \.btn-link\.tg-sheet__another \{ min-height: 40px; \}/.test(phone.slice(0, phone.indexOf("@media (max-width: 420px)"))));
+
+  ok("a camp added while the climb still loads has the climb read again, so it can't offer the summit early", /if \(ladder\?\.data\) ladder\.mutate\(\(d\) => d && \{ \.\.\.d, camps: \[\.\.\.d\.camps, \.\.\.rows\] \}\);\s*else ladder\?\.reload\(\);/.test(body));
+
+  const write = hook.slice(hook.indexOf("async function write("), hook.indexOf("// --- The climb"));
+  ok("a delete that leaves the page reads nothing again for the page it leaves", /async function write\(fn, failure, done, \{ leaving = false \} = \{\}\)/.test(write) && /if \(leaving\) \{\s*setTimeout\(announceChange, 0\);\s*return true;\s*\}/.test(write));
+  ok("deleting a quest or a lesson from its page leaves that way", (hook.match(/\{ leaving: Boolean\(onGone\) \}/g) ?? []).length === 2);
+
+  const L = await import("../src/lib/ladder.js");
+  const lines = L.eveningLines([{ id: "s1", date: "2026-11-01", level: 2, reason: 0, note: "Phone in the studio again." }], ["Distracted"]);
+  ok("an evening's line knows its shot", lines.length === 1 && lines[0].shot === "s1" && lines[0].ring === "Middle · Distracted", JSON.stringify(lines));
+  ok("and a tap on it opens that day on the target", /item\.source === "evening" && item\.shot && onOpenDay \? \(\s*<button type="button" className="tg-note__text" onClick=\{\(\) => onOpenDay\(item\.shot\)\}/.test(notes));
+  ok("the page opens its history on that day", /const openDay = t \? \(shotId\) => openHistory\(\{ day: \{ id: shotId \} \}\) : null;/.test(page) && /onOpenDay=\{openDay\}/.test(page) && (page.match(/pick=\{ui\.day\}/g) ?? []).length === 2 && /onHistory=\{t \? \(\) => openHistory\(\) : null\}/.test(page));
+  ok("closing the history forgets the day asked for", /set\(open \? \{ history: true \} : \{ history: false, day: null \}\)/.test(page));
+  ok("the history shows the day asked for, widening the range when it's further back", /pick=\{pick\}/.test(hist) && /setPicked\(pick\.id\);\s*setRange\(\(r\) => \(inRange\(t\.shots, today, r\)\.some\(\(s\) => s\.id === pick\.id\) \? r : "all"\)\);/.test(view) && view.indexOf("setPicked(pick.id)") > view.indexOf("setPicked(null);"));
+
+  ok("a quote tapped again in the picker just after its unlink comes back as it was, as Undo does", /const unlinked = useRef\(new Map\(\)\);/.test(quotes) && /const gone = unlinked\.current\.get\(item\.id\);\s*if \(gone && !list\.find\(linkFor\(item, isNote\)\)\)/.test(quotes) && /relinkQuotes\(await gone\)/.test(quotes));
+  ok("and Undo after that does nothing twice", /if \(unlinked\.current\.get\(id\) !== gone\) return;/.test(quotes));
+}
+// (end of review fix 5)
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -326,7 +326,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
     [settle]
   );
 
-  // Leaving the card (The Range, a link, Short or Full) with something
+  // Leaving the card (Targets, a link, Short or Full) with something
   // still waiting for its pause settles it now rather than dropping it: a
   // number typed a moment ago is saved, and a line is filed on the app's own
   // reading. The saves read refs, so they run after the card has gone.
@@ -553,8 +553,8 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
           <Target size={14} />
           Tonight's checks
         </span>
-        <Link to="/ascent" className="btn-link mk-tonight__range">
-          The Range
+        <Link to="/targets" className="btn-link mk-tonight__range">
+          Targets
           <ArrowRight size={13} />
         </Link>
       </div>
@@ -595,8 +595,8 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
             {!asked ? (
               <div className="mk-shot__empty">
                 <p className="card-note">Nothing is set yet for what a bullseye takes on this one.</p>
-                <Link to={`/ascent/${t.key}`} className="btn-link btn-link--accent">
-                  Set it up on The Range
+                <Link to={`/targets/${t.key}#history`} className="btn-link btn-link--accent">
+                  Set it up
                   <ArrowRight size={13} />
                 </Link>
               </div>
@@ -677,7 +677,7 @@ export default function TonightShots({ userId, date, entries, dayPlan, flushRef,
           </div>
 
           <p className="mk-tonight__count" aria-live="polite">
-            {askable.length === 0 ? "Set what a bullseye takes on The Range, and each target gets an arrow here." : countLine(false)}
+            {askable.length === 0 ? "Set what a bullseye takes on Targets, and each target gets an arrow here." : countLine(false)}
           </p>
         </>
       )}

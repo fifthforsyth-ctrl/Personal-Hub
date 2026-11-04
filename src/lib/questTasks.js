@@ -9,7 +9,8 @@
 // 2026-10-27): lines marked ongoing belong to no day. A sub-task goes where
 // its task is, whatever its own mark says.
 //
-// Everything here is pure; the page is src/pages/Quests.jsx.
+// Everything here is pure; the page is a quest's own page on the Targets tab
+// (src/components/targets/QuestBody.jsx).
 
 import { addDays, parseDateStr } from "./planDates.js";
 

@@ -402,7 +402,7 @@ export function startingAnswers(target, { focusesById, entries, dayPlan, date } 
 function fits(check, value) {
   if (!answered(check, value)) return false;
   // A choice whose option has since been taken out (Calm renamed Peaceful
-  // on The Range) isn't an answer to the check as it is now, even on one
+  // on Targets) isn't an answer to the check as it is now, even on one
   // that only asks: no chip would light for it.
   const c = normCheck(check);
   if (c.kind === "choice" && !c.options.includes(String(value))) return false;
@@ -851,7 +851,7 @@ export function keptText(target, draft, { level = null, feeds = [] } = {}) {
     if (!feeds?.length) {
       return level != null
         ? null
-        : "These are all reflection only, so there's no ring to land in tonight, and what you write here isn't kept once you bank the day. Make one count on The Range to give it an arrow.";
+        : "These are all reflection only, so there's no ring to land in tonight, and what you write here isn't kept once you bank the day. Make one count on Targets to give it an arrow.";
     }
     const why = `These are all reflection only, so its arrow comes from ${from}.`;
     return level != null ? why : `${why} What you write here stays only on this phone until that arrow lands, and isn't kept if you bank the day without it.`;

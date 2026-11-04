@@ -108,14 +108,16 @@ function linesDone(lines, today) {
 }
 
 // Every quest's day, for "All quests":
-//   [{ key, questId, name, count, groups }]
+//   [{ key, questId, lessonId, name, count, groups }]
 // in the order of the lists along the top (`items`, from boardOf), then any
 // other quest by name. Only what the village loads is known here (finished
 // tasks and steps, with no sub-tasks or sections), so under each quest come
 // its camps in order, then its list. Lines come in the order they were
 // finished (done_at); a step keeps no time it was finished, so steps come
 // in the order they were last changed (updated_at, which every save of a
-// step stamps). Groups are shaped as questDoneToday's.
+// step stamps). Groups are shaped as questDoneToday's. `lessonId` is set
+// for a lesson's mountain, so its name links to the lesson's own page
+// rather than to an address that only sends it there.
 //
 // `open` is { questId, groups, count } for the quest that's open, from
 // questDoneToday over what that quest loaded fresh: it stands in for what
@@ -152,10 +154,10 @@ export function allDoneToday({ items = [], quests = [], lessons = [], camps = []
   };
   const shown = (items ?? []).filter((i) => i.questId && byQuest.has(i.questId));
   const order = [
-    ...shown.map((i) => ({ key: i.key, questId: i.questId, name: i.name })),
+    ...shown.map((i) => ({ key: i.key, questId: i.questId, lessonId: i.lessonId ?? null, name: i.name })),
     ...[...byQuest.keys()]
       .filter((id) => !shown.some((i) => i.questId === id))
-      .map((id) => ({ key: id, questId: id, name: nameOf(id) }))
+      .map((id) => ({ key: id, questId: id, lessonId: questRow.get(id)?.lesson_id ?? null, name: nameOf(id) }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   ];
   const when = (at) => (a, b) => String(at(a) ?? "").localeCompare(String(at(b) ?? "")) || String(a.id).localeCompare(String(b.id));

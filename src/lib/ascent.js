@@ -309,5 +309,7 @@ export function buildAscent(data, today) {
     setAside: questViews.filter((q) => q.status === "set_aside"),
     lessons: lessonViews.filter((l) => l.status === "learning"),
     learned: lessonViews.filter((l) => l.status === "learned"),
+    // Lessons put down for now, which the Targets tab keeps behind you.
+    lessonsAside: lessonViews.filter((l) => l.status === "set_aside"),
   };
 }
