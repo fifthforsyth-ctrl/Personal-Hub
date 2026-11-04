@@ -151,9 +151,9 @@ function MoveSheet({ count, places, onPick, onNew, onClose }) {
 }
 
 // A new section (or a clipboard column) with the selected steps in it.
-export function NewSectionSheet({ count, camps, title: heading, clipboard = false, onSave, onClose }) {
+export function NewSectionSheet({ count, camps, campId: startCamp = null, title: heading, clipboard = false, onSave, onClose }) {
   const [title, setTitle] = useState("");
-  const [campId, setCampId] = useState(camps?.[0]?.id ?? null);
+  const [campId, setCampId] = useState(startCamp ?? camps?.[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   return (
     <Sheet title={heading ?? (count ? `A new section for ${count === 1 ? "it" : `these ${count}`}` : "A new section")} onClose={onClose}>
@@ -185,7 +185,7 @@ export function NewSectionSheet({ count, camps, title: heading, clipboard = fals
         <div className="ascent-sheet__actions">
           <span className="spacer" />
           <button type="submit" className="btn btn--accent" disabled={busy || !title.trim()}>
-            {busy ? "Making it…" : count ? "Make it and move them in" : "Make it"}
+            {busy ? "Making it…" : count ? `Make it and move ${count === 1 ? "it" : "them"} in` : "Make it"}
           </button>
         </div>
       </form>

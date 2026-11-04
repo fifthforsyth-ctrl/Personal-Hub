@@ -63,7 +63,7 @@ function shiftOf(i, from, to, step) {
 // [data-drop] box) and `hit.below`, the item it would go just before (none:
 // at the end). With no `hit` (let go, or back home) it all goes dark.
 export function markDrop(hit) {
-  document.querySelectorAll("[data-drop].drop-here").forEach((e) => e !== hit?.el && e.classList.remove("drop-here", "drop-end"));
+  document.querySelectorAll(".drop-here").forEach((e) => e !== hit?.el && e.classList.remove("drop-here", "drop-end"));
   document.querySelectorAll(".drop-before").forEach((e) => e !== hit?.below && e.classList.remove("drop-before"));
   if (!hit) return;
   hit.el.classList.add("drop-here");

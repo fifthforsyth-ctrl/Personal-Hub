@@ -23,8 +23,11 @@
 .clip-empty { margin: -2px 0 0; }
 
 .clip-cols { display: flex; gap: 10px; min-width: 0; }
+/* Every column runs as tall as the tallest, so a thought carried across
+   from a long one lands in a short (or new, empty) one wherever it's let go
+   beside it, not on the empty page below its last line. */
 .clip--row .clip-cols {
-  align-items: flex-start; margin: 0 -4px; padding: 2px 4px 6px;
+  align-items: stretch; margin: 0 -4px; padding: 2px 4px 6px;
   overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
 }
 .clip--stack .clip-cols { flex-direction: column; }
@@ -50,6 +53,8 @@
   font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); cursor: pointer; touch-action: manipulation;
 }
 .clip--stack .clip-col--add { flex-basis: auto; min-height: 52px; }
+/* a thought carried over it: let go, it makes a column for it */
+.clip-col--add.drop-here { border-color: var(--accent); border-style: solid; color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 @media (hover: hover) { .clip-col--add:hover { color: var(--text); border-color: var(--ink); } }
 
 /* Pinned down the right of a camp's page: it stays in view while the steps
@@ -101,4 +106,4 @@
 /* Thoughts on the clipboard sit close together: no "working on it" button
    under each box (it's there once a step is sorted into a section). */
 .clip-col .camp-work-btn { display: none; }
-.clip--row .clip-col.clip-col--add { flex: 0 0 160px; align-self: stretch; max-height: 140px; }
+.clip--row .clip-col.clip-col--add { flex: 0 0 160px; align-self: flex-start; height: 140px; }
