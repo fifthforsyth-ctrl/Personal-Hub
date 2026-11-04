@@ -3,7 +3,7 @@ import { parseScriptureRefs } from "./scripture";
 import { todayStr, addDays, toDateStr, startOfMonth, startOfWeek } from "./planDates";
 import { RUNAWAY_HOURS, ranThroughNight } from "./honest";
 import { planRows } from "./camp";
-import { byPin } from "./stepMoves";
+import { byPin, saveBatches } from "./stepMoves";
 import { questTagOptions, questWorkDone } from "./questWork";
 import { lineageIds, cleanNote } from "./focus";
 import { checkRow, sameCheck } from "./checks";
@@ -3572,16 +3572,19 @@ export async function moveToCamp(table, rows) {
 // Many steps moved at once (0095): `rows` from planMove (lib/stepMoves.js),
 // each { id, camp_id?, section_id?, parent_id?, position?, today_on? },
 // written in one statement, so they land together or not at all.
+// `rows` is a list of rows, or planMove's `batches` (lists saved one after
+// another, so a step lands in another camp before its sub-steps follow it).
 export async function placeSteps(rows) {
-  if (!rows.length) return;
-  const { error } = await supabase.rpc("camp_steps_place", { p_rows: rows });
-  if (error) throw error;
+  for (const batch of saveBatches(rows)) {
+    const { error } = await supabase.rpc("camp_steps_place", { p_rows: batch });
+    if (error) throw error;
+  }
 }
 
 // Steps dropped on a pin (planPinDrop, lib/stepMoves.js): moved into the
 // picture's section, then wearing the pin; or (`back`) as they were.
 export async function savePinDrop(plan, back = false) {
-  await placeSteps(back ? plan.placeWas : plan.place);
+  await placeSteps(back ? (plan.placeWasBatches ?? plan.placeWas) : (plan.placeBatches ?? plan.place));
   for (const [pin_id, ids] of byPin(back ? plan.pinsWas : plan.pins)) await updateSteps(ids, { pin_id });
 }
 
