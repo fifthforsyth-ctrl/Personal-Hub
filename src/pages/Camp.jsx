@@ -125,6 +125,7 @@ export default function Camp() {
   const pick = usePick(saving);
   const [sheet, setSheet] = useState(null); // a section to edit, or { new: true }
   const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
+  const [newClipFor, setNewClipFor] = useState(null); // steps let go on "New column": { at, ids, campId }
   const select = useSelect();
   // the page's photos and pins: steps dropped on a picture
   const photoApi = useRef(null);
@@ -351,12 +352,15 @@ export default function Camp() {
   // A step carried out of its own list: the section under the finger lights
   // up, and letting go there drops it in, between the steps it landed on.
   // Carrying several (`group`), it lands before the first one not among them.
+  // Over the clipboard's "New column" (data-clip-new), letting go makes a
+  // column for it.
   function dropTarget(x, y, st, group = null) {
     const el = document
       .elementsFromPoint(x, y)
-      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-drop]"))
-      ?.closest("[data-drop]");
+      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-drop], [data-clip-new]"))
+      ?.closest("[data-drop], [data-clip-new]");
     if (!el) return null;
+    if (el.dataset.clipNew) return { el, below: null, fresh: el.dataset.clipNew };
     const along = new Set((group ?? []).map((k) => `step-${k}`));
     const below = [...el.querySelectorAll("li.camp-step:not(.camp-step--sub)")].find((li) => {
       if (li.id === `step-${st.id}` || along.has(li.id)) return false;
@@ -376,6 +380,10 @@ export default function Camp() {
     const hit = phase === "move" || phase === "drop" ? dropTarget(x, y, st, g) : null;
     markDrop(phase === "move" ? hit : null);
     if (phase !== "drop" || !hit) return;
+    if (hit.fresh) {
+      setNewClipFor({ at: hit.fresh, ids: g ?? [st.id], campId: id });
+      return;
+    }
     if (g) moveMany(g, { sectionId: hit.sectionId, beforeId: hit.beforeId }, `Moved ${many(g.length)} to ${where(hit.sectionId)}`);
     else moveToSection(st, hit.sectionId, hit.beforeId);
   }
@@ -496,12 +504,14 @@ export default function Camp() {
 
   // --- The clipboard (0095) ----------------------------------------------------
 
-  async function newColumn({ title }) {
+  // A new column, and (`ids`) the steps let go on "New column" moved in.
+  async function newColumn({ title }, ids = null) {
     try {
       const position = data.sections.reduce((m, s) => Math.max(m, s.position + 1), 0);
       const row = await addSection(userId, id, { title, position, clipboard: true });
       mutate((d) => d && { ...d, sections: [...d.sections, row] });
       haptic("tap");
+      if (ids?.length) moveMany(ids, { sectionId: row.id }, `Moved ${ids.length > 1 ? many(ids.length) : "it"} to ${row.title}`);
       return true;
     } catch (err) {
       toast.error(err, "Couldn't make that column.");
@@ -816,6 +826,8 @@ export default function Camp() {
       onInto={nestUnder}
       carry={carry}
       onNewColumn={newColumn}
+      newWith={newClipFor}
+      onNewWithDone={() => setNewClipFor(null)}
       onEditColumn={(sec) => setColSheet(sec)}
       tools={stack && !viewing ? selectBtn : null}
       pinned={stack && !viewing}

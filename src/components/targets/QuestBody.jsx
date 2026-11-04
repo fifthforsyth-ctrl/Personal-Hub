@@ -318,6 +318,7 @@ export default function QuestBody({
   const [openStep, setOpenStep] = useState(null);
   const [openClip, setOpenClip] = useState(null); // a step open on the clipboard
   const [colSheet, setColSheet] = useState(null); // a clipboard column to rename
+  const [newClipFor, setNewClipFor] = useState(null); // thoughts let go on "New column": { at, ids, campId }
   const select = useSelect();
   // the page's photos and pins: clipboard steps dropped on a picture
   const photoApi = useRef(null);
@@ -1060,12 +1061,14 @@ export default function QuestBody({
   // A step carried out of its column: the column under the finger lights
   // up, and letting go drops it (and any selected with it) in, between the
   // steps it landed on.
+  // Over "New column" (data-clip-new), letting go makes a column for it.
   function clipDropTarget(x, y, st, group) {
     const el = document
       .elementsFromPoint(x, y)
-      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-clip]"))
-      ?.closest("[data-clip]");
+      .find((e) => !e.closest(`#step-${st.id}`) && e.closest("[data-clip], [data-clip-new]"))
+      ?.closest("[data-clip], [data-clip-new]");
     if (!el) return null;
+    if (el.dataset.clipNew) return { el, below: null, fresh: el.dataset.clipNew };
     const along = new Set((group ?? []).map((k) => `step-${k}`));
     const below = [...el.querySelectorAll("li.camp-step:not(.camp-step--sub)")].find((li) => {
       if (li.id === `step-${st.id}` || along.has(li.id)) return false;
@@ -1086,6 +1089,10 @@ export default function QuestBody({
     markDrop(phase === "move" ? hit : null);
     if (phase !== "drop" || !hit) return;
     const ids = g ?? [st.id];
+    if (hit.fresh) {
+      setNewClipFor({ at: hit.fresh, ids, campId: st.camp_id });
+      return;
+    }
     moveSteps(ids, { campId: hit.campId, sectionId: hit.sectionId, beforeId: hit.beforeId }, `Moved ${g ? nSteps(ids.length) : "it"} to ${sectionName(hit.sectionId, hit.campId)}`);
   }
 
@@ -1153,6 +1160,14 @@ export default function QuestBody({
       toast.error(err, clipboard ? "Couldn't make that column." : "Couldn't make that section.");
       return null;
     }
+  }
+
+  // A clipboard column, and (`ids`) the thoughts let go on "New column" moved in.
+  async function newColumnWith(values, ids) {
+    const row = await newSectionIn(values, true);
+    if (!row) return false;
+    if (ids?.length) moveSteps(ids, { campId: row.camp_id, sectionId: row.id }, `Moved ${ids.length > 1 ? nSteps(ids.length) : "it"} to ${row.title}`);
+    return true;
   }
 
   async function newSectionForSelected(values) {
@@ -1639,7 +1654,9 @@ export default function QuestBody({
       onDragOut={clipDragOut}
       onInto={clipNest}
       carry={select.on ? select.carry : undefined}
-      onNewColumn={async (values) => Boolean(await newSectionIn(values, true))}
+      onNewColumn={newColumnWith}
+      newWith={newClipFor}
+      onNewWithDone={() => setNewClipFor(null)}
       onEditColumn={(sec) => setColSheet(sec)}
       tools={clipCols.length && !viewing ? <SelectButton on={select.on} onStart={startSelecting} onStop={select.stop} /> : null}
       picking={picker.on}

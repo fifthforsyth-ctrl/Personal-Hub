@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ClipboardList, Pencil, Pin, PinOff, Plus, X } from "lucide-react";
 import { AddStep, StepList } from "./Steps";
 import { NewSectionSheet } from "./Select";
@@ -24,6 +24,12 @@ import "../../styles/clipboard.css";
 // (`cleared`: done steps aren't shown or counted, and nothing says they're
 // hidden; they stay done in the camp, so their bricks stay laid), and the
 // whole clipboard can be closed (`onClose`) down to a small button.
+//
+// A thought carried onto "New column" (Aaron, 2026-11-04: "I can't drag
+// clipboard items to a new section in the clipboard") lights it up; let go
+// there, the page hands back `newWith` ({ at, ids, campId }, `at` being this
+// clipboard's button, data-clip-new), the column is named here, and
+// `onNewColumn(values, ids)` makes it and moves them in.
 
 export default function Clipboard({
   cols,
@@ -46,8 +52,16 @@ export default function Clipboard({
   onPin,
   picking = false,
   onClose,
+  newWith = null,
+  onNewWithDone,
 }) {
   const [making, setMaking] = useState(false);
+  const me = useId();
+  const carried = newWith?.at === me ? newWith : null;
+  const closeSheet = () => {
+    setMaking(false);
+    if (carried) onNewWithDone?.();
+  };
   const colsRef = useRef(null);
   const count = cols.reduce((n, c) => n + countOf(c.section.steps, cleared), 0);
   // side by side, a step carried sideways leaves its column
@@ -97,22 +111,24 @@ export default function Clipboard({
           />
         ))}
         {onNewColumn && !picking && (
-          <button type="button" className="clip-col clip-col--add" onClick={() => setMaking(true)}>
+          <button type="button" className="clip-col clip-col--add" data-clip-new={me} onClick={() => setMaking(true)}>
             <Plus size={15} aria-hidden="true" />
             New column
           </button>
         )}
       </div>
-      {making && (
+      {(making || carried) && (
         <NewSectionSheet
-          title="A new column"
+          title={carried ? (carried.ids.length === 1 ? "A new column for it" : `A new column for these ${carried.ids.length}`) : "A new column"}
+          count={carried?.ids.length}
           clipboard
           camps={camps}
+          campId={carried?.campId}
           onSave={async (values) => {
-            const ok = await onNewColumn(values);
-            if (ok) setMaking(false);
+            const ok = await onNewColumn(values, carried?.ids ?? null);
+            if (ok) closeSheet();
           }}
-          onClose={() => setMaking(false)}
+          onClose={closeSheet}
         />
       )}
     </section>
