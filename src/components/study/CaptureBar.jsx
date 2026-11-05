@@ -11,10 +11,14 @@ import { Feather, CornerDownLeft } from "lucide-react";
 //
 // Speaking works the same way: the keyboard's microphone types into the box.
 //
+// The circle by the button marks it as a sweet something: a small thing that
+// made you happy. It clears with the box once the thought is kept.
+//
 // `onCapture` resolves true once it's kept. Anything else leaves the words in
 // the box, so a dropped connection never costs you what you wrote.
 export default function CaptureBar({ onCapture }) {
   const [text, setText] = useState("");
+  const [sweet, setSweet] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
 
@@ -25,12 +29,13 @@ export default function CaptureBar({ onCapture }) {
     setBusy(true);
     let kept = false;
     try {
-      kept = await onCapture({ text: value });
+      kept = await onCapture({ text: value, sweet });
     } finally {
       setBusy(false);
     }
     if (kept) {
       setText("");
+      setSweet(false);
       ref.current?.focus();
     }
   }
@@ -58,6 +63,11 @@ export default function CaptureBar({ onCapture }) {
 
       <div className="board-capture__foot">
         <p className="board-capture__hint">Kept as you wrote it. The board files it for later.</p>
+        <label className={"sweet-check" + (sweet ? " is-on" : "")}>
+          <input type="checkbox" checked={sweet} onChange={(e) => setSweet(e.target.checked)} />
+          <span className="sweet-check__dot" aria-hidden="true" />
+          Sweet something
+        </label>
         <button type="submit" className="btn btn--accent" disabled={busy || !text.trim()}>
           <CornerDownLeft size={14} />
           {busy ? "Keeping…" : "Keep it"}

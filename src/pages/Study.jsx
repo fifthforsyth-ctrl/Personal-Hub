@@ -161,12 +161,12 @@ export default function Study() {
 
   // --- writes ---------------------------------------------------------------
 
-  async function capture({ text }) {
+  async function capture({ text, sweet = false }) {
     const firstLine = text.split("\n").find((l) => l.trim())?.trim() ?? text;
     try {
-      const created = await createNote(user.id, { title: cutAtWord(firstLine, 80), body: text, noteKind: "thought" });
+      const created = await createNote(user.id, { title: cutAtWord(firstLine, 80), body: text, noteKind: "thought", sweet });
       shelf.reload();
-      toast.show("Kept");
+      toast.show(sweet ? "Kept, a sweet something" : "Kept");
       // Filed afterwards. If it fails, the next backlog pass picks it up.
       gistNote(created.id).catch((err) => console.warn(err));
       return true;
