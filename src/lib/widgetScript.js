@@ -229,17 +229,18 @@ function focusAccessory(w, family, run, f) {
     dt.centerAlignText();
     return w;
   }
+  w.addAccessoryWidgetBackground = true;
+  w.setPadding(4, 10, 4, 10);
   const head = w.addText(out ? "OUT OF OFFICE" + (f.awayReason ? " · " + f.awayReason.toUpperCase() : "") : "FOCUS");
-  head.font = Font.semiboldSystemFont(11);
+  head.font = Font.heavySystemFont(12);
   head.lineLimit = 1;
   const dt = w.addDate(since);
   dt.applyTimerStyle();
-  dt.font = Font.boldMonospacedSystemFont(24);
+  dt.font = Font.heavyMonospacedSystemFont(30);
   dt.minimumScaleFactor = 0.6;
   const what = run.description || run.category;
   const sub = w.addText(what + (f.pulls ? " · " + f.pulls + (f.pulls === 1 ? " pull" : " pulls") : ""));
-  sub.font = Font.systemFont(11);
-  sub.textOpacity = 0.7;
+  sub.font = Font.semiboldSystemFont(12);
   sub.lineLimit = 1;
   return w;
 }
@@ -295,16 +296,17 @@ async function build() {
       top.addImage(icon).imageSize = new Size(14, 14);
       top.addSpacer(5);
     }
-    top.addText(d.wins + (d.wins === 1 ? " win" : " wins")).font = Font.boldSystemFont(15);
+    // A frosted plate behind it and heavier type, so it reads on a light
+    // photo as well as a dark one.
+    w.addAccessoryWidgetBackground = true;
+    w.setPadding(6, 10, 6, 10);
+    top.addText(d.wins + (d.wins === 1 ? " win" : " wins")).font = Font.heavySystemFont(17);
     top.addSpacer(6);
-    const l = top.addText(lossLine(d.losses));
-    l.font = Font.systemFont(12);
-    l.textOpacity = 0.6;
-    w.addText(fmtMin(d.trackedMinutes) + " tracked").font = Font.mediumSystemFont(13);
+    top.addText(lossLine(d.losses)).font = Font.semiboldSystemFont(13);
+    w.addText(fmtMin(d.trackedMinutes) + " tracked").font = Font.boldSystemFont(15);
     if (d.categories[0]) {
       const c = w.addText(d.categories.slice(0, 2).map((c) => c.name + " " + fmtMin(c.minutes)).join(" · "));
-      c.font = Font.systemFont(11);
-      c.textOpacity = 0.7;
+      c.font = Font.semiboldSystemFont(12);
       c.lineLimit = 1;
     }
     return w;
