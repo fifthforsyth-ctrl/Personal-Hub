@@ -6802,5 +6802,45 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 }
 // (end of review fix 5)
 
+// Focus mode on a timer.
+{
+  const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const F = await import("../src/lib/focusMode.js");
+  const at = (hm) => `2026-11-05T${hm}:00.000Z`;
+  const span = { id: "s1", started_at: at("09:00"), ended_at: at("11:00") };
+  const breaks = [
+    { span_id: "s1", kind: "pulled", reason: "Phone", started_at: at("09:20") },
+    { span_id: "s1", kind: "left", reason: "Water / food", started_at: at("10:00"), ended_at: at("10:10") },
+    { span_id: "s1", kind: "pulled", reason: "Phone", started_at: at("10:40") },
+  ];
+  const s1 = F.summarizeSpan(span, breaks);
+  ok("focused time is the span minus time out", Math.round(s1.focusedMinutes) === 110 && Math.round(s1.awayMinutes) === 10, JSON.stringify(s1));
+  ok("the longest unbroken stretch is cut by pulls and time out", Math.round(s1.longestMinutes) === 40 && s1.pulls === 2 && s1.trips === 1, JSON.stringify(s1));
+
+  const open = { id: "s2", started_at: at("13:00"), ended_at: null };
+  const now = new Date(at("13:30")).getTime();
+  const st = F.focusState(open, [{ id: "b", span_id: "s2", kind: "left", reason: "Bathroom", started_at: at("13:25"), ended_at: null }], now);
+  ok("while out of the office, focus is paused and says since when", st.on && st.away?.id === "b" && Math.round(st.focusedMinutes) === 25, JSON.stringify(st));
+  ok("an ended span isn't on", F.focusState(span, [], now).on === false);
+
+  const day = F.summarizeDay([span, open], [...breaks, { id: "b", span_id: "s2", kind: "left", reason: "Bathroom", started_at: at("13:25"), ended_at: null }], now);
+  ok("the day adds its spans and tallies what broke it, most often first", Math.round(day.focusedMinutes) === 135 && day.reasons[0].reason === "Phone" && day.reasons[0].count === 2 && day.trips === 2, JSON.stringify(day.reasons));
+  ok("and draws focus and time out as segments", day.segments.filter((x) => x.kind === "away").length === 2 && day.from === new Date(at("09:00")).getTime());
+
+  ok("chips you use most come first", F.reasonsByUse(["Phone", "Email", "Noise"], ["Noise", "Noise", "Email"]).join() === "Noise,Email,Phone");
+  ok("and a reason of your own joins them", F.reasonsByUse(["Phone"], ["Kids"]).includes("Kids"));
+  ok("the stopwatch reads like one", F.stopwatch(at("09:00"), new Date(at("10:02")).getTime() + 7000) === "1:02:07" && F.stopwatch(at("09:00"), new Date(at("09:05")).getTime()) === "5:00");
+
+  const { buildWidgetScript } = await import("../src/lib/widgetScript.js");
+  const script = buildWidgetScript({ appUrl: "https://x", apiUrl: "https://y", key: "k" });
+  ok("the lock screen shows a focus stopwatch while focus runs", /if \(focus && family\.indexOf\("accessory"\) === 0\) return focusAccessory/.test(script) && /dt\.applyTimerStyle\(\)/.test(script));
+  const fn = read("supabase/functions/widget/index.ts");
+  ok("the widget function sends the running timer's focus", /from\("focus_mode_spans"\)/.test(fn) && /focus,\n\s*\}/.test(fn));
+
+  const sql = read("supabase/migrations/0106_focus_mode.sql");
+  ok("stopping a timer anywhere closes its focus", /after update of ended_at on public\.time_log_entries/.test(sql) && /ended_by = 'timer'/.test(sql));
+  ok("focus mode is ticked on the start form and on the running timer", /setFocusOn\(e\.target\.checked\)/.test(read("src/components/MinutesView.jsx")) && /<FocusModeBox entry=\{live\} compact \/>/.test(read("src/components/today/MinutesGlance.jsx")));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

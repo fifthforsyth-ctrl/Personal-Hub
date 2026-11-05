@@ -198,6 +198,9 @@ export default function Phone() {
           </li>
         </ol>
         <p className="phone-note">It refreshes on its own every few minutes (iPhone decides exactly when). Tapping it opens the Hub.</p>
+        <p className="phone-note">
+          <strong>Focus stopwatch on your lock screen:</strong> while a timer is in focus mode, the lock screen sizes show a stopwatch from when focus began (or how long you've been out of the office). The rectangle shows it biggest. A script made before focus mode existed doesn't know about it, so make a new one and paste it over the old.
+        </p>
 
         {key && (
           <button type="button" className="btn btn--ghost btn--sm phone-off" onClick={turnOff}>

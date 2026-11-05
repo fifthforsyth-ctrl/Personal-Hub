@@ -15,6 +15,7 @@ import StopFollowUp, { needsFollowUp } from "./StopFollowUp";
 import BedButton from "./BedButton";
 import { useCheckinShowsNight } from "./MorningCheckin";
 import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } from "./minutes";
+import FocusModeBox from "../focusmode/FocusModeBox";
 import "../../styles/watch.css";
 
 // Where today has gone, at a glance, with the timer one tap away.
@@ -132,7 +133,10 @@ export default function MinutesGlance({ entries, running, loaded, date, checkinO
       {followUp && !live && <StopFollowUp key={followUp.id} userId={user?.id} entry={followUp} onClose={() => setFollowUp(null)} />}
 
       {live ? (
-        <RunningRow entry={live} onStop={stop} busy={busy} />
+        <>
+          <RunningRow entry={live} onStop={stop} busy={busy} />
+          {!isSleep(live) && <FocusModeBox entry={live} compact />}
+        </>
       ) : (
         <div className={bedtime ? "minutes-actions" : undefined}>
           <button className="btn btn--block" style={{ marginTop: 14 }} onClick={() => capture.open("minutes")}>
