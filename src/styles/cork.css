@@ -628,3 +628,58 @@ a.qprint__source:hover { color: var(--accent-text); }
 /* Share sits beside Save, a little quieter. */
 .qprint__foot { gap: 6px; flex-wrap: wrap; }
 .qprint__share { border-color: transparent; color: var(--text-2); }
+
+/* --- sweet somethings ---------------------------------------------------------
+   A small thing that made you happy. Marked with a plain circle: an empty
+   ring when it isn't, filled ink with an orange centre when it is. */
+
+.sweet-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 570;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.sweet-check input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.sweet-check.is-on { color: var(--text); }
+.sweet-check__dot,
+.sweet-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--charcoal-1, #1c1c1e);
+  background: transparent;
+  transition: background 0.14s, box-shadow 0.14s;
+}
+.sweet-check.is-on .sweet-check__dot,
+.paper__tool--sweet.is-on .sweet-dot {
+  background: var(--charcoal-1, #1c1c1e);
+  box-shadow: inset 0 0 0 4px var(--charcoal-1, #1c1c1e), inset 0 0 0 9px var(--accent);
+}
+.sweet-check input:focus-visible + .sweet-check__dot { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.paper__tool .sweet-dot { width: 14px; height: 14px; }
+.paper__tool--sweet.is-on .sweet-dot { box-shadow: inset 0 0 0 3px var(--charcoal-1, #1c1c1e), inset 0 0 0 7px var(--accent); }
+
+.paper__meta { display: flex; align-items: center; gap: 6px; }
+.paper__sweet {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--charcoal-1, #1c1c1e);
+}
+
+/* Four views fit a phone only if they can slide. */
+.cork-wrap__head .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.cork-wrap__head .seg::-webkit-scrollbar { display: none; }
+.cork-wrap__head .seg-btn { flex: none; }

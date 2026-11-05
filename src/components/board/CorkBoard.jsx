@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, ImageOff, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../ui/Feedback";
-import { uploadNoteImage, signedImageUrl, removeNoteImage, removeNoteWebImage } from "../../lib/api";
+import { uploadNoteImage, signedImageUrl, removeNoteImage, removeNoteWebImage, updateNote } from "../../lib/api";
 import { cardFace } from "../../lib/markdown";
 import { corkItems, pinOf, tiltOf } from "../../lib/quoteShelves";
 import { dayLabel } from "../study/dayLabel";
@@ -22,6 +22,7 @@ const SHOW = [
   { key: "all", label: "Everything" },
   { key: "quotes", label: "Quotes" },
   { key: "thoughts", label: "Thoughts" },
+  { key: "sweet", label: "Sweet somethings" },
 ];
 
 export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, onNotesChanged }) {
@@ -31,6 +32,7 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
     const all = corkItems(quotes, notes);
     if (show === "quotes") return all.filter((i) => i.kind === "quote");
     if (show === "thoughts") return all.filter((i) => i.kind === "note");
+    if (show === "sweet") return all.filter((i) => i.kind === "note" && i.note.sweet);
     return all;
   }, [quotes, notes, show]);
 
@@ -61,6 +63,8 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
           <p className="cork__empty">
             {show === "quotes"
               ? "No quotes pinned yet. Tap “Save to board” on any quote you love."
+              : show === "sweet"
+              ? "No sweet somethings yet. Tick the circle when you keep a small thing that made you happy."
               : "Nothing pinned yet. Keep a thought above, or save a quote you love."}
           </p>
         ) : (
@@ -109,6 +113,20 @@ export function PaperNote({ note, onOpen, onChanged }) {
     };
   }, [note.image_path, note.image_url]);
 
+  // A thought can become a sweet something later, or stop being one.
+  async function toggleSweet() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await updateNote(user.id, note.id, { sweet: !note.sweet });
+      await onChanged();
+    } catch (err) {
+      toast.error(err, "Couldn't change that.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pick(e) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -144,7 +162,7 @@ export function PaperNote({ note, onOpen, onChanged }) {
 
   return (
     <div
-      className={"paper" + (photo ? " has-photo" : "")}
+      className={"paper" + (photo ? " has-photo" : "") + (note.sweet ? " is-sweet" : "")}
       style={{ "--tilt": `${tiltOf(note.id) * -1}deg`, "--pin": pinOf(note.id) }}
     >
       <span className="paper__pin" aria-hidden="true" />
@@ -152,10 +170,24 @@ export function PaperNote({ note, onOpen, onChanged }) {
         {photo && <img className="paper__photo" src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setUrl(null)} />}
         {face.title && <span className="paper__title">{face.title}</span>}
         <span className="paper__text">{face.text}</span>
-        <span className="paper__meta">{[dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}</span>
+        <span className="paper__meta">
+          {note.sweet && <span className="paper__sweet" aria-label="Sweet something" title="Sweet something" />}
+          {[dayLabel(note.created_at), note.source_ref].filter(Boolean).join(" · ")}
+        </span>
       </button>
 
       <div className="paper__tools">
+        <button
+          type="button"
+          className={"paper__tool paper__tool--sweet" + (note.sweet ? " is-on" : "")}
+          onClick={toggleSweet}
+          disabled={busy}
+          aria-pressed={Boolean(note.sweet)}
+          aria-label={note.sweet ? "Not a sweet something" : "Mark as a sweet something"}
+          title={note.sweet ? "Not a sweet something" : "Mark as a sweet something"}
+        >
+          <span className="sweet-dot" aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="paper__tool"

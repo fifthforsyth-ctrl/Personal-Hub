@@ -1710,6 +1710,9 @@ export async function createNote(userId, fields = {}) {
     tags: fields.tags ?? [],
     position: fields.position ?? 0,
   };
+  // Only sent when ticked, so keeping a thought still works before the
+  // column exists.
+  if (fields.sweet) row.sweet = true;
   const { data, error } = await supabase.from("study_notes").insert(row).select("*").single();
   if (error) throw error;
   // Verse references are indexed the same way here as everywhere else, so a
@@ -1726,6 +1729,7 @@ export async function updateNote(userId, noteId, fields) {
   if (fields.sourceRef !== undefined) row.source_ref = fields.sourceRef || null;
   if (fields.sourceKind !== undefined) row.source_kind = fields.sourceKind;
   if (fields.parentId !== undefined) row.parent_note_id = fields.parentId;
+  if (fields.sweet !== undefined) row.sweet = Boolean(fields.sweet);
   if (fields.pinned !== undefined) row.pinned = fields.pinned;
   if (fields.noteKind !== undefined) row.note_kind = fields.noteKind;
   if (fields.tags !== undefined) row.tags = fields.tags;
