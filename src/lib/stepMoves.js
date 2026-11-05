@@ -24,7 +24,13 @@ const BYPOS = (a, b) =>
 // that asks for nothing (null). Otherwise it resolves to
 //   { rows, was, tops, campId, sectionId, parentId }
 // where `rows` are the changes ({ id, ...fields }), `was` the same rows as
-// they were, and `tops` the ids that land side by side.
+// they were, and `tops` the ids that land side by side. `batches` and
+// `wasBatches` are the same rows in the order they must be saved: a step's
+// sub-steps can only be written into another camp once the step itself is
+// there (the table's policy checks a sub-step's parent is in its camp, as it
+// stood before the statement), so moving camps, each level of sub-steps is
+// its own save, top first (Aaron, 2026-11-04: "I can't move tasks with
+// subtasks"). Within one camp it's one save.
 export function planMove(steps, ids, to = {}) {
   const all = steps ?? [];
   const byId = new Map(all.map((s) => [s.id, s]));
@@ -57,19 +63,38 @@ export function planMove(steps, ids, to = {}) {
 
   const rows = [];
   const was = [];
-  const put = (st, fields) => {
+  const levelOf = [];
+  const put = (st, fields, level = 0) => {
     const changed = Object.keys(fields).filter((k) => (st[k] ?? null) !== (fields[k] ?? null));
     if (!changed.length) return;
     rows.push({ id: st.id, ...Object.fromEntries(changed.map((k) => [k, fields[k]])) });
     was.push({ id: st.id, ...Object.fromEntries(changed.map((k) => [k, st[k] ?? null])) });
+    levelOf.push(level);
   };
   const top = new Set(tops);
   order.forEach((st, k) => {
     if (top.has(st.id)) put(st, { camp_id: campId, section_id: sectionId, parent_id: parentId, position: k });
     else put(st, { position: k });
   });
-  for (const st of tails) put(st, { camp_id: campId, section_id: sectionId });
-  return { rows, was, tops, campId, sectionId, parentId };
+  // how deep each one under them sits: 1 right under a top one, and so on
+  const depth = new Map(tops.map((id) => [id, 0]));
+  for (const st of tails) depth.set(st.id, (depth.get(st.parent_id) ?? 0) + 1);
+  for (const st of tails) put(st, { camp_id: campId, section_id: sectionId }, depth.get(st.id));
+  const crossing = rows.some((r) => "camp_id" in r);
+  const inLevels = (list) => {
+    if (!crossing) return list.length ? [list] : [];
+    const out = [];
+    list.forEach((r, i) => (out[levelOf[i]] ??= []).push(r));
+    return out.filter(Boolean);
+  };
+  return { rows, was, batches: inLevels(rows), wasBatches: inLevels(was), tops, campId, sectionId, parentId };
+}
+
+// The batches of rows from planMove, each to be saved after the one before.
+// A plain list of rows is one batch.
+export function saveBatches(rows) {
+  if (!rows?.length) return [];
+  return Array.isArray(rows[0]) ? rows.filter((b) => b.length) : [rows];
 }
 
 // The steps with `rows` written over them (rows from planMove, or its `was`).
@@ -142,6 +167,8 @@ export function planPinDrop(steps, ids, pinId, to = null) {
   return {
     place,
     placeWas: move?.was ?? [],
+    placeBatches: move?.batches ?? [],
+    placeWasBatches: move?.wasBatches ?? [],
     pins: wearing.map((id) => ({ id, pin_id: pinId })),
     pinsWas: wearing.map((id) => ({ id, pin_id: byId.get(id).pin_id ?? null })),
     ids: known,

@@ -44,7 +44,7 @@ import {
   questToday,
   pickDiff,
 } from "../src/lib/camp.js";
-import { planMove, applyRows, inPageOrder, planPinDrop, applyPinDrop, byPin } from "../src/lib/stepMoves.js";
+import { planMove, applyRows, inPageOrder, planPinDrop, applyPinDrop, byPin, saveBatches } from "../src/lib/stepMoves.js";
 import { kindFields, isNote, resolvePlan, resolveWords, resolvedLine, resolvedGroups, shades } from "../src/lib/camp.js";
 import {
   stageOf,
@@ -2858,6 +2858,18 @@ function sectionOf({ x, y }) {
   const b1 = moved.find((x) => x.id === "b1");
   ok("into another camp: its sub-steps come along into that camp and section", b1.camp_id === "multi" && b1.section_id === "mclip" && b1.parent_id === "b");
   ok("...at the end there", moved.find((x) => x.id === "b").position === 1);
+  // Aaron 2026-11-04 "I can't move tasks with subtasks": the database checks a
+  // sub-step's step is in its camp as things stood before each save, so a
+  // step goes first and its sub-steps after, level by level.
+  const deep = [...steps, st("b2", "sift", "clip", "b1", 0)];
+  const crossDeep = planMove(deep, ["b"], { campId: "multi", sectionId: "mclip" });
+  const ids = (bs) => bs.map((b) => b.map((r) => r.id).join()).join("|");
+  ok("into another camp: the step saves first, then each level under it", ids(crossDeep.batches) === "b|b1|b2", ids(crossDeep.batches));
+  ok("...and Undo puts them back in the same order", ids(crossDeep.wasBatches) === "b|b1|b2", ids(crossDeep.wasBatches));
+  ok("...every row is in one batch or another", crossDeep.batches.flat().length === crossDeep.rows.length);
+  const sameCamp = planMove(deep, ["b"], { campId: "sift", sectionId: "ui" });
+  ok("within one camp it's one save", sameCamp.batches.length === 1 && sameCamp.batches[0].length === sameCamp.rows.length);
+  ok("saveBatches takes a plain list as one batch, and skips nothing to save", saveBatches([{ id: "a" }]).length === 1 && saveBatches([]).length === 0 && saveBatches([[], [{ id: "a" }]]).length === 1);
 
   const nested = planMove(steps, ["a", "c"], { parentId: "x" });
   const n2 = applyRows(steps, nested.rows);
