@@ -14,7 +14,10 @@ import {
   createCategory,
   archiveCategory,
   restoreCategory,
+  startFocus,
 } from "../lib/api";
+import FocusModeBox from "./focusmode/FocusModeBox";
+import FocusDay from "./focusmode/FocusDay";
 import { useLoad } from "../lib/useLoad";
 import { friendlyError } from "../lib/errors";
 import { colorFor, familyFor, fmtMinutes, setCategoryColors, PALETTE } from "../lib/categories";
@@ -77,6 +80,8 @@ export function MinutesView({ userId, date = todayStr() }) {
 
   const [description, setDescription] = useState("");
   const [picked, setPicked] = useState([]);
+  // Focus mode from the first second: the box on the start form.
+  const [focusOn, setFocusOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [manualOpen, setManualOpen] = useState(false);
@@ -123,10 +128,16 @@ export function MinutesView({ userId, date = todayStr() }) {
   }
 
   async function start() {
-    const ok = await write(() => startTimeEntry(userId, { categories: picked, description: description.trim() }), "Couldn't start the timer. Try again.");
+    const ok = await write(async () => {
+      const entry = await startTimeEntry(userId, { categories: picked, description: description.trim() });
+      // The timer is running either way; if focus didn't take, the box on
+      // the running timer is there to tick again.
+      if (focusOn) await startFocus(userId, entry.id).catch(() => setActionError("The timer started, but focus mode didn't. Tick it on the timer."));
+    }, "Couldn't start the timer. Try again.");
     if (ok) {
       setDescription("");
       setPicked([]);
+      setFocusOn(false);
       setFollowUp(null);
     }
   }
@@ -259,10 +270,18 @@ export function MinutesView({ userId, date = todayStr() }) {
               }}
             />
           ) : (
+            <>
+            <label className="fm-check fm-start">
+              <input type="checkbox" checked={focusOn} onChange={(e) => setFocusOn(e.target.checked)} />
+              <span className="fm-check__box" aria-hidden="true" />
+              <span className="fm-check__label">Focus mode</span>
+              <span className="fm-check__hint">Full attention on this task until you untick it or stop the timer</span>
+            </label>
             <button className="btn btn--accent btn--lg" onClick={start} disabled={busy || picked.length === 0}>
               <Play size={16} />
-              {busy ? "Starting…" : "Start timer"}
+              {busy ? "Starting…" : focusOn ? "Start timer in focus" : "Start timer"}
             </button>
+            </>
           )}
           {picked.length === 0 && <p className="minutes-hint">Pick at least one category.</p>}
           {isToday && isBedtime() && <BedButton onClick={bed} busy={busy} />}
@@ -270,6 +289,8 @@ export function MinutesView({ userId, date = todayStr() }) {
       )}
 
       {actionError && <div className="form-error">{actionError}</div>}
+
+      <FocusDay userId={userId} date={date} />
 
       {entries.length > 0 ? (
         <div className="card">
@@ -329,6 +350,7 @@ function RunningCard({ entry, onStop, onBed, switches = [], onSwitch, busy }) {
       </button>
       {onBed && <BedButton onClick={onBed} busy={busy} />}
       {switches.length > 0 && <QuickRow items={switches} onPick={onSwitch} busy={busy} label="Switch to" />}
+      {!isSleep(entry) && <FocusModeBox entry={entry} />}
     </div>
   );
 }

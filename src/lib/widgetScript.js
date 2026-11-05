@@ -11,6 +11,11 @@
 // Sizes: small (wins, losses, minutes), medium (plus the top categories),
 // large (plus the wins you named), and on the lock screen a line, a
 // rectangle, or a circle with the win count.
+//
+// While a timer is in focus mode, the lock screen sizes turn into a focus
+// stopwatch instead (the time since focus began, ticking on its own), or
+// the time out of the office while you're out. The home screen sizes show
+// the running row as Focus with the same stopwatch.
 
 export function buildWidgetScript({ appUrl, apiUrl, key }) {
   return `// Personal Hub: today's wins, losses and minutes.
@@ -149,13 +154,14 @@ function winsBlock(stack, d, icon, big) {
 function runningRow(stack, run) {
   const row = stack.addStack();
   row.centerAlignContent();
-  const dot = row.addText("●");
+  const dot = row.addText(run.focus ? "◉" : "●");
   dot.font = Font.systemFont(9);
   dot.textColor = ORANGE;
   row.addSpacer(5);
-  text(row, run.category, Font.semiboldSystemFont(12), INK);
+  const f = run.focus;
+  text(row, f ? (f.awaySince ? "Out of office" : "Focus") : run.category, Font.semiboldSystemFont(12), INK);
   row.addSpacer(6);
-  const since = row.addDate(new Date(run.startedAt));
+  const since = row.addDate(new Date(f ? f.awaySince || f.since : run.startedAt));
   since.applyTimerStyle();
   since.font = Font.mediumMonospacedSystemFont(12);
   since.textColor = MUTED;
@@ -201,12 +207,51 @@ function footer(w, d) {
   at.textColor = MUTED;
 }
 
+// Focus mode on the lock screen: a stopwatch from when focus began, or from
+// when you left the office while you're out.
+function focusAccessory(w, family, run, f) {
+  const out = Boolean(f.awaySince);
+  const since = new Date(out ? f.awaySince : f.since);
+  if (family === "accessoryInline") {
+    const dt = w.addDate(since);
+    dt.applyTimerStyle();
+    return w;
+  }
+  if (family === "accessoryCircular") {
+    w.addAccessoryWidgetBackground = true;
+    const label = w.addText(out ? "OUT" : "FOCUS");
+    label.font = Font.semiboldSystemFont(8);
+    label.centerAlignText();
+    const dt = w.addDate(since);
+    dt.applyTimerStyle();
+    dt.font = Font.semiboldMonospacedSystemFont(12);
+    dt.minimumScaleFactor = 0.5;
+    dt.centerAlignText();
+    return w;
+  }
+  const head = w.addText(out ? "OUT OF OFFICE" + (f.awayReason ? " · " + f.awayReason.toUpperCase() : "") : "FOCUS");
+  head.font = Font.semiboldSystemFont(11);
+  head.lineLimit = 1;
+  const dt = w.addDate(since);
+  dt.applyTimerStyle();
+  dt.font = Font.boldMonospacedSystemFont(24);
+  dt.minimumScaleFactor = 0.6;
+  const what = run.description || run.category;
+  const sub = w.addText(what + (f.pulls ? " · " + f.pulls + (f.pulls === 1 ? " pull" : " pulls") : ""));
+  sub.font = Font.systemFont(11);
+  sub.textOpacity = 0.7;
+  sub.lineLimit = 1;
+  return w;
+}
+
 async function build() {
   const d = await load();
   const family = config.widgetFamily || "medium";
   const w = new ListWidget();
   w.url = HUB;
-  w.refreshAfterDate = new Date(Date.now() + 10 * 60 * 1000);
+  // Sooner while a timer runs, so focus turning on or off shows quickly
+  // (the phone still decides when it really refreshes).
+  w.refreshAfterDate = new Date(Date.now() + (d.running ? 2 : 10) * 60 * 1000);
 
   if (d.error) {
     w.backgroundColor = BG;
@@ -217,6 +262,9 @@ async function build() {
   }
 
   const icon = await swords();
+
+  const focus = d.running && d.running.focus;
+  if (focus && family.indexOf("accessory") === 0) return focusAccessory(w, family, d.running, focus);
 
   // Lock screen: no background, the system tints everything.
   if (family === "accessoryInline") {

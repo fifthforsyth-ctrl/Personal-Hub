@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
   const [wl, entries, open, cats, plan] = await Promise.all([
     db.from("win_losses").select("kind, habit_label, occurred_at").eq("user_id", userId).gte("occurred_at", startISO).order("occurred_at", { ascending: false }).limit(500),
     db.from("time_log_entries").select("category, tags, duration_minutes").eq("user_id", userId).gte("started_at", startISO).not("ended_at", "is", null).limit(500),
-    db.from("time_log_entries").select("category, started_at").eq("user_id", userId).is("ended_at", null).order("started_at", { ascending: false }).limit(1).maybeSingle(),
+    db.from("time_log_entries").select("id, category, description, started_at").eq("user_id", userId).is("ended_at", null).order("started_at", { ascending: false }).limit(1).maybeSingle(),
     db.from("user_categories").select("name, color").eq("user_id", userId),
     db.from("day_plans").select("banked_at").eq("user_id", userId).eq("date", date).maybeSingle(),
   ]);
@@ -125,6 +125,32 @@ Deno.serve(async (req) => {
     .map(([name, minutes]) => ({ name, minutes: Math.round(minutes), color: colors.get(name) ?? null }))
     .sort((a, b) => b.minutes - a.minutes);
 
+  // Focus mode on the running timer: when it began, whether you're out of
+  // the office (and since when), and how many times something pulled you.
+  // The lock screen shows it as a stopwatch. A failed read only leaves it
+  // off; the rest of the widget still answers.
+  let focus: { since: string; pulls: number; awaySince: string | null; awayReason: string | null } | null = null;
+  if (open.data) {
+    const span = await db
+      .from("focus_mode_spans")
+      .select("id, started_at")
+      .eq("user_id", userId)
+      .eq("entry_id", open.data.id)
+      .is("ended_at", null)
+      .maybeSingle();
+    if (!span.error && span.data) {
+      const br = await db.from("focus_mode_breaks").select("kind, reason, started_at, ended_at").eq("span_id", span.data.id).order("started_at");
+      const rows = br.error ? [] : br.data ?? [];
+      const out = [...rows].reverse().find((b) => b.kind === "left" && !b.ended_at);
+      focus = {
+        since: span.data.started_at,
+        pulls: rows.filter((b) => b.kind === "pulled").length,
+        awaySince: out?.started_at ?? null,
+        awayReason: out?.reason ?? null,
+      };
+    }
+  }
+
   // A missed "last asked" costs nothing, so its error is ignored.
   await db.from("widget_keys").update({ last_used_at: new Date().toISOString() }).eq("user_id", userId);
 
@@ -135,7 +161,15 @@ Deno.serve(async (req) => {
     winLabels: wins.map((w) => w.habit_label).filter((l) => l && l.trim() && l.trim().toLowerCase() !== "win").slice(0, 4),
     trackedMinutes: Math.round(tracked),
     categories,
-    running: open.data ? { category: open.data.category, startedAt: open.data.started_at, color: colors.get(open.data.category) ?? null } : null,
+    running: open.data
+      ? {
+          category: open.data.category,
+          description: open.data.description ?? null,
+          startedAt: open.data.started_at,
+          color: colors.get(open.data.category) ?? null,
+          focus,
+        }
+      : null,
     banked: Boolean(plan.data?.banked_at),
     asOf: new Date().toISOString(),
   });

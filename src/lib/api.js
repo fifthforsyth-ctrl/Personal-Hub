@@ -397,6 +397,100 @@ export async function fetchTimeEntriesForDate(userId, dateStr) {
   return data ?? [];
 }
 
+// ---------------------------------------------------------------------------
+// Focus mode on a timer (0106). A ticked timer is a focus span; pulls and
+// time out of the office are its breaks. Stopping the timer closes both in
+// the database, wherever it's stopped from.
+// ---------------------------------------------------------------------------
+
+const FOCUS_SPAN = "id, entry_id, started_at, ended_at, ended_by";
+const FOCUS_BREAK = "id, span_id, kind, reason, note, started_at, ended_at";
+
+// The open focus on a timer, with its breaks, or null.
+export async function fetchOpenFocus(entryId) {
+  const { data: span, error } = await supabase
+    .from("focus_mode_spans")
+    .select(FOCUS_SPAN)
+    .eq("entry_id", entryId)
+    .is("ended_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!span) return null;
+  const { data: breaks, error: bErr } = await supabase.from("focus_mode_breaks").select(FOCUS_BREAK).eq("span_id", span.id).order("started_at");
+  if (bErr) throw bErr;
+  return { span, breaks: breaks ?? [] };
+}
+
+export async function startFocus(userId, entryId) {
+  const { data, error } = await supabase.from("focus_mode_spans").insert({ user_id: userId, entry_id: entryId }).select(FOCUS_SPAN).single();
+  // Already focused (another tab ticked it first): that one stands.
+  if (error?.code === "23505") return (await fetchOpenFocus(entryId))?.span ?? null;
+  if (error) throw error;
+  return data;
+}
+
+// Unticked: focus ends now, and so does any time out still open on it.
+export async function endFocus(spanId) {
+  const at = new Date().toISOString();
+  const back = await supabase.from("focus_mode_breaks").update({ ended_at: at }).eq("span_id", spanId).eq("kind", "left").is("ended_at", null);
+  if (back.error) throw back.error;
+  const { error } = await supabase.from("focus_mode_spans").update({ ended_at: at, ended_by: "off" }).eq("id", spanId).is("ended_at", null);
+  if (error) throw error;
+}
+
+// A pull (kind 'pulled') or leaving the office (kind 'left').
+export async function logFocusBreak(userId, spanId, { kind, reason, note }) {
+  const { data, error } = await supabase
+    .from("focus_mode_breaks")
+    .insert({ user_id: userId, span_id: spanId, kind, reason: reason?.trim() || null, note: note?.trim() || null })
+    .select(FOCUS_BREAK)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function backToWork(breakId) {
+  const { error } = await supabase.from("focus_mode_breaks").update({ ended_at: new Date().toISOString() }).eq("id", breakId).is("ended_at", null);
+  if (error) throw error;
+}
+
+// A day's focus spans (started that day) and their breaks.
+export async function fetchFocusForDate(userId, dateStr) {
+  const start = new Date(`${dateStr}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const { data: spans, error } = await supabase
+    .from("focus_mode_spans")
+    .select(FOCUS_SPAN)
+    .eq("user_id", userId)
+    .gte("started_at", start.toISOString())
+    .lt("started_at", end.toISOString())
+    .order("started_at");
+  if (error) throw error;
+  if (!spans?.length) return { spans: [], breaks: [] };
+  const { data: breaks, error: bErr } = await supabase
+    .from("focus_mode_breaks")
+    .select(FOCUS_BREAK)
+    .in("span_id", spans.map((s) => s.id))
+    .order("started_at");
+  if (bErr) throw bErr;
+  return { spans, breaks: breaks ?? [] };
+}
+
+// Reasons you've given lately, so the chips you use most come first.
+export async function fetchRecentFocusReasons(userId) {
+  const { data, error } = await supabase
+    .from("focus_mode_breaks")
+    .select("kind, reason")
+    .eq("user_id", userId)
+    .not("reason", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  const rows = data ?? [];
+  return { pulled: rows.filter((r) => r.kind === "pulled").map((r) => r.reason), left: rows.filter((r) => r.kind === "left").map((r) => r.reason) };
+}
+
 // A tap made on the phone carries its own id and time, so a tap that waited
 // offline lands on the day it was made, and sending it twice can't make two
 // rows: the second insert hits the same id and is reported as a duplicate
