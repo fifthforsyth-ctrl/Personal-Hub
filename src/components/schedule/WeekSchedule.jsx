@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, LayoutTemplate } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { fetchRangeChunks, fetchTemplates, applyTemplate, deleteTimeChunks, fetchRangePlan, deleteTasks } from "../../lib/api";
+import { fetchRangeChunks, fetchTemplates, applyTemplate, deleteTimeChunks, fetchRangePlan, deleteTasks, fetchEnergyTags, putBackEnergyTags } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
@@ -23,8 +23,16 @@ export default function WeekSchedule({ anchorDate, onOpenDay }) {
   const end = days[6];
   const today = todayStr();
   const [filling, setFilling] = useState(false);
+  const toast = useToast();
 
-  const { data, error, reload } = useLoad(() => (user?.id ? fetchRangeChunks(user.id, start, end) : null), [user?.id, start]);
+  // A schedule delete still waiting on its Undo goes through before the week
+  // is read, so a block just deleted on a day doesn't show here. Another
+  // screen's Undo (a focus removed on Targets) is left alone.
+  const { data, error, reload } = useLoad(async () => {
+    if (!user?.id) return null;
+    await toast.flush("schedule");
+    return fetchRangeChunks(user.id, start, end);
+  }, [user?.id, start]);
   const byDay = useMemo(() => {
     const m = new Map(days.map((d) => [d, []]));
     for (const c of data ?? []) m.get(c.date)?.push(c);
@@ -159,6 +167,9 @@ function FillSheet({ userId, days, byDay, onClose, onDone }) {
     setBusy(true);
     try {
       const before = await fetchRangePlan(userId, days[0], days[6]);
+      // A preset can set the energy of the days it goes on; remember what
+      // they had for Undo.
+      const energyBefore = preset.energy_tag ? await fetchEnergyTags(userId, days[0], days[6]).catch(() => null) : null;
       if (replacing.length) await deleteTimeChunks(replacing.map((c) => c.id));
       for (const d of targets) await applyTemplate(preset.id, d);
       const after = await fetchRangePlan(userId, days[0], days[6]);
@@ -176,6 +187,7 @@ function FillSheet({ userId, days, byDay, onClose, onDone }) {
               try {
                 await deleteTasks(addedT);
                 await deleteTimeChunks(addedC);
+                await putBackEnergyTags(userId, targets, energyBefore, preset.energy_tag).catch(() => {});
               } catch (err) {
                 toast.error(err, "Couldn't take all of that back off.");
               }

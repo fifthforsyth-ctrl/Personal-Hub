@@ -237,6 +237,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
       setOpenRow(null);
       hide([task.id]);
       toast.undoable({
+        scope: "schedule",
         message: subs > 0 ? `Deleted ${quote(task.title)} and ${plural(subs, "sub-task")}` : `Deleted ${quote(task.title)}`,
         run: async () => {
           await deleteTask(task.id);
@@ -292,6 +293,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
     setEditing(null);
     hide([chunk.id]);
     toast.undoable({
+      scope: "schedule",
       message: moving > 0 ? `Deleted ${quote(chunk.title)}. ${plural(moving, "task")} moved to Unscheduled.` : `Deleted ${quote(chunk.title)}`,
       run: async () => {
         await deleteTimeChunk(chunk.id);
@@ -315,6 +317,10 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
   // server only ever adds, so tapping "Workday" twice used to stack two.
   async function applyPreset(t) {
     if (busyPreset || !data) return;
+    // A delete still waiting on its Undo goes through first, so the server
+    // sees the day as it looks (a day preset uses a weekly block already
+    // there rather than adding it twice).
+    await toast.flush("schedule");
     const before = data;
     let mode = "add";
     if (t.kind === "day") {
@@ -390,6 +396,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
       const removeIds = chunks.filter((c) => !c.standing_block_id).map((c) => c.id);
       hide(removeIds);
       toast.undoable({
+        scope: "schedule",
         message: `Replaced the day with ${t.name}`,
         run: async () => {
           await deleteTimeChunks(removeIds);
@@ -428,6 +435,7 @@ export default function DayView({ userId, date, goalOptions = [], onDataChanged 
   function removePreset(t) {
     hide([t.id]);
     toast.undoable({
+      scope: "schedule",
       message: `Deleted the ${quote(t.name)} preset`,
       run: async () => {
         await deleteTemplate(t.id);

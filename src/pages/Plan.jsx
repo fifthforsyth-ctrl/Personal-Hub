@@ -77,7 +77,8 @@ export default function Plan() {
         </div>
       </div>
 
-      <FocusLine date={view === "week" ? date : today} />
+      {/* The focus of the week on screen (a day shows its own week's). */}
+      <FocusLine date={view === "month" ? today : date} />
 
       {view === "day" && <ScheduleDay key={date} userId={user?.id} date={date} />}
       {view === "week" && <WeekSchedule anchorDate={date} onOpenDay={openDay} />}

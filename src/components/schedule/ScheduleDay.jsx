@@ -22,8 +22,8 @@ import {
   addStandingBlock,
   removeStandingBlock,
   setStandingColor,
-  setDayEnergyTag,
-  fetchDayPlan,
+  fetchEnergyTags,
+  putBackEnergyTags,
 } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
 import { useToast, useConfirm } from "../ui/Feedback";
@@ -32,7 +32,7 @@ import { useChoiceSheet } from "../plan/ChoiceSheet";
 import DayGrid from "./DayGrid";
 import BlockSheet from "./BlockSheet";
 import PresetsSheet from "./PresetsSheet";
-import { gridRange, plannedMinutes, openStretches, fmtHours, newBlockAt, nextOpenSlot, hourLabel, toTime, colorOf } from "../../lib/schedule";
+import { gridRange, plannedMinutes, openStretches, fmtHours, newBlockAt, nextOpenSlot, hourLabel, toTime, colorOf, presetAdded } from "../../lib/schedule";
 import { fmtTimeRange, parseDateStr, todayStr } from "../../lib/planDates";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -56,8 +56,17 @@ export default function ScheduleDay({ userId, date }) {
   const phone = useMediaQuery("(max-width: 900px)");
   const slotH = phone ? 26 : 28;
 
+  // A schedule delete still waiting on its Undo (made a moment ago on this
+  // day, or on another) goes through before the day is first read, so it
+  // can't come back as a block that's already gone. Another screen's Undo
+  // is left alone.
+  const flushed = useRef(false);
   const { data, error, reload, mutate } = useLoad(async () => {
     if (!userId) return null;
+    if (!flushed.current) {
+      flushed.current = true;
+      await toast.flush("schedule");
+    }
     const [chunks, tasks] = await Promise.all([fetchTimeChunks(userId, date), fetchTasks(userId, date)]);
     return { date, chunks, tasks };
   }, [userId, date]);
@@ -120,19 +129,27 @@ export default function ScheduleDay({ userId, date }) {
   // --- blocks ----------------------------------------------------------------
 
   async function saveBlock(chunk, fields, { repeat }) {
+    const recolored = Boolean(chunk?.standing_block_id) && (chunk.color ?? null) !== (fields.color ?? null);
     try {
       let row;
       if (chunk) {
         row = await updateTimeChunk(chunk.id, fields);
-        if (chunk.standing_block_id && (chunk.color ?? null) !== (fields.color ?? null)) {
-          await setStandingColor(chunk.standing_block_id, fields.color, date);
-        }
+        if (recolored) await setStandingColor(chunk.standing_block_id, fields.color, date);
       } else {
         row = await createTimeChunk(userId, { date, ...fields });
       }
       putChunk(row);
-      if (repeat) {
-        await addStandingBlock(userId, {
+    } catch (err) {
+      toast.error(err, chunk ? "Couldn't save the block." : "Couldn't add the block.");
+      return false;
+    }
+    // The block is saved now, so the sheet closes whatever happens next: a
+    // second try can't add it twice.
+    setSheet(null);
+    if (repeat) {
+      const day = parseDateStr(date).toLocaleDateString(undefined, { weekday: "long" });
+      try {
+        const { stamped } = await addStandingBlock(userId, {
           weekday: parseDateStr(date).getDay(),
           title: fields.title,
           category: fields.category,
@@ -141,16 +158,20 @@ export default function ScheduleDay({ userId, date }) {
           end: fields.end_time,
         });
         await reload();
-        toast.show(`${quote(fields.title)} now repeats every ${parseDateStr(date).toLocaleDateString(undefined, { weekday: "long" })}`);
-      } else if (chunk?.standing_block_id && (chunk.color ?? null) !== (fields.color ?? null)) {
-        toast.show("Color saved for every week ahead");
+        toast.show(stamped ? `${quote(fields.title)} now repeats every ${day}` : `${quote(fields.title)} now repeats every ${day}. The weeks ahead fill in overnight.`);
+      } catch (err) {
+        toast.error(err, `Saved the block, but couldn't make it repeat every ${day}.`);
       }
-      setSheet(null);
-      return true;
-    } catch (err) {
-      toast.error(err, chunk ? "Couldn't save the block." : "Couldn't add the block.");
-      return false;
+    } else if (recolored) {
+      toast.show("Color saved for every week ahead");
     }
+    return true;
+  }
+
+  // The notes' own Save writes them straight away; keep the day in step so
+  // reopening the block shows them.
+  function notesSaved(id, notes) {
+    mutate((d) => d && { ...d, chunks: d.chunks.map((c) => (c.id === id ? { ...c, notes: notes || null } : c)) });
   }
 
   async function dragBlock(chunk, times) {
@@ -184,6 +205,7 @@ export default function ScheduleDay({ userId, date }) {
     setSheet(null);
     hide([chunk.id]);
     toast.undoable({
+      scope: "schedule",
       message: moving > 0 ? `Deleted ${quote(chunk.title)}. ${plural(moving, "task")} kept with no time.` : `Deleted ${quote(chunk.title)}`,
       run: async () => {
         await deleteTimeChunk(chunk.id);
@@ -252,6 +274,7 @@ export default function ScheduleDay({ userId, date }) {
       const task = payload;
       hide([task.id]);
       toast.undoable({
+        scope: "schedule",
         message: `Deleted ${quote(task.title)}`,
         run: async () => {
           await deleteTask(task.id);
@@ -271,6 +294,10 @@ export default function ScheduleDay({ userId, date }) {
   // the server only ever adds. Weekly blocks stay either way.
   async function applyPreset(t) {
     if (busyPreset || !data) return;
+    // A delete still waiting on its Undo goes through first: the server
+    // looks at the day's blocks (a day preset skips a weekly block that's
+    // already there), so it has to see the day as it looks.
+    await toast.flush("schedule");
     const before = data;
     let mode = "add";
     if (t.kind === "day") {
@@ -302,6 +329,8 @@ export default function ScheduleDay({ userId, date }) {
     }
 
     setBusyPreset(t.id);
+    // A preset can set the day's energy; remember what it was for Undo.
+    const energyBefore = t.energy_tag ? await fetchEnergyTags(userId, date, date).catch(() => null) : null;
     try {
       await applyTemplate(t.id, date);
     } catch (err) {
@@ -313,21 +342,27 @@ export default function ScheduleDay({ userId, date }) {
     setBusyPreset(null);
     setPresetsOpen(false);
     const done = t.kind === "day" ? `Applied ${t.name}` : `Added ${t.name}`;
-    if (!fresh || fresh.date !== date) return toast.show(done);
 
+    // What the preset added: known now from the reload, or (if that failed)
+    // worked out on Undo from what the day has then, counting only blocks
+    // that are the preset's own and the tasks in them, so a block or task
+    // added in the meantime stays.
     const oldChunks = new Set(before.chunks.map((c) => c.id));
     const oldTasks = new Set(before.tasks.map((x) => x.id));
-    const addedChunks = fresh.chunks.filter((c) => !oldChunks.has(c.id)).map((c) => c.id);
-    const addedTasks = fresh.tasks.filter((x) => !oldTasks.has(x.id)).map((x) => x.id);
+    const addedOf = (now) => ({
+      chunks: now.chunks.filter((c) => !oldChunks.has(c.id)).map((c) => c.id),
+      tasks: now.tasks.filter((x) => !oldTasks.has(x.id)).map((x) => x.id),
+    });
+    let added = fresh && fresh.date === date ? addedOf(fresh) : null;
     const takeBack = async () => {
       try {
-        await deleteTasks(addedTasks);
-        await deleteTimeChunks(addedChunks);
-        // A preset can set the day's energy; put back what it was.
-        if (t.energy_tag) {
-          const plan = await fetchDayPlan(userId, date).catch(() => null);
-          if (plan && plan.energy_tag === t.energy_tag) await setDayEnergyTag(userId, date, null).catch(() => {});
+        if (!added) {
+          const [nowChunks, nowTasks] = await Promise.all([fetchTimeChunks(userId, date), fetchTasks(userId, date)]);
+          added = presetAdded(t, before, nowChunks, nowTasks);
         }
+        await deleteTasks(added.tasks);
+        await deleteTimeChunks(added.chunks);
+        await putBackEnergyTags(userId, [date], energyBefore, t.energy_tag).catch(() => {});
       } catch (err) {
         toast.error(err, "Couldn't take all of that back off. Check the day.");
       }
@@ -338,6 +373,7 @@ export default function ScheduleDay({ userId, date }) {
       const removeIds = chunks.filter((c) => !c.standing_block_id).map((c) => c.id);
       hide(removeIds);
       toast.undoable({
+        scope: "schedule",
         message: `Replaced the day with ${t.name}`,
         run: async () => {
           await deleteTimeChunks(removeIds);
@@ -356,6 +392,9 @@ export default function ScheduleDay({ userId, date }) {
 
   async function saveDayPreset(name) {
     try {
+      // A delete still waiting on its Undo goes through first, so the
+      // preset is the day as it looks.
+      await toast.flush("schedule");
       await saveDayAsTemplate(date, name);
       presets.reload();
       toast.show(`Saved this day as ${quote(name)}`);
@@ -390,6 +429,7 @@ export default function ScheduleDay({ userId, date }) {
   function removePreset(t) {
     hide([t.id]);
     toast.undoable({
+      scope: "schedule",
       message: `Deleted the ${quote(t.name)} preset`,
       run: async () => {
         await deleteTemplate(t.id);
@@ -406,6 +446,7 @@ export default function ScheduleDay({ userId, date }) {
     setPresetsOpen(false);
     hide(ids);
     toast.undoable({
+      scope: "schedule",
       message: `Cleared ${plural(ids.length, "block")}${ids.length < chunks.length ? ". Weekly blocks stay." : ""}`,
       run: async () => {
         await deleteTimeChunks(ids);
@@ -575,6 +616,7 @@ export default function ScheduleDay({ userId, date }) {
           categories={cats.data ?? []}
           questOptions={quests.data ?? []}
           onSave={(fields, opts) => saveBlock(editing, fields, opts)}
+          onNotesSaved={(notes) => editing && notesSaved(editing.id, notes)}
           onDelete={() => removeBlock(editing)}
           onClose={() => setSheet(null)}
           onTask={(kind, payload) => onTask(kind, payload, editing)}
@@ -589,6 +631,7 @@ export default function ScheduleDay({ userId, date }) {
           hiddenIds={hidden}
           busyId={busyPreset}
           canSaveDay={chunks.length > 0}
+          canClear={chunks.some((c) => !c.standing_block_id)}
           onApply={applyPreset}
           onSaveDay={saveDayPreset}
           onDelete={removePreset}

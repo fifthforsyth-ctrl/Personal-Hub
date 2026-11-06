@@ -5,11 +5,14 @@ import { X } from "lucide-react";
 // desk. Escape closes the top one only, so a confirm opened over a sheet
 // closes first. Opening one takes the focus into it (unless a box in it took
 // it already), so a keyboard starts in the sheet rather than on the page
-// behind; closing gives it back to whatever had it.
+// behind; closing gives it back to whatever had it. Only a press that starts
+// and ends on the backdrop closes it, so selecting text and letting go past
+// the panel's edge doesn't.
 export default function Sheet({ title, onClose, children }) {
   const id = useId();
   const backdrop = useRef(null);
   const dialog = useRef(null);
+  const downOnBackdrop = useRef(false);
   // What had the focus as it opened, read before a box in it can take it.
   const opener = useRef(undefined);
   if (opener.current === undefined) opener.current = typeof document === "undefined" ? null : document.activeElement;
@@ -36,7 +39,17 @@ export default function Sheet({ title, onClose, children }) {
   }, [onClose]);
 
   return (
-    <div className="sheet-backdrop" ref={backdrop} onClick={onClose}>
+    <div
+      className="sheet-backdrop"
+      ref={backdrop}
+      onPointerDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && downOnBackdrop.current) onClose();
+        downOnBackdrop.current = false;
+      }}
+    >
       <div ref={dialog} tabIndex={-1} className="sheet ascent-sheet" role="dialog" aria-modal="true" aria-labelledby={id} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <h2 className="card-title" id={id}>

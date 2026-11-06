@@ -6885,10 +6885,172 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the Week tab is Day, Week and Month, with no wheel, key or ideal days", /key: "day"/.test(plan) && /key: "month"/.test(plan) && !/CategoryKey|IdealDays|DayRing|WeekPlanner|CuratedCards/.test(plan));
   ok("a day opens as its schedule inside the tab", /onOpenDay=\{openDay\}/.test(plan) && /navigate\(`\/plan\/\$\{v\}\/\$\{d\}`\)/.test(plan));
   ok("the week's focus is one line of targets that open on Targets", /pathOf\("focus", g\.id\)/.test(read("src/components/schedule/FocusLine.jsx")) && /focus=edit/.test(read("src/components/schedule/FocusLine.jsx")));
-  ok("Targets opens the week's focus for editing from ?focus=edit", /params\.get\("focus"\) === "edit"/.test(read("src/pages/Targets.jsx")) && /<FocusWeek anchorDate=\{today\} \/>/.test(read("src/pages/Targets.jsx")));
+  ok("Targets opens the week's focus for editing from ?focus=edit", /params\.get\("focus"\) === "edit"/.test(read("src/pages/Targets.jsx")) && /<FocusWeek anchorDate=\{editWeek === weekStart \? today : editWeek\} \/>/.test(read("src/pages/Targets.jsx")));
   ok("nothing still sends you to Week to set the focus", ["src/components/focus/FocusArrows.jsx", "src/components/focus/FocusStrip.jsx", "src/components/focus/FocusSheet.jsx", "src/components/targets/TargetFocus.jsx", "src/pages/Targets.jsx"].every((f) => !/to="\/plan"/.test(read(f))));
   ok("a block's colour saves with a block preset", /color: color \|\| null, category: category \|\| null/.test(read("src/lib/api.js")));
   ok("Today's plan opens the schedule", /to=\{`\/plan\/day\/\$\{date\}`\}/.test(read("src/components/today/PlanBlocks.jsx")));
+}
+
+// Fixes from the planner's bug review (2026-11-06).
+{
+  const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const S = await import("../src/lib/schedule.js");
+  const c = (start_time, end_time, extra = {}) => ({ id: start_time + end_time, start_time, end_time, title: "x", ...extra });
+
+  // The + button never prefills on top of a block.
+  ok("Add block skips to open time when the day runs late", JSON.stringify(S.nextOpenSlot([c("09:00", "10:00"), c("22:00", "23:30")])) === JSON.stringify({ start: "10:00", end: "11:00" }), JSON.stringify(S.nextOpenSlot([c("09:00", "10:00"), c("22:00", "23:30")])));
+  ok("and is cut short by the next block", JSON.stringify(S.nextOpenSlot([c("09:00", "10:00"), c("10:30", "11:00"), c("22:00", "23:45")])) === JSON.stringify({ start: "10:00", end: "10:30" }));
+  ok("a day whose last block ends at 11 PM still gets 11 to midnight", JSON.stringify(S.nextOpenSlot([c("08:00", "23:00")])) === JSON.stringify({ start: "23:00", end: "23:59" }));
+  ok("from the start of the day when 9 AM on is full", S.nextOpenSlot([c("09:00", "23:59")]).start === "00:00");
+  ok("an empty day still starts at 9", JSON.stringify(S.nextOpenSlot([])) === JSON.stringify({ start: "09:00", end: "10:00" }));
+
+  // The sheet's length near midnight.
+  ok("a block to 23:59 is as long as one to midnight", S.blockLength("23:00", "23:59") === 60 && S.blockLength("09:00", "10:30") === 90);
+  ok("a block past midnight counts its real length", S.blockLength("23:30", "00:30") === 60 && S.blockLength("22:00", "01:00") === 180);
+  ok("a whole day is 24 hours, and no time is no length", S.blockLength("00:00", "23:59") === 1440 && S.blockLength("09:00", "09:00") === 0 && S.blockLength("", "10:00") === 0);
+  const sheet = read("src/components/schedule/BlockSheet.jsx");
+  ok("length chips give the length asked for, past midnight too", /setEnd\(toTime\(e <= 24 \* 60 \? e : e - 24 \* 60\)\)/.test(sheet) && /blockLength\(start, end\)/.test(sheet));
+
+  // The grid: touch, taps and labels.
+  const grid = read("src/components/schedule/DayGrid.jsx");
+  ok("on a phone, the bottom edge waits for a press and hold too", !/mode === "resize" && canDrag\) d\.active = true/.test(grid) && /if \(d\.touch && canDrag\)/.test(grid));
+  ok("and a swipe from it can scroll, on any touch screen", /\.blk__grip \{[^}]*touch-action: pan-y; \}/.test(read("src/styles/schedule.css")) && !/\.blk__grip \{[^}]*touch-action: none/.test(read("src/styles/schedule.css")));
+  ok("the edge never covers a short block", /\.blk__grip \{[^}]*max-height: 40%/.test(read("src/styles/schedule.css")));
+  ok("a block opens on click, so a tap on its edge opens it and a tap that stops a scroll doesn't", /onClick=\{\(\) => open\(chunk\)\}/.test(grid) && !/onOpen\(d\.chunk\)/.test(grid) && /dragged\.current = d\.active/.test(grid));
+  ok("a second finger can't take over a drag", /if \(!e\.isPrimary\) return;/.test(grid) && /e\.pointerId !== d\.pointerId/.test(grid));
+  ok("a block past midnight says when it really ends", /overnight \? fmtTimeRange\(chunk\.start_time, chunk\.end_time\)/.test(grid));
+
+  // Notes, Undo and presets.
+  const notes = read("src/components/day/ChunkNotes.jsx");
+  ok("notes saved in a block reach the day, so reopening shows them", /onSaved\?\.\(notes\)/.test(notes) && /onNotesSaved=\{\(notes\) => editing && notesSaved\(editing\.id, notes\)\}/.test(read("src/components/schedule/ScheduleDay.jsx")));
+  ok("notes being written go with the block's Save, and folding More keeps them", /draftRef\.current = editing && notes !== saved \? notes : null/.test(notes) && /fields\.notes = notesDraft\.current \|\| null/.test(sheet) && /more \|\| moreSeen/.test(sheet));
+  ok("closing with notes being written asks first", /Drop the notes you were writing\?/.test(sheet) && /onClose=\{close\}/.test(sheet));
+  ok("so do Delete and Stop repeating", /onClick=\{async \(\) => \(await draftMayGo\(\)\) && onStopRepeat\(\)\}/.test(sheet) && /onClick=\{async \(\) => \(await draftMayGo\(\)\) && onDelete\(\)\}/.test(sheet));
+  ok("notes can't be typed into while they save, so nothing typed is lost", /readOnly=\{busy\}/.test(notes));
+  const day = read("src/components/schedule/ScheduleDay.jsx");
+  ok("a block that saved but couldn't repeat closes, so a retry can't add it twice", day.indexOf("setSheet(null);\n    if (repeat)") > 0 && /Saved the block, but couldn't make it repeat/.test(day));
+  ok("Replace still replaces when the reload after it fails", !/if \(!fresh \|\| fresh\.date !== date\) return/.test(day) && /let added = fresh && fresh\.date === date \? addedOf\(fresh\) : null/.test(day));
+  ok("a schedule delete waiting on Undo goes through before a day, week or month is read", /await toast\.flush\("schedule"\);\n    }\n    const \[chunks, tasks\]/.test(day) && ["src/components/schedule/WeekSchedule.jsx", "src/components/schedule/MonthSchedule.jsx"].every((f) => /await toast\.flush\("schedule"\);\n    return fetchRangeChunks/.test(read(f))));
+  ok("and before the day is saved as a preset, or a preset applied (here and on the Day page)", /await toast\.flush\("schedule"\);\n      await saveDayAsTemplate/.test(day) && /if \(busyPreset \|\| !data\) return;\n[^]*?await toast\.flush\("schedule"\);\n    const before = data;/.test(day) && /await toast\.flush\("schedule"\);\n    const before = data;/.test(read("src/components/plan/DayView.jsx")));
+  ok("only schedule Undos are run early: every one on the schedule and Day page is scoped", (day.match(/toast\.undoable\(\{\n\s+scope: "schedule",/g) ?? []).length === (day.match(/toast\.undoable\(/g) ?? []).length && (read("src/components/plan/DayView.jsx").match(/toast\.undoable\(\{\n\s+scope: "schedule",/g) ?? []).length === 4);
+  const fb = read("src/components/ui/Feedback.jsx");
+  ok("the toast provider shares flush, and a flushed Undo leaves the screen", /value=\{\{ show, error, undoable, flush, hide, confirm \}\}/.test(fb) && /t\.id === p\.toastId \? null : t/.test(fb) && /entry\.toastId = show\(/.test(fb));
+  ok("a scoped flush leaves another screen's Undo alone; the app-hidden flush still runs everything", /if \(typeof scope === "string" && p\.scope !== scope\) return;/.test(fb) && /const entry = \{ run, onUndo, scope \}/.test(fb) && /window\.addEventListener\("pagehide", flush\)/.test(fb));
+  ok("Clear this day only shows when there's something it can clear", /canClear=\{chunks\.some\(\(c\) => !c\.standing_block_id\)\}/.test(day) && /\{canClear && \(/.test(read("src/components/schedule/PresetsSheet.jsx")));
+  ok("Undo on a preset puts back each day's energy, in the day and on the week", /putBackEnergyTags\(userId, \[date\], energyBefore, t\.energy_tag\)/.test(day) && /putBackEnergyTags\(userId, targets, energyBefore, preset\.energy_tag\)/.test(read("src/components/schedule/WeekSchedule.jsx")));
+  ok("a sheet closes only on a press that starts on its backdrop", /downOnBackdrop\.current = e\.target === e\.currentTarget/.test(read("src/components/ascent/Sheet.jsx")));
+
+  const sql = read("supabase/migrations/0108_preset_skips_weekly_copies.sql");
+  ok("0108: a day preset uses a weekly block the day already has, and drops nothing", /if v_template\.kind = 'day' then\s+select c\.id into v_new_chunk_id from public\.time_chunks c/.test(sql) && /c\.standing_block_id is not null/.test(sql) && /lower\(trim\(c\.title\)\) = lower\(trim\(v_tc\.title\)\)/.test(sql) && !/\bdrop\b/i.test(sql) && /create or replace function public\.apply_plan_template\(p_template_id uuid, p_date date\)/.test(sql));
+  ok("0108: the preset's tasks go onto that weekly block, minus any it already has", /v_reused := v_new_chunk_id is not null;/.test(sql) && /if v_reused then\s+select t\.id into v_existing_task/.test(sql) && /t\.parent_task_id is not distinct from v_parent/.test(sql) && /v_task_map := jsonb_set\(v_task_map, array\[v_tt\.id::text\], to_jsonb\(v_existing_task::text\)\);\s+continue;/.test(sql));
+  ok("0108: a single-block preset still always adds its block", /if v_template\.kind = 'day' then/.test(sql) && /if v_reused then[^]*?else\s+insert into public\.time_chunks/.test(sql));
+  ok("0108 keeps 0107's colour and category on what it does add", /v_tc\.goal_node_id, v_tc\.category, v_tc\.color\)/.test(sql));
+
+  // Undo after a preset whose reload failed: only the preset's own rows.
+  const tpl = { template_chunks: [{ title: "Deep work", start_time: "08:00:00", end_time: "12:00:00", template_tasks: [{ title: "Inbox zero" }] }, { title: "Standup", start_time: "09:00:00", end_time: "09:15:00", template_tasks: [{ title: "Notes" }] }] };
+  const was = { chunks: [{ id: "w1" }], tasks: [{ id: "t0" }] };
+  const nowC = [
+    { id: "w1", title: "Standup", start_time: "09:00:00", end_time: "09:15:00", standing_block_id: "sb" },
+    { id: "n1", title: "Deep work", start_time: "08:00:00", end_time: "12:00:00", standing_block_id: null },
+    { id: "n2", title: "Lunch", start_time: "12:00:00", end_time: "12:30:00", standing_block_id: null },
+  ];
+  const nowT = [
+    { id: "t0", time_chunk_id: "w1", title: "Old", parent_task_id: null },
+    { id: "t1", time_chunk_id: "n1", title: "Inbox zero", parent_task_id: null },
+    { id: "t1s", time_chunk_id: "n1", title: "sub", parent_task_id: "t1" },
+    { id: "t2", time_chunk_id: "w1", title: "Notes", parent_task_id: null },
+    { id: "t3", time_chunk_id: "w1", title: "Call Bob", parent_task_id: null },
+    { id: "t4", time_chunk_id: "n2", title: "Eat", parent_task_id: null },
+  ];
+  const got = S.presetAdded(tpl, was, nowC, nowT);
+  ok("a lazy Undo takes back the preset's blocks and the tasks it put in them", got.chunks.join() === "n1" && ["t1", "t1s", "t2"].every((x) => got.tasks.includes(x)), JSON.stringify(got));
+  ok("but not a block or task added in the meantime", !got.chunks.includes("n2") && !got.tasks.includes("t3") && !got.tasks.includes("t4") && !got.tasks.includes("t0"), JSON.stringify(got));
+  ok("the templates fetch brings each preset block's task names", /template_chunks\(id, title, start_time, end_time, color, category, position, template_tasks\(title\)\)/.test(read("src/lib/api.js")));
+
+  // The focus line and Targets.
+  const line = read("src/components/schedule/FocusLine.jsx");
+  ok("the focus line edits the week it shows", /const edit = focusEditFor\(weekStart\)/.test(line) && (line.match(/to=\{edit\}/g) ?? []).length === 2 && /next\.delete\("week"\)/.test(read("src/pages/Targets.jsx")));
+  ok("and draws arrows up to today, or to the end of a past week", /today=\{upTo\}/.test(line) && /const upTo = today < lastDay \? today : lastDay/.test(line));
+  ok("a day shows its own week's focus", /<FocusLine date=\{view === "month" \? today : date\} \/>/.test(read("src/pages/Plan.jsx")));
+  ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
+
+  // The helpers behind Undo and repeating, run against a stand-in database.
+  const { build } = await import("esbuild");
+  const calls = (globalThis.__plannerDb = { log: [], tags: {}, stampFails: false });
+  const built = await build({
+    entryPoints: [fileURLToPath(new URL("../src/lib/api.js", import.meta.url))],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "stand-in-db",
+        setup(b) {
+          b.onResolve({ filter: /supabaseClient$/ }, () => ({ path: "db", namespace: "stand-in" }));
+          b.onResolve({ filter: /^[^./]/ }, (a) => (a.kind === "entry-point" ? null : { path: a.path, namespace: "empty" }));
+          b.onLoad({ filter: /.*/, namespace: "empty" }, () => ({ contents: "export default {}; export const createClient = () => ({});", loader: "js" }));
+          b.onLoad({ filter: /.*/, namespace: "stand-in" }, () => ({
+            contents: `
+              const db = globalThis.__plannerDb;
+              function q(table) {
+                const st = { table, filters: [], op: "select" };
+                const api = {
+                  select() { return api; },
+                  eq(k, v) { st.filters.push([k, "eq", v]); return api; },
+                  gte(k, v) { st.filters.push([k, "gte", v]); return api; },
+                  lte(k, v) { st.filters.push([k, "lte", v]); return api; },
+                  insert(row) { st.op = "insert"; st.row = row; return api; },
+                  upsert(row) { st.op = "upsert"; st.row = row; return api; },
+                  then(res, rej) {
+                    db.log.push([st.op, table, st.row ?? null]);
+                    if (st.op === "upsert" && table === "day_plans") db.tags[st.row.date] = st.row.energy_tag;
+                    let data = null;
+                    if (st.op === "select" && table === "day_plans") data = Object.entries(db.tags).map(([date, energy_tag]) => ({ date, energy_tag }));
+                    return Promise.resolve({ data, error: null }).then(res, rej);
+                  },
+                };
+                return api;
+              }
+              export const supabase = {
+                from: q,
+                rpc: async (name) => { db.log.push(["rpc", name]); return { data: null, error: db.stampFails ? { message: "down" } : null }; },
+                auth: { getSession: async () => ({ data: {} }), onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
+              };
+            `,
+            loader: "js",
+          }));
+        },
+      },
+    ],
+  });
+  const A = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
+
+  calls.tags = { "2026-11-09": "low", "2026-11-10": "high" };
+  const before = await A.fetchEnergyTags("u", "2026-11-09", "2026-11-11");
+  ok("energy tags read as a day-to-tag map", before["2026-11-09"] === "low" && before["2026-11-10"] === "high" && !("2026-11-11" in before));
+  // The preset (tag "high") lands on all three days.
+  calls.tags = { "2026-11-09": "high", "2026-11-10": "high", "2026-11-11": "high" };
+  calls.log.length = 0;
+  await A.putBackEnergyTags("u", ["2026-11-09", "2026-11-10", "2026-11-11"], before, "high");
+  ok("Undo gives a day back its own energy, not none", calls.tags["2026-11-09"] === "low", JSON.stringify(calls.tags));
+  ok("leaves a day that already had the preset's energy alone", calls.tags["2026-11-10"] === "high" && !calls.log.some((l) => l[0] === "upsert" && l[2]?.date === "2026-11-10"));
+  ok("and clears it on a day that had none", calls.tags["2026-11-11"] === null);
+  calls.tags = { "2026-11-09": "medium" };
+  calls.log.length = 0;
+  await A.putBackEnergyTags("u", ["2026-11-09"], { "2026-11-09": "low" }, "high");
+  ok("a day whose energy was changed since isn't touched", calls.tags["2026-11-09"] === "medium" && !calls.log.some((l) => l[0] === "upsert"));
+  calls.log.length = 0;
+  await A.putBackEnergyTags("u", ["2026-11-09"], null, "high");
+  ok("without the before, nothing is touched", calls.log.length === 0);
+
+  calls.stampFails = true;
+  calls.log.length = 0;
+  const r = await A.addStandingBlock("u", { weekday: 1, title: " Standup ", start: "09:00", end: "09:15" });
+  ok("a weekly block saves even when filling the weeks ahead fails", r.stamped === false && calls.log.some((l) => l[0] === "insert" && l[1] === "standing_blocks" && l[2].title === "Standup"));
+  calls.stampFails = false;
+  ok("and says so when it worked", (await A.addStandingBlock("u", { weekday: 1, title: "Standup", start: "09:00", end: "09:15" })).stamped === true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

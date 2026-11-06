@@ -171,6 +171,15 @@ export function plannedMinutes(chunks) {
   return total;
 }
 
+// A block's length in minutes from its "HH:MM" times, as the sheet shows
+// it: an end before the start runs past midnight, and 23:59 is midnight.
+export function blockLength(start, end) {
+  if (!start || !end || start === end) return 0;
+  const e = toMin(end) === DAY_END - 1 ? DAY_END : toMin(end);
+  const raw = e - toMin(start);
+  return raw > 0 ? raw : raw + DAY_END;
+}
+
 export function fmtHours(min) {
   if (min <= 0) return "0m";
   const h = Math.floor(min / 60);
@@ -206,11 +215,37 @@ export function newBlockAt(min, chunks) {
   return { start: toTime(start), end: toTime(end) };
 }
 
-// Where a new block goes from the + button: right after the day's last one,
-// an hour long, or 9 AM on an empty day.
+// Where a new block goes from the + button: in the first open time after
+// the day's last block, up to an hour long. When there's no room after it
+// (the day runs to midnight), the first open time from 9 AM, then from the
+// start of the day, so it never lands on a block that's already there.
 export function nextOpenSlot(chunks) {
-  const spans = chunks.map(spanOf).filter((s) => !s.overnight);
-  const last = spans.sort((a, b) => a.end - b.end).at(-1);
-  const start = last && last.end <= 23 * 60 ? last.end : 9 * 60;
-  return { start: toTime(start), end: toTime(Math.min(DAY_END, start + 60)) };
+  const ends = chunks.map(spanOf).filter((s) => !s.overnight).map((s) => s.end);
+  const lastEnd = ends.length ? Math.max(...ends) : null;
+  const fits = (from) => openStretches(chunks, { start: from, end: DAY_END })[0] ?? null;
+  const free = (lastEnd != null && lastEnd <= 23 * 60 ? fits(lastEnd) : null) ?? fits(9 * 60) ?? fits(0);
+  if (!free) return { start: toTime(9 * 60), end: toTime(10 * 60) }; // not a free half hour all day
+  return { start: toTime(free.start), end: toTime(Math.min(free.end, free.start + 60)) };
+}
+
+// --- Presets ---------------------------------------------------------------
+
+// What a preset can have added to a day, found after the fact: new blocks
+// that match one of the preset's own (name and times), and new tasks in
+// those blocks or, on a weekly block the preset's tasks went onto, new tasks
+// whose names are the preset's.
+export function presetAdded(t, before, nowChunks, nowTasks) {
+  const oldChunks = new Set(before.chunks.map((c) => c.id));
+  const oldTasks = new Set(before.tasks.map((x) => x.id));
+  const own = t.template_chunks ?? [];
+  const same = (a, b) => a.start_time === b.start_time && a.end_time === b.end_time && a.title.trim().toLowerCase() === b.title.trim().toLowerCase();
+  const chunks = nowChunks.filter((c) => !oldChunks.has(c.id) && !c.standing_block_id && own.some((tc) => same(tc, c))).map((c) => c.id);
+  const ids = new Set(chunks);
+  const weekly = new Set(nowChunks.filter((c) => c.standing_block_id && own.some((tc) => same(tc, c))).map((c) => c.id));
+  const names = new Set(own.flatMap((tc) => (tc.template_tasks ?? []).map((x) => x.title.trim().toLowerCase())));
+  const newTask = (x) => !oldTasks.has(x.id);
+  const top = nowTasks.filter((x) => newTask(x) && (ids.has(x.time_chunk_id) || (weekly.has(x.time_chunk_id) && names.has(x.title.trim().toLowerCase()))));
+  const topIds = new Set(top.map((x) => x.id));
+  const tasks = [...top, ...nowTasks.filter((x) => newTask(x) && !topIds.has(x.id) && topIds.has(x.parent_task_id))].map((x) => x.id);
+  return { chunks, tasks };
 }

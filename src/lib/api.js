@@ -695,6 +695,28 @@ export async function setDayEnergyTag(userId, date, energyTag) {
   if (error) throw error;
 }
 
+// Each day's energy tag in a range, as { "YYYY-MM-DD": tag }. A day with no
+// plan row has no key.
+export async function fetchEnergyTags(userId, startDate, endDate) {
+  const { data, error } = await supabase.from("day_plans").select("date, energy_tag").eq("user_id", userId).gte("date", startDate).lte("date", endDate);
+  if (error) throw error;
+  return Object.fromEntries((data ?? []).map((r) => [r.date, r.energy_tag ?? null]));
+}
+
+// Undo for a preset that set some days' energy (apply_plan_template writes
+// its tag over the day's): each day still wearing the preset's tag gets back
+// the one it had. `before` is fetchEnergyTags' answer from before applying;
+// without it nothing is touched.
+export async function putBackEnergyTags(userId, dates, before, tag) {
+  if (!tag || !before || dates.length === 0) return;
+  const sorted = [...dates].sort();
+  const now = await fetchEnergyTags(userId, sorted[0], sorted.at(-1));
+  for (const d of dates) {
+    const was = before[d] ?? null;
+    if (was !== tag && now[d] === tag) await setDayEnergyTag(userId, d, was);
+  }
+}
+
 export async function fetchTimeChunks(userId, date) {
   const { data, error } = await supabase
     .from("time_chunks")
@@ -793,7 +815,7 @@ export async function deleteTasks(taskIds) {
 export async function fetchTemplates(userId, kind) {
   let query = supabase
     .from("plan_templates")
-    .select("*, template_chunks(id, title, start_time, end_time, color, category, position)")
+    .select("*, template_chunks(id, title, start_time, end_time, color, category, position, template_tasks(title))")
     .eq("user_id", userId)
     .order("name", { ascending: true });
   if (kind) query = query.eq("kind", kind);
@@ -1369,8 +1391,12 @@ export async function addStandingBlock(userId, { weekday, title, category, color
     end_time: end,
   });
   if (error) throw error;
+  // The weekly block is saved. Putting it on the weeks ahead now is a nicety:
+  // the nightly job does it too, so a failure here isn't the save failing
+  // (and a retry would only make a second weekly block).
   const { error: stampError } = await supabase.rpc("stamp_my_standing_blocks");
-  if (stampError) throw stampError;
+  if (stampError) console.warn(stampError);
+  return { stamped: !stampError };
 }
 
 // A weekly block's colour, for it and every copy of it from `fromDate` on.
