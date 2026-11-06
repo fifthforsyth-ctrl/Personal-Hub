@@ -17,9 +17,9 @@
 // verify_jwt is off: the cron has no user, so the secret is its check and
 // the test checks the caller's token itself.
 //
-// Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (base64url; the public one
-// is also in src/lib/push.js), CRON_SECRET (already set for the other
-// crons), SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (built in).
+// Keys: the VAPID private key from the vault (0110) or a VAPID_PRIVATE_KEY
+// secret; CRON_SECRET (already set for the other crons); SUPABASE_URL and
+// SUPABASE_SERVICE_ROLE_KEY (built in).
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@^2.45.0";
 import { sendPush, type Subscription } from "./webpush.ts";
@@ -36,11 +36,27 @@ function json(body: unknown, status = 200) {
 
 type Sub = Subscription & { id: string; user_id: string };
 
+// The public half matches src/lib/push.js. The private half is a function
+// secret if one is set, otherwise the vault's 'love_vapid_private' (0110).
+const VAPID_PUBLIC = "BOBDXKVdOpgY7QVMjaCYUkne6vsk2RieYXar1FWZK9u5ejevbGWoti4MKN3kyWKqjU70-F1VkN3JRKXW2X8V2LU";
+let keys: { publicKey: string; privateKey: string; subject: string } | null = null;
+
+async function loadVapid(admin: SupabaseClient) {
+  if (keys) return keys;
+  let privateKey = Deno.env.get("VAPID_PRIVATE_KEY") ?? null;
+  if (!privateKey) {
+    const { data, error } = await admin.rpc("love_vapid_private");
+    if (error) throw error;
+    privateKey = data;
+  }
+  if (!privateKey) throw new Error("The push key isn't set on this project.");
+  keys = { publicKey: Deno.env.get("VAPID_PUBLIC_KEY") ?? VAPID_PUBLIC, privateKey, subject: "https://forsyth-hub.vercel.app" };
+  return keys;
+}
+
 function vapid() {
-  const publicKey = Deno.env.get("VAPID_PUBLIC_KEY");
-  const privateKey = Deno.env.get("VAPID_PRIVATE_KEY");
-  if (!publicKey || !privateKey) throw new Error("VAPID keys are not set on this project.");
-  return { publicKey, privateKey, subject: "https://forsyth-hub.vercel.app" };
+  if (!keys) throw new Error("Push keys not loaded.");
+  return keys;
 }
 
 // Sends one message to each device; marks the ones that answered.
@@ -129,6 +145,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await loadVapid(admin);
     const cronSecret = Deno.env.get("CRON_SECRET");
     const presented = req.headers.get("x-cron-secret");
     if (cronSecret && presented && presented === cronSecret) {
