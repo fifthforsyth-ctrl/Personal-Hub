@@ -6842,5 +6842,54 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("focus mode is ticked on the start form and on the running timer", /setFocusOn\(e\.target\.checked\)/.test(read("src/components/MinutesView.jsx")) && /<FocusModeBox entry=\{live\} compact \/>/.test(read("src/components/today/MinutesGlance.jsx")));
 }
 
+// The Week tab as a schedule planner (2026-11-06).
+{
+  const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const S = await import("../src/lib/schedule.js");
+  const c = (start_time, end_time, extra = {}) => ({ id: start_time + end_time, start_time, end_time, title: "x", ...extra });
+
+  ok("a block's span is its minutes, and one past midnight runs to the end of its day", JSON.stringify(S.spanOf(c("04:30:00", "04:45:00"))) === JSON.stringify({ start: 270, end: 285, overnight: false }) && S.spanOf(c("22:00", "05:00")).end === 1440 && S.spanOf(c("22:00", "05:00")).overnight);
+  ok("23:59 counts as midnight", S.spanOf(c("23:00", "23:59")).end === 1440 && !S.spanOf(c("23:00", "23:59")).overnight);
+  ok("the grid shows 6 AM to 10 PM on an empty day", JSON.stringify(S.gridRange([])) === JSON.stringify({ start: 360, end: 1320 }));
+  ok("and widens to whole hours around the day's blocks", JSON.stringify(S.gridRange([c("04:30", "04:45"), c("20:30", "22:15")])) === JSON.stringify({ start: 240, end: 1380 }));
+  ok("all 24 hours when asked", JSON.stringify(S.gridRange([c("09:00", "10:00")], { full: true })) === JSON.stringify({ start: 0, end: 1440 }));
+
+  const laid = S.layoutDay([c("09:00", "11:00"), c("10:00", "10:30"), c("10:30", "12:00"), c("13:00", "14:00")]);
+  const by = (t) => laid.find((x) => x.chunk.start_time === t);
+  ok("blocks that share time sit side by side", by("09:00").col === 0 && by("10:00").col === 1 && by("10:30").col === 1 && by("09:00").cols === 2, JSON.stringify(laid.map((x) => [x.chunk.start_time, x.col, x.cols])));
+  ok("and a block on its own takes the whole width", by("13:00").col === 0 && by("13:00").cols === 1);
+  ok("back-to-back blocks don't count as sharing time", S.layoutDay([c("09:00", "10:00"), c("10:00", "11:00")]).every((x) => x.cols === 1));
+
+  ok("open time is the gaps of half an hour or more", JSON.stringify(S.openStretches([c("09:00", "10:00"), c("10:15", "12:00")], { start: 480, end: 780 })) === JSON.stringify([{ start: 480, end: 540 }, { start: 720, end: 780 }]));
+  ok("planned minutes count an overlap once", S.plannedMinutes([c("09:00", "11:00"), c("10:00", "12:00")]) === 180);
+  ok("hours read plainly", S.fmtHours(45) === "45m" && S.fmtHours(60) === "1h" && S.fmtHours(135) === "2h 15m");
+
+  ok("a drag moves a block in fifteen-minute steps and keeps its length", JSON.stringify(S.moved({ start: 540, end: 600 }, 37)) === JSON.stringify({ start: 570, end: 630 }) && S.moved({ start: 540, end: 600 }, 38).start === 585);
+  ok("never off the start or end of the day", S.moved({ start: 30, end: 90 }, -200).start === 0 && S.moved({ start: 1380, end: 1440 }, 90).end === 1440);
+  ok("its bottom edge stretches it, never shorter than fifteen minutes", S.resized({ start: 540, end: 600 }, 44).end === 645 && S.resized({ start: 540, end: 600 }, -200).end === 555);
+  ok("tapping an empty half hour makes an hour block there", JSON.stringify(S.newBlockAt(605, [])) === JSON.stringify({ start: "10:00", end: "11:00" }));
+  ok("cut short by the next block", JSON.stringify(S.newBlockAt(600, [c("10:30", "11:00")])) === JSON.stringify({ start: "10:00", end: "10:30" }));
+  ok("Add block goes after the day's last block", JSON.stringify(S.nextOpenSlot([c("08:00", "09:30")])) === JSON.stringify({ start: "09:30", end: "10:30" }) && S.nextOpenSlot([]).start === "09:00");
+  ok("times write as HH:MM and midnight as 23:59", S.toTime(570) === "09:30" && S.toTime(1440) === "23:59");
+
+  ok("an unknown or empty colour is plain, and plain saves as null", S.colorOf("nope").key === "plain" && S.colorOf(null).key === "plain" && S.colorValue("plain") === null && S.colorValue("slate") === "slate" && S.colorValue("x") === null);
+  ok("every colour key fits the database's check", S.BLOCK_COLORS.every((k) => /^[a-z]{1,16}$/.test(k.key)));
+  ok("a block's wash is solid, so grid lines don't show through", /^rgb\(/.test(S.blockStyle("orange")["--blk-bg"]) && S.blockStyle("ink")["--blk-fg"] === "#ffffff");
+
+  const sql = read("supabase/migrations/0107_block_colors.sql");
+  ok("0107 adds a colour to blocks, preset blocks and weekly blocks, and drops nothing", /alter table public\.time_chunks\s+add column if not exists color/.test(sql) && /alter table public\.template_chunks\s+add column if not exists color/.test(sql) && /alter table public\.standing_blocks\s+add column if not exists color/.test(sql) && !/\bdrop\b/i.test(sql));
+  ok("a preset carries the colour and category both ways", /insert into public\.time_chunks \(user_id, date, start_time, end_time, title, goal_node_id, category, color\)/.test(sql) && /insert into public\.template_chunks \(template_id, title, start_time, end_time, goal_node_id, category, color\)/.test(sql));
+  ok("a weekly block's copies carry its colour", /color = coalesce\(color, v_block\.color\)/.test(sql) && /v_block\.category, v_block\.color, 'commitment'/.test(sql));
+
+  const plan = read("src/pages/Plan.jsx");
+  ok("the Week tab is Day, Week and Month, with no wheel, key or ideal days", /key: "day"/.test(plan) && /key: "month"/.test(plan) && !/CategoryKey|IdealDays|DayRing|WeekPlanner|CuratedCards/.test(plan));
+  ok("a day opens as its schedule inside the tab", /onOpenDay=\{openDay\}/.test(plan) && /navigate\(`\/plan\/\$\{v\}\/\$\{d\}`\)/.test(plan));
+  ok("the week's focus is one line of targets that open on Targets", /pathOf\("focus", g\.id\)/.test(read("src/components/schedule/FocusLine.jsx")) && /focus=edit/.test(read("src/components/schedule/FocusLine.jsx")));
+  ok("Targets opens the week's focus for editing from ?focus=edit", /params\.get\("focus"\) === "edit"/.test(read("src/pages/Targets.jsx")) && /<FocusWeek anchorDate=\{today\} \/>/.test(read("src/pages/Targets.jsx")));
+  ok("nothing still sends you to Week to set the focus", ["src/components/focus/FocusArrows.jsx", "src/components/focus/FocusStrip.jsx", "src/components/focus/FocusSheet.jsx", "src/components/targets/TargetFocus.jsx", "src/pages/Targets.jsx"].every((f) => !/to="\/plan"/.test(read(f))));
+  ok("a block's colour saves with a block preset", /color: color \|\| null, category: category \|\| null/.test(read("src/lib/api.js")));
+  ok("Today's plan opens the schedule", /to=\{`\/plan\/day\/\$\{date\}`\}/.test(read("src/components/today/PlanBlocks.jsx")));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

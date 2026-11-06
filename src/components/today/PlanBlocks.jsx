@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, ArrowRight, ChevronDown, NotebookPen } from "lucide-react";
-import { colorFor } from "../../lib/categories";
+import { colorOf } from "../../lib/schedule";
 import { fmtTimeRange } from "../../lib/planDates";
 import { planForToday, applyOverrides } from "../../lib/todayPlan";
 import LoadError from "../ui/LoadError";
@@ -67,8 +67,8 @@ export default function PlanBlocks({ userId, date, chunks }) {
           <CalendarClock size={14} />
           Today's plan
         </span>
-        <Link to={`/day/${date}`} className="btn-link plan-blocks__open">
-          {blocks.length > 0 ? "Open day" : "Plan it"}
+        <Link to={`/plan/day/${date}`} className="btn-link plan-blocks__open">
+          {blocks.length > 0 ? "Open schedule" : "Plan it"}
           <ArrowRight size={13} />
         </Link>
       </div>
@@ -104,7 +104,7 @@ function Block({ block: b, open, onFlip, onToggle }) {
     <>
       <span className="plan-blocks__time mono">{fmtTimeRange(b.start_time, b.end_time)}</span>
       <span className="plan-blocks__title">
-        {b.category && <span className="dot" style={{ background: colorFor(b.category) }} />}
+        {b.color && <span className="dot" style={{ background: colorOf(b.color).hex }} />}
         <span className="truncate">{b.title || "Untitled block"}</span>
       </span>
       <span className="plan-blocks__aside">
@@ -156,7 +156,7 @@ function Loose({ loose, date, onToggle }) {
       {loose.quests.length > 0 && (
         <p className="plan-blocks__hint">
           {many ? "Tie a block to one of these quests on the " : "Tie a block to this quest on the "}
-          <Link to={`/day/${date}`}>day page</Link>
+          <Link to={`/plan/day/${date}`}>schedule</Link>
           {many ? " and its tasks show inside it." : " and these show inside it."}
         </p>
       )}

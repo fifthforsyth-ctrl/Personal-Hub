@@ -788,8 +788,14 @@ export async function deleteTasks(taskIds) {
 // Plan presets (reusable blocks and whole days) + overview rollups.
 // ---------------------------------------------------------------------------
 
+// Each preset comes with its blocks (times, titles, colours), so a list of
+// presets can draw each one as the little schedule it is.
 export async function fetchTemplates(userId, kind) {
-  let query = supabase.from("plan_templates").select("*").eq("user_id", userId).order("name", { ascending: true });
+  let query = supabase
+    .from("plan_templates")
+    .select("*, template_chunks(id, title, start_time, end_time, color, category, position)")
+    .eq("user_id", userId)
+    .order("name", { ascending: true });
   if (kind) query = query.eq("kind", kind);
   const { data, error } = await query;
   if (error) throw error;
@@ -797,7 +803,7 @@ export async function fetchTemplates(userId, kind) {
 }
 
 // Creates a single-block preset ("chunk" kind) plus its tasks in one go.
-export async function createChunkTemplate(userId, { name, title, startTime, endTime, goalNodeId, taskTitles = [] }) {
+export async function createChunkTemplate(userId, { name, title, startTime, endTime, goalNodeId, color = null, category = null, taskTitles = [] }) {
   const { data: template, error } = await supabase
     .from("plan_templates")
     .insert({ user_id: userId, name, kind: "chunk" })
@@ -807,7 +813,7 @@ export async function createChunkTemplate(userId, { name, title, startTime, endT
 
   const { data: chunk, error: cErr } = await supabase
     .from("template_chunks")
-    .insert({ template_id: template.id, title, start_time: startTime, end_time: endTime, goal_node_id: goalNodeId || null })
+    .insert({ template_id: template.id, title, start_time: startTime, end_time: endTime, goal_node_id: goalNodeId || null, color: color || null, category: category || null })
     .select()
     .single();
   if (cErr) throw cErr;
@@ -1352,18 +1358,32 @@ export async function fetchStandingBlocks() {
   return data ?? [];
 }
 
-export async function addStandingBlock(userId, { weekday, title, category, start, end }) {
+export async function addStandingBlock(userId, { weekday, title, category, color = null, start, end }) {
   const { error } = await supabase.from("standing_blocks").insert({
     user_id: userId,
     weekday: Number(weekday),
     title: title.trim(),
     category: category || null,
+    color: color || null,
     start_time: start,
     end_time: end,
   });
   if (error) throw error;
   const { error: stampError } = await supabase.rpc("stamp_my_standing_blocks");
   if (stampError) throw stampError;
+}
+
+// A weekly block's colour, for it and every copy of it from `fromDate` on.
+// Earlier weeks keep the colour they had.
+export async function setStandingColor(standingId, color, fromDate) {
+  const { error } = await supabase.from("standing_blocks").update({ color: color || null }).eq("id", standingId);
+  if (error) throw error;
+  const { error: e2 } = await supabase
+    .from("time_chunks")
+    .update({ color: color || null })
+    .eq("standing_block_id", standingId)
+    .gte("date", fromDate);
+  if (e2) throw e2;
 }
 
 // Takes the future occurrences with it; past ones are history.
@@ -1628,6 +1648,19 @@ export async function fetchRangePlan(userId, startDate, endDate) {
   if (e1) throw e1;
   if (e2) throw e2;
   return { chunks: chunks ?? [], tasks: tasks ?? [] };
+}
+
+// Every block in a range, without their tasks: the month's little schedules.
+export async function fetchRangeChunks(userId, startDate, endDate) {
+  const { data, error } = await supabase
+    .from("time_chunks")
+    .select("id, date, start_time, end_time, title, color, standing_block_id")
+    .eq("user_id", userId)
+    .gte("date", startDate)
+    .lte("date", endDate)
+    .order("start_time", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
 }
 
 // Minutes per category per day across a range — what paints the coloured

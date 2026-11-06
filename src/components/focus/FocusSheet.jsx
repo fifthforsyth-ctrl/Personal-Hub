@@ -389,7 +389,7 @@ export default function FocusSheet({ userId, goal, date, fw, onClose }) {
             )}
           </section>
 
-          <Link to="/plan" className="btn-link focus-sheet__edit">
+          <Link to="/targets?focus=edit" className="btn-link focus-sheet__edit">
             Edit this week's focus
             <ArrowRight size={13} />
           </Link>
