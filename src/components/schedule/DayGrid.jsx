@@ -10,8 +10,11 @@ import { haptic } from "../../lib/haptics";
 //
 //   tap an empty row      add a block that starts there
 //   tap a block           open it
-//   drag a block          move it (on a phone: press and hold, then drag)
+//   drag a block          move it
 //   drag its bottom edge  make it longer or shorter
+//
+// On a phone, press and hold a block (or its bottom edge) before dragging,
+// so a swipe that starts on a block still scrolls the page.
 //
 // Moves snap to fifteen minutes. A block that runs past midnight is drawn to
 // the end of the day and can only be changed from its sheet.
@@ -24,6 +27,9 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
   // The block being dragged, and where it is right now.
   const drag = useRef(null);
   const [live, setLive] = useState(null); // { id, start, end }
+  // Set when a press turned into a drag, so the click that can follow it
+  // doesn't also open the block.
+  const dragged = useRef(false);
 
   // While a block is held on a phone, the page mustn't scroll under it.
   useEffect(() => {
@@ -34,14 +40,28 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
     return () => window.removeEventListener("touchmove", stop);
   }, []);
 
+  function drop() {
+    const d = drag.current;
+    if (d) clearTimeout(d.timer);
+    drag.current = null;
+    setLive(null);
+  }
+
   function begin(e, chunk, mode) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (drag.current) {
+      // One block at a time: a second finger never takes over a drag. A new
+      // first finger means the old press never finished, so let it go.
+      if (!e.isPrimary) return;
+      drop();
+    }
+    dragged.current = false;
     const span = spanOf(chunk);
     const canDrag = !span.overnight;
-    const d = { id: chunk.id, chunk, mode, y0: e.clientY, x0: e.clientX, span, cur: span, active: false, canDrag, touch: e.pointerType !== "mouse", timer: null };
-    if (mode === "resize" && canDrag) d.active = true;
-    if (d.touch && mode === "move" && canDrag) {
-      // Press and hold to pick it up, so an ordinary swipe still scrolls.
+    const d = { pointerId: e.pointerId, id: chunk.id, chunk, mode, y0: e.clientY, x0: e.clientX, span, cur: span, active: false, canDrag, touch: e.pointerType !== "mouse", timer: null };
+    if (d.touch && canDrag) {
+      // Press and hold to pick it up (or to grab its edge), so an ordinary
+      // swipe still scrolls the page.
       d.timer = setTimeout(() => {
         if (drag.current !== d) return;
         d.active = true;
@@ -60,16 +80,13 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
 
   function move(e) {
     const d = drag.current;
-    if (!d) return;
+    if (!d || e.pointerId !== d.pointerId) return;
     const dy = e.clientY - d.y0;
     const dx = e.clientX - d.x0;
     if (!d.active) {
       if (d.touch) {
         // Moved before the hold finished: it's a scroll, not a pick-up.
-        if (Math.hypot(dx, dy) > 8) {
-          clearTimeout(d.timer);
-          drag.current = null;
-        }
+        if (Math.hypot(dx, dy) > 8) drop();
         return;
       }
       if (!d.canDrag || Math.abs(dy) < 4) return;
@@ -85,19 +102,24 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
 
   function end(e, cancelled = false) {
     const d = drag.current;
-    if (!d) return;
-    clearTimeout(d.timer);
-    drag.current = null;
-    setLive(null);
-    if (cancelled) return;
-    if (!d.active) {
-      if (d.mode === "move") onOpen(d.chunk);
-      return;
-    }
+    if (!d || e.pointerId !== d.pointerId) return;
+    drop();
+    dragged.current = d.active;
+    if (cancelled || !d.active) return;
     if (d.cur.start !== d.span.start || d.cur.end !== d.span.end) {
       haptic("tap");
       onChange(d.chunk, { start_time: toTime(d.cur.start), end_time: toTime(d.cur.end) });
     }
+  }
+
+  // A block opens on click, not on lifting the finger: a tap that only stops
+  // a moving scroll gets no click, so it doesn't open anything.
+  function open(chunk) {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    onOpen(chunk);
   }
 
   const laid = layoutDay(chunks);
@@ -134,14 +156,16 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
           </div>
         )}
 
-        {laid.map(({ chunk, start, end: stop, col, cols }) => {
+        {laid.map(({ chunk, start, end: stop, col, cols, overnight }) => {
           const isLive = live?.id === chunk.id;
           const s = isLive ? live.start : start;
           const e = isLive ? live.end : stop;
           const h = Math.max(((e - s) / SLOT) * slotH - 2, Math.min(12, slotH / 2));
           const tasks = tasksByChunk.get(chunk.id) ?? [];
           const done = tasks.filter((t) => t.status).length;
-          const time = fmtTimeRange(toTime(s), toTime(Math.min(e, 24 * 60 - 1)));
+          // A block past midnight is drawn to the day's end but says when it
+          // really ends.
+          const time = overnight ? fmtTimeRange(chunk.start_time, chunk.end_time) : fmtTimeRange(toTime(s), toTime(Math.min(e, 24 * 60 - 1)));
           const tight = h < 34;
           const room = Math.max(0, Math.floor((h - 44) / 17));
           return (
@@ -163,6 +187,7 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
               onPointerMove={move}
               onPointerUp={(ev) => end(ev)}
               onPointerCancel={(ev) => end(ev, true)}
+              onClick={() => open(chunk)}
               onKeyDown={(ev) => {
                 if (ev.key === "Enter" || ev.key === " ") {
                   ev.preventDefault();
@@ -192,7 +217,7 @@ export default function DayGrid({ chunks, tasksByChunk, range, slotH = 26, nowMi
                   {tasks.length > room && <li className="blk__more">+{tasks.length - room} more</li>}
                 </ul>
               )}
-              {!spanOf(chunk).overnight && (
+              {!overnight && (
                 <span
                   className="blk__grip"
                   aria-hidden="true"

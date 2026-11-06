@@ -12,7 +12,11 @@ import { friendlyError } from "../../lib/errors";
 // than becoming a document in a separate filing system. The whole transcript
 // stays here — it is a source, not something you'll reread — and the one line
 // worth keeping gets pulled out into a card that points back at this day.
-export default function ChunkNotes({ chunk, date }) {
+//
+//   draftRef  (optional) holds the words being written but not yet saved, or
+//             null, so the block's own Save can take them along
+//   onSaved   (optional) told the notes once their Save goes through
+export default function ChunkNotes({ chunk, date, draftRef, onSaved }) {
   const { user } = useAuth();
   const [notes, setNotes] = useState(chunk.notes ?? "");
   const [saved, setSaved] = useState(chunk.notes ?? "");
@@ -47,6 +51,14 @@ export default function ChunkNotes({ chunk, date }) {
     setNotes(chunk.notes ?? "");
     setSaved(chunk.notes ?? "");
   }, [chunk.notes]);
+
+  useEffect(() => {
+    if (!draftRef) return undefined;
+    draftRef.current = editing && notes !== saved ? notes : null;
+    return () => {
+      draftRef.current = null;
+    };
+  }, [draftRef, editing, notes, saved]);
 
   useEffect(() => {
     if (editing || !open) return;
@@ -89,6 +101,7 @@ export default function ChunkNotes({ chunk, date }) {
       await saveChunkNotes(chunk.id, notes);
       setSaved(notes);
       setEditing(false);
+      onSaved?.(notes);
       await reload();
     } catch (err) {
       setError(friendlyError(err, "Couldn't save the notes. Try again."));

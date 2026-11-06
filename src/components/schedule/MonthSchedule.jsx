@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { fetchRangeChunks } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
+import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import { MiniDay } from "./Mini";
 import { gridRange, plannedMinutes, fmtHours } from "../../lib/schedule";
@@ -17,8 +18,14 @@ export default function MonthSchedule({ monthDate, onOpenDay }) {
   const start = startOfMonth(monthDate);
   const end = endOfMonth(monthDate);
   const today = todayStr();
+  const toast = useToast();
 
-  const { data, error, reload } = useLoad(() => (user?.id ? fetchRangeChunks(user.id, start, end) : null), [user?.id, start]);
+  // A delete still waiting on its Undo goes through first (see WeekSchedule).
+  const { data, error, reload } = useLoad(async () => {
+    if (!user?.id) return null;
+    await toast.flush();
+    return fetchRangeChunks(user.id, start, end);
+  }, [user?.id, start]);
   const byDay = useMemo(() => {
     const m = new Map();
     for (const c of data ?? []) {

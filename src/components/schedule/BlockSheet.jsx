@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, Trash2, Bookmark, Repeat, ChevronDown, ChevronRight, X } from "lucide-react";
 import Sheet from "../ascent/Sheet";
+import { useConfirm } from "../ui/Feedback";
 import ChunkNotes from "../day/ChunkNotes";
-import { BLOCK_COLORS, colorOf, colorValue, toMin, toTime, fmtHours } from "../../lib/schedule";
+import { BLOCK_COLORS, colorOf, colorValue, toMin, toTime, fmtHours, blockLength } from "../../lib/schedule";
 import { parseDateStr } from "../../lib/planDates";
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -15,7 +16,9 @@ const LENGTHS = [15, 30, 60, 90, 120];
 //   chunk     the block being changed, or null for a new one
 //   defaults  { start, end } for a new block
 //   tasks     the block's tasks, top level; subs maps a task to its sub-tasks
-//   onSave(fields, { repeat })  resolves true when saved
+//   onSave(fields, { repeat })  resolves true when saved; fields carry the
+//                               notes too when some are being written
+//   onNotesSaved(notes)         the notes' own Save went through
 export default function BlockSheet({
   chunk,
   defaults,
@@ -25,6 +28,7 @@ export default function BlockSheet({
   categories = [],
   questOptions = [],
   onSave,
+  onNotesSaved,
   onDelete,
   onClose,
   onTask,
@@ -40,13 +44,19 @@ export default function BlockSheet({
   const [questTag, setQuestTag] = useState(chunk?.camp_id ? `c:${chunk.camp_id}` : chunk?.quest_id ? `q:${chunk.quest_id}` : "");
   const [repeat, setRepeat] = useState(false);
   const [more, setMore] = useState(false);
+  // Once opened, "More" stays mounted when folded, so notes being written
+  // there aren't lost by folding it.
+  const [moreSeen, setMoreSeen] = useState(false);
+  // Notes typed but not yet saved with the notes' own Save, or null.
+  const notesDraft = useRef(null);
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState(null);
   const [presetName, setPresetName] = useState(null); // null = not saving one
 
   const weekday = WEEKDAY[parseDateStr(date).getDay()];
   const standing = Boolean(chunk?.standing_block_id);
-  const length = start && end ? (toMin(end) - toMin(start) + 24 * 60) % (24 * 60) : 0;
+  const length = blockLength(start, end);
 
   const names = useMemo(() => {
     const list = categories.map((c) => c.name);
@@ -54,9 +64,11 @@ export default function BlockSheet({
     return list;
   }, [categories, chunk?.category]);
 
+  // The length asked for, even past midnight; ending at midnight is 23:59.
   function setLength(min) {
     if (!start) return;
-    setEnd(toTime(Math.min(toMin(start) + min, 24 * 60 - 1)));
+    const e = toMin(start) + min;
+    setEnd(toTime(e <= 24 * 60 ? e : e - 24 * 60));
   }
 
   async function submit(e) {
@@ -68,19 +80,29 @@ export default function BlockSheet({
     setProblem(null);
     setBusy(true);
     const o = questOptions.find((x) => x.value === questTag);
-    const ok = await onSave(
-      {
-        title: title.trim(),
-        start_time: start,
-        end_time: end,
-        color: colorValue(color),
-        category: category || null,
-        quest_id: o?.questId ?? (questTag && !o ? chunk?.quest_id ?? null : null),
-        camp_id: o?.campId ?? (questTag && !o ? chunk?.camp_id ?? null : null),
-      },
-      { repeat }
-    );
+    const fields = {
+      title: title.trim(),
+      start_time: start,
+      end_time: end,
+      color: colorValue(color),
+      category: category || null,
+      quest_id: o?.questId ?? (questTag && !o ? chunk?.quest_id ?? null : null),
+      camp_id: o?.campId ?? (questTag && !o ? chunk?.camp_id ?? null : null),
+    };
+    // Notes still being written go with the block's Save.
+    if (!isNew && notesDraft.current != null) fields.notes = notesDraft.current || null;
+    const ok = await onSave(fields, { repeat });
     if (!ok) setBusy(false);
+  }
+
+  // Closing without saving drops notes being written, so ask first.
+  async function close() {
+    if (busy) return;
+    if (notesDraft.current != null) {
+      const drop = await confirm({ title: "Drop the notes you were writing?", body: "They haven't been saved.", confirmLabel: "Drop them" });
+      if (!drop) return;
+    }
+    onClose();
   }
 
   async function savePreset(e) {
@@ -94,7 +116,7 @@ export default function BlockSheet({
   }
 
   return (
-    <Sheet title={isNew ? "New block" : "Block"} onClose={onClose}>
+    <Sheet title={isNew ? "New block" : "Block"} onClose={close}>
       {/* Not a <form>: the notes inside have buttons of their own. */}
       <div className="bsheet">
         <label className="field bsheet__field">
@@ -162,14 +184,22 @@ export default function BlockSheet({
           </div>
         )}
 
-        <button type="button" className="bsheet__more" aria-expanded={more} onClick={() => setMore((v) => !v)}>
+        <button
+          type="button"
+          className="bsheet__more"
+          aria-expanded={more}
+          onClick={() => {
+            setMore((v) => !v);
+            setMoreSeen(true);
+          }}
+        >
           {more ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           More
           <span className="bsheet__more-hint">{isNew ? "repeat weekly, category, quest" : "repeat, category, quest, notes, preset"}</span>
         </button>
 
-        {more && (
-          <div className="bsheet__extra">
+        {(more || moreSeen) && (
+          <div className="bsheet__extra" style={more ? undefined : { display: "none" }}>
             {standing ? (
               <div className="bsheet__repeat">
                 <Repeat size={14} />
@@ -213,7 +243,7 @@ export default function BlockSheet({
               )}
             </div>
 
-            {!isNew && <ChunkNotes chunk={chunk} date={date} />}
+            {!isNew && <ChunkNotes chunk={chunk} date={date} draftRef={notesDraft} onSaved={onNotesSaved} />}
 
             {!isNew &&
               (presetName === null ? (
@@ -263,7 +293,7 @@ export default function BlockSheet({
             </button>
           )}
           <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn" onClick={close} disabled={busy}>
             Cancel
           </button>
           <button type="button" className="btn btn--accent" onClick={submit} disabled={busy}>

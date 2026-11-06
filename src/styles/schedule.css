@@ -241,7 +241,7 @@
 .blk__tick { flex: none; width: 9px; height: 9px; border-radius: 3px; border: 1.3px solid currentColor; opacity: 0.55; }
 .blk__tasks li.is-done .blk__tick { background: currentColor; }
 .blk__more { color: var(--blk-fg2); font-size: 11px; }
-.blk__grip { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; touch-action: none; }
+.blk__grip { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; max-height: 40%; cursor: ns-resize; touch-action: none; }
 .blk__grip::after {
   content: "";
   position: absolute;
@@ -256,7 +256,7 @@
   transition: opacity 0.12s;
 }
 .blk:hover .blk__grip::after, .blk.is-dragging .blk__grip::after { opacity: 0.55; }
-@media (pointer: coarse) { .blk__grip { height: 14px; } .blk__grip::after { opacity: 0.35; } }
+@media (pointer: coarse) { .blk__grip { height: 14px; touch-action: pan-y; } .blk__grip::after { opacity: 0.35; } }
 .blk__live {
   position: absolute;
   right: 6px;

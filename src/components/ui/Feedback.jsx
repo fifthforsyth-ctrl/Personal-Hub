@@ -17,7 +17,10 @@ import { haptic } from "../../lib/haptics";
 //
 // An undoable action that's still waiting runs at once when another one
 // starts, or when the app is hidden or closed, so nothing is ever lost by
-// switching apps in the six seconds.
+// switching apps in the six seconds. A screen about to read what that action
+// changes can run it first too, and its Undo goes away with it:
+//
+//   await toast.flush();
 
 const FeedbackContext = createContext(null);
 
@@ -41,6 +44,7 @@ export function FeedbackProvider({ children }) {
       const id = Math.random();
       setToast({ id, message, actionLabel, onAction, tone });
       hideTimer.current = setTimeout(() => setToast((t) => (t?.id === id ? null : t)), duration ?? (onAction ? UNDO_MS : TOAST_MS));
+      return id;
     },
     []
   );
@@ -58,6 +62,8 @@ export function FeedbackProvider({ children }) {
     if (!p) return;
     pending.current = null;
     clearTimeout(p.timer);
+    // Its Undo can't take it back any more, so it doesn't stay on screen.
+    setToast((t) => (t && t.id === p.toastId ? null : t));
     try {
       await p.run();
     } catch (err) {
@@ -74,7 +80,7 @@ export function FeedbackProvider({ children }) {
         if (pending.current === entry) flush();
       }, delay);
       pending.current = entry;
-      show(message, {
+      entry.toastId = show(message, {
         actionLabel,
         duration: delay,
         onAction: () => {
@@ -114,7 +120,7 @@ export function FeedbackProvider({ children }) {
   };
 
   return (
-    <FeedbackContext.Provider value={{ show, error, undoable, hide, confirm }}>
+    <FeedbackContext.Provider value={{ show, error, undoable, flush, hide, confirm }}>
       {children}
       <div className="toast-region" aria-live="polite">
         {toast && (

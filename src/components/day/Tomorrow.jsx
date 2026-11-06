@@ -147,7 +147,7 @@ export default function Tomorrow({ userId, date, reflectionDone, startOpen = fal
     committed.length > 0
       ? `Following this week's plan — ${plural(committed.length, "block")}.`
       : ideal
-        ? `Nothing planned yet. It would start from your ideal ${ideal.name} — change that under Week → Ideal.`
+        ? `Nothing planned yet. It would start from your ideal ${ideal.name}.`
         : "Nothing planned yet.";
 
   return (

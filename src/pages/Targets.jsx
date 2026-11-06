@@ -14,6 +14,7 @@ import { MissionCard, FaceRow, ClimbRows, NO_MARKS, keepDashes, markWords } from
 import { BowCard } from "../components/targets/OverviewBow";
 import { BehindYou } from "../components/targets/OverviewPatches";
 import FocusWeek from "../components/focus/FocusWeek";
+import { whoseWeek } from "../components/schedule/FocusLine";
 import "../styles/ascent.css";
 import "../styles/mark.css";
 import "../styles/targets.css";
@@ -205,13 +206,17 @@ export default function Targets() {
 // (Today's opens its sheet instead). Nothing while the week first loads.
 //
 // Setting them happens here too: "Edit" (or the Week tab's Edit, which comes
-// here as ?focus=edit) opens the week's focus in place, with Sunday's
-// review of last week, to add, change, keep or let go.
+// here as ?focus=edit&week=<its Sunday>) opens the week's focus in place,
+// with Sunday's review of last week, to add, change, keep or let go. From
+// the Week tab that's the week it was showing, so next week's focus can be
+// set ahead of time.
 function FocusTier({ fw, today }) {
   const weekStart = focusWeekOf(today);
   const { data, week, error, reload } = fw;
   const [params, setParams] = useSearchParams();
   const editing = params.get("focus") === "edit";
+  const weekParam = params.get("week");
+  const editWeek = editing && /^\d{4}-\d{2}-\d{2}$/.test(weekParam ?? "") ? focusWeekOf(weekParam) : weekStart;
   const tierRef = useRef(null);
   useEffect(() => {
     if (editing) tierRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -219,13 +224,16 @@ function FocusTier({ fw, today }) {
   const setEditing = (on) => {
     const next = new URLSearchParams(params);
     if (on) next.set("focus", "edit");
-    else next.delete("focus");
+    else {
+      next.delete("focus");
+      next.delete("week");
+    }
     setParams(next, { replace: true });
   };
   if (!data && !error && !editing) return null;
 
   let body;
-  if (editing) body = <FocusWeek anchorDate={today} />;
+  if (editing) body = <FocusWeek anchorDate={editWeek === weekStart ? today : editWeek} />;
   else if (!data) body = <LoadError what="this week's focus" error={error} onRetry={reload} />;
   else if (!week.length) {
     body = (
@@ -264,7 +272,7 @@ function FocusTier({ fw, today }) {
     <section className="ov-tier" aria-labelledby="ov-focus-h" ref={tierRef} style={{ scrollMarginTop: 80 }}>
       <div className="ov-tier__head">
         <h2 className="eyebrow" id="ov-focus-h">
-          This week's focus
+          {whoseWeek(editWeek, today)} focus
         </h2>
         {(editing || week?.length > 0) && (
           <button type="button" className={editing ? "btn btn--sm btn--accent" : "btn-link"} style={{ minHeight: 32 }} onClick={() => setEditing(!editing)}>

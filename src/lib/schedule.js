@@ -171,6 +171,15 @@ export function plannedMinutes(chunks) {
   return total;
 }
 
+// A block's length in minutes from its "HH:MM" times, as the sheet shows
+// it: an end before the start runs past midnight, and 23:59 is midnight.
+export function blockLength(start, end) {
+  if (!start || !end || start === end) return 0;
+  const e = toMin(end) === DAY_END - 1 ? DAY_END : toMin(end);
+  const raw = e - toMin(start);
+  return raw > 0 ? raw : raw + DAY_END;
+}
+
 export function fmtHours(min) {
   if (min <= 0) return "0m";
   const h = Math.floor(min / 60);
@@ -206,11 +215,15 @@ export function newBlockAt(min, chunks) {
   return { start: toTime(start), end: toTime(end) };
 }
 
-// Where a new block goes from the + button: right after the day's last one,
-// an hour long, or 9 AM on an empty day.
+// Where a new block goes from the + button: in the first open time after
+// the day's last block, up to an hour long. When there's no room after it
+// (the day runs to midnight), the first open time from 9 AM, then from the
+// start of the day, so it never lands on a block that's already there.
 export function nextOpenSlot(chunks) {
-  const spans = chunks.map(spanOf).filter((s) => !s.overnight);
-  const last = spans.sort((a, b) => a.end - b.end).at(-1);
-  const start = last && last.end <= 23 * 60 ? last.end : 9 * 60;
-  return { start: toTime(start), end: toTime(Math.min(DAY_END, start + 60)) };
+  const ends = chunks.map(spanOf).filter((s) => !s.overnight).map((s) => s.end);
+  const lastEnd = ends.length ? Math.max(...ends) : null;
+  const fits = (from) => openStretches(chunks, { start: from, end: DAY_END })[0] ?? null;
+  const free = (lastEnd != null && lastEnd <= 23 * 60 ? fits(lastEnd) : null) ?? fits(9 * 60) ?? fits(0);
+  if (!free) return { start: toTime(9 * 60), end: toTime(10 * 60) }; // not a free half hour all day
+  return { start: toTime(free.start), end: toTime(Math.min(free.end, free.start + 60)) };
 }

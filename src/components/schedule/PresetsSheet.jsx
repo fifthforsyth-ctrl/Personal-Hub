@@ -10,7 +10,7 @@ const DAY_RANGE = { start: 4 * 60, end: 23 * 60 };
 
 // Presets for one day: put a saved day or a saved block on it, save the day
 // as it stands for next time, or clear it and start over.
-export default function PresetsSheet({ presets, hiddenIds, busyId, canSaveDay, onApply, onSaveDay, onDelete, onClear, onClose }) {
+export default function PresetsSheet({ presets, hiddenIds, busyId, canSaveDay, canClear, onApply, onSaveDay, onDelete, onClear, onClose }) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -123,8 +123,8 @@ export default function PresetsSheet({ presets, hiddenIds, busyId, canSaveDay, o
                 <Bookmark size={13} />
                 Save this day as a preset
               </button>
-              {canSaveDay && (
-                <button type="button" className="btn-link btn-link--danger psheet__clear" onClick={onClear}>
+              {canClear && (
+                <button type="button" className="btn-link btn-link--danger psheet__clear" onClick={onClear} title="Weekly blocks stay">
                   <Eraser size={13} />
                   Clear this day
                 </button>
