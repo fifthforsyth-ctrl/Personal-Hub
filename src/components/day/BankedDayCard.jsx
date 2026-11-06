@@ -11,6 +11,7 @@ import { toPlainText } from "../../lib/markdown";
 import Swords from "../ui/Swords";
 import { trackedMinutes, OVERLAP_NOTE } from "../today/minutes";
 import { tenOf } from "../../lib/checks";
+import ShareWithLove from "../love/ShareWithLove";
 import "../../styles/honest.css";
 import "../../styles/daily.css";
 
@@ -86,8 +87,27 @@ export default function BankedDayCard({ userId, date, archive, plan, chunks, tas
       <div style={{ padding: "20px 22px", borderBottom: "1px solid var(--line)" }}>
         <div className="row row--between" style={{ marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
           <span className="chip chip--accent"><Archive size={12} />Banked</span>
-          <span className="mono faint" style={{ fontSize: 11 }}>
-            {a.banked_at ? `closed ${new Date(a.banked_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+          <span className="row" style={{ gap: 10, alignItems: "center" }}>
+            <span className="mono faint" style={{ fontSize: 11 }}>
+              {a.banked_at ? `closed ${new Date(a.banked_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+            </span>
+            {/* The day's numbers and its summary, never the journal: an
+                answer is shared with an @mention instead. */}
+            <ShareWithLove
+              kind="banked_day"
+              title={fmtDayHeading(date)}
+              refDate={date}
+              payload={{
+                synopsis: a.synopsis ?? null,
+                wins: wins.length,
+                losses: losses.length,
+                minutes: Math.round(tracked),
+                tasks_done: done,
+                tasks_total: topTasks.length,
+                win_labels: [...new Set(wins.map((w) => w.habit_label).filter(Boolean))].slice(0, 20),
+              }}
+              label="Share"
+            />
           </span>
         </div>
 

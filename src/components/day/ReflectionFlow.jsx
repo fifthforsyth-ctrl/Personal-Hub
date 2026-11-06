@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
+import MentionHint from "../love/MentionHint";
 import { friendlyError, plainError } from "../../lib/errors";
 
 // The evening's four cards.
@@ -407,6 +408,7 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         style={{ minHeight: 148, fontFamily: "var(--font-serif)", fontSize: 15 }}
         autoFocus
       />
+      <MentionHint text={answers[card.key]} />
 
       {error && (
         <div className="form-error row row--between" style={{ marginTop: 12, gap: 10, flexWrap: "wrap" }}>

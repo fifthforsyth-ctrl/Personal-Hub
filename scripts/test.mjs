@@ -9,6 +9,7 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { mentions as loveMentions, handlesFrom, cleanHandle, leaderboard as loveBoard } from "../src/lib/loveRules.js";
 import { fileURLToPath } from "node:url";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
 import { ms as appMs, hhmm, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "../supabase/functions/watch/app.js";
@@ -7051,6 +7052,31 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a weekly block saves even when filling the weeks ahead fails", r.stamped === false && calls.log.some((l) => l[0] === "insert" && l[1] === "standing_blocks" && l[2].title === "Standup"));
   calls.stampFails = false;
   ok("and says so when it worked", (await A.addStandingBlock("u", { weekday: 1, title: "Standup", start: "09:00", end: "09:15" })).stamped === true);
+}
+
+// --- Love tab: @mentions and the date leaderboard -------------------------
+{
+  const zimi = ["zimi", "zimira"];
+  ok("@Zimi mentions her, any case", loveMentions("Saw His hand with @Zimi today", zimi) && loveMentions("@ZIMIRA!", zimi));
+  ok("a longer word isn't a mention", !loveMentions("@zimirad", zimi) && !loveMentions("@zimix", zimi));
+  ok("an email isn't a mention", !loveMentions("write me at me@zimi.com", zimi) && !loveMentions("x.@zimi", zimi));
+  ok("no handles, no mention", !loveMentions("@zimi", []));
+  ok("handles are cleaned", handlesFrom("@Zimi, @ZIMIRA  zimi x") .join() === "zimi,zimira" && cleanHandle("@@Aa-ron") === "aaron");
+  const dates = [
+    { id: "a", status: "done", on_date: "2026-11-01", title: "Hike" },
+    { id: "b", status: "done", on_date: "2026-11-02", title: "Tacos" },
+    { id: "c", status: "planned", on_date: "2026-11-09", title: "Later" },
+    { id: "d", status: "done", on_date: "2026-11-03", title: "Unrated" },
+  ];
+  const ratings = [
+    { date_id: "a", user_id: "u", fun: 10, romance: 6, zest: 8, connection: 8, unnamed: 8 },
+    { date_id: "a", user_id: "z", fun: 8, romance: 6, zest: 8, connection: 8, unnamed: null },
+    { date_id: "b", user_id: "u", fun: 6, romance: 10, zest: 6, connection: 10, unnamed: 10 },
+  ];
+  const overall = loveBoard(dates, ratings);
+  ok("the board ranks rated, done dates only", overall.map((r) => r.date.id).join() === "b,a", overall.map((r) => r.date.id).join());
+  ok("a measure averages both people", loveBoard(dates, ratings, "fun")[0].avg.fun === 9);
+  ok("a missing score doesn't count as zero", loveBoard(dates, ratings, "unnamed").find((r) => r.date.id === "a").avg.unnamed === 8);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

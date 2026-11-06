@@ -29,6 +29,8 @@ const Mirror = lazy(() => import("./pages/Mirror"));
 const WatchPage = lazy(() => import("./pages/Watch"));
 const Phone = lazy(() => import("./pages/Phone"));
 const Temple = lazy(() => import("./pages/Temple"));
+// Love: what two paired people share (0109_love.sql).
+const Love = lazy(() => import("./pages/Love"));
 // The village brings three.js with it, so it stays in its own bundle.
 const Village = lazy(() => import("./pages/Village"));
 // The old map's address opens the village itself, ?build= and all.
@@ -100,6 +102,7 @@ export default function App() {
             <Route path="/mirror" element={<Mirror />} />
             <Route path="/watch" element={<WatchPage />} />
             <Route path="/phone" element={<Phone />} />
+            <Route path="/love" element={<Love />} />
             <Route path="/temple" element={<Temple />} />
             <Route path="/temple/:view" element={<Temple />} />
             <Route path="/village" element={<Village />} />

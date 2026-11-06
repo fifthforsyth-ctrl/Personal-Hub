@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Share, Image as ImageIcon, MessageSquareText, Copy, Download } from "lucide-react";
+import { Share, Image as ImageIcon, MessageSquareText, Copy, Download, Heart } from "lucide-react";
 import Sheet from "../ascent/Sheet";
 import { useToast } from "../ui/Feedback";
 import { renderQuoteCard, shareFileName, shareSupport, shareText } from "../../lib/quoteShare";
+import { usePartner } from "../love/ShareWithLove";
+import { sendQuote, notifyLoveChanged } from "../../lib/love";
 import "../../styles/share.css";
 
 // "Share" on a quote: a sheet with the quote drawn as a picture, then the
@@ -78,6 +80,7 @@ function ShareSheet({ quote, onClose }) {
   return (
     <Sheet title="Share this quote" onClose={onClose}>
       <div className="share-quote">
+        <SendToLove quote={quote} onSent={onClose} />
         <div className="share-quote__preview">
           {preview ? (
             <img src={preview} alt={`${quote.author}: ${quote.text}`} />
@@ -114,8 +117,49 @@ function ShareSheet({ quote, onClose }) {
             </button>
           )}
         </div>
-        <p className="share-quote__hint">You pick who gets it. Nothing is sent from the Hub.</p>
+        <p className="share-quote__hint">These open your phone's share sheet: you pick who gets it there.</p>
       </div>
     </Sheet>
+  );
+}
+
+// Straight to the one you love, inside the Hub: it lands on their Board
+// and their Love tab, with your line, and they're told.
+function SendToLove({ quote, onSent }) {
+  const partner = usePartner();
+  const toast = useToast();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!partner || !quote?.id) return null;
+
+  async function send(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await sendQuote(quote.id, note.trim());
+      notifyLoveChanged();
+      toast.show(`Sent to ${partner.name}. It's on their Board.`);
+      onSent();
+    } catch (err) {
+      toast.error(err, "Couldn't send it.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="share-quote__love" onSubmit={send}>
+      <input
+        className="input"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={500}
+        placeholder={`A line for ${partner.name} (optional)`}
+        aria-label={`A line for ${partner.name}`}
+      />
+      <button type="submit" className="btn btn--accent" disabled={busy}>
+        <Heart size={15} aria-hidden="true" />
+        {busy ? "Sending…" : `Send to ${partner.name}`}
+      </button>
+    </form>
   );
 }

@@ -44,6 +44,8 @@ export default defineConfig({
       workbox: {
         clientsClaim: true,
         skipWaiting: true,
+        // Love tab notifications: the push and notificationclick handlers.
+        importScripts: ["/push-sw.js"],
         // The village painter's kit (about 1.5 MB of scripts) and the village
         // pictures are fetched only when the village is shown, and kept once
         // fetched, instead of all of it downloading with every deploy. The

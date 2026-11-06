@@ -1,0 +1,145 @@
+/* Love tab: white cards, black pills, the orange accent for what's new. */
+
+.love-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.love-head .page-title { margin: 0; }
+.love-mark {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--ink); color: var(--accent); flex-shrink: 0;
+}
+
+.love-views { margin-bottom: 16px; }
+.love-views .seg-btn { padding: 8px 6px; }
+
+.love-feed, .love-dates, .love-best, .love-settings { display: flex; flex-direction: column; gap: 12px; }
+
+.love-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.love-next {
+  display: flex; align-items: flex-start; gap: 10px; text-align: left; width: 100%;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.love-next > svg { color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+.love-next > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.love-next b { font-size: 15px; }
+.love-next .muted { font-size: 12.5px; }
+
+.love-empty p { margin: 0 0 8px; line-height: 1.5; }
+.love-empty p:last-child { margin-bottom: 0; }
+
+.love-item { position: relative; }
+.love-item.is-new { border-color: var(--accent-line); }
+.love-item.is-new::before {
+  content: "New"; position: absolute; top: -9px; right: 14px;
+  background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700;
+  padding: 2px 8px; border-radius: var(--r-pill); letter-spacing: 0.02em;
+}
+.love-item__head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+.love-item__head > svg { color: var(--text-3); flex-shrink: 0; }
+.love-item__head b { color: var(--text); font-weight: 650; }
+.love-item__when { margin-left: auto; font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.love-item__title { font-size: 16px; margin: 10px 0 0; }
+.love-item__body { margin: 10px 0 0; white-space: pre-wrap; line-height: 1.55; font-size: 14.5px; }
+.love-item__note { margin: 10px 0 0; font-size: 14px; }
+.love-item__undo { margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+.love-quote {
+  margin: 12px 0 0; padding: 14px 16px; border-left: 3px solid var(--ink);
+  background: var(--surface); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-family: var(--font-serif); font-size: 16px; line-height: 1.5;
+}
+.love-quote cite { display: block; margin-top: 8px; font-family: var(--font); font-style: normal; font-size: 12.5px; color: var(--text-2); }
+
+.love-day { margin-top: 10px; padding: 12px 14px; background: var(--surface); border-radius: var(--r-sm); }
+.love-day__synopsis { margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; }
+.love-day__nums { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--text-2); }
+.love-day__nums b { color: var(--text); font-size: 15px; margin-right: 3px; }
+.love-day__wins { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+
+/* Comments */
+.love-comments__open { margin-top: 10px; }
+.love-comments { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.love-comment { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.love-comment__who { font-weight: 650; }
+.love-comment.is-mine .love-comment__who { color: var(--text-2); }
+.love-comment__body { flex: 1; min-width: 0; white-space: pre-wrap; line-height: 1.45; overflow-wrap: anywhere; }
+.love-comment__when { white-space: nowrap; }
+.love-comment__when { font-size: 11px; color: var(--text-3); }
+.love-comment__del { width: 28px; height: 28px; align-self: center; }
+.love-comment-form { display: flex; gap: 6px; }
+.love-comment-form .input { flex: 1; min-width: 0; }
+
+/* Dates */
+.love-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.love-section .card-title { margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+.love-none { margin: 4px 0 0; font-size: 13px; }
+.love-date {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  background: none; border: none; border-top: 1px solid var(--line); padding: 11px 2px; font: inherit; color: inherit; cursor: pointer;
+}
+.love-section .card-title + .love-date, .love-section .card-note + .love-date { border-top: none; }
+.love-date.is-new .love-date__title::after { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+.love-date__title { font-weight: 620; font-size: 14.5px; }
+.love-date__meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--text-2); }
+.love-date__meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.love-date__tag { background: var(--accent-soft); color: var(--accent-text); padding: 1px 8px; border-radius: var(--r-pill); font-weight: 650; }
+.love-date__by { color: var(--text-3); }
+
+.love-date-form__status { margin: 4px 0 14px; }
+.love-date-form__times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.love-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: -4px 0 12px; }
+.love-check input { width: 18px; height: 18px; accent-color: var(--ink); }
+
+.love-rate { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.love-rate__theirs { margin-top: 10px; }
+.love-rate__none { margin: 6px 0 0; font-size: 13px; }
+.love-scores { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.love-score { display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 10px; background: var(--surface); border-radius: var(--r-pill); font-size: 12px; color: var(--text-2); }
+.love-score b { color: var(--text); font-size: 14px; }
+.love-date-comments { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.love-date-del { margin-top: 18px; }
+
+/* Leaderboard */
+.love-measures { display: flex; flex-wrap: wrap; gap: 6px; }
+.love-measures .chip { background: var(--card); border-color: var(--line); }
+.love-measures .chip.is-on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.love-board { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.love-rank { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.love-rank__n {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--inset); font-weight: 700; font-size: 13px;
+}
+.love-rank--1 .love-rank__n { background: var(--accent); color: var(--on-accent); }
+.love-rank--2 .love-rank__n, .love-rank--3 .love-rank__n { background: var(--ink); color: var(--on-ink); }
+.love-rank__what { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.love-rank__what .muted { font-size: 12px; }
+.love-rank__score { font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+
+/* Invite + settings */
+.love-invite p { margin: 0 0 12px; line-height: 1.5; }
+.love-invite-form p { margin: 0 0 14px; }
+.love-settings .card-note + .love-two { margin-top: 14px; }
+.love-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: end; }
+.love-two > .btn { justify-self: start; margin-bottom: 14px; }
+@media (max-width: 520px) { .love-two { grid-template-columns: 1fr; } }
+.love-end { padding: 4px 4px 24px; }
+
+/* The heart in the nav, with a dot while something's new. */
+.love-nav { position: relative; }
+.love-nav__dot {
+  position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--card);
+}
+.side-link .love-nav__count {
+  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* "@Zimi: shared with Zimira" under a journal answer. */
+.love-mention-hint { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12px; color: var(--accent-text); }
+
+/* On the dark achievement screens (bow earned, flag planted). */
+.love-share-dark { margin-top: 12px; background: transparent; border-color: rgba(255, 255, 255, 0.28); color: rgba(255, 255, 255, 0.86); }
+@media (hover: hover) { .love-share-dark:hover { background: rgba(255, 255, 255, 0.08); } }
+.love-strip > .card, .love-feed > .card, .love-board .card { margin: 0; }

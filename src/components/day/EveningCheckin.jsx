@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Moon, Check } from "lucide-react";
 import { patchDayPlan, fetchDayPlan, fetchLastAlarm, saveJournalEntry } from "../../lib/api";
+import MentionHint from "../love/MentionHint";
 import { useLoad } from "../../lib/useLoad";
 import { addDays } from "../../lib/planDates";
 import { toFive, tenOf } from "../../lib/checks";
@@ -254,7 +255,13 @@ export function NoteInput({ note, placeholder, label, max, multiline = false, id
     "aria-label": label,
     maxLength: max,
   };
-  return multiline ? <textarea rows={3} {...props} /> : <input {...props} />;
+  if (!multiline) return <input {...props} />;
+  return (
+    <>
+      <textarea rows={3} {...props} />
+      <MentionHint text={note.text} />
+    </>
+  );
 }
 
 // --- How the evening saves --------------------------------------------------
