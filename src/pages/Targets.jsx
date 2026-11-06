@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Plus } from "lucide-react";
 import { fetchQuestPills } from "../lib/api";
 import { ladderOf, pathOf } from "../lib/ladder";
@@ -13,6 +13,7 @@ import { useScrollTop } from "../components/targets/useScrollTop";
 import { MissionCard, FaceRow, ClimbRows, NO_MARKS, keepDashes, markWords } from "../components/targets/OverviewTiers";
 import { BowCard } from "../components/targets/OverviewBow";
 import { BehindYou } from "../components/targets/OverviewPatches";
+import FocusWeek from "../components/focus/FocusWeek";
 import "../styles/ascent.css";
 import "../styles/mark.css";
 import "../styles/targets.css";
@@ -202,21 +203,38 @@ export default function Targets() {
 
 // The same small targets Today's strip draws, each a tap from its page here
 // (Today's opens its sheet instead). Nothing while the week first loads.
+//
+// Setting them happens here too: "Edit" (or the Week tab's Edit, which comes
+// here as ?focus=edit) opens the week's focus in place, with Sunday's
+// review of last week, to add, change, keep or let go.
 function FocusTier({ fw, today }) {
   const weekStart = focusWeekOf(today);
   const { data, week, error, reload } = fw;
-  if (!data && !error) return null;
+  const [params, setParams] = useSearchParams();
+  const editing = params.get("focus") === "edit";
+  const tierRef = useRef(null);
+  useEffect(() => {
+    if (editing) tierRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [editing]);
+  const setEditing = (on) => {
+    const next = new URLSearchParams(params);
+    if (on) next.set("focus", "edit");
+    else next.delete("focus");
+    setParams(next, { replace: true });
+  };
+  if (!data && !error && !editing) return null;
 
   let body;
-  if (!data) body = <LoadError what="this week's focus" error={error} onRetry={reload} />;
+  if (editing) body = <FocusWeek anchorDate={today} />;
+  else if (!data) body = <LoadError what="this week's focus" error={error} onRetry={reload} />;
   else if (!week.length) {
     body = (
       <div className="ov-none">
         <span>No focus set for this week.</span>
-        <Link to="/plan" className="btn-link btn-link--accent">
-          Set them on Week
+        <button type="button" className="btn-link btn-link--accent" onClick={() => setEditing(true)}>
+          Set them
           <ArrowRight size={13} />
-        </Link>
+        </button>
       </div>
     );
   } else {
@@ -243,14 +261,19 @@ function FocusTier({ fw, today }) {
   }
 
   return (
-    <section className="ov-tier" aria-labelledby="ov-focus-h">
+    <section className="ov-tier" aria-labelledby="ov-focus-h" ref={tierRef} style={{ scrollMarginTop: 80 }}>
       <div className="ov-tier__head">
         <h2 className="eyebrow" id="ov-focus-h">
           This week's focus
         </h2>
+        {(editing || week?.length > 0) && (
+          <button type="button" className={editing ? "btn btn--sm btn--accent" : "btn-link"} style={{ minHeight: 32 }} onClick={() => setEditing(!editing)}>
+            {editing ? "Done" : "Edit"}
+          </button>
+        )}
       </div>
       {body}
-      {data && error && <LoadError what="this week's focus" error={error} onRetry={reload} stale />}
+      {!editing && data && error && <LoadError what="this week's focus" error={error} onRetry={reload} stale />}
     </section>
   );
 }

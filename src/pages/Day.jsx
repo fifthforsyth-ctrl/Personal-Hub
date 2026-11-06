@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
@@ -257,7 +257,13 @@ function WorkingDay({ userId, date, isToday, archive: a, tasks, ringArcs, goalOp
           <div>
             <div className="card-head" style={{ marginBottom: 10 }}>
               <span className="card-title"><CheckSquare size={14} />The plan</span>
-              {pct != null && <span className="mono muted" style={{ fontSize: 11.5 }}>{tasksDone}/{topTasks.length} done</span>}
+              <span className="row" style={{ gap: 12 }}>
+                {pct != null && <span className="mono muted" style={{ fontSize: 11.5 }}>{tasksDone}/{topTasks.length} done</span>}
+                <Link to={`/plan/day/${date}`} className="btn-link" style={{ minHeight: 32 }}>
+                  Schedule
+                  <ChevronRight size={13} />
+                </Link>
+              </span>
             </div>
             <DayView userId={userId} date={date} goalOptions={goalOptions} onDataChanged={reload} />
           </div>

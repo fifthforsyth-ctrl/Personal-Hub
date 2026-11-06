@@ -100,7 +100,7 @@ export default function TargetFocus({ userId, today, row, ladder, ascent, onSett
           )}
 
           {thisWeek && (
-            <Link to="/plan" className="btn-link tg-focus__plan">
+            <Link to="/targets?focus=edit" className="btn-link tg-focus__plan">
               Edit this week's focus
               <ArrowRight size={13} aria-hidden="true" />
             </Link>

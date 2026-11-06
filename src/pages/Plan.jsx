@@ -1,169 +1,98 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import WeekView from "../components/plan/WeekView";
-import MonthView from "../components/plan/MonthView";
-import YearView from "../components/plan/YearView";
-import IdealDays from "../components/plan/IdealDays";
-import CategoryKey from "../components/CategoryKey";
-import FocusWeek from "../components/focus/FocusWeek";
-import MirrorLink from "../components/MirrorLink";
-import CuratedCards from "../components/curator/CuratedCards";
-import { PurchaseNudge } from "../components/money/PurchaseQuestion";
-import {
-  todayStr,
-  addDays,
-  addMonths,
-  toDateStr,
-  parseDateStr,
-  fmtMonthYear,
-  fmtWeekHeading,
-  startOfWeek,
-  yearOf,
-} from "../lib/planDates";
-import { lastWeekStart } from "../lib/mirror";
+import { useAuth } from "../context/AuthContext";
+import FocusLine from "../components/schedule/FocusLine";
+import ScheduleDay from "../components/schedule/ScheduleDay";
+import WeekSchedule from "../components/schedule/WeekSchedule";
+import MonthSchedule from "../components/schedule/MonthSchedule";
+import { todayStr, addDays, addMonths, parseDateStr, fmtMonthYear, fmtWeekHeading, startOfWeek, startOfMonth } from "../lib/planDates";
 import "../styles/plan.css";
+import "../styles/schedule.css";
 
-// "Ideal" is not an altitude like the other three — it is what the other
-// three are being measured against, which is why it lives beside them
-// rather than buried in settings.
-const VIEWS = ["Week", "Month", "Year", "Ideal"];
-const UNIT = { Week: "week", Month: "month", Year: "year" };
+const VIEWS = [
+  { key: "day", label: "Day" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+];
 
-// Planning at three altitudes. Every one of them is made of the same day
-// card, and every one of them drops you into a real day when you press it —
-// zooming out never loses the way back in.
+// The Week tab: planning and seeing the schedule, and nothing else. Three
+// zooms on the same half-hour clock (a day, a week, a month), the week's
+// focus as one thin line of targets on top, and every day a tap from its
+// own schedule. Quotes, reflection and the rest live on Today.
+//
+// The address says where you are (/plan/day/2026-11-06, /plan/week/…,
+// /plan/month/…), so Back goes back to the week you came from.
 export default function Plan() {
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [view, setView] = useState("Week");
-  const [date, setDate] = useState(todayStr());
-  // While the planner is laying a week out, the page holds still: its
-  // answer belongs to the week on screen.
-  const [busy, setBusy] = useState(false);
-  const holdTitle = busy ? "Wait for the planner to finish" : undefined;
-
-  function step(direction) {
-    if (view === "Week") setDate((d) => addDays(d, direction * 7));
-    else if (view === "Month") setDate((d) => addMonths(d, direction));
-    else setDate((d) => addMonths(d, direction * 12));
-  }
-
-  function pickMonth(monthIndex) {
-    const d = parseDateStr(date);
-    setDate(toDateStr(new Date(d.getFullYear(), monthIndex, 1)));
-    setView("Month");
-  }
-
+  const params = useParams();
+  const view = VIEWS.some((v) => v.key === params.view) ? params.view : "week";
+  const date = validDate(params.date) ?? todayStr();
   const today = todayStr();
-  const heading =
-    view === "Ideal"
-      ? "Ideal days"
-      : view === "Week"
-        ? fmtWeekHeading(date)
-        : view === "Month"
-          ? fmtMonthYear(date)
-          : String(yearOf(date));
 
-  // How far the shown week/month/year is from now, in its own units.
-  const offset =
-    view === "Week"
-      ? Math.round((parseDateStr(startOfWeek(date)) - parseDateStr(startOfWeek(today))) / (7 * 86400000))
-      : view === "Month"
-        ? (yearOf(date) - yearOf(today)) * 12 + (parseDateStr(date).getMonth() - parseDateStr(today).getMonth())
-        : view === "Year"
-          ? yearOf(date) - yearOf(today)
-          : 0;
-  const unit = UNIT[view];
+  const go = (v, d) => navigate(`/plan/${v}/${d}`);
+  const step = (dir) => go(view, view === "day" ? addDays(date, dir) : view === "week" ? addDays(date, dir * 7) : addMonths(date, dir));
+  const openDay = (d) => go("day", d);
+
+  const dt = parseDateStr(date);
+  const isCurrent = view === "day" ? date === today : view === "week" ? startOfWeek(date) === startOfWeek(today) : startOfMonth(date) === startOfMonth(today);
   const eyebrow =
-    view === "Ideal"
-      ? "Week"
-      : offset === 0
-        ? `This ${unit}`
-        : offset === 1
-          ? `Next ${unit}`
-          : offset === -1
-            ? `Last ${unit}`
-            : view;
+    view === "day"
+      ? `${dt.toLocaleDateString(undefined, { weekday: "long" })}${date === today ? " · Today" : ""}`
+      : view === "week"
+        ? relative(Math.round((parseDateStr(startOfWeek(date)) - parseDateStr(startOfWeek(today))) / (7 * 86400000)), "week")
+        : relative((dt.getFullYear() - parseDateStr(today).getFullYear()) * 12 + dt.getMonth() - parseDateStr(today).getMonth(), "month");
+  const heading = view === "day" ? dt.toLocaleDateString(undefined, { month: "long", day: "numeric" }) : view === "week" ? fmtWeekHeading(date) : fmtMonthYear(date);
+  const unit = view === "day" ? "day" : view;
 
   return (
-    <div className="page">
-      <div className="page-head">
-        <div>
+    <div className="page plan-page">
+      <div className="page-head plan-head">
+        <div className="plan-head__title">
           <div className="eyebrow">{eyebrow}</div>
-          <h1 className="page-title" style={{ marginTop: 3 }}>{heading}</h1>
-          {view !== "Ideal" && offset !== 0 && (
-            <button className="btn-link" style={{ minHeight: 36 }} onClick={() => setDate(today)} disabled={busy} title={holdTitle}>
-              Back to this {unit}
-            </button>
-          )}
+          <h1 className="page-title" style={{ marginTop: 3 }}>
+            {heading}
+          </h1>
         </div>
 
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <div className="seg plan-hold plan-views" role="group" aria-label="View">
+        <div className="plan-head__controls">
+          <div className="seg plan-views" role="group" aria-label="View">
             {VIEWS.map((v) => (
-              <button
-                key={v}
-                className={"seg-btn" + (view === v ? " active" : "")}
-                aria-pressed={view === v}
-                onClick={() => setView(v)}
-                disabled={busy && view !== v}
-                title={busy && view !== v ? holdTitle : undefined}
-              >
-                {v}
+              <button key={v.key} type="button" className={"seg-btn" + (view === v.key ? " active" : "")} aria-pressed={view === v.key} onClick={() => go(v.key, date)}>
+                {v.label}
               </button>
             ))}
           </div>
-          {/* Kept in place (just hidden) on Ideal, so the switcher beside it
-              doesn't jump sideways when you change views. */}
-          <div className="row plan-hold" style={{ gap: 4, visibility: view === "Ideal" ? "hidden" : "visible" }} aria-hidden={view === "Ideal"}>
-            <button
-              className="btn-icon btn-icon--bordered"
-              onClick={() => step(-1)}
-              disabled={busy || view === "Ideal"}
-              aria-label={`Previous ${unit ?? "week"}`}
-              title={holdTitle ?? `Previous ${unit ?? "week"}`}
-            >
+          <div className="plan-head__nav">
+            <button className="btn-icon btn-icon--bordered" onClick={() => step(-1)} aria-label={`Previous ${unit}`} title={`Previous ${unit}`}>
               <ChevronLeft size={16} />
             </button>
-            <button
-              className="btn-icon btn-icon--bordered"
-              onClick={() => step(1)}
-              disabled={busy || view === "Ideal"}
-              aria-label={`Next ${unit ?? "week"}`}
-              title={holdTitle ?? `Next ${unit ?? "week"}`}
-            >
+            <button className="btn btn--sm btn--on-page plan-head__today" onClick={() => go(view, today)} disabled={isCurrent} title={`Back to this ${unit}`}>
+              Today
+            </button>
+            <button className="btn-icon btn-icon--bordered" onClick={() => step(1)} aria-label={`Next ${unit}`} title={`Next ${unit}`}>
               <ChevronRight size={16} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* On Sunday, last week seen whole comes first, then the focus review. */}
-      {view === "Week" && isSundayReview(date) && <MirrorLink weekStart={lastWeekStart(todayStr())} className="mirror-link--plan" />}
-      {/* What the week is for comes before how its hours are laid out. */}
-      {view === "Week" && <FocusWeek anchorDate={date} />}
-      {/* Sunday is when the week gets planned, so it's when the board brings
-          back what fits the week ahead. */}
-      {view === "Week" && isSundayReview(date) && (
-        <div className="stack" style={{ marginBottom: 16 }}>
-          {/* Last week's purchases, sorted before the new week is planned. */}
-          <PurchaseNudge lead="Before you plan the week:" />
-          <CuratedCards slot="day" title="From your board, for the week ahead" />
-        </div>
-      )}
-      {view === "Week" && <WeekView anchorDate={date} onBusyChange={setBusy} />}
-      {view === "Month" && <MonthView monthDate={date} onPickDay={(d) => navigate(`/day/${d}`)} />}
-      {view === "Year" && <YearView year={yearOf(date)} onPickMonth={pickMonth} />}
-      {view === "Ideal" && <IdealDays />}
+      <FocusLine date={view === "week" ? date : today} />
 
-      {/* Every view in this tab is coloured by category, so the key belongs
-          to the tab rather than to any one of them. */}
-      <CategoryKey />
+      {view === "day" && <ScheduleDay key={date} userId={user?.id} date={date} />}
+      {view === "week" && <WeekSchedule anchorDate={date} onOpenDay={openDay} />}
+      {view === "month" && <MonthSchedule monthDate={date} onOpenDay={openDay} />}
     </div>
   );
 }
 
-function isSundayReview(anchorDate) {
-  const today = todayStr();
-  return parseDateStr(today).getDay() === 0 && startOfWeek(anchorDate) === startOfWeek(today);
+function validDate(s) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(parseDateStr(s).getTime()) ? s : null;
+}
+
+function relative(offset, unit) {
+  if (offset === 0) return `This ${unit}`;
+  if (offset === 1) return `Next ${unit}`;
+  if (offset === -1) return `Last ${unit}`;
+  return offset > 0 ? `In ${offset} ${unit}s` : `${-offset} ${unit}s ago`;
 }

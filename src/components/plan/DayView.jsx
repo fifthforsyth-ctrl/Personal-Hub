@@ -1055,17 +1055,13 @@ function PresetCard({ userId, presets, hiddenIds, open, onToggle, busyId, canSav
                     {t.name}
                     <span className="faint" style={{ fontSize: 11.5 }}>
                       {" "}
-                      · {t.kind === "day" ? ((t.applies_to_weekdays ?? []).length > 0 ? "ideal day" : "whole day") : "block"}
+                      · {t.kind === "day" ? "whole day" : "block"}
                     </span>
                   </span>
-                  {t.kind === "day" && (t.applies_to_weekdays ?? []).length > 0 ? (
-                    <span className="faint" style={{ fontSize: 11.5, textAlign: "right" }}>Edit under Week → Ideal</span>
-                  ) : (
-                    <button type="button" className="btn-link btn-link--danger" onClick={() => onDelete(t)}>
-                      <Trash2 size={12} />
-                      Delete
-                    </button>
-                  )}
+                  <button type="button" className="btn-link btn-link--danger" onClick={() => onDelete(t)}>
+                    <Trash2 size={12} />
+                    Delete
+                  </button>
                 </div>
               ))}
               <button type="button" className="btn btn--sm" style={{ marginTop: 10 }} onClick={() => setMode(null)}>

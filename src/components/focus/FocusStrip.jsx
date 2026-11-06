@@ -26,7 +26,7 @@ import "../../styles/focus.css";
 // across a phone and the rest scroll; on a desk they wrap. Tap one to land
 // today's arrow, change how it lands, or write a note about it any time.
 //
-// The focus goals themselves are set on Week, and a focus kept on Sunday
+// The focus goals themselves are set on Targets, and a focus kept on Sunday
 // carries its notes, its checks and how it lands into the new week with it.
 export default function FocusStrip({ userId, date }) {
   const weekStart = focusWeekOf(date);
@@ -44,8 +44,8 @@ export default function FocusStrip({ userId, date }) {
     return (
       <p className="focus-strip__empty">
         <span>No focus set for this week.</span>
-        <Link to="/plan" className="btn-link btn-link--accent focus-strip__set">
-          Set them on Week
+        <Link to="/targets?focus=edit" className="btn-link btn-link--accent focus-strip__set">
+          Set them on Targets
           <ArrowRight size={13} />
         </Link>
       </p>

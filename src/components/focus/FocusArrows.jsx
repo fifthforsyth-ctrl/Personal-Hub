@@ -109,7 +109,7 @@ export default function FocusArrows({ userId, date, entries, dayPlan, quick = fa
           This week's focus
         </span>
         {goals.length > 0 && !quick && (
-          <Link to="/plan" className="btn-link focus-arrows__edit">
+          <Link to="/targets?focus=edit" className="btn-link focus-arrows__edit">
             Edit
           </Link>
         )}
@@ -120,8 +120,8 @@ export default function FocusArrows({ userId, date, entries, dayPlan, quick = fa
       {goals.length === 0 ? (
         <div className="focus-arrows__empty">
           <p className="card-note">No focus set for this week yet.</p>
-          <Link to="/plan" className="btn-link btn-link--accent focus-arrows__set">
-            Set them on Week
+          <Link to="/targets?focus=edit" className="btn-link btn-link--accent focus-arrows__set">
+            Set them on Targets
             <ArrowRight size={13} />
           </Link>
         </div>

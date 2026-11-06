@@ -16,7 +16,7 @@ import FocusSettings from "./FocusSettings";
 import "../../styles/focus.css";
 import "../../styles/targets.css";
 
-// What the week is for, at the top of the Week tab.
+// What the week is for: opened from Targets (and the Week tab's Edit).
 //
 // On Sunday it opens with last week: each goal you set, how many days moved
 // it, and Keep, Adjust or Let go. Keeping one carries it into this week as
