@@ -18,10 +18,13 @@ import {
   Landmark,
   Castle,
   RotateCw,
+  Heart,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
 import { refreshApp } from "../lib/refresh";
+import { unreadLoveCount } from "../lib/love";
+import "../styles/love.css";
 
 // Five places you go, one thing you do from anywhere.
 //
@@ -42,6 +45,37 @@ export const NAV = [
   { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
 ];
+
+// Love: what you and the one you love share. A heart with a dot while
+// something from them is new; checked every minute and whenever the app
+// comes back to the front.
+const LOVE = { to: "/love", label: "Love", Icon: Heart };
+
+function useLoveUnread() {
+  const { user } = useAuth();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let alive = true;
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      unreadLoveCount()
+        .then((n) => alive && setCount(n))
+        .catch(() => {});
+    };
+    check();
+    const timer = setInterval(check, 60000);
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("love-changed", check);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("love-changed", check);
+    };
+  }, [user?.id]);
+  return count;
+}
 
 // Ask: questions about your whole record, answered with words and charts.
 // In the sidebar under the four places; on a phone, one tap from the top bar.
@@ -144,6 +178,7 @@ function RefreshButton({ size = 18 }) {
 
 export function Sidebar() {
   const capture = useCapture();
+  const unread = useLoveUnread();
 
   return (
     <nav className="sidebar" aria-label="Main">
@@ -166,6 +201,11 @@ export function Sidebar() {
           {label}
         </NavLink>
       ))}
+      <NavLink to={LOVE.to} className={({ isActive: on }) => "side-link" + (on ? " active" : "")}>
+        <Heart size={17} strokeWidth={2} />
+        Love
+        {unread > 0 && <span className="love-nav__count" aria-label={`${unread} new`}>{unread}</span>}
+      </NavLink>
 
       <div className="side-foot">
         <div className="eyebrow" style={{ padding: "0 11px 6px" }}>More</div>
@@ -181,6 +221,7 @@ export function Sidebar() {
 export function TopBar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const unread = useLoveUnread();
 
   // Following a link out of the menu should close it.
   useEffect(() => setOpen(false), [location.pathname]);
@@ -201,6 +242,15 @@ export function TopBar() {
         <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
         <span className="spacer" />
         <RefreshButton />
+        <NavLink
+          to="/love"
+          className={({ isActive: on }) => "btn-icon love-nav" + (on ? " active" : "")}
+          aria-label={unread > 0 ? `Love, ${unread} new` : "Love"}
+          title="Love"
+        >
+          <Heart size={18} fill={unread > 0 ? "currentColor" : "none"} />
+          {unread > 0 && <span className="love-nav__dot" />}
+        </NavLink>
         <NavLink to="/ask" className={({ isActive: on }) => "btn-icon topbar-ask" + (on ? " active" : "")} aria-label="Ask" title="Ask">
           <Sparkles size={18} />
         </NavLink>

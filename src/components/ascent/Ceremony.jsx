@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import ShareWithLove from "../love/ShareWithLove";
 
 // Planting a flag: a camp reached, or a quest's summit. A quiet moment on a
 // dark screen, the route drawing up to the peak and the flag going in, then
@@ -31,6 +32,11 @@ export default function Ceremony({ summit, campNumber, title, nextTitle, onDone 
       <button type="button" className="camp-up__go" ref={button} onClick={onDone}>
         {summit ? "Done" : nextTitle ? `On to ${nextTitle}` : "On to the summit"}
       </button>
+      <ShareWithLove
+        kind="achievement"
+        title={summit ? `Finished the quest: ${title}` : `Reached camp ${campNumber}: ${title}`}
+        className="btn btn--sm love-share-dark"
+      />
     </div>
   );
 }

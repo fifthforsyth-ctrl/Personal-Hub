@@ -4,6 +4,7 @@ import { playClink } from "../../lib/clink";
 import { playTwang } from "../../lib/thunk";
 import { haptic } from "../../lib/haptics";
 import { BowShape } from "./Bow";
+import ShareWithLove from "../love/ShareWithLove";
 import "../../styles/mark.css";
 
 // A new bow, earned. It comes in over the volley once the arrows that crossed
@@ -86,6 +87,7 @@ export default function BowUp({ tier, onClose }) {
       <button type="button" className="btn mk-bowup__draw" ref={button} onClick={draw} disabled={stage !== "ready"}>
         Draw it
       </button>
+      <ShareWithLove kind="achievement" title={`Earned ${t.name.toLowerCase()}: ${t.at} bullseyes`} className="btn btn--sm love-share-dark" />
     </div>
   );
 }
