@@ -18,9 +18,11 @@ import { haptic } from "../../lib/haptics";
 // An undoable action that's still waiting runs at once when another one
 // starts, or when the app is hidden or closed, so nothing is ever lost by
 // switching apps in the six seconds. A screen about to read what that action
-// changes can run it first too, and its Undo goes away with it:
+// changes can run it first too, and its Undo goes away with it. Give the
+// action a scope, and only a flush of that scope (or a plain one) runs it:
 //
-//   await toast.flush();
+//   toast.undoable({ ..., scope: "schedule" });
+//   await toast.flush("schedule"); // the schedule reads the day
 
 const FeedbackContext = createContext(null);
 
@@ -57,9 +59,12 @@ export function FeedbackProvider({ children }) {
     [show]
   );
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (scope) => {
     const p = pending.current;
     if (!p) return;
+    // A scoped flush leaves another screen's Undo alone. (As an event
+    // listener this gets an event, which isn't a scope: that flushes all.)
+    if (typeof scope === "string" && p.scope !== scope) return;
     pending.current = null;
     clearTimeout(p.timer);
     // Its Undo can't take it back any more, so it doesn't stay on screen.
@@ -73,9 +78,9 @@ export function FeedbackProvider({ children }) {
   }, [error]);
 
   const undoable = useCallback(
-    ({ message, run, onUndo, actionLabel = "Undo", delay = UNDO_MS }) => {
+    ({ message, run, onUndo, actionLabel = "Undo", delay = UNDO_MS, scope = null }) => {
       flush();
-      const entry = { run, onUndo };
+      const entry = { run, onUndo, scope };
       entry.timer = setTimeout(() => {
         if (pending.current === entry) flush();
       }, delay);

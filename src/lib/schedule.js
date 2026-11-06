@@ -227,3 +227,25 @@ export function nextOpenSlot(chunks) {
   if (!free) return { start: toTime(9 * 60), end: toTime(10 * 60) }; // not a free half hour all day
   return { start: toTime(free.start), end: toTime(Math.min(free.end, free.start + 60)) };
 }
+
+// --- Presets ---------------------------------------------------------------
+
+// What a preset can have added to a day, found after the fact: new blocks
+// that match one of the preset's own (name and times), and new tasks in
+// those blocks or, on a weekly block the preset's tasks went onto, new tasks
+// whose names are the preset's.
+export function presetAdded(t, before, nowChunks, nowTasks) {
+  const oldChunks = new Set(before.chunks.map((c) => c.id));
+  const oldTasks = new Set(before.tasks.map((x) => x.id));
+  const own = t.template_chunks ?? [];
+  const same = (a, b) => a.start_time === b.start_time && a.end_time === b.end_time && a.title.trim().toLowerCase() === b.title.trim().toLowerCase();
+  const chunks = nowChunks.filter((c) => !oldChunks.has(c.id) && !c.standing_block_id && own.some((tc) => same(tc, c))).map((c) => c.id);
+  const ids = new Set(chunks);
+  const weekly = new Set(nowChunks.filter((c) => c.standing_block_id && own.some((tc) => same(tc, c))).map((c) => c.id));
+  const names = new Set(own.flatMap((tc) => (tc.template_tasks ?? []).map((x) => x.title.trim().toLowerCase())));
+  const newTask = (x) => !oldTasks.has(x.id);
+  const top = nowTasks.filter((x) => newTask(x) && (ids.has(x.time_chunk_id) || (weekly.has(x.time_chunk_id) && names.has(x.title.trim().toLowerCase()))));
+  const topIds = new Set(top.map((x) => x.id));
+  const tasks = [...top, ...nowTasks.filter((x) => newTask(x) && !topIds.has(x.id) && topIds.has(x.parent_task_id))].map((x) => x.id);
+  return { chunks, tasks };
+}

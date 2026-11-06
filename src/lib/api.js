@@ -815,7 +815,7 @@ export async function deleteTasks(taskIds) {
 export async function fetchTemplates(userId, kind) {
   let query = supabase
     .from("plan_templates")
-    .select("*, template_chunks(id, title, start_time, end_time, color, category, position)")
+    .select("*, template_chunks(id, title, start_time, end_time, color, category, position, template_tasks(title))")
     .eq("user_id", userId)
     .order("name", { ascending: true });
   if (kind) query = query.eq("kind", kind);

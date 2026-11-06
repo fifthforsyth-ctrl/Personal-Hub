@@ -95,14 +95,15 @@ export default function BlockSheet({
     if (!ok) setBusy(false);
   }
 
-  // Closing without saving drops notes being written, so ask first.
+  // Anything that closes the sheet without saving drops notes being
+  // written, so it asks first: closing, Delete and Stop repeating.
+  async function draftMayGo() {
+    if (notesDraft.current == null) return true;
+    return confirm({ title: "Drop the notes you were writing?", body: "They haven't been saved.", confirmLabel: "Drop them" });
+  }
   async function close() {
     if (busy) return;
-    if (notesDraft.current != null) {
-      const drop = await confirm({ title: "Drop the notes you were writing?", body: "They haven't been saved.", confirmLabel: "Drop them" });
-      if (!drop) return;
-    }
-    onClose();
+    if (await draftMayGo()) onClose();
   }
 
   async function savePreset(e) {
@@ -204,7 +205,7 @@ export default function BlockSheet({
               <div className="bsheet__repeat">
                 <Repeat size={14} />
                 <span>Repeats every {weekday}</span>
-                <button type="button" className="btn-link btn-link--danger" onClick={onStopRepeat} disabled={busy}>
+                <button type="button" className="btn-link btn-link--danger" onClick={async () => (await draftMayGo()) && onStopRepeat()} disabled={busy}>
                   Stop repeating
                 </button>
               </div>
@@ -287,7 +288,7 @@ export default function BlockSheet({
 
         <div className="bsheet__actions">
           {!isNew && (
-            <button type="button" className="btn-link btn-link--danger" onClick={onDelete} disabled={busy} style={{ minHeight: 40 }}>
+            <button type="button" className="btn-link btn-link--danger" onClick={async () => (await draftMayGo()) && onDelete()} disabled={busy} style={{ minHeight: 40 }}>
               <Trash2 size={13} />
               Delete
             </button>

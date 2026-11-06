@@ -20,10 +20,11 @@ export default function MonthSchedule({ monthDate, onOpenDay }) {
   const today = todayStr();
   const toast = useToast();
 
-  // A delete still waiting on its Undo goes through first (see WeekSchedule).
+  // A schedule delete still waiting on its Undo goes through first (see
+  // WeekSchedule).
   const { data, error, reload } = useLoad(async () => {
     if (!user?.id) return null;
-    await toast.flush();
+    await toast.flush("schedule");
     return fetchRangeChunks(user.id, start, end);
   }, [user?.id, start]);
   const byDay = useMemo(() => {

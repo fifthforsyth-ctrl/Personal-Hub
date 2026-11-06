@@ -25,11 +25,12 @@ export default function WeekSchedule({ anchorDate, onOpenDay }) {
   const [filling, setFilling] = useState(false);
   const toast = useToast();
 
-  // A delete still waiting on its Undo goes through before the week is read,
-  // so a block just deleted on a day doesn't show here.
+  // A schedule delete still waiting on its Undo goes through before the week
+  // is read, so a block just deleted on a day doesn't show here. Another
+  // screen's Undo (a focus removed on Targets) is left alone.
   const { data, error, reload } = useLoad(async () => {
     if (!user?.id) return null;
-    await toast.flush();
+    await toast.flush("schedule");
     return fetchRangeChunks(user.id, start, end);
   }, [user?.id, start]);
   const byDay = useMemo(() => {

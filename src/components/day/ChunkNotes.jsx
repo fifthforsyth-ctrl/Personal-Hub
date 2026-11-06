@@ -181,6 +181,7 @@ export default function ChunkNotes({ chunk, date, draftRef, onSaved }) {
           className="textarea"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
+          readOnly={busy}
           placeholder="What was said. Paste it, type it, don't tidy it — you'll pull the good lines out afterwards."
           style={{ minHeight: 170, fontSize: 14, lineHeight: 1.65 }}
           autoFocus

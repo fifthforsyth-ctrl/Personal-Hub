@@ -32,7 +32,7 @@ import { useChoiceSheet } from "../plan/ChoiceSheet";
 import DayGrid from "./DayGrid";
 import BlockSheet from "./BlockSheet";
 import PresetsSheet from "./PresetsSheet";
-import { gridRange, plannedMinutes, openStretches, fmtHours, newBlockAt, nextOpenSlot, hourLabel, toTime, colorOf } from "../../lib/schedule";
+import { gridRange, plannedMinutes, openStretches, fmtHours, newBlockAt, nextOpenSlot, hourLabel, toTime, colorOf, presetAdded } from "../../lib/schedule";
 import { fmtTimeRange, parseDateStr, todayStr } from "../../lib/planDates";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -56,15 +56,16 @@ export default function ScheduleDay({ userId, date }) {
   const phone = useMediaQuery("(max-width: 900px)");
   const slotH = phone ? 26 : 28;
 
-  // A delete still waiting on its Undo (made a moment ago on this day, or on
-  // another) goes through before the day is first read, so it can't come
-  // back as a block that's already gone.
+  // A schedule delete still waiting on its Undo (made a moment ago on this
+  // day, or on another) goes through before the day is first read, so it
+  // can't come back as a block that's already gone. Another screen's Undo
+  // is left alone.
   const flushed = useRef(false);
   const { data, error, reload, mutate } = useLoad(async () => {
     if (!userId) return null;
     if (!flushed.current) {
       flushed.current = true;
-      await toast.flush();
+      await toast.flush("schedule");
     }
     const [chunks, tasks] = await Promise.all([fetchTimeChunks(userId, date), fetchTasks(userId, date)]);
     return { date, chunks, tasks };
@@ -204,6 +205,7 @@ export default function ScheduleDay({ userId, date }) {
     setSheet(null);
     hide([chunk.id]);
     toast.undoable({
+      scope: "schedule",
       message: moving > 0 ? `Deleted ${quote(chunk.title)}. ${plural(moving, "task")} kept with no time.` : `Deleted ${quote(chunk.title)}`,
       run: async () => {
         await deleteTimeChunk(chunk.id);
@@ -272,6 +274,7 @@ export default function ScheduleDay({ userId, date }) {
       const task = payload;
       hide([task.id]);
       toast.undoable({
+        scope: "schedule",
         message: `Deleted ${quote(task.title)}`,
         run: async () => {
           await deleteTask(task.id);
@@ -291,6 +294,10 @@ export default function ScheduleDay({ userId, date }) {
   // the server only ever adds. Weekly blocks stay either way.
   async function applyPreset(t) {
     if (busyPreset || !data) return;
+    // A delete still waiting on its Undo goes through first: the server
+    // looks at the day's blocks (a day preset skips a weekly block that's
+    // already there), so it has to see the day as it looks.
+    await toast.flush("schedule");
     const before = data;
     let mode = "add";
     if (t.kind === "day") {
@@ -337,7 +344,9 @@ export default function ScheduleDay({ userId, date }) {
     const done = t.kind === "day" ? `Applied ${t.name}` : `Added ${t.name}`;
 
     // What the preset added: known now from the reload, or (if that failed)
-    // worked out on Undo from what the day has then.
+    // worked out on Undo from what the day has then, counting only blocks
+    // that are the preset's own and the tasks in them, so a block or task
+    // added in the meantime stays.
     const oldChunks = new Set(before.chunks.map((c) => c.id));
     const oldTasks = new Set(before.tasks.map((x) => x.id));
     const addedOf = (now) => ({
@@ -349,7 +358,7 @@ export default function ScheduleDay({ userId, date }) {
       try {
         if (!added) {
           const [nowChunks, nowTasks] = await Promise.all([fetchTimeChunks(userId, date), fetchTasks(userId, date)]);
-          added = addedOf({ chunks: nowChunks, tasks: nowTasks });
+          added = presetAdded(t, before, nowChunks, nowTasks);
         }
         await deleteTasks(added.tasks);
         await deleteTimeChunks(added.chunks);
@@ -364,6 +373,7 @@ export default function ScheduleDay({ userId, date }) {
       const removeIds = chunks.filter((c) => !c.standing_block_id).map((c) => c.id);
       hide(removeIds);
       toast.undoable({
+        scope: "schedule",
         message: `Replaced the day with ${t.name}`,
         run: async () => {
           await deleteTimeChunks(removeIds);
@@ -384,7 +394,7 @@ export default function ScheduleDay({ userId, date }) {
     try {
       // A delete still waiting on its Undo goes through first, so the
       // preset is the day as it looks.
-      await toast.flush();
+      await toast.flush("schedule");
       await saveDayAsTemplate(date, name);
       presets.reload();
       toast.show(`Saved this day as ${quote(name)}`);
@@ -419,6 +429,7 @@ export default function ScheduleDay({ userId, date }) {
   function removePreset(t) {
     hide([t.id]);
     toast.undoable({
+      scope: "schedule",
       message: `Deleted the ${quote(t.name)} preset`,
       run: async () => {
         await deleteTemplate(t.id);
@@ -435,6 +446,7 @@ export default function ScheduleDay({ userId, date }) {
     setPresetsOpen(false);
     hide(ids);
     toast.undoable({
+      scope: "schedule",
       message: `Cleared ${plural(ids.length, "block")}${ids.length < chunks.length ? ". Weekly blocks stay." : ""}`,
       run: async () => {
         await deleteTimeChunks(ids);

@@ -6914,7 +6914,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   // The grid: touch, taps and labels.
   const grid = read("src/components/schedule/DayGrid.jsx");
   ok("on a phone, the bottom edge waits for a press and hold too", !/mode === "resize" && canDrag\) d\.active = true/.test(grid) && /if \(d\.touch && canDrag\)/.test(grid));
-  ok("and a swipe from it can scroll", /@media \(pointer: coarse\) \{ \.blk__grip \{ height: 14px; touch-action: pan-y; \}/.test(read("src/styles/schedule.css")));
+  ok("and a swipe from it can scroll, on any touch screen", /\.blk__grip \{[^}]*touch-action: pan-y; \}/.test(read("src/styles/schedule.css")) && !/\.blk__grip \{[^}]*touch-action: none/.test(read("src/styles/schedule.css")));
   ok("the edge never covers a short block", /\.blk__grip \{[^}]*max-height: 40%/.test(read("src/styles/schedule.css")));
   ok("a block opens on click, so a tap on its edge opens it and a tap that stops a scroll doesn't", /onClick=\{\(\) => open\(chunk\)\}/.test(grid) && !/onOpen\(d\.chunk\)/.test(grid) && /dragged\.current = d\.active/.test(grid));
   ok("a second finger can't take over a drag", /if \(!e\.isPrimary\) return;/.test(grid) && /e\.pointerId !== d\.pointerId/.test(grid));
@@ -6925,20 +6925,47 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("notes saved in a block reach the day, so reopening shows them", /onSaved\?\.\(notes\)/.test(notes) && /onNotesSaved=\{\(notes\) => editing && notesSaved\(editing\.id, notes\)\}/.test(read("src/components/schedule/ScheduleDay.jsx")));
   ok("notes being written go with the block's Save, and folding More keeps them", /draftRef\.current = editing && notes !== saved \? notes : null/.test(notes) && /fields\.notes = notesDraft\.current \|\| null/.test(sheet) && /more \|\| moreSeen/.test(sheet));
   ok("closing with notes being written asks first", /Drop the notes you were writing\?/.test(sheet) && /onClose=\{close\}/.test(sheet));
+  ok("so do Delete and Stop repeating", /onClick=\{async \(\) => \(await draftMayGo\(\)\) && onStopRepeat\(\)\}/.test(sheet) && /onClick=\{async \(\) => \(await draftMayGo\(\)\) && onDelete\(\)\}/.test(sheet));
+  ok("notes can't be typed into while they save, so nothing typed is lost", /readOnly=\{busy\}/.test(notes));
   const day = read("src/components/schedule/ScheduleDay.jsx");
   ok("a block that saved but couldn't repeat closes, so a retry can't add it twice", day.indexOf("setSheet(null);\n    if (repeat)") > 0 && /Saved the block, but couldn't make it repeat/.test(day));
   ok("Replace still replaces when the reload after it fails", !/if \(!fresh \|\| fresh\.date !== date\) return/.test(day) && /let added = fresh && fresh\.date === date \? addedOf\(fresh\) : null/.test(day));
-  ok("a delete waiting on Undo goes through before a day, week or month is read", /await toast\.flush\(\);\n    }\n    const \[chunks, tasks\]/.test(day) && ["src/components/schedule/WeekSchedule.jsx", "src/components/schedule/MonthSchedule.jsx"].every((f) => /await toast\.flush\(\);\n    return fetchRangeChunks/.test(read(f))));
-  ok("and before the day is saved as a preset", /await toast\.flush\(\);\n      await saveDayAsTemplate/.test(day));
+  ok("a schedule delete waiting on Undo goes through before a day, week or month is read", /await toast\.flush\("schedule"\);\n    }\n    const \[chunks, tasks\]/.test(day) && ["src/components/schedule/WeekSchedule.jsx", "src/components/schedule/MonthSchedule.jsx"].every((f) => /await toast\.flush\("schedule"\);\n    return fetchRangeChunks/.test(read(f))));
+  ok("and before the day is saved as a preset, or a preset applied (here and on the Day page)", /await toast\.flush\("schedule"\);\n      await saveDayAsTemplate/.test(day) && /if \(busyPreset \|\| !data\) return;\n[^]*?await toast\.flush\("schedule"\);\n    const before = data;/.test(day) && /await toast\.flush\("schedule"\);\n    const before = data;/.test(read("src/components/plan/DayView.jsx")));
+  ok("only schedule Undos are run early: every one on the schedule and Day page is scoped", (day.match(/toast\.undoable\(\{\n\s+scope: "schedule",/g) ?? []).length === (day.match(/toast\.undoable\(/g) ?? []).length && (read("src/components/plan/DayView.jsx").match(/toast\.undoable\(\{\n\s+scope: "schedule",/g) ?? []).length === 4);
   const fb = read("src/components/ui/Feedback.jsx");
   ok("the toast provider shares flush, and a flushed Undo leaves the screen", /value=\{\{ show, error, undoable, flush, hide, confirm \}\}/.test(fb) && /t\.id === p\.toastId \? null : t/.test(fb) && /entry\.toastId = show\(/.test(fb));
+  ok("a scoped flush leaves another screen's Undo alone; the app-hidden flush still runs everything", /if \(typeof scope === "string" && p\.scope !== scope\) return;/.test(fb) && /const entry = \{ run, onUndo, scope \}/.test(fb) && /window\.addEventListener\("pagehide", flush\)/.test(fb));
   ok("Clear this day only shows when there's something it can clear", /canClear=\{chunks\.some\(\(c\) => !c\.standing_block_id\)\}/.test(day) && /\{canClear && \(/.test(read("src/components/schedule/PresetsSheet.jsx")));
   ok("Undo on a preset puts back each day's energy, in the day and on the week", /putBackEnergyTags\(userId, \[date\], energyBefore, t\.energy_tag\)/.test(day) && /putBackEnergyTags\(userId, targets, energyBefore, preset\.energy_tag\)/.test(read("src/components/schedule/WeekSchedule.jsx")));
   ok("a sheet closes only on a press that starts on its backdrop", /downOnBackdrop\.current = e\.target === e\.currentTarget/.test(read("src/components/ascent/Sheet.jsx")));
 
   const sql = read("supabase/migrations/0108_preset_skips_weekly_copies.sql");
-  ok("0108: a day preset skips a weekly block the day already has, and drops nothing", /c\.standing_block_id is not null/.test(sql) && /lower\(trim\(c\.title\)\) = lower\(trim\(v_tc\.title\)\)/.test(sql) && /then\s+continue;/.test(sql) && !/\bdrop\b/i.test(sql) && /create or replace function public\.apply_plan_template\(p_template_id uuid, p_date date\)/.test(sql));
+  ok("0108: a day preset uses a weekly block the day already has, and drops nothing", /if v_template\.kind = 'day' then\s+select c\.id into v_new_chunk_id from public\.time_chunks c/.test(sql) && /c\.standing_block_id is not null/.test(sql) && /lower\(trim\(c\.title\)\) = lower\(trim\(v_tc\.title\)\)/.test(sql) && !/\bdrop\b/i.test(sql) && /create or replace function public\.apply_plan_template\(p_template_id uuid, p_date date\)/.test(sql));
+  ok("0108: the preset's tasks go onto that weekly block, minus any it already has", /v_reused := v_new_chunk_id is not null;/.test(sql) && /if v_reused then\s+select t\.id into v_existing_task/.test(sql) && /t\.parent_task_id is not distinct from v_parent/.test(sql) && /v_task_map := jsonb_set\(v_task_map, array\[v_tt\.id::text\], to_jsonb\(v_existing_task::text\)\);\s+continue;/.test(sql));
+  ok("0108: a single-block preset still always adds its block", /if v_template\.kind = 'day' then/.test(sql) && /if v_reused then[^]*?else\s+insert into public\.time_chunks/.test(sql));
   ok("0108 keeps 0107's colour and category on what it does add", /v_tc\.goal_node_id, v_tc\.category, v_tc\.color\)/.test(sql));
+
+  // Undo after a preset whose reload failed: only the preset's own rows.
+  const tpl = { template_chunks: [{ title: "Deep work", start_time: "08:00:00", end_time: "12:00:00", template_tasks: [{ title: "Inbox zero" }] }, { title: "Standup", start_time: "09:00:00", end_time: "09:15:00", template_tasks: [{ title: "Notes" }] }] };
+  const was = { chunks: [{ id: "w1" }], tasks: [{ id: "t0" }] };
+  const nowC = [
+    { id: "w1", title: "Standup", start_time: "09:00:00", end_time: "09:15:00", standing_block_id: "sb" },
+    { id: "n1", title: "Deep work", start_time: "08:00:00", end_time: "12:00:00", standing_block_id: null },
+    { id: "n2", title: "Lunch", start_time: "12:00:00", end_time: "12:30:00", standing_block_id: null },
+  ];
+  const nowT = [
+    { id: "t0", time_chunk_id: "w1", title: "Old", parent_task_id: null },
+    { id: "t1", time_chunk_id: "n1", title: "Inbox zero", parent_task_id: null },
+    { id: "t1s", time_chunk_id: "n1", title: "sub", parent_task_id: "t1" },
+    { id: "t2", time_chunk_id: "w1", title: "Notes", parent_task_id: null },
+    { id: "t3", time_chunk_id: "w1", title: "Call Bob", parent_task_id: null },
+    { id: "t4", time_chunk_id: "n2", title: "Eat", parent_task_id: null },
+  ];
+  const got = S.presetAdded(tpl, was, nowC, nowT);
+  ok("a lazy Undo takes back the preset's blocks and the tasks it put in them", got.chunks.join() === "n1" && ["t1", "t1s", "t2"].every((x) => got.tasks.includes(x)), JSON.stringify(got));
+  ok("but not a block or task added in the meantime", !got.chunks.includes("n2") && !got.tasks.includes("t3") && !got.tasks.includes("t4") && !got.tasks.includes("t0"), JSON.stringify(got));
+  ok("the templates fetch brings each preset block's task names", /template_chunks\(id, title, start_time, end_time, color, category, position, template_tasks\(title\)\)/.test(read("src/lib/api.js")));
 
   // The focus line and Targets.
   const line = read("src/components/schedule/FocusLine.jsx");
