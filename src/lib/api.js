@@ -4758,3 +4758,52 @@ export async function deletePin(id) {
   if (error) throw error;
 }
 
+
+// ---------------------------------------------------------------------------
+// The builder (0110, edge function `builder`): an AI on your own key that
+// proposes changes to your Hub. Your key goes to the function once and is
+// never sent back; applying and undoing run as you, under the same rules as
+// the rest of the app.
+// ---------------------------------------------------------------------------
+
+export function builderStatus() {
+  return callFunction("builder", { action: "status" }, "The builder");
+}
+
+export function saveBuilderKey({ provider, key, model }) {
+  return callFunction("builder", { action: "save", provider, key, model }, "The builder");
+}
+
+export function removeBuilderKey() {
+  return callFunction("builder", { action: "remove" }, "The builder");
+}
+
+// `messages`: [{ role: "user" | "assistant", text }], oldest first.
+export function builderChat(messages) {
+  return callFunction("builder", { action: "chat", messages }, "The builder");
+}
+
+export async function applyBuilderQuest(proposal, today) {
+  const { data, error } = await supabase.rpc("builder_apply_quest", { p_quest: proposal, p_today: today });
+  if (error) throw error;
+  return data;
+}
+
+// Resolves to { undone } or, when work was done or added since and `force`
+// is false, { ask, done, added } with nothing deleted.
+export async function undoBuilderChange(id, force = false) {
+  const { data, error } = await supabase.rpc("builder_undo", { p_change: id, p_force: force });
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchBuilderChanges(userId) {
+  const { data, error } = await supabase
+    .from("ai_changes")
+    .select("id, kind, summary, made, created_at, undone_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return data ?? [];
+}
