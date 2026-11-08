@@ -9,6 +9,8 @@
 // file existing.
 
 import { readFileSync } from "node:fs";
+import { tidyAnswer, parseAnswer, proposalCounts, keyLooksOk, modelFor, trimHistory } from "../supabase/functions/builder/shape.js";
+import { asTurns, countsLine } from "../src/lib/builder.js";
 import { mentions as loveMentions, handlesFrom, cleanHandle, leaderboard as loveBoard } from "../src/lib/loveRules.js";
 import { fileURLToPath } from "node:url";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
@@ -7077,6 +7079,45 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the board ranks rated, done dates only", overall.map((r) => r.date.id).join() === "b,a", overall.map((r) => r.date.id).join());
   ok("a measure averages both people", loveBoard(dates, ratings, "fun")[0].avg.fun === 9);
   ok("a missing score doesn't count as zero", loveBoard(dates, ratings, "unnamed").find((r) => r.date.id === "a").avg.unnamed === 8);
+}
+
+{
+  // The builder: what a model sends is tidied before anyone sees it.
+  const raw = {
+    reply: "  Here it is. ",
+    question: null,
+    proposal: {
+      kind: "new_quest",
+      title: "  Launch   the site ",
+      goal_id: "not-his",
+      camps: [
+        { title: "Plan", sections: [{ title: "", steps: [{ text: "Pick a host", subs: [{ text: "Compare prices" }, { text: " " }] }, { text: "" }] }] },
+        { title: "Empty", sections: [{ title: "Nothing", steps: [] }] },
+        { title: "", sections: [{ title: "x", steps: [{ text: "orphan" }] }] },
+      ],
+      duplicates: ["Pick a host"],
+    },
+  };
+  const t = tidyAnswer(raw, ["g1"]);
+  ok("builder: title trimmed and squeezed", t.proposal.title === "Launch the site", t.proposal.title);
+  ok("builder: a goal that isn't his is dropped", t.proposal.goal_id === null);
+  ok("builder: empty camps and untitled camps go", t.proposal.camps.length === 1);
+  ok("builder: untitled section gets a name, blank steps go", t.proposal.camps[0].sections[0].title === "Steps" && t.proposal.camps[0].sections[0].steps.length === 1);
+  ok("builder: blank sub-steps go", t.proposal.camps[0].sections[0].steps[0].subs.length === 1);
+  const c = proposalCounts(t.proposal);
+  ok("builder: counts include sub-steps", c.camps === 1 && c.sections === 1 && c.steps === 2, JSON.stringify(c));
+  ok("builder: counts line", countsLine(c) === "1 camp · 1 section · 2 steps", countsLine(c));
+  ok("builder: his goal is kept", tidyAnswer({ ...raw, proposal: { ...raw.proposal, goal_id: "g1" } }, ["g1"]).proposal.goal_id === "g1");
+  const q = tidyAnswer({ reply: "", question: { text: "Group by?", options: ["Phase", "Phase", "Area", "", "a", "b", "c"] }, proposal: null });
+  ok("builder: question options deduped and capped at 4", q.question.options.join() === "Phase,Area,a,b", q.question.options.join());
+  ok("builder: unreadable answer says so", /couldn't read/.test(tidyAnswer(null).reply));
+  ok("builder: JSON in a code fence is read", parseAnswer('Sure!\n```json\n{"reply":"hi"}\n```').reply === "hi");
+  ok("builder: JSON inside words is read", parseAnswer('ok {"reply":"yo","question":null} done').reply === "yo");
+  ok("builder: a key with a newline is refused", !keyLooksOk("sk-ant-abc\ndefghijk") && keyLooksOk("sk-ant-abcdefghijk"));
+  ok("builder: a model name with spaces falls back", modelFor("anthropic", "bad model") === "claude-sonnet-5-5" && modelFor("openrouter", "anthropic/claude-x") === "anthropic/claude-x");
+  ok("builder: history keeps only his and its turns", trimHistory([{ role: "system", text: "x" }, { role: "user", text: "a" }, { role: "assistant", text: " " }]).length === 1);
+  const turns = asTurns([{ role: "user", text: "tasks" }, { role: "assistant", text: "Here", proposal: t.proposal, applied: { change_id: "c" } }]);
+  ok("builder: its proposal goes back with what he did", turns[1].text.includes("He applied it") && turns[1].text.includes('"Launch the site"'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

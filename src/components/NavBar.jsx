@@ -19,6 +19,7 @@ import {
   Castle,
   RotateCw,
   Heart,
+  Wand2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -95,6 +96,7 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // tap away from the week strip on Today, the Week page and the evening, and
 // /day/<date> still works.
 export const MORE = [
+  { to: "/builder", label: "Builder", Icon: Wand2 },
   { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
   { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
