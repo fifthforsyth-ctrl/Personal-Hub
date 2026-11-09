@@ -109,7 +109,8 @@ async function providerError(res: Response, label: string) {
   if (res.status === 401 || res.status === 403) return new Plain(`${label} turned the key down. Check it in AI settings.`, 400);
   if (res.status === 404) return new Plain(`${label} doesn't know that model. Pick another in AI settings.`, 400);
   if (res.status === 429) return new Plain(`${label} says you're over your limit or out of credit right now.`, 429);
-  return new Plain(`${label} had a problem (${res.status})${msg ? `: ${String(msg).slice(0, 200)}` : ""}.`, 502);
+  // 422, not 502: the app reads 502 as "busy", which hid what really went wrong.
+  return new Plain(`${label} had a problem (${res.status})${msg ? `: ${String(msg).slice(0, 200)}` : ""}.`, res.status >= 500 ? 503 : 422);
 }
 
 async function callModel(provider: string, key: string, model: string, system: string, turns: Turn[], maxTokens: number, schema = true) {
@@ -128,8 +129,11 @@ async function callModel(provider: string, key: string, model: string, system: s
         messages: turns.map((t) => ({ role: t.role, content: t.text })),
         ...(schema
           ? {
-              tools: [{ name: "answer", description: "Your answer to him.", input_schema: ANSWER_SCHEMA }],
-              tool_choice: { type: "tool", name: "answer" },
+              // Newer Claude models (Opus 5.5, Sonnet 5.5, Fable 5.1+) reject a
+              // forced tool_choice with a 400, so the tool is offered on "auto"
+              // and the prompt says to use it; a plain-JSON text answer is read too.
+              tools: [{ name: "answer", description: "Your answer to him. Always answer by calling this tool.", input_schema: ANSWER_SCHEMA }],
+              tool_choice: { type: "auto" },
             }
           : {}),
       }),
@@ -209,7 +213,7 @@ Safety, always:
 - If something he asks for would change something that already works, don't do it silently: offer, as tappable answers, a way for both to work (for example "Keep both", "Make it a separate quest") before anything that replaces it.
 - If he asks for something you can't do yet (changing screens, new tabs or tools, editing existing quests), say so plainly in one sentence, say it's coming, and offer what you can do now.
 
-Answer only with one JSON object with the keys "reply", "question" and "proposal" exactly as described (question and proposal are null when not used; a proposal has kind "new_quest", title, note, goal_id, camps[{title, note, sections[{title, note, steps[{text, note, subs[{text, note}]}]}]}], duplicates[]).
+Always answer by calling the "answer" tool. If you can't call it, answer only with one JSON object with the keys "reply", "question" and "proposal" exactly as described (question and proposal are null when not used; a proposal has kind "new_quest", title, note, goal_id, camps[{title, note, sections[{title, note, steps[{text, note, subs[{text, note}]}]}]}], duplicates[]).
 
 His goals (id: title):
 ${goals.length ? goals.map((g) => `- ${g.id}: ${g.title}`).join("\n") : "- (none yet)"}
