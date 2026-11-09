@@ -71,8 +71,14 @@ export default function Builder() {
       const answer = await builderChat(asTurns(next));
       setMessages((m) => [...m, { role: "assistant", text: answer.reply, question: answer.question, proposal: answer.proposal }]);
     } catch (err) {
+      // The message didn't get an answer: take it back off the chat and put it
+      // in the box, so sending again doesn't stack copies of it.
+      setMessages((m) => (m[m.length - 1]?.role === "user" && m[m.length - 1]?.text === words ? m.slice(0, -1) : m));
+      setDraft((d) => d || words);
       if (err?.status === 400 && /AI settings/.test(err.message)) setShowSettings(true);
-      setError(friendlyError(err, "The builder couldn't answer."));
+      // The builder's own errors are already plain sentences (a 429 or 503 from
+      // the AI provider says so in words), so show them as they are.
+      setError(err?.status && err.status < 500 && err.status !== 429 && err.message ? err.message : friendlyError(err, "The builder couldn't answer."));
     } finally {
       setWorking(false);
     }
