@@ -448,12 +448,12 @@ export default function Camp() {
     setSteps((list) => applyRows(list, plan.rows));
     if (plan.sectionId) setOpened((o) => ({ ...o, [plan.sectionId]: true }));
     haptic("tap");
-    const undo = undoableSave(inOrder, () => placeSteps(plan.rows), (err) => failed(err, "Couldn't move those."));
+    const undo = undoableSave(inOrder, () => placeSteps(plan.batches), (err) => failed(err, "Couldn't move those."));
     toast.show(label, {
       actionLabel: "Undo",
       onAction: () => {
         setSteps((list) => applyRows(list, plan.was));
-        undo(() => placeSteps(plan.was), (err) => failed(err, "Couldn't move those back."));
+        undo(() => placeSteps(plan.wasBatches), (err) => failed(err, "Couldn't move those back."));
       },
     });
     return true;
