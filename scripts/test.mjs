@@ -4304,14 +4304,9 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the draft is written with what the Hub held, and again once a save moves that", /writeDraft\(userId, date, answers, saved\.current, typedAt\.current\)/.test(flowSrc) && /if \(same\(latest\.current, saved\.current\)\) clearDraft\(userId, date\);\s*else writeDraft\(userId, date, latest\.current, saved\.current, typedAt\.current\);/.test(flowSrc));
   ok("the journal row's updated_at alone no longer throws a draft away", !/draft\.at > savedAt\) return/.test(flowSrc) && /mergeDraft\(saved, draft, savedAt\)/.test(flowSrc));
 
-  // --- #2, #4, #15 Switching Short and Full -----------------------------------------
+  // --- #2, #4, #15 Switching Short and Full: gone with the short evening (2026-11-22)
   const evening = read("src/pages/Evening.jsx");
-  const sw = evening.slice(evening.indexOf("const setShort = async"), evening.indexOf("// A win captured"));
-  ok("switching waits for the focus arrows, then every other card being left, tonight's shots included", /await flushFocus\.current\?\.\(\);\s*await Promise\.all\(leaving\.map\(\(flush\) => flush\?\.\(\)\)\);/.test(sw) && /short \? \[flushShots\.current, flushShort\.current\] : \[flushShots\.current, flushTasks\.current, flushCheckin\.current\]/.test(sw), sw.slice(0, 400));
-  ok("a save that fails keeps you on the card, and says so", !/allSettled/.test(sw) && sw.indexOf("saved = false") > 0 && sw.indexOf("if (!saved) {") < sw.indexOf("setShortState(v)") && /didn't save yet, so this stays open/.test(sw));
-  ok("the other card opens only once the day is read again", sw.indexOf("await reload()") > sw.indexOf("Promise.all(leaving") && sw.indexOf("setShortState(v)") > sw.indexOf("await reload()") && /if \(!fresh\) \{/.test(sw));
-  ok("one switch at a time, and the toggle says it's busy", /if \(v === short \|\| switchingRef\.current\) return;/.test(sw) && (evening.match(/disabled=\{switching\}/g) ?? []).length === 2);
-  ok("the switch's words have no dashes in them", !/—|–/.test(sw.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n")));
+  ok("there's one evening now, with no Short/Full switch", !/setShort|ShortEvening|evening-length/.test(evening));
 
   // --- #8, #24, #9, #25 Saving checks twice, and a kept focus -----------------------
   const apiPath = fileURLToPath(new URL("../src/lib/api.js", import.meta.url));
@@ -4869,16 +4864,17 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // --- The page --------------------------------------------------------------------
   const page = src("src/pages/Evening.jsx");
-  const full = page.slice(page.indexOf(") : (\n        <div className={\"stack\""), page.indexOf("{volley &&"));
-  const order = ["<WinsAndLosses", "<MinutesCard", "<WatchLine", "<CuratedCards", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningTasks", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
-  ok("the full evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
-  const quick = page.slice(page.indexOf(") : short ? ("), page.indexOf(") : (\n        <div className={\"stack\""));
-  const qOrder = ["<WinsAndLosses", "<ShortEvening", "<FocusArrows", "<TonightShots", "<CloseOut"].map((t) => quick.indexOf(t));
-  ok("and the short one too", qOrder.every((i, k) => i >= 0 && (k === 0 || i > qOrder[k - 1])) && /quick\s*\/>/.test(quick.slice(quick.indexOf("<FocusArrows"))), qOrder.join());
+  const full = page.slice(page.indexOf(") : (\n        <div className=\"stack\">"), page.indexOf("{volley &&"));
+  const order = ["<WinsAndLosses", "<MinutesCard", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
+  ok("the evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
+  ok("the reflection questions stay; the watch row, the board card, What got done and the short evening are gone", /<ReflectionFlow\b/.test(page) && !/<WatchLine|<CuratedCards|<EveningTasks|<ShortEvening/.test(page));
+  ok("one tap per target and per focus, and the check-in is slim", /flushRef=\{flushFocus\} quick \/>/.test(full) && /onReady=\{setArrows\}\s*quick\s*\/>/.test(full) && /flushRef=\{flushCheckin\} slim \/>/.test(full));
   ok("FocusDay is gone from the evening", !/FocusDay/.test(page));
-  ok("the focus arrows and the shots get the day's plan", (page.match(/dayPlan=\{data\.dayPlan\}/g) ?? []).length >= 5 && (page.match(/<FocusArrows[^>]*flushRef=\{flushFocus\}/g) ?? []).length === 2);
+  ok("the focus arrows and the shots get the day's plan", (page.match(/dayPlan=\{data\.dayPlan\}/g) ?? []).length >= 3 && (page.match(/<FocusArrows[^>]*flushRef=\{flushFocus\}/g) ?? []).length === 1);
   const before = page.slice(page.indexOf("const beforeBank"), page.indexOf("const a = data?.archive"));
-  ok("banking saves the focus arrows before tonight's checks", before.indexOf("flushFocus") < before.indexOf("flushCheckin") && /onBefore=\{beforeBank\}/.test(page) && /onBefore=\{beforeShortBank\}/.test(page) && /flushShort\.current/.test(before));
+  ok("banking saves the reflection, then the focus arrows, then the check-in", before.indexOf("flushReflection") < before.indexOf("flushFocus") && before.indexOf("flushFocus") < before.indexOf("flushCheckin") && /onBefore=\{beforeBank\}/.test(page));
+  const slimSrc = src("src/components/day/EveningCheckin.jsx");
+  ok("slim leaves out stress and the mood and stress notes", /\{!slim && <NoteInput note=\{moodNote\}/.test(slimSrc) && /\{!slim && \(\s*<div className="evening-feel">\s*<Slider label="Stress"/.test(slimSrc));
 
   // --- The banked day -----------------------------------------------------------------
   const banked = src("src/components/day/BankedDayCard.jsx");

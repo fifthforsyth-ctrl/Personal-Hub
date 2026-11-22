@@ -68,7 +68,9 @@ async function loadEvening(userId, date) {
   return { tomorrow, nextAlarm: next?.alarm_at?.slice(0, 5) ?? null, lastAlarm };
 }
 
-export default function EveningCheckin({ userId, date, dayPlan, journal, flushRef }) {
+// `slim` (the evening since 2026-11-22): mood alone, with no stress and no
+// notes on either; the note to God and tomorrow's alarm stay.
+export default function EveningCheckin({ userId, date, dayPlan, journal, flushRef, slim = false }) {
   const { data } = useLoad(() => loadEvening(userId, date), [userId, date]);
   const saves = useSaves();
 
@@ -161,13 +163,15 @@ export default function EveningCheckin({ userId, date, dayPlan, journal, flushRe
 
       <div className="evening-feel">
         <Slider label="Mood" value={mood} onChange={pickMood} low="1 low" high="10 good" />
-        <NoteInput note={moodNote} placeholder="What's behind it?" label="What's behind the mood?" max={500} />
+        {!slim && <NoteInput note={moodNote} placeholder="What's behind it?" label="What's behind the mood?" max={500} />}
       </div>
 
-      <div className="evening-feel">
-        <Slider label="Stress" value={stress} onChange={pickStress} low="1 calm" high="10 a lot" />
-        <NoteInput note={stressNote} placeholder="What's behind it?" label="What's behind the stress?" max={500} />
-      </div>
+      {!slim && (
+        <div className="evening-feel">
+          <Slider label="Stress" value={stress} onChange={pickStress} low="1 calm" high="10 a lot" />
+          <NoteInput note={stressNote} placeholder="What's behind it?" label="What's behind the stress?" max={500} />
+        </div>
+      )}
 
       <div className="evening-god">
         <label className="evening-god__q" htmlFor={`god-note-${date}`}>
