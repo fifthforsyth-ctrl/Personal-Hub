@@ -1,7 +1,7 @@
 import SwiftUI
 
-// Three pages, swiped sideways: Today, Minutes, Wins. The complication
-// opens Minutes when a timer is running, Today otherwise.
+// Four pages, swiped sideways: Today, Speak, Minutes, Wins. The
+// complication opens Minutes when a timer is running, Today otherwise.
 struct RootView: View {
     @EnvironmentObject var store: HubStore
     @State private var page = 0
@@ -9,6 +9,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $page) {
             TodayView().tag(0)
+            SpeakView().tag(3)
             MinutesView().tag(1)
             WinsView().tag(2)
         }
@@ -31,6 +32,7 @@ struct RootView: View {
             switch url.host {
             case "minutes": page = 1
             case "wins": page = 2
+            case "speak": page = 3
             default: page = 0
             }
         }

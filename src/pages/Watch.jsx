@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Watch as WatchIcon, Copy, Check, ExternalLink, AlarmClock, HeartPulse, Link2, Download } from "lucide-react";
+import { Watch as WatchIcon, Mic, Send, Copy, Check, ExternalLink, AlarmClock, HeartPulse, Link2, Download } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchWatchKey, newWatchKey, deleteWatchKey, fetchHealthDays, fetchHealthWorkouts, fetchLastHealthImport } from "../lib/api";
 import { SUPABASE_URL } from "../lib/supabaseClient";
@@ -8,7 +8,10 @@ import { todayStr, addDays, parseDateStr, fmtDayHeading } from "../lib/planDates
 import { fmtMins, lastUsedLine, watchAddress, workoutName } from "../lib/watch";
 import { useToast, useConfirm } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
+import VoiceButton from "../components/ui/VoiceButton";
+import { voiceCommand, playBase64Mp3 } from "../lib/voice";
 import "../styles/phone.css";
+import "../styles/voice.css";
 
 // On your watch: the Hub on an Apple Watch, which can't run the Hub itself.
 //
@@ -123,6 +126,8 @@ export default function Watch() {
       <p className="page-sub" style={{ marginBottom: 18 }}>Wins, timers and Today's tasks from your wrist, and what your Apple Watch measures, in the Hub.</p>
 
       {error && <LoadError error={error} onRetry={reload} />}
+
+      <SpeakToHub />
 
       {/* 1. The address */}
       <div className="card">
@@ -304,6 +309,60 @@ function Received({ days, workouts, today }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Say anything to the Hub, the same as from the watch: "record a $25
+// personal purchase for groceries", "add milk and eggs to my clipboard",
+// "start Plugin". It does it and answers out loud.
+function SpeakToHub() {
+  const [last, setLast] = useState(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const show = (r) => {
+    setLast(r);
+    playBase64Mp3(r.audio);
+  };
+
+  async function send(e) {
+    e.preventDefault();
+    const text = typed.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      show(await voiceCommand({ text }));
+      setTyped("");
+    } catch (x) {
+      setErr(x?.message || "That didn't work.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="card-title"><Mic size={14} />Speak to the Hub</span>
+      </div>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Log a win, start or stop a timer, record a purchase, add to your clipboard, keep a note. It does it and says what it did.
+      </p>
+      <VoiceButton label="Speak" busyLabel="Working…" maxSeconds={60} onAudio={async (blob) => show(await voiceCommand({ blob }))} />
+      <form className="voice-talk__row" onSubmit={send}>
+        <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type it" aria-label="Type a command" maxLength={500} />
+        <button className="btn btn--sm" type="submit" disabled={busy || !typed.trim()} aria-label="Send"><Send size={14} /></button>
+      </form>
+      {err && <p className="form-error" style={{ marginTop: 8 }}>{err}</p>}
+      {last && (
+        <>
+          {last.heard && <p className="voice-talk__heard">You said: {last.heard}</p>}
+          <p className="voice-talk__say">{last.say}</p>
+        </>
+      )}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
 import MentionHint from "../love/MentionHint";
+import VoiceButton from "../ui/VoiceButton";
+import { transcribeBlob, appendWords } from "../../lib/voice";
 import { friendlyError, plainError } from "../../lib/errors";
 
 // The evening's four cards.
@@ -407,6 +409,16 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         aria-label={card.question}
         style={{ minHeight: 148, fontFamily: "var(--font-serif)", fontSize: 15 }}
         autoFocus
+      />
+      <VoiceButton
+        key={`voice-${card.key}`}
+        label="Speak your answer"
+        onAudio={async (blob) => {
+          const words = await transcribeBlob(blob);
+          if (!words) throw new Error("I didn't catch anything.");
+          typedAt.current = Date.now();
+          setAnswers((a) => ({ ...a, [card.key]: appendWords(a[card.key], words) }));
+        }}
       />
       <MentionHint text={answers[card.key]} />
 

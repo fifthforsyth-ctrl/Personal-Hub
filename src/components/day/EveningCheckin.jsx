@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Moon, Check } from "lucide-react";
 import { patchDayPlan, fetchDayPlan, fetchLastAlarm, saveJournalEntry } from "../../lib/api";
 import MentionHint from "../love/MentionHint";
+import VoiceButton from "../ui/VoiceButton";
+import { transcribeBlob, appendWords } from "../../lib/voice";
 import { useLoad } from "../../lib/useLoad";
 import { addDays } from "../../lib/planDates";
 import { toFive, tenOf } from "../../lib/checks";
@@ -263,6 +265,15 @@ export function NoteInput({ note, placeholder, label, max, multiline = false, id
   return (
     <>
       <textarea rows={3} {...props} />
+      <VoiceButton
+        label="Speak it"
+        onAudio={async (blob) => {
+          const words = await transcribeBlob(blob);
+          if (!words) throw new Error("I didn't catch anything.");
+          const next = appendWords(note.text, words);
+          note.change(max ? next.slice(0, max) : next);
+        }}
+      />
       <MentionHint text={note.text} />
     </>
   );

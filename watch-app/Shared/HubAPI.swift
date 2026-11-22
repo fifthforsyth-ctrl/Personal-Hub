@@ -26,6 +26,15 @@ struct HubAPI {
         return URLSession(configuration: config)
     }()
 
+    // Voice takes longer: speech to words, the Hub working it out, words
+    // back to speech.
+    private let slowSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
     static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .millisecondsSince1970
@@ -48,13 +57,14 @@ struct HubAPI {
         return parts.url
     }
 
-    private func post(_ body: [String: String]) async throws -> Data {
+    private func post(_ body: [String: String], timeout: TimeInterval = 20) async throws -> Data {
         guard let url = endpoint else { throw HubError.noAddress }
         var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await (timeout > 20 ? slowSession : session).data(for: request)
         return data
     }
 
@@ -79,6 +89,13 @@ struct HubAPI {
         body["api"] = api
         let data = try await post(body)
         if let reply = try? Self.decoder.decode(Reply.self, from: data) { return reply }
+        throw HubError.odd
+    }
+
+    // Audio in; what you said, what the Hub did and its spoken answer out.
+    func voice(audio: Data, mime: String) async throws -> VoiceReply {
+        let data = try await post(["api": "voice", "audio": audio.base64EncodedString(), "mime": mime], timeout: 60)
+        if let reply = try? Self.decoder.decode(VoiceReply.self, from: data) { return reply }
         throw HubError.odd
     }
 }

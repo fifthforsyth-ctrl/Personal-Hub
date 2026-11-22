@@ -37,7 +37,14 @@
 //    running timer, habits and categories); "glance" is the little bit the
 //    complication shows; "start", "stop", "win", "loss", "done" and "note"
 //    do what the Shortcut does and answer { ok, say }. Times go out as
-//    epoch milliseconds.
+//    epoch milliseconds. "voice" takes { audio (base64), mime } or { text }:
+//    ElevenLabs turns the audio into words (eleven.ts), Claude does what was
+//    said with a few tools (voice.ts), and the answer comes back as
+//    { ok, heard, say, did, audio (base64 mp3) }. "listen" is words only
+//    ({ ok, text }), for the journal's mic button.
+//
+// 5. The Hub in a browser, for "voice" and "listen": it sends your session
+//    token (Authorization: Bearer <jwt>) instead of a watch key.
 //
 // The key comes in the x-watch-key header (or ?key= for apps that can only
 // set a URL). verify_jwt is off because none of these can sign in.
@@ -45,6 +52,8 @@
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, fmtMins, HEALTH_COLUMNS } from "./health.js";
 import { ms, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "./app.js";
+import { transcribe, speak, fromBase64, VoiceError } from "./eleven.ts";
+import { runCommand } from "./voice.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -125,21 +134,31 @@ Deno.serve(async (req) => {
 
   const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
   const key = (req.headers.get("x-watch-key") ?? url.searchParams.get("key") ?? (bearer && /^[0-9a-f]{48}$/i.test(bearer) ? bearer : ""))?.trim();
-  if (!key || key.length < 32) return fail("No watch key. Make one in the Hub under More, On your watch.");
+  // The Hub in a browser calls the app api as you, with your session's token
+  // instead of a watch key (the voice button on the evening reflection).
+  const session = isApp && !key && bearer && bearer.split(".").length === 3 ? bearer : "";
+  if (!session && (!key || key.length < 32)) return fail("No watch key. Make one in the Hub under More, On your watch.");
 
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
-  const { data: found, error: keyError } = await db.from("watch_keys").select("user_id").eq("key_hash", await sha256Hex(key)).maybeSingle();
-  if (keyError) return fail("The Hub didn't answer. Try again in a minute.");
-  if (!found) return fail("This watch key was turned off. Make a new one in the Hub under More, On your watch.");
-  const userId = found.user_id as string;
+  let userId: string;
+  if (session) {
+    const { data: who, error: whoError } = await db.auth.getUser(session);
+    if (whoError || !who?.user) return json({ ok: false, say: "You need to be signed in." }, 401);
+    userId = who.user.id;
+  } else {
+    const { data: found, error: keyError } = await db.from("watch_keys").select("user_id").eq("key_hash", await sha256Hex(key)).maybeSingle();
+    if (keyError) return fail("The Hub didn't answer. Try again in a minute.");
+    if (!found) return fail("This watch key was turned off. Make a new one in the Hub under More, On your watch.");
+    userId = found.user_id as string;
+  }
 
   const { data: profile } = await db.from("profiles").select("timezone").eq("id", userId).maybeSingle();
   const tz = validZone(url.searchParams.get("tz")) ?? validZone(profile?.timezone) ?? "America/Denver";
 
   const health = (body as { data?: unknown }).data;
   const by = health && typeof health === "object" ? "health" : clean(body.go) === "woke" ? "wake" : isApp ? "app" : "shortcut";
-  await db.from("watch_keys").update({ last_used_at: new Date().toISOString(), last_used_by: by }).eq("user_id", userId);
+  if (!session) await db.from("watch_keys").update({ last_used_at: new Date().toISOString(), last_used_by: by }).eq("user_id", userId);
 
   try {
     if (by === "health") return await importHealth(db, userId, tz, body);
@@ -340,6 +359,18 @@ async function app(db: DB, userId: string, tz: string, body: Record<string, unkn
       if (!said) return reply("Nothing kept.", false);
       return reply(await keepNote(db, userId, date, said));
     }
+    // Speech to text only: the evening reflection's mic button.
+    case "listen": {
+      try {
+        const heard = await transcribe(fromBase64(String(body.audio ?? "")), clean(body.mime, 60));
+        return json({ ok: true, text: heard, say: heard ? "" : "I didn't catch anything." });
+      } catch (err) {
+        return reply(err instanceof VoiceError ? err.message : "Couldn't turn that into words. Try again.", false);
+      }
+    }
+    // Say anything: audio (or typed text) in, done, and a spoken answer out.
+    case "voice":
+      return json(await voiceCommand(db, userId, tz, date, startISO, body));
   }
   return reply("The Hub doesn't know that yet. Update the watch app.", false);
 }
@@ -347,6 +378,141 @@ async function app(db: DB, userId: string, tz: string, body: Record<string, unkn
 // The time of day in a zone, "HH:MM".
 const clockIn = (tz: string) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+
+// --- Voice ----------------------------------------------------------------
+
+type ClipColumn = { id: string; title: string; camp_id: string; camp: string; last: string };
+
+// Clipboard columns, the one used most recently first (that's where a
+// spoken item lands unless he names another).
+async function clipColumns(db: DB, userId: string): Promise<ClipColumn[]> {
+  const { data: cols, error } = await db.from("camp_sections").select("id, title, camp_id, created_at").eq("user_id", userId).eq("clipboard", true).limit(50);
+  if (error) throw error;
+  if (!cols?.length) return [];
+  const ids = cols.map((c: { id: string }) => c.id);
+  const campIds = [...new Set(cols.map((c: { camp_id: string }) => c.camp_id))];
+  const [steps, camps] = await Promise.all([
+    db.from("camp_steps").select("section_id, created_at").eq("user_id", userId).in("section_id", ids).order("created_at", { ascending: false }).limit(500),
+    db.from("quest_camps").select("id, title").in("id", campIds),
+  ]);
+  const last = new Map<string, string>();
+  for (const st of steps.data ?? []) if (!last.has(st.section_id)) last.set(st.section_id, st.created_at);
+  const campName = new Map((camps.data ?? []).map((c: { id: string; title: string }) => [c.id, c.title]));
+  return cols
+    .map((c: { id: string; title: string; camp_id: string; created_at: string }) => ({
+      id: c.id,
+      title: c.title,
+      camp_id: c.camp_id,
+      camp: String(campName.get(c.camp_id) ?? ""),
+      last: last.get(c.id) ?? c.created_at,
+    }))
+    .sort((a: ClipColumn, b: ClipColumn) => b.last.localeCompare(a.last));
+}
+
+async function addToClipboard(db: DB, userId: string, cols: ClipColumn[], items: unknown, columnId?: string) {
+  const texts = (Array.isArray(items) ? items : [items]).map((t) => clean(t, 1000)).filter(Boolean).slice(0, 30);
+  if (!texts.length) return "Nothing to add.";
+  const col = cols.find((c) => c.id === columnId) ?? cols[0];
+  if (!col) return "There's no clipboard yet. Make a clipboard column in the Hub first.";
+  const { data: end } = await db.from("camp_steps").select("position").eq("section_id", col.id).order("position", { ascending: false }).limit(1).maybeSingle();
+  const start = (end?.position ?? -1) + 1;
+  const rows = texts.map((text, i) => ({ user_id: userId, camp_id: col.camp_id, section_id: col.id, text, kind: "task", position: start + i }));
+  const { error } = await db.from("camp_steps").insert(rows);
+  if (error) throw error;
+  return `Added ${texts.length} to the "${col.title}" clipboard column${col.camp ? ` in ${col.camp}` : ""}: ${texts.join("; ")}.`;
+}
+
+// Money goes through log_spend, which the money page owns (it matches the
+// budget and keeps a later bank charge from counting twice).
+async function logSpend(db: DB, userId: string, a: { amount: number; budget?: string; note?: string; date?: string; business?: boolean }) {
+  const amount = Math.abs(Number(a.amount));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return "That amount didn't make sense; nothing recorded.";
+  const on = /^\d{4}-\d{2}-\d{2}$/.test(String(a.date ?? "")) ? String(a.date) : null;
+  const { data, error } = await db.rpc("log_spend", {
+    p_user_id: userId,
+    p_amount: Math.round(amount * 100) / 100,
+    p_budget: clean(a.budget, 80) || null,
+    p_note: clean(a.note, 500) || null,
+    p_on: on,
+    p_business: a.business === true,
+  });
+  if (error) {
+    console.error("log_spend", error);
+    if (error.code === "PGRST202" || /log_spend/.test(error.message ?? "")) return "Money logging isn't switched on in the Hub yet, so nothing was recorded.";
+    throw error;
+  }
+  const r = (data ?? {}) as { amount?: number; budget?: string; budget_matched?: boolean; business?: boolean };
+  const where = r.budget_matched && r.budget ? `to ${r.budget}` : "as unsorted (no budget matched)";
+  return `Recorded $${Math.abs(Number(r.amount ?? amount)).toFixed(2)} ${where}${r.business ? ", business" : ""}${on ? ` on ${on}` : ""}.`;
+}
+
+async function voiceCommand(db: DB, userId: string, tz: string, date: string, startISO: string, body: Record<string, unknown>) {
+  const voiced = async (say: string) => (body.speak === "no" ? null : await speak(say));
+  let heard = clean(body.text, 2000);
+  if (!heard && body.audio) {
+    try {
+      heard = await transcribe(fromBase64(String(body.audio)), clean(body.mime, 60));
+    } catch (err) {
+      const say = err instanceof VoiceError ? err.message : "Couldn't hear that. Try again.";
+      return { ok: false, heard: "", say, audio: await voiced(say) };
+    }
+  }
+  if (!heard) {
+    const say = "I didn't catch anything.";
+    return { ok: false, heard: "", say, audio: await voiced(say) };
+  }
+
+  const [cats, habits, run, tasks, cols, line] = await Promise.all([
+    categories(db, userId),
+    winLabels(db, userId),
+    running(db, userId),
+    todayTasks(db, userId, date),
+    clipColumns(db, userId),
+    todayLine(db, userId, date, startISO),
+  ]);
+  const now = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long", hour: "numeric", minute: "2-digit" }).format(new Date());
+  const snapshot = [
+    `Now: ${now}, ${date} (${tz}).`,
+    `Today so far: ${line.replace(/⚔/g, "").trim()}.`,
+    run ? `Running timer: ${run.category}, started ${ago(run.started_at)} ago.` : "No timer running.",
+    `Minute categories: ${cats.join(", ") || "none yet"}.`,
+    `Wins he often logs: ${habits.join(", ") || "none yet"}.`,
+    `Today list (id: task):\n${tasks.map((t) => `${t.id}: ${t.text}`).join("\n") || "(empty)"}`,
+    `Clipboard columns (id: column, camp), first is the default:\n${cols.map((c) => `${c.id}: ${c.title}, ${c.camp}`).join("\n") || "(none)"}`,
+  ].join("\n");
+
+  const handlers = {
+    log_win: (a: { label: string }) => saveWinLoss(db, userId, "win", clean(a.label, 120) || "Win"),
+    log_loss: (a: { label: string }) => saveWinLoss(db, userId, "loss", clean(a.label, 120) || "Loss"),
+    start_timer: async (a: { category: string }) => {
+      const cat = clean(a.category, 60);
+      if (!cat) return "No category named.";
+      return startTimer(db, userId, cat, cats, await running(db, userId));
+    },
+    stop_timer: () => stopTimer(db, userId),
+    add_to_clipboard: (a: { items: string[]; column_id?: string }) => addToClipboard(db, userId, cols, a.items, clean(a.column_id, 60)),
+    log_spend: (a: { amount: number; budget?: string; note?: string; date?: string; business?: boolean }) => logSpend(db, userId, a),
+    keep_note: (a: { text: string }) => {
+      const t = clean(a.text, 2000);
+      return t ? keepNote(db, userId, date, t) : Promise.resolve("Nothing to keep.");
+    },
+    mark_done: async (a: { task_id: string }) => {
+      const t = tasks.find((x) => x.id === clean(a.task_id, 60));
+      if (!t) return "That one isn't on Today.";
+      return markDone(db, userId, date, t, tasks.length - 1);
+    },
+  };
+
+  let result: { say: string; did: string[] };
+  try {
+    result = await runCommand(heard, snapshot, handlers);
+  } catch (err) {
+    console.error("voice", err);
+    result = { say: "The Hub couldn't work that out just now. Try again.", did: [] };
+  }
+  console.log("voice", JSON.stringify({ heard, say: result.say, did: result.did }));
+  return { ok: true, heard, say: result.say, did: result.did, audio: await voiced(result.say) };
+}
 
 async function dayCounts(db: DB, userId: string, startISO: string) {
   const [wl, entries] = await Promise.all([

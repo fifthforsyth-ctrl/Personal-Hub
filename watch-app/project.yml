@@ -36,6 +36,7 @@ targets:
         CFBundleDisplayName: Hub
         WKApplication: true
         WKWatchOnly: true
+        NSMicrophoneUsageDescription: So you can speak to the Hub (wins, timers, purchases, clipboard).
         CFBundleURLTypes:
           - CFBundleURLName: hubwatch
             CFBundleURLSchemes: [hubwatch]
