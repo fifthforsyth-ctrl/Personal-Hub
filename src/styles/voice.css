@@ -1,0 +1,64 @@
+/* The mic button: a small black pill, orange while it's listening. */
+.voice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--ink, #111);
+  background: var(--ink, #111);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.voice-btn--on {
+  background: var(--accent, #f26a1b);
+  border-color: var(--accent, #f26a1b);
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  50% {
+    box-shadow: 0 0 0 6px var(--accent-soft, rgba(242, 106, 27, 0.1));
+  }
+}
+.voice-spin {
+  animation: spin 0.8s linear infinite;
+}
+.voice-error {
+  font-size: 12px;
+  color: var(--accent-text, #b84a08);
+}
+
+/* Speak to the Hub (the On your watch page). */
+.voice-talk__heard {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--muted, #666);
+}
+.voice-talk__say {
+  margin: 0;
+  font-size: 15px;
+  font-family: var(--font-serif);
+}
+.voice-talk__row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.voice-talk__row .input {
+  flex: 1;
+}

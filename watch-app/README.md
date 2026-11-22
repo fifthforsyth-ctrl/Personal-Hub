@@ -6,6 +6,10 @@ A small watch app for the Hub, so the watch doesn't need the Shortcuts app
 - **Today**: where you are in today's plan, what's next, what you're working
   on, Today's tasks (tap one to finish it), this week's focus goals and the
   lesson you're learning, with wins, minutes and daily targets kept small.
+- **Speak**: tap the mic and say anything ("record a $25 personal purchase
+  for groceries", "add milk, eggs and call Dad to my clipboard", "start
+  Plugin", "win, up at 4:30"). The Hub hears it through ElevenLabs, does it,
+  and answers out loud. Needs the `ELEVENLABS_API_KEY` secret in Supabase.
 - **Minutes**: the running timer, big, with Stop, and every category to start
   or switch to.
 - **Wins**: one tap per habit, or say a win, a loss or a note.

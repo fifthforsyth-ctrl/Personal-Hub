@@ -75,3 +75,10 @@ struct Reply: Codable {
     var ok: Bool
     var say: String
 }
+
+struct VoiceReply: Codable {
+    var ok: Bool
+    var heard: String?
+    var say: String
+    var audio: String?
+}
