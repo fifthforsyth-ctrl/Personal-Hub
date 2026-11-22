@@ -21,6 +21,7 @@ export default function Budgets({ overview, monthKey, isCurrentMonth, version, h
   const [open, setOpen] = useState(null); // a budget's id, or "new"
   const budgets = overview?.budgets ?? [];
   const unsorted = Number(overview?.unsorted_this_month) || 0;
+  const setAside = Number(overview?.set_aside_this_month) || 0;
   const month = monthName(monthKey);
   // The open sheet follows the latest numbers, so changing a purchase inside
   // it moves the figures at the top too.
@@ -55,6 +56,15 @@ export default function Budgets({ overview, monthKey, isCurrentMonth, version, h
           <span className="dot" style={{ background: "var(--text-3)" }} />
           <span>
             {fmtMoney(unsorted, { round: true })} spent {isCurrentMonth ? "this month" : `in ${month}`} isn't in a budget yet
+          </span>
+        </div>
+      )}
+
+      {setAside > 0 && (
+        <div className={unsorted > 0 ? "money-unsorted money-unsorted--tight" : "money-unsorted"}>
+          <span className="dot" style={{ background: "var(--line)" }} />
+          <span>
+            {fmtMoney(setAside, { round: true })} {isCurrentMonth ? "this month" : `in ${month}`} was set aside unsorted
           </span>
         </div>
       )}

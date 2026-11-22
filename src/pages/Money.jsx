@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { ChevronLeft, ChevronRight, Wallet, History } from "lucide-react";
-import { fetchMoneyOverview, deleteManualExpense } from "../lib/api";
+import { ChevronLeft, ChevronRight, Wallet, History, Archive, ChevronDown, Check } from "lucide-react";
+import { fetchMoneyOverview, deleteManualExpense, setAsidePurchases, unsetAsidePurchases } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useToast } from "../components/ui/Feedback";
 import LoadError from "../components/ui/LoadError";
@@ -18,9 +18,14 @@ import { savingsRate } from "../lib/honest";
 // Money — what's in the two accounts, where this month went, and what the
 // business spent.
 //
-// Ordered by how often each part needs you: the balances you glance at, the
-// purchases waiting for an answer, then the budgets those answers fill, and
-// the business and transaction detail below that.
+// Built around one small daily habit: answer today's purchases (most are one
+// tap, the guess is already filled in), glance at the budgets, done. The
+// accounts, today's question and the budgets are all that show; the business,
+// income, every transaction and the old-history offer fold under "More".
+//
+// Falling behind is planned for rather than scolded: once purchases are a
+// week old, one press sets them aside. They stay in their month, unsorted and
+// never asked about again, so the queue is only ever this week.
 //
 // Every card reads the same `version`: anything that changes a transaction or
 // a budget bumps it, and each card fetches again, keeping what it shows until
@@ -144,57 +149,75 @@ export default function Money() {
             </>
           )}
 
-          {isCurrentMonth && <PurchaseQuestion version={version} onAnswered={changed} />}
+          {isCurrentMonth && <PurchaseQuestion title="Purchases to sort" version={version} onAnswered={changed} />}
 
-          {isCurrentMonth && <Pending version={overview?.connection?.last_synced_at ?? ""} />}
+          {isCurrentMonth && <CatchUp inbox={history} onChanged={changed} />}
 
-          {/* The 90-day backfill. Offered, never pushed: sorting it is only
-              worth doing because every answer teaches the app that store. */}
-          {isCurrentMonth &&
-            (sortingHistory ? (
-              <PurchaseQuestion
-                includeHistory
-                title="Older purchases"
+          {isCurrentMonth && Number(history.count) === 0 && connected && (
+            <div className="card row money-caught-up">
+              <Check size={16} style={{ color: "var(--good)" }} />
+              <span style={{ flex: 1, fontSize: 13.5 }}>All caught up. Every purchase has a home.</span>
+            </div>
+          )}
+
+          <Budgets overview={overview} {...cards} />
+
+          <details className="money-more">
+            <summary className="money-more__summary">
+              <span>More</span>
+              <span className="faint money-more__hint">Business, income, transactions, fresh start</span>
+              <ChevronDown size={15} className="money-more__chevron" />
+            </summary>
+            <div className="stack money-more__body">
+              {isCurrentMonth && <Pending version={overview?.connection?.last_synced_at ?? ""} />}
+
+              <Business overview={overview} {...cards} />
+
+              <IncomeByClient monthKey={key} version={version} />
+
+              <Transactions
+                start={key}
+                end={nextKey}
+                title={isCurrentMonth ? "This month's transactions" : `${monthName(key)}'s transactions`}
+                when={isCurrentMonth ? "this month yet" : `in ${monthName(key)}`}
                 version={version}
-                onAnswered={changed}
-                onDismiss={() => setSortingHistory(false)}
+                hidden={hidden}
+                onOpen={setOpenTxn}
               />
-            ) : (
-              Number(history.history_count) > 0 && (
-                <div className="card money-history">
-                  <History size={16} className="money-history__icon" />
-                  <span className="money-history__text">
-                    <span className="money-history__title">
-                      {history.history_count} older {Number(history.history_count) === 1 ? "purchase" : "purchases"} you weren't asked about ·{" "}
-                      {fmtMoney(history.history_total, { round: true })}
-                    </span>
-                    <span className="money-history__sub">
-                      From before you connected the bank. Sorting some teaches the app your regular stores.
-                    </span>
-                  </span>
-                  <button type="button" className="btn btn--sm" onClick={() => setSortingHistory(true)}>
-                    Sort them
-                  </button>
-                </div>
-              )
-            ))}
 
-          <div className="grid grid--halves money-grid">
-            <Budgets overview={overview} {...cards} />
-            <Business overview={overview} {...cards} />
-          </div>
+              {/* The 90-day backfill. Offered, never pushed. */}
+              {isCurrentMonth &&
+                (sortingHistory ? (
+                  <PurchaseQuestion
+                    includeHistory
+                    title="Older purchases"
+                    version={version}
+                    onAnswered={changed}
+                    onDismiss={() => setSortingHistory(false)}
+                  />
+                ) : (
+                  Number(history.history_count) > 0 && (
+                    <div className="card money-history">
+                      <History size={16} className="money-history__icon" />
+                      <span className="money-history__text">
+                        <span className="money-history__title">
+                          {history.history_count} older {Number(history.history_count) === 1 ? "purchase" : "purchases"} you weren't asked about ·{" "}
+                          {fmtMoney(history.history_total, { round: true })}
+                        </span>
+                        <span className="money-history__sub">
+                          From before you connected the bank. Sorting some teaches the app your regular stores.
+                        </span>
+                      </span>
+                      <button type="button" className="btn btn--sm" onClick={() => setSortingHistory(true)}>
+                        Sort them
+                      </button>
+                    </div>
+                  )
+                ))}
 
-          <IncomeByClient monthKey={key} version={version} />
-
-          <Transactions
-            start={key}
-            end={nextKey}
-            title={isCurrentMonth ? "This month's transactions" : `${monthName(key)}'s transactions`}
-            when={isCurrentMonth ? "this month yet" : `in ${monthName(key)}`}
-            version={version}
-            hidden={hidden}
-            onOpen={setOpenTxn}
-          />
+              {isCurrentMonth && <FreshStart inbox={history} onChanged={changed} />}
+            </div>
+          </details>
 
           {!connected && (
             <p className="row faint" style={{ gap: 6, fontSize: 12, margin: 0 }}>
@@ -224,6 +247,111 @@ function Figure({ label, value, title }) {
     <div title={title}>
       <div className="eyebrow">{label}</div>
       <div className="money-figure__value">{value}</div>
+    </div>
+  );
+}
+
+// Undo for a set-aside: everything set aside in that one press goes back in
+// the queue.
+function useSetAside(onChanged) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  async function run(before, what) {
+    setBusy(true);
+    try {
+      const res = await setAsidePurchases(before);
+      onChanged();
+      const n = Number(res?.count) || 0;
+      toast.show(n ? `${n} ${n === 1 ? "purchase" : "purchases"} set aside${what ? ` ${what}` : ""}` : "Nothing to set aside", {
+        actionLabel: n ? "Undo" : undefined,
+        onAction: n
+          ? async () => {
+              try {
+                await unsetAsidePurchases({ at: res.at });
+                onChanged();
+              } catch (err) {
+                toast.error(err);
+              }
+            }
+          : undefined,
+      });
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { busy, run };
+}
+
+// Shown only once the queue has purchases more than a week old. The answer to
+// falling behind is a clean slate, not a longer list.
+function CatchUp({ inbox, onChanged }) {
+  const { busy, run } = useSetAside(onChanged);
+  const n = Number(inbox?.week_old_count) || 0;
+  if (n === 0) return null;
+  return (
+    <div className="card money-history">
+      <Archive size={16} className="money-history__icon" />
+      <span className="money-history__text">
+        <span className="money-history__title">
+          {n} {n === 1 ? "purchase is" : "purchases are"} over a week old · {fmtMoney(inbox.week_old_total, { round: true })}
+        </span>
+        <span className="money-history__sub">
+          Set them aside and keep going with this week. They stay in their month as unsorted and won't be asked about again.
+        </span>
+      </span>
+      <button
+        type="button"
+        className="btn btn--sm"
+        disabled={busy}
+        onClick={() => run(Date.now() - 7 * 24 * 60 * 60 * 1000)}
+      >
+        Set aside
+      </button>
+    </div>
+  );
+}
+
+// Start over from today: every purchase still waiting is set aside at once.
+function FreshStart({ inbox, onChanged }) {
+  const { busy, run } = useSetAside(onChanged);
+  const [asking, setAsking] = useState(false);
+  const n = Number(inbox?.count) || 0;
+  if (n === 0) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return (
+    <div className="card money-history">
+      <Archive size={16} className="money-history__icon" />
+      <span className="money-history__text">
+        <span className="money-history__title">Start fresh from today</span>
+        <span className="money-history__sub">
+          {asking
+            ? `Sets aside the ${n} ${n === 1 ? "purchase" : "purchases"} still waiting from before today. Nothing is deleted, and Undo brings them back.`
+            : "Behind? Set aside everything still waiting and begin again with today's purchases."}
+        </span>
+      </span>
+      {asking ? (
+        <span className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn-link" onClick={() => setAsking(false)}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={busy}
+            onClick={async () => {
+              await run(today.getTime(), "for a fresh start");
+              setAsking(false);
+            }}
+          >
+            Start fresh
+          </button>
+        </span>
+      ) : (
+        <button type="button" className="btn btn--sm" onClick={() => setAsking(true)}>
+          Start fresh
+        </button>
+      )}
     </div>
   );
 }

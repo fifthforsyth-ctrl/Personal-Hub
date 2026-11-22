@@ -63,7 +63,8 @@ export default function Transactions({ start, end, title, when = "this month yet
 
 export function TransactionRow({ t, onOpen, hideBudget = false }) {
   const out = Number(t.amount) < 0;
-  const unsorted = out && !t.reviewed_at && !t.is_transfer;
+  const unsorted = out && !t.reviewed_at && !t.is_transfer && !t.archived_at;
+  const setAside = out && !t.reviewed_at && !t.is_transfer && Boolean(t.archived_at);
   // The budget usually says it all; the kind only shows when it adds
   // something ("Gifts" under a budget called "Christmas").
   const kindAdds = t.purchase_kind && t.purchase_kind.toLowerCase() !== (t.budget?.name ?? "").toLowerCase();
@@ -81,6 +82,7 @@ export function TransactionRow({ t, onOpen, hideBudget = false }) {
           {(t.receipts ?? []).length > 0 && <Tag icon={Paperclip}>Receipt</Tag>}
           {t.source === "manual" && <Tag>Cash</Tag>}
           {unsorted && <Tag accent>To sort</Tag>}
+          {setAside && <Tag>Set aside</Tag>}
         </span>
       </span>
       <span className={"money-txn__amount mono" + (out ? "" : " is-in")}>

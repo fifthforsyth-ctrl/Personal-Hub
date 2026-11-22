@@ -2278,6 +2278,23 @@ export async function fetchPurchaseInbox(limit = 25, includeHistory = false) {
   return data ?? [];
 }
 
+// Set aside every unanswered purchase posted before a moment: kept, shown in
+// its month, never asked about again, and still unsorted (no budget). The
+// fresh start is this with today; the stale-queue offer is this with a week
+// ago. Hands back { count, total, at }; `at` undoes it.
+export async function setAsidePurchases(before) {
+  const { data, error } = await supabase.rpc("money_set_aside", { p_before: new Date(before).toISOString() });
+  if (error) throw error;
+  return data;
+}
+
+// Back into the question queue: everything set aside at one moment, or one
+// purchase.
+export async function unsetAsidePurchases({ at = null, id = null }) {
+  const { error } = await supabase.rpc("money_unset_aside", { p_id: id, p_at: at });
+  if (error) throw error;
+}
+
 export async function classifyPurchase(id, { budgetId, kind, isBusiness, businessCategory, note, remember = true }) {
   const { error } = await supabase.rpc("classify_purchase", {
     p_id: id,
