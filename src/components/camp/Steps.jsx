@@ -547,7 +547,7 @@ export function SectionCard({ section: s, open, hideDone, openStep, onToggle, on
           {!pick && <ChevronDown size={16} className="camp-sec__chev" aria-hidden="true" />}
         </button>
         {s.complete && onResolve && !pick && (
-          <button type="button" className="btn btn--sm camp-sec__resolve" onClick={onResolve} title="Clear it out of the camp. What you finished in it stays in your village.">
+          <button type="button" className="btn btn--sm camp-sec__resolve" onClick={onResolve} title="Clear it out of the camp. What you finished in it stays counted as done.">
             Resolve
           </button>
         )}

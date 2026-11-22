@@ -25,18 +25,11 @@ const Target = lazy(() => import("./pages/Target"));
 const Camp = lazy(() => import("./pages/Camp"));
 const Plans = lazy(() => import("./pages/Plans"));
 const Ask = lazy(() => import("./pages/Ask"));
-const Mirror = lazy(() => import("./pages/Mirror"));
 const WatchPage = lazy(() => import("./pages/Watch"));
 const Phone = lazy(() => import("./pages/Phone"));
 const Temple = lazy(() => import("./pages/Temple"));
 // Love: what two paired people share (0109_love.sql).
 const Love = lazy(() => import("./pages/Love"));
-// The builder: an AI on your own key that changes your own Hub (0110).
-const Builder = lazy(() => import("./pages/Builder"));
-// The village brings three.js with it, so it stays in its own bundle.
-const Village = lazy(() => import("./pages/Village"));
-// The old map's address opens the village itself, ?build= and all.
-const ToVillage = () => <Navigate to={`/village${window.location.search}`} replace />;
 
 // The Quests page and the Range became the Targets tab. Their old addresses
 // (a bookmark, or the home-screen app reopening where it was) land on the
@@ -101,15 +94,11 @@ export default function App() {
             <Route path="/tree" element={<Tree />} />
             <Route path="/spirit" element={<Spirit />} />
             <Route path="/ask" element={<Ask />} />
-            <Route path="/mirror" element={<Mirror />} />
             <Route path="/watch" element={<WatchPage />} />
             <Route path="/phone" element={<Phone />} />
             <Route path="/love" element={<Love />} />
-            <Route path="/builder" element={<Builder />} />
             <Route path="/temple" element={<Temple />} />
             <Route path="/temple/:view" element={<Temple />} />
-            <Route path="/village" element={<Village />} />
-            <Route path="/village/map" element={<ToVillage />} />
 
             {/* Old addresses, kept so a bookmark lands somewhere sensible. */}
             <Route path="/quests" element={<MovedTo to="/targets" />} />
@@ -119,6 +108,11 @@ export default function App() {
             <Route path="/ascent/plans" element={<MovedTo to="/targets/plans" />} />
             <Route path="/ascent/plans/:id" element={<MovedTo to="/targets/plans/:id" />} />
             <Route path="/ascent/:ref" element={<MovedTo to="/targets/:ref" />} />
+            {/* The village, the builder and the weekly mirror were taken out
+                (Aaron, 2026-11-22); their rows are still in the database. */}
+            <Route path="/village/*" element={<Navigate to="/" replace />} />
+            <Route path="/builder" element={<Navigate to="/" replace />} />
+            <Route path="/mirror" element={<Navigate to="/" replace />} />
             <Route path="/today" element={<Navigate to="/" replace />} />
             <Route path="/archive" element={<RedirectToToday />} />
           </Route>

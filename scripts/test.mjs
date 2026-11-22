@@ -10,7 +10,6 @@
 
 import { readFileSync } from "node:fs";
 import { tidyAnswer, parseAnswer, proposalCounts, keyLooksOk, modelFor, trimHistory } from "../supabase/functions/builder/shape.js";
-import { asTurns, countsLine } from "../src/lib/builder.js";
 import { mentions as loveMentions, handlesFrom, cleanHandle, leaderboard as loveBoard } from "../src/lib/loveRules.js";
 import { fileURLToPath } from "node:url";
 import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry, workoutFrom, parseHaeDate, exerciseKindOf, metricFor, bedtimeOf } from "../supabase/functions/watch/health.js";
@@ -22,7 +21,6 @@ import { watchSlept } from "../src/lib/watch.js";
 import { upInTheNight, plainlyTheWorkout } from "../supabase/functions/watch/health.js";
 import { dropIndex, edgePush, moved, towardEdge } from "../src/lib/dragOrder.js";
 import { questTagOptions, tagOf, questWorkDone } from "../src/lib/questWork.js";
-import { CATALOG, SIZES, buildOf, seedFor, soldiersFor, bowFor, layout, tileOf, freePlot, dayIndex, finishedUnits, allocate, villagersOf, villageOf, standingOf, shortName } from "../src/lib/village.js";
 import { listDays, ongoingList, pickedLines, dayLabel, nextPosition as nextLinePosition, boardOf, parseLines, withFinished, withFinishedStep, countLine, campTally } from "../src/lib/questTasks.js";
 import { questDoneToday, allDoneToday, countDone, earlierOnToday } from "../src/lib/doneToday.js";
 import { DEFAULT_COMPUTERS, computersOf, nextComputer, todayCards, orderCards, NO_FILTER, filterOn, matchesFilter, campColumns, computerColumns, reorderShown, moveKey, rowOf } from "../src/lib/todayBoard.js";
@@ -175,30 +173,6 @@ import {
 } from "../src/lib/honest.js";
 import { focusWeekOf, summarizeWeek, answerOn, awaitingReview, showsReview, movedLabel, nextPosition, cleanTitle, orderGoals } from "../src/lib/focus.js";
 import { lineageIds, LINEAGE_WEEKS, weekShots, checkinShot, MOVED_LEVEL, NOT_TODAY_LEVEL, newestFirst, cleanNote, noteDay, landsBy as fLandsBy, checkinLevel as fCheckinLevel, placedArrow as fPlaced, checksArrow as fChecksArrow, checksFor as fChecksFor, countsToward as fToward, linkedArrows as fLinked } from "../src/lib/focus.js";
-import {
-  buildMirror,
-  lastWeekStart,
-  weekDates,
-  familyLookup,
-  nightsOf,
-  earlyDaysOf,
-  wakeOutcomes,
-  wakeHabitTime,
-  isWakeHabit,
-  mornings,
-  workWeek,
-  peopleWeek,
-  missesWeek,
-  moodWeek,
-  focusMirror,
-  moneyWeek,
-  practiceWeek,
-  watchWeek,
-  weightTrend,
-  pieces,
-  andList,
-  fmtHours as mirrorHours,
-} from "../src/lib/mirror.js";
 import { planForToday, questItemsForToday, blocksOf, pickBlock, tallyItems, doneFields, withFields, applyOverrides } from "../src/lib/todayPlan.js";
 import { build as esbuildBundle } from "esbuild";
 
@@ -980,219 +954,6 @@ const mig3 = readFileSync(new URL("../supabase/migrations/0071_honest_lightweigh
   .filter((l) => !l.trim().startsWith("--"))
   .join("\n");
 ok("tier 3's migration only adds", !/\bdrop\b|\bdelete\s+from\b|\bupdate\s+public\.|\btruncate\b/i.test(mig3) && /add column if not exists is_nap/.test(mig3));
-}
-
-// --- The weekly mirror ---------------------------------------------------------
-{
-console.log("\nthe weekly mirror");
-const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi);
-const iso = (...a) => at(...a).toISOString();
-// The sentences use non-breaking spaces inside "7 h 10 m"; compare plainly.
-const plain = (s) => String(s ?? "").replace(/\u00a0/g, " ");
-const has = (section, line) => (section?.lines ?? []).some((l) => plain(l) === line);
-const week = "2026-10-04";
-const days = weekDates(week);
-
-ok("the mirror opens on the last whole week", lastWeekStart("2026-10-18") === "2026-10-11" && lastWeekStart("2026-10-15") === "2026-10-04" && lastWeekStart("2026-10-17") === "2026-10-04");
-ok("a week is Sunday to Saturday", days.length === 7 && days[0] === "2026-10-04" && days[6] === "2026-10-10");
-ok("lists read as a sentence", andList(["a"]) === "a" && andList(["a", "b"]) === "a and b" && andList(["a", null, "b", "c"]) === "a, b and c");
-ok("hours: whole from ten up, hours and minutes below", plain(mirrorHours(3000)) === "50 h" && plain(mirrorHours(148)) === "2 h 28 m");
-ok("bold pieces for the page", JSON.stringify(pieces("You slept **7 h** a night.")) === JSON.stringify([{ text: "You slept ", bold: false }, { text: "7 h", bold: true }, { text: " a night.", bold: false }]));
-
-// Nights: noon to noon, naps and samples left out, the check-in first.
-const sleep = (from, to, extra = {}) => ({ tags: ["Sleep"], started_at: iso(...from), ended_at: iso(...to), duration_minutes: (at(...to) - at(...from)) / 60000, ...extra });
-const sleeps = [
-  sleep([2026, 10, 3, 22, 0], [2026, 10, 4, 6, 0]),
-  sleep([2026, 10, 4, 21, 30], [2026, 10, 5, 4, 40]),
-  sleep([2026, 10, 5, 5, 0], [2026, 10, 5, 6, 0]),
-  sleep([2026, 10, 5, 14, 0], [2026, 10, 5, 14, 30], { is_nap: true }),
-  sleep([2026, 10, 6, 23, 10], [2026, 10, 7, 5, 20]),
-  sleep([2026, 10, 7, 22, 0], [2026, 10, 8, 7, 0], { is_example: true }),
-];
-const plansByDate = {
-  "2026-10-05": { alarm_at: "04:30:00", mood: 4, energy: "high", stress: 2 },
-  "2026-10-06": { mood: 2, energy: "low", stress: 4, stress_source: "Work" },
-  "2026-10-07": { alarm_at: "04:30:00", mood: 3, energy: "high" },
-  "2026-10-09": { alarm_at: "06:30:00", woke_at: iso(2026, 10, 9, 4, 35), lights_out_at: iso(2026, 10, 8, 20, 5) },
-};
-const nights = nightsOf(days, sleeps, plansByDate);
-const night = (d) => nights.find((x) => x.date === d);
-ok("a night runs noon to noon: Saturday night is Sunday's", night("2026-10-04").sleepMinutes === 480);
-ok("going back to sleep counts toward the night, and is noted", night("2026-10-05").sleepMinutes === 490 && night("2026-10-05").backToSleep === true);
-ok("a nap is never the night", night("2026-10-06").sleepMinutes == null);
-ok("sample sleep is left out", night("2026-10-08").sleepMinutes == null);
-ok("the morning check-in wins over the timers", night("2026-10-09").woke.getHours() === 4 && night("2026-10-09").woke.getMinutes() === 35 && night("2026-10-09").sleepMinutes === 510);
-
-ok("a wake-up habit's time is read from its name", wakeHabitTime("Up at 4:30") === "04:30" && wakeHabitTime("Wake up at 4.45am") === "04:45" && wakeHabitTime("Up on time") === null);
-ok("which habits are getting up", isWakeHabit("Up on time") && isWakeHabit("Get up") && isWakeHabit("Wake up early") && !isWakeHabit("Cleanup") && !isWakeHabit("Run"));
-
-// Early days: an alarm at 5:00 or before, or a wake habit that names one.
-const wl = [
-  { kind: "loss", habit_label: "Up at 4:30", reason: "Late night", occurred_at: iso(2026, 10, 7, 6) },
-  { kind: "win", habit_label: "Up at 4:30", occurred_at: iso(2026, 10, 10, 4, 50) },
-  { kind: "win", habit_label: "Up at 4:30", occurred_at: iso(2026, 10, 8, 4, 50), is_example: true },
-];
-const early = earlyDaysOf(days, plansByDate, wl, []);
-ok("early days: 4:30 alarms and a logged 'Up at 4:30', not a 6:30 alarm or a sample", Object.keys(early).sort().join() === "2026-10-05,2026-10-07,2026-10-10");
-ok("up is due fifteen minutes after the alarm", early["2026-10-05"].due === 285);
-ok("a watched habit's own minute wins", earlyDaysOf(days, plansByDate, [], [{ on_alarm: "04:30:00", due_by: "05:00:00", active: true }])["2026-10-05"].due === 300);
-const outcomes = wakeOutcomes(early, nights, wl);
-ok("kept by waking in time", outcomes["2026-10-05"].kept === true);
-ok("a logged miss decides it, with its reason", outcomes["2026-10-07"].kept === false && outcomes["2026-10-07"].reason === "Late night");
-ok("a logged win decides it with no sleep tracked", outcomes["2026-10-10"].kept === true);
-
-const morn = mornings({ days, nights, early, outcomes, upTo: "2026-10-10" });
-ok("mornings: up on time, out of the early days", has(morn, "You were up by **4:45 am** on **2 of 3** early days."));
-ok("mornings: the miss, with why", has(morn, "Missed on Wednesday (late night, lights out 11:10 pm)."));
-ok("mornings: lights out before 4:30 days against its target", has(morn, "Before 4:30 days, lights out averaged **10:20 pm**, against an 8:00 pm target."));
-ok("mornings: sleep on 4:30 days against the others", has(morn, "On 4:30 days you slept **7 h 10 m**. On the others, **8 h 15 m**."));
-ok("mornings: going back to sleep", has(morn, "One morning you went back to sleep after waking."));
-ok("mornings: untracked nights named by their evening", has(morn, "Monday, Wednesday and Friday nights have no sleep tracked."));
-const nightBar = morn.chart.points.find((p) => p.date === "2026-10-05");
-ok("the night chart runs past midnight, with the alarm", nightBar.out === 21 * 60 + 30 && nightBar.wake === 1440 + 4 * 60 + 40 && nightBar.alarm === 1440 + 270);
-
-// Work.
-const fam = familyLookup([{ name: "Forsyth Media LLC", family: "Work" }, { name: "Date", family: "People" }, { name: "Meet", family: "People" }, { name: "Odd job", family: null, is_work: true }]);
-ok("families: yours first, marked-as-work counts, case aside", fam("Odd job") === "Work" && fam("date") === "People" && fam("Sleep") !== "Work");
-const work = [
-  { tags: ["Forsyth Media LLC"], depth: "deep", client: "Parker", started_at: iso(2026, 10, 5, 6), ended_at: iso(2026, 10, 5, 10), duration_minutes: 240 },
-  { tags: ["Forsyth Media LLC"], depth: "shallow", started_at: iso(2026, 10, 5, 13), ended_at: iso(2026, 10, 5, 14), duration_minutes: 60 },
-  { tags: ["Forsyth Media LLC"], started_at: iso(2026, 10, 6, 9), ended_at: iso(2026, 10, 6, 11), duration_minutes: 120 },
-  { tags: ["Forsyth Media LLC"], depth: "deep", is_example: true, started_at: iso(2026, 10, 6, 12), ended_at: iso(2026, 10, 6, 20), duration_minutes: 480 },
-];
-const target = { label: "Forsyth Media", categories: ["Forsyth Media LLC"], minutes: 3600, period: "week" };
-const ww = workWeek({ days, entries: work, familyOf: fam, targets: [target], early, upTo: "2026-10-10" });
-ok("work against its weekly target, samples aside", has(ww, "Forsyth Media got **7 h** of its 60 h."));
-ok("deep and shallow, and what wasn't marked", has(ww, "Of **7 h** of work, **4 h** went to deep work and **1 h** to shallow (2 h not marked)."));
-ok("a lone client", has(ww, "Parker had **4 h** of it."));
-ok("early days against the other workdays", has(ww, "On 4:30 days you worked **1 h 40 m** a day; on other workdays, **40 m**."));
-ok("a daily work target is read for its week", has(workWeek({ days, entries: work, familyOf: fam, targets: [{ ...target, label: "Deep work", period: "day", minutes: 240, weekly_minutes: 1440 }], upTo: "2026-10-10" }), "Deep work got **7 h** of its 24 h."));
-ok("no work, no work card", workWeek({ days, entries: [], familyOf: fam, upTo: "2026-10-10" }) === null);
-
-// People.
-const together = [
-  { tags: ["Date"], people: ["Zimi"], people_feel: "life_giving", started_at: iso(2026, 10, 5, 19), ended_at: iso(2026, 10, 5, 22), duration_minutes: 180 },
-  { tags: ["Meet"], people: ["zimi", "AJ"], people_feel: "draining", started_at: iso(2026, 10, 6, 12), ended_at: iso(2026, 10, 6, 13), duration_minutes: 60 },
-  { tags: ["Meet"], started_at: iso(2026, 10, 7, 12), ended_at: iso(2026, 10, 7, 13), duration_minutes: 60 },
-];
-const pw = peopleWeek({ entries: together, familyOf: fam });
-ok("people: the time and the stretches", has(pw, "**5 h** with people, across **3** stretches."));
-ok("people: who, once each whatever the case", has(pw, "Most of it was with **Zimi** (4 h) and **AJ** (1 h)."));
-ok("people: how it felt", has(pw, "Of the 2 you rated, **1** felt life-giving and **1** draining."));
-ok("people: with no names, the kinds of time", has(peopleWeek({ entries: together.map(({ people, people_feel, ...e }) => e), familyOf: fam }), "Mostly Date (**3 h**) and Meet (**2 h**)."));
-
-// Wins and misses.
-const mw = missesWeek({
-  winLosses: [
-    { kind: "win", habit_label: "Run" },
-    { kind: "win", habit_label: "Floss" },
-    { kind: "loss", habit_label: "Up at 4:30", reason: "Late night" },
-    { kind: "loss", habit_label: "up at 4:30", reason: "Snoozed" },
-    { kind: "loss", habit_label: "Loss", reason: "late night" },
-    { kind: "loss", habit_label: "Phone", is_example: true },
-  ],
-});
-ok("misses: counted, samples aside", has(mw, "**2** wins and **3** misses logged."));
-ok("misses: by habit, with the unnamed ones", has(mw, "Missed: Up at 4:30 twice, and 1 without a name."));
-ok("misses: the reasons, most first", has(mw, "Reasons you gave: late night (2) and snoozed."));
-ok("no misses is said plainly", has(missesWeek({ winLosses: [{ kind: "win", habit_label: "Run" }] }), "**1** win logged, and no misses."));
-ok("unnamed misses aren't called 'Loss'", has(missesWeek({ winLosses: [{ kind: "loss", habit_label: "Loss" }, { kind: "loss", habit_label: "" }] }), "Both were logged without a name."));
-
-// Mood and energy.
-const md = moodWeek({ days, plansByDate: { ...plansByDate, "2026-10-08": { mood: 1, is_example: true } }, upTo: "2026-10-07" });
-ok("mood: its range and the lowest day, up to today", has(md, "Mood ran from **2** to **4**, lowest on Tuesday."));
-ok("energy: counted by level", has(md, "Energy was high on **2** days and low on **1**."));
-ok("stress: the highest day and where it came from", has(md, "Stress was highest on Tuesday, at **4**, from work."));
-ok("mood chart: one point a day, none past today", md.chart.points.length === 7 && md.chart.points[1].mood === 4 && md.chart.points[4].mood === null);
-
-// Focus goals.
-const fm = focusMirror({
-  goals: [{ id: "g1", title: "Up at 4:30", position: 0 }, { id: "g2", title: "Plan the day", position: 1 }],
-  checkins: [{ goal_id: "g1", date: "2026-10-05", moved: true }, { goal_id: "g1", date: "2026-10-06", moved: false }, { goal_id: "g2", date: "2026-10-05", moved: true }],
-  weekStart: week,
-});
-ok("focus: moved out of the check-ins answered", has(fm, "Your focus goals moved on **2 of 3** check-ins."));
-ok("focus: each goal's seven days", fm.goals.length === 2 && fm.goals[0].days.length === 7 && fm.goals[0].days[2].moved === false);
-ok("focus: goals with no check-ins say so", has(focusMirror({ goals: [{ id: "g1", title: "x" }], checkins: [], weekStart: week }), "Your focus goal has no check-ins this week."));
-
-// Money.
-const money = moneyWeek({
-  txns: [
-    { amount: -700, budget_id: "rent", posted_at: iso(2026, 10, 1, 12), reviewed_at: "x" },
-    { amount: -50, budget_id: "groc", intent: "impulse", posted_at: iso(2026, 10, 5, 12), reviewed_at: "x" },
-    { amount: -30, purchase_kind: "Gas", posted_at: iso(2026, 10, 6, 12), reviewed_at: "x" },
-    { amount: -20, posted_at: iso(2026, 10, 7, 12), reviewed_at: null },
-    { amount: -100, is_business: true, posted_at: iso(2026, 10, 8, 12), reviewed_at: "x" },
-    { amount: -500, is_transfer: true, posted_at: iso(2026, 10, 8, 12) },
-    { amount: 900, posted_at: iso(2026, 10, 9, 12) },
-    { amount: -40, budget_id: "groc", posted_at: iso(2026, 10, 12, 12), reviewed_at: "x" },
-  ],
-  budgets: [
-    { id: "rent", name: "Rent", monthly_limit: 700 },
-    { id: "groc", name: "Groceries", monthly_limit: 300 },
-    { id: "fun", name: "Fun", monthly_limit: 100 },
-    { id: "old", name: "Old", monthly_limit: 50, archived: true },
-  ],
-  weekStart: week,
-  upTo: "2026-10-10",
-});
-ok("money: the week's spending and what it went to", has(money, "You spent **$100**, most on Groceries ($50) and Gas ($30)."));
-ok("money: impulse", has(money, "**$50** of it was impulse."));
-ok("money: what's still to sort", has(money, "**1** purchase ($20) is still to sort."));
-ok("money: business on its own line", has(money, "Business spending: **$100**."));
-ok("budgets: the month as the week left it, untouched ones left out", money.budgets.map((g) => `${g.name}:${g.spent}`).join() === "Rent:700,Groceries:50");
-ok("budgets: the mark at the week's end in the month", Math.abs(money.progress - 10 / 31) < 1e-9 && money.asOf === "2026-10-10");
-
-// Body and practice, with the weight's trend.
-const weighIns = [
-  { value: 183.2, date: "2026-09-20", measured_at: iso(2026, 9, 20, 7) },
-  { value: 181.4, date: "2026-10-05", measured_at: iso(2026, 10, 5, 7) },
-  { value: 181.0, date: "2026-10-05", measured_at: iso(2026, 10, 5, 21) },
-  { value: 180.6, date: "2026-10-09", measured_at: iso(2026, 10, 9, 7) },
-  { value: 150, date: "2026-10-08", measured_at: iso(2026, 10, 8, 7), is_example: true },
-];
-ok("weight trend: one point a day, its last, samples aside", JSON.stringify(weightTrend(weighIns)) === JSON.stringify([{ date: "2026-09-20", value: 183.2 }, { date: "2026-10-05", value: 181 }, { date: "2026-10-09", value: 180.6 }]));
-const body = practiceWeek({
-  entries: [
-    { tags: ["Temple"], started_at: iso(2026, 10, 6, 10), ended_at: iso(2026, 10, 6, 12) },
-    { tags: ["Exercise"], exercise_kind: "run", started_at: iso(2026, 10, 7, 6), ended_at: iso(2026, 10, 7, 7) },
-  ],
-  weights: weighIns.slice(1),
-  trend: weighIns,
-});
-ok("practice: temple and workouts", has(body, "**1** temple visit and **1** workout (1 run)."));
-ok("practice: the week's weigh-ins", has(body, "Weight went from 181.4 to **180.6 lb** across 3 weigh-ins."));
-ok("practice: the trend, when the week has a weigh-in", body.chart?.weights.length === 3);
-ok("practice: no trend without one this week", practiceWeek({ entries: [{ tags: ["Temple"], started_at: iso(2026, 10, 6, 10), ended_at: iso(2026, 10, 6, 12) }], weights: [], trend: weighIns }).chart === null);
-
-// The whole week: samples nowhere, the week under way counted to today.
-const whole = buildMirror({
-  weekStart: week,
-  today: "2026-10-07",
-  dayPlans: [
-    { date: "2026-10-05", mood: 4, energy: "okay" },
-    { date: "2026-10-06", mood: 1, energy: "low", is_example: true },
-  ],
-  entries: [...sleeps, ...work, ...together],
-  winLosses: [...wl, { kind: "win", habit_label: "Run", occurred_at: iso(2026, 10, 5, 7) }, { kind: "loss", habit_label: "Run", occurred_at: iso(2026, 10, 9, 7) }],
-  watched: [],
-  goals: [],
-  checkins: [],
-  txns: [],
-  budgets: [],
-  targets: [target],
-  categories: [{ name: "Forsyth Media LLC", family: "Work" }, { name: "Date", family: "People" }, { name: "Meet", family: "People" }],
-  weights: [],
-});
-const part = (key) => whole.sections.find((s) => s.key === key);
-ok("a week under way is counted to today", whole.current === true && whole.upTo === "2026-10-07");
-ok("the parts in reading order, empty ones left out", whole.sections.map((s) => s.key).join() === "mornings,work,people,misses,mood,practice");
-ok("the nap shows under practice, not as a night", has(part("practice"), "**1** nap."));
-ok("a sample day's mood never shows", has(part("mood"), "Mood was **4** on Monday, the one day you rated it."));
-ok("a miss after today isn't counted yet", has(part("misses"), "**1** win and **1** miss logged."));
-ok("work after today isn't counted yet", has(part("work"), "Forsyth Media got **7 h** of its 60 h."));
-ok("a finished week isn't 'so far'", buildMirror({ weekStart: week, today: "2026-10-12" }).current === false);
-ok("an empty week has nothing to show", buildMirror({ weekStart: week, today: "2026-10-12" }).sections.length === 0);
 }
 
 // --- Old timers that ran through the night ------------------------------------
@@ -2208,106 +1969,6 @@ console.log("\nthe mark");
   ok("a finished lesson mountain is a patch", av.patches.map((q) => q.id).join() === "lq2");
 }
 
-// --- Village ------------------------------------------------------------------
-{
-  ok("the sketch's 29 builds, smallest first within each size", CATALOG.length === 29 && new Set(CATALOG.map((c) => c.kind)).size === 29 && SIZES.every((z) => { const n = CATALOG.filter((c) => c.size === z.key).map((c) => c.need); return n.length && n.every((x, i) => !i || x >= n[i - 1]); }));
-  ok("small, middle and big run 12 to 24, 28 to 55 and 70 to 150 tasks", ["small:12:24", "middle:28:55", "big:70:150"].every((r) => { const [z, lo, hi] = r.split(":"); const n = CATALOG.filter((c) => c.size === z).map((c) => c.need); return Math.min(...n) === +lo && Math.max(...n) === +hi && SIZES.find((x) => x.key === z).line === `${lo} to ${hi} tasks`; }));
-  ok("the sword armory takes 40 tasks and the citadel 150", buildOf("armory").need === 40 && buildOf("armory").name === "Sword armory" && buildOf("citadel").need === 150 && buildOf("citadel").name === "Citadel");
-  ok("the windmill going up keeps its kind and its 45", buildOf("windmill").need === 45 && buildOf("windmill").size === "middle" && !buildOf("windmill").line.startsWith("Your build"));
-  ok("no build is a dragon build, and the old dragon builds go by plain names", CATALOG.every((c) => !("dragon" in c) && !("tag" in c) && !/dragon/i.test(c.name + c.line)) && ["stables:Stables", "citadel:Citadel", "saddlery:Saddlery", "hatchery:Fire ring", "flighttower:Round tower", "ring:Training ring", "fishracks:Fish racks"].every((r) => { const [k, n] = r.split(":"); return buildOf(k).name === n; }));
-  ok("every build has a name and a line", CATALOG.every((c) => c.name && c.line.length > 40 && /[.)]$/.test(c.line)));
-  const has = (path) => { try { return readFileSync(new URL(`../${path}`, import.meta.url)).length > 0; } catch { return false; } };
-  ok("every build has its painting and its finished picture", CATALOG.every((c) => has(`public/kit/builds/${c.kind}.js`) && has(`public/village/builds/${c.kind}.jpg`)));
-  ok("an unknown kind still has a name", buildOf("zeppelin").name === "Build" && buildOf("zeppelin").need > 0 && buildOf("fortress").name === "Build");
-  ok("Another look gives a new variation, the same each time", seedFor("chapel", 0) === seedFor("chapel", 0) && seedFor("chapel", 0) !== seedFor("chapel", 1) && seedFor("chapel", 3) > 0);
-  ok("every 5 arrows trains a soldier", soldiersFor(0) === 0 && soldiersFor(4) === 0 && soldiersFor(5) === 1 && soldiersFor(124) === 24);
-  ok("their bows are The Mark's", bowFor(0) === tierOf(0) && bowFor(30) === tierOf(30) && bowFor(30) !== bowFor(0) && bowFor(180) === tierOf(180));
-  ok("plots start beside the plaza", JSON.stringify(tileOf(0)) === "[0,-1]" && JSON.stringify(tileOf(3)) === "[0,1]");
-  const big = layout(60), seen = new Set();
-  for (const t of [...big.plots.map((p) => p.tile), ...big.nature.map((n) => n.tile), [0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]]) seen.add(t.join());
-  ok("the village grows forever without two things on one plot", big.plots.length === 60 && seen.size === big.plots.length + big.nature.length + 5);
-  ok("the first free plot fills gaps", freePlot([{ plot: 0 }, { plot: 2 }]) === 1 && freePlot([]) === 0);
-  ok("day index counts calendar days", dayIndex("2026-10-22", "2026-10-15") === 7 && dayIndex("2026-11-02", "2026-10-31") === 2);
-  ok("short names", shortName("Build the best Premiere Pro plugin") === "Plugin" && shortName("More integrity") === "More integrity" && shortName("Future quest number 15") === "Future quest");
-
-  const units = finishedUnits({
-    tasks: [
-      { id: "t2", quest_id: "q1", kind: "task", text: "later", done_on: "2026-10-22", done_at: "2026-10-22T18:00:00Z" },
-      { id: "t1", quest_id: "q1", kind: "task", text: "earlier", done_on: "2026-10-22", done_at: "2026-10-22T09:00:00Z" },
-      { id: "t3", quest_id: "q1", kind: "task", text: "open", done_on: null },
-      { id: "n1", quest_id: "q1", kind: "note", text: "a note", done_on: "2026-10-22" },
-    ],
-    steps: [{ id: "s1", camp_id: "c1", text: "a camp step", done_on: "2026-10-21", updated_at: "2026-10-21T10:00:00Z" }],
-    camps: [{ id: "c1", quest_id: "q2" }],
-  });
-  ok("finished tasks and camp steps lay bricks, in the order they were done", units.map((u) => u.id).join() === "s1,t1,t2");
-  ok("a camp step counts for its quest", units[0].src === "step" && units[0].questId === "q2" && units[1].src === "task");
-  const subUnits = finishedUnits({
-    steps: [
-      { id: "s1", camp_id: "c1", text: "a step", done_on: "2026-10-21" },
-      { id: "s1a", camp_id: "c1", parent_id: "s1", text: "its sub-step", done_on: "2026-10-22" },
-      { id: "s1b", camp_id: "c1", parent_id: "s1", text: "an open sub-step", done_on: null },
-    ],
-    camps: [{ id: "c1", quest_id: "q2" }],
-  });
-  ok("a finished camp sub-step lays its own bricks for the quest", subUnits.map((x) => x.id).join() === "s1,s1a" && subUnits[1].questId === "q2");
-
-  const u = (id, day) => ({ id, day, at: day + "T12:00:00Z" });
-  const al = allocate(
-    [
-      { id: "b", kind: "beacon", need: 2, started_on: "2026-10-20", created_at: "2026-10-20T10:00:00Z" },
-      { id: "a", kind: "liberty", need: 3, started_on: "2026-10-10", created_at: "2026-10-10T10:00:00Z" },
-    ],
-    [u("1", "2026-10-05"), u("2", "2026-10-11"), u("3", "2026-10-12"), u("4", "2026-10-13"), u("5", "2026-10-21"), u("6", "2026-10-22")]
-  );
-  ok("builds take tasks in the order they were chosen", al.projects.map((p) => p.id).join() === "a,b" && al.projects[0].items.map((i) => i.id).join() === "1,2,3");
-  ok("a task finished before a build was chosen lays its bricks the day it was", al.projects[0].items[0].laid === "2026-10-10" && al.projects[1].items[0].laid === "2026-10-20");
-  ok("both stand, and the extra task waits for the next build", al.current === -1 && al.projects.every((p) => p.complete) && al.waiting.map((w) => w.id).join() === "6" && al.projects[1].finishedOn === "2026-10-21");
-  const going = allocate([{ id: "a", kind: "liberty", need: 3, started_on: "2026-10-10" }], [u("1", "2026-10-11")]);
-  ok("a build still short of its tasks is the one going up", going.current === 0 && going.projects[0].done === 1 && !going.projects[0].complete && !going.waiting.length);
-
-  const people = villagersOf([
-    { pid: "B", name: "Ben", ordinances: [{ date: "2025-03-01", temple: "Provo" }, { date: "2024-12-01", temple: "Mount Timpanogos" }] },
-    { pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] },
-    { pid: "C", name: "Cy", ordinances: [] },
-  ]);
-  ok("villagers arrive on their first ordinance, earliest first", people.map((p) => p.pid).join() === "B,A,C" && people[0].first === "2024-12-01" && people[0].temple === "Mount Timpanogos" && people[2].first === null);
-
-  const raw = {
-    projects: [
-      { id: "p0", kind: "windmill", seed: 3, plot: 0, need: 3, started_on: "2026-10-20" },
-      { id: "p1", kind: "hatchery", seed: 9, plot: 1, need: 4, started_on: "2026-10-22" },
-      { id: "p9", kind: "chapel", seed: 1, plot: 2, need: 4, started_on: "2026-11-01" },
-    ],
-    tasks: [
-      { id: "t1", quest_id: "q1", kind: "task", text: "one", done_on: "2026-10-20", done_at: "2026-10-20T09:00:00Z" },
-      { id: "t2", quest_id: "lq", kind: "task", text: "two", done_on: "2026-10-21", done_at: "2026-10-21T09:00:00Z" },
-      { id: "t3", quest_id: "q1", kind: "task", text: "three", done_on: "2026-10-21", done_at: "2026-10-21T10:00:00Z" },
-      { id: "t4", quest_id: "q1", kind: "task", text: "four", done_on: "2026-10-22", done_at: "2026-10-22T10:00:00Z" },
-      { id: "t5", quest_id: "q1", kind: "task", text: "tomorrow", done_on: "2026-10-23", done_at: "2026-10-23T10:00:00Z" },
-    ],
-    steps: [],
-    camps: [],
-    quests: [{ id: "q1", title: "Build the best Premiere Pro plugin" }, { id: "lq", title: "x", lesson_id: "l1" }],
-    lessons: [{ id: "l1", title: "More integrity" }],
-    shots: [{ date: "2026-10-19", level: 0 }, { date: "2026-10-21", level: 2 }, { date: "2026-10-30", level: 0 }],
-    temple: [{ pid: "A", name: "Ann", ordinances: [{ date: "2025-01-01", temple: "Provo" }] }, { pid: "B", name: "Ben", ordinances: [{ date: "2026-10-21", temple: "Provo" }] }],
-  };
-  const v = villageOf(raw, "2026-10-22");
-  ok("the village has the builds chosen so far, not later ones", v.projects.map((p) => p.id).join() === "p0,p1" && v.projects[0].name === "Windmill" && v.projects[1].name === "Fire ring");
-  ok("the windmill stood on its third task, the hatchery is going up", v.projects[0].complete && v.projects[0].finishedOn === "2026-10-21" && v.current === 1 && v.projects[1].done === 1 && v.waiting === 0);
-  ok("each brick knows its quest, a lesson's by the lesson's name", v.projects[0].items[1].quest === "More integrity" && v.projects[0].items[0].quest === "Build the best Premiere Pro plugin");
-  ok("tasks and arrows after today don't count yet", v.arrows.length === 2 && v.bullseyes.length === 1 && v.projects[1].items.every((i) => i.day <= "2026-10-22"));
-  ok("the first day is the first thing that happened (an arrow here)", v.day0 === "2026-10-19" && v.days === 3 && v.nextPlot === 2);
-  ok("villagers from before the village arrive on its first day", v.villagers.map((x) => x.arrive).join() === "2026-10-19,2026-10-21");
-  const st = standingOf(raw.projects, finishedUnits(raw), "2026-10-22");
-  ok("where it stands: the hatchery, 1 of 4, 3 left, 1 today", st.project.id === "p1" && st.done === 1 && st.need === 4 && st.left === 3 && st.today === 1 && st.standing === 1);
-  const none = standingOf([raw.projects[0]], finishedUnits(raw), "2026-10-22");
-  ok("nothing going up: the finished tasks wait for a build", none.project === null && none.waiting === 1 && none.standing === 1 && none.last.id === "p0");
-  const empty = villageOf({}, "2026-10-22");
-  ok("an empty village starts a week back", empty.day0 === "2026-10-15" && empty.days === 7 && empty.current === -1 && empty.nextPlot === 0 && !empty.villagers.length);
-}
-
 // --- Quest lists ------------------------------------------------------------------
 {
   const T = "2026-10-23";
@@ -2394,167 +2055,6 @@ console.log("\nthe mark");
 function sectionOf({ x, y }) {
   const a = (Math.atan2(y, x) * 180) / Math.PI;
   return Math.floor(((((a + 90) % 360) + 360) % 360) / 90);
-}
-
-// ---------------------------------------------------------------------------
-// The 3D village's plan and arithmetic (src/village/plots.js)
-// ---------------------------------------------------------------------------
-{
-  const P = await import("../src/village/plots.js");
-  const near = (a, b, e = 1e-9) => Math.abs(a - b) < e;
-  console.log("\nthe 3D village");
-
-  // The coast: every plot's pad, in the order the town takes them.
-  const C = await import("../src/village/coast.js");
-  const S = C.sites();
-  ok("64 plots on the coast, nearest the plaza first", S.length === 64 && S.every((s, i) => i === 0 || Math.hypot(s.x, s.z) >= Math.hypot(S[i - 1].x, S[i - 1].z) - 1e-9));
-  ok("every build faces the plaza", S.every((s) => {
-    const [fx, fz] = P.frontOf(s.ry);
-    return (fx * -s.x + fz * -s.z) / Math.hypot(s.x, s.z) > 0.999;
-  }));
-  const onPad = (s) => [...C.cornersOf(s), [s.x, s.z]];
-  ok("every plot is on land, clear of the shore and the rivers", S.every((s) => onPad(s).every(([x, z]) => {
-    const rv = C.riverAt(x, z);
-    return C.shoreDist(x, z) >= 18 && C.naturalAt(x, z) > 1 && (!rv || rv.past || rv.d > rv.w / 2 + 6);
-  })));
-  const riverX = (rv, z) => rv.samples.reduce((b, t) => (Math.abs(t.z - z) < Math.abs(b.z - z) ? t : b)).x;
-  ok("the town stays between the two rivers", S.every((s) => s.x > riverX(C.RIVERS[0], s.z) && s.x < riverX(C.RIVERS[1], s.z)));
-  const plazaRect = { x: 0, z: 0, hw: P.PLAZA / 2, hd: P.PLAZA / 2, ry: 0 };
-  let tight = 0;
-  for (let i = 0; i < S.length; i++) {
-    const a = S[i];
-    if (Math.min(...onPad(a).map(([x, z]) => C.rectOut(plazaRect, x, z))) < C.GAP) tight++;
-    for (let j = i + 1; j < S.length; j++) {
-      const b = S[j];
-      if (Math.hypot(a.x - b.x, a.z - b.z) > P.TILE * 2) continue;
-      const gap = Math.min(...onPad(b).map(([x, z]) => C.rectOut(a, x, z)), ...onPad(a).map(([x, z]) => C.rectOut(b, x, z)));
-      if (gap < C.GAP - 1e-6) tight++;
-    }
-  }
-  ok("no two plots overlap, a lane's width apart, and none on the plaza", tight === 0, `${tight} too close`);
-  ok("a build is scaled down only when it reaches past its plot", P.scaleFor(P.TILE / 2 - P.MARGIN) === 1 && near(P.scaleFor(18.6), (P.TILE / 2 - P.MARGIN) / 18.6));
-
-  // The ground: the plaza and the plots in use levelled, the rest as the land lies.
-  const g1 = C.groundOf([S[0]]);
-  ok("a plot in use is cut level", onPad(S[0]).every(([x, z]) => near(g1.height(x, z), S[0].y)) && near(C.heightAt(0, 0), C.PLAZA_LEVEL));
-  ok("a plot not yet used is left as the land lies", near(C.groundOf([]).height(S[40].x, S[40].z), C.naturalAt(S[40].x, S[40].z)));
-  const inner = (s, k) => [[-k, -k], [k, -k], [-k, k], [k, k]].map(([a, b]) => [s.x + a * s.hw * Math.cos(s.ry) + b * s.hd * Math.sin(s.ry), s.z - a * s.hw * Math.sin(s.ry) + b * s.hd * Math.cos(s.ry)]);
-  const every = (n) => {
-    const g = C.groundOf(S.slice(0, n));
-    return S.slice(0, n).every((s) => [...onPad(s), ...inner(s, 0.9)].every(([x, z]) => Math.abs(g.height(x, z) - s.y) < 0.02));
-  };
-  ok("every plot in use stays level when its neighbours are cut too", every(7) && every(17) && every(40) && every(64));
-  let seam = 0;
-  const gAll = C.groundOf(S);
-  for (const s of S)
-    for (let k = -60; k <= 60; k += 0.5) {
-      for (const [x, z] of [[s.x + k, s.z], [s.x, s.z + k]]) {
-        const a = gAll.height(x, z);
-        const b = gAll.height(x + 0.1, z + 0.1);
-        // the land's own cliffs aside
-        if (Math.abs(a - b) > 0.6 && Math.abs(C.naturalAt(x, z) - C.naturalAt(x + 0.1, z + 0.1)) < 0.3) seam++;
-      }
-    }
-  ok("the banks round the plots have no steps in them", seam === 0, `${seam} steps`);
-  ok("more builds than plots share the last plots' lanes", C.routeOf(64) === C.routeOf(63 - (64 % 8)) && C.routeOf(70).length > 1);
-
-  const aaron = { projects: [{ id: "w", kind: "windmill", plot: 0 }], nextPlot: 1 };
-  const plan = P.planOf(aaron);
-  ok("the windmill stands on the first plot, the next plot staked out", plan.plots[0].x === S[0].x && plan.plots[0].z === S[0].z && plan.plots[0].y === S[0].y && plan.stake.x === S[1].x && plan.stake.plot === 1);
-  ok("the town reaches as far as the plots in use and the next one", near(plan.radius, Math.max(P.PLAZA * 0.71, Math.hypot(S[0].x, S[0].z), Math.hypot(S[1].x, S[1].z)) + P.TILE * 0.62) && P.planOf({ projects: [], nextPlot: 0 }).radius <= plan.radius);
-  const big = P.planOf({ projects: layout(16).plots.map(({ plot }) => ({ id: `p${plot}`, kind: "forge", plot })), nextPlot: 16 });
-  ok("a bigger village reaches further", big.radius > plan.radius * 1.5);
-
-  // Lanes run from each plot's front to the plaza, round every other plot, never through a river or the sea.
-  const paths = P.pathsOf(big, () => 6);
-  const inPlaza = ([x, z]) => Math.abs(x) <= P.PLAZA / 2 + 1e-9 && Math.abs(z) <= P.PLAZA / 2 + 1e-9;
-  ok("a lane from every plot and the next", paths.length === 17 && paths.every((p) => p.points.length >= 3));
-  ok("every lane ends at the plaza", paths.every((p) => {
-    const [x, z] = p.points[p.points.length - 1];
-    return Math.abs(x) <= P.PLAZA / 2 + 0.5 && Math.abs(z) <= P.PLAZA / 2 + 0.5;
-  }));
-  let crosses = 0;
-  let wet = 0;
-  for (const path of [...paths, ...C.allRoutes().map((points, plot) => ({ plot, points: [null, ...points] }))]) {
-    for (let i = 1; i < path.points.length - 1; i++) {
-      const [ax, az] = path.points[i];
-      const [bx, bz] = path.points[i + 1];
-      for (let k = 0; k <= 10; k++) {
-        const x = ax + ((bx - ax) * k) / 10;
-        const z = az + ((bz - az) * k) / 10;
-        for (const q of S) if (q.plot !== path.plot && Math.abs(x - q.x) < P.TILE && Math.abs(z - q.z) < P.TILE && C.rectOut(q, x, z) < 0.3) crosses++;
-        const rv = C.riverAt(x, z);
-        if (C.shoreDist(x, z) < 3 || (rv && !rv.past && rv.d < rv.w / 2 + 1)) wet++;
-      }
-    }
-  }
-  ok("no lane, of all the town's, crosses another plot", crosses === 0, `${crosses} points inside other plots`);
-  ok("no lane runs into a river or the sea", wet === 0, `${wet} wet points`);
-  const first = paths.find((p) => p.plot === 0).points;
-  const [f0x, f0z] = P.frontOf(S[0].ry);
-  ok("a lane starts at its build's front", near(first[0][0], S[0].x + f0x * 6) && near(first[0][1], S[0].z + f0z * 6));
-
-  // Progress, as the painted stills show it.
-  const s1 = P.stageOf(106, 36, 45, 0);
-  ok("36 of 45 shows 84 of the windmill's 106 steps, none today", s1.shown === 84 && s1.today === 0 && near(s1.frac, 84.5 / 106));
-  ok("5 laid today are the last 11 steps", P.stageOf(106, 36, 45, 5).today === 11);
-  ok("a build that stands shows everything, its people too", P.stageOf(106, 45, 45, 0).shown === 107 && P.stageOf(106, 45, 45, 0).frac === 1);
-
-  // The replay: Aaron's village, day by day.
-  const arrows = [];
-  for (let d = 20; d <= 23; d++) for (let i = 0; i < 8; i++) arrows.push({ id: `a${d}${i}`, date: `2026-10-${d}`, level: arrows.length < 10 ? 0 : 2 });
-  const steps = Array.from({ length: 36 }, (_, i) => ({ id: `s${String(i).padStart(2, "0")}`, camp_id: "c1", text: `Step ${i}`, done_on: "2026-10-23", updated_at: `2026-10-23T10:${String(i).padStart(2, "0")}:00Z` }));
-  const temple = Array.from({ length: 125 }, (_, i) => ({ pid: `x${i}`, name: `Name ${i}`, gender: i % 9 ? "M" : "F", ordinances: [{ date: "2019-05-04", temple: "Provo" }] }));
-  const raw = { projects: [{ id: "w", kind: "windmill", seed: 10120, plot: 0, need: 45, started_on: "2026-10-22" }], tasks: [], steps, camps: [{ id: "c1", quest_id: "q1" }], quests: [{ id: "q1", title: "Q" }], lessons: [], shots: arrows, temple };
-  const v = villageOf(raw, "2026-10-25");
-  ok("five days from the first arrow to today", P.spanOf(v) === 5 && P.dayOf(null, v) === 5 && P.dayOf("2026-10-22", v) === 2 && P.dayOf("2020-01-01", v) === 0);
-  const d2 = P.stateOn(v, 2);
-  const d3 = P.stateOn(v, 3);
-  const now = P.stateOn(v, 5);
-  ok("day 2: the windmill's plot is laid out, nothing on it yet", d2.builds[0].exists && d2.builds[0].done === 0 && d2.going === "w");
-  ok("day 3: 36 tasks laid at once, all that day", d3.builds[0].done === 36 && d3.builds[0].laid === 36);
-  ok("today: 36 of 45, none today", now.builds[0].done === 36 && now.builds[0].laid === 0 && !now.builds[0].complete && now.going === "w");
-  ok("day 1: not chosen yet", !P.stateOn(v, 1).builds[0].exists && P.stateOn(v, 1).going === null);
-  ok("the soldiers train as the arrows fly", P.stateOn(v, 0).soldiers === 1 && P.stateOn(v, 1).soldiers === 3 && now.soldiers === 6 && now.tier === 0);
-  ok("everyone from before the village is there from the first day", P.stateOn(v, 0).villagers === 125);
-  ok("a replay takes 4 to 30 seconds", P.playSecs(5) === 4 && P.playSecs(30) === 10 && P.playSecs(400) === 30);
-
-  // People.
-  const f = P.formationOf(100, 2);
-  ok("at most 40 soldiers drill, all in the plaza", P.formationOf(6).length === 6 && f.length === 40 && f.every((s) => inPlaza([s.x, s.z]) && s.z > 1 && s.tier === 2));
-  ok("archers draw in the front rank", f.slice(0, 10).every((s) => s.pose === "draw" && s.role === "archer") && f.some((s) => s.role === "soldier"));
-  const spots = P.spotsOf(P.pathsOf(plan), v.villagers);
-  ok("40 villagers stand at most, the same each time", spots.length === 40 && JSON.stringify(spots) === JSON.stringify(P.spotsOf(P.pathsOf(plan), v.villagers)));
-  ok("none stands on the flag", spots.every((s) => Math.hypot(s.x, s.z) > 2.5));
-  ok("no villagers, nobody drawn", P.spotsOf(P.pathsOf(plan), []).length === 0);
-
-  // Labels.
-  const rect = { left: 0, top: 0, right: 390, bottom: 844 };
-  const shown = P.placeLabels(
-    [
-      { id: "a", x: 100, y: 200, w: 80, h: 24, prio: 1 },
-      { id: "b", x: 120, y: 210, w: 80, h: 24, prio: 0 },
-      { id: "c", x: 300, y: 400, w: 60, h: 24, prio: 2 },
-      { id: "d", x: 380, y: 400, w: 60, h: 24, prio: 3 },
-      { id: "e", x: 200, y: 600, w: 60, h: 24, prio: 4, on: false },
-    ],
-    rect
-  );
-  ok("labels: the first placed wins an overlap, off-screen and behind hide", shown.has("b") && !shown.has("a") && shown.has("c") && !shown.has("d") && !shown.has("e"));
-  const kept = P.placeLabels(
-    [
-      { id: "over", x: 200, y: 300, w: 80, h: 24, prio: 0 },
-      { id: "clear", x: 200, y: 500, w: 80, h: 24, prio: 1 },
-    ],
-    rect,
-    4,
-    [{ l: 150, r: 260, t: 280, b: 340 }]
-  );
-  ok("labels keep off what must stay in sight (the soldiers)", !kept.has("over") && kept.has("clear"));
-
-  // Links.
-  ok("?build=<id> opens that build", JSON.stringify(P.linkOf("?build=abc")) === '{"build":"abc","choose":null}');
-  ok("?choose opens Choose, ?choose=<kind> points at one", P.linkOf("?choose").choose === true && P.linkOf("?choose=forge").choose === "forge" && P.linkOf("").choose === null && P.linkOf("").build === null);
 }
 
 // Saves in order (2026-10-27): a quick Undo waits for the move it undoes.
@@ -2939,7 +2439,7 @@ function sectionOf({ x, y }) {
     "the question says what stays and what goes",
     words.title === "Resolve “Old UI”?" &&
       words.confirmLabel === "Resolve section" &&
-      words.body.startsWith("Its 3 finished steps stay in your village, and the camp still counts them as done.") &&
+      words.body.startsWith("Its 3 finished steps are kept as done, and the camp still counts them.") &&
       words.body.includes("Going with it: 1 step not done yet, 1 note, 1 photo, 1 picture and 2 sketches.")
   );
   const clip = resolveWords({ ...sec, clipboard: true, title: "Clipboard" }, plan, {});
@@ -2955,15 +2455,6 @@ function sectionOf({ x, y }) {
     "resolved sections are listed newest first, sub-steps after their step",
     groups.map((g) => g.title).join() === "Old UI,Earlier" && groups[0].steps.map((x) => `${x.id}${x.depth}`).join() === "a0,b1" && groups[1].clipboard
   );
-  // A resolved step lays its bricks where it did, even with its camp gone.
-  const live = finishedUnits({ steps: steps.filter((x) => x.done_on).map((x) => ({ ...x, updated_at: `${x.done_on}T10:00:00Z` })), camps: [{ id: "C", quest_id: "Q1" }] });
-  const kept = finishedUnits({
-    steps: steps.filter((x) => x.done_on).map((x) => ({ id: x.id, camp_id: x.id === "f" ? "C" : null, quest_id: "Q1", text: x.text, done_on: x.done_on, updated_at: `${x.done_on}T10:00:00Z` })),
-    camps: [{ id: "C", quest_id: "Q1" }],
-  });
-  ok("its bricks keep their order and quest after the section goes", live.map((u) => `${u.id}${u.questId}`).join() === kept.map((u) => `${u.id}${u.questId}`).join());
-  const project = [{ id: "p", kind: "beacon", seed: 1, plot: 0, need: 12, started_on: "2026-10-01", created_at: "2026-10-01" }];
-  ok("so the building stands as tall as before", allocate(project, live).projects[0].done === allocate(project, kept).projects[0].done);
 }
 
 {
@@ -3176,11 +2667,6 @@ console.log("\napple watch");
   ok("the key's status says what last used it", lastUsedLine({ last_used_at: new Date(Date.now() - 5 * 60000).toISOString(), last_used_by: "health" }) === "On · Health Auto Export, 5 min ago" && lastUsedLine(null) === "Off");
   ok("the watch address carries the key", watchAddress("https://x.supabase.co/functions/v1/watch", "ab12") === "https://x.supabase.co/functions/v1/watch?key=ab12");
 
-  const week = ["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"];
-  const wk = watchWeek({ healthDays: [{ date: "2026-10-26", asleep_min: 400, deep_min: 60, rem_min: 90, steps: 8000, resting_hr: 54 }, { date: "2026-10-27", asleep_min: 380, deep_min: 70, rem_min: 80, steps: 10000, resting_hr: 56, mindful_min: 15 }, { date: "2026-11-02", steps: 99999 }], days: week, upTo: "2026-10-31" });
-  ok("the mirror's watch part counts the nights and averages", wk.lines[0].startsWith("The watch saw **2** nights, averaging **6") && wk.lines[0].includes("REM a night."), wk?.lines?.join(" | "));
-  ok("and the steps leave out days past the week", wk.lines[1].startsWith("**9,000** steps a day"), wk?.lines?.join(" | "));
-  ok("no watch rows, no part", watchWeek({ healthDays: [], days: week, upTo: "2026-10-31" }) === null);
 }
 
 {
@@ -5579,7 +5065,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     "components/today/PlanBlocks.jsx",
     "pages/Plans.jsx",
     "pages/Camp.jsx",
-    "pages/Village.jsx",
     "components/focus/FocusSheet.jsx",
     "components/focus/FocusWeek.jsx",
     "components/focus/FocusSettings.jsx",
@@ -5764,7 +5249,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a quest's page runs camps, Today, ongoing, clipboard, quotes, notes, earlier days, history", spots.every((n, i) => n > 0 && (i === 0 || n > spots[i - 1])), JSON.stringify(spots));
   const qcss = read("src/styles/quests.css");
   ok("the phone keeps that order: the grid only places its cells on a desk", !/grid-area:\s*(camps|today|ongoing|clip|side|rest|build)\b/.test(qcss.slice(0, qcss.indexOf("@media (min-width: 901px)"))));
-  ok("on a desk the build heads the right rail, with the quotes and notes under it", /"camps build" "today side" "ongoing side"/.test(qcss));
+  ok("on a desk the camps span the top, with the quotes and notes in the right rail under them", /"camps camps" "today side" "ongoing side"/.test(qcss));
   ok("the closed clipboard's button has a home in the camps' head", /clip=\{clipButton\}/.test(body) && /\{clip\}/.test(camps) && /CLIP_SHUT_KEY = "hub:clip-closed"/.test(body));
 
   // --- A focus's page -------------------------------------------------------------
@@ -6049,7 +5534,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const app = read("src/App.jsx");
 
   // --- QuestBody: one tree whatever the lists are doing --------------------------
-  const tail = body.slice(body.indexOf("const tileFor = "));
+  const tail = body.slice(body.indexOf("// Whatever the lists are doing, the page is one tree"));
   const mainReturn = body.slice(body.indexOf("// Every part is its own cell of one grid"));
   ok(
     "while a quest's lists load, fail or can't be found, QuestBody draws the one tree it draws with them (no early return), so its quotes, notes and history keep their place, and what's open in them, as the lists arrive",
@@ -6063,19 +5548,17 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
       /\{ready \? error && <LoadError what="this list" error=\{error\} onRetry=\{reload\} stale \/> : waiting\}/.test(mainReturn)
   );
   ok(
-    "the quotes and notes are always in the grid's side cell and the history at the foot of the rest; the build, camps, Today and the ongoing list are drawn once the lists are in",
+    "the quotes and notes are always in the grid's side cell and the history at the foot of the rest; the camps, Today and the ongoing list are drawn once the lists are in",
     /\{\(quotes \|\| notes\) && \(\s*<aside className="qs-side"[^>]*>\s*\{quotes\}\s*\{notes\}\s*<\/aside>/.test(mainReturn) &&
       /\{history\}\s*<\/div>\s*<\/div>\s*<\/SketchProvider>/.test(mainReturn) &&
-      /\{ready && roomy && \(/.test(mainReturn) &&
       /\{ready && \(\s*<QuestCamps\b/.test(mainReturn) &&
       /\{ready && <div className="qs-today">/.test(mainReturn) &&
       /\{ready && \(\s*<div className="qs-ongoing">/.test(mainReturn)
   );
   ok(
     "the header is drawn once, first and outside the providers, so it never remounts as the lists arrive",
-    /return \(\s*<>\s*\{head\(tile\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
-      (body.match(/\{head\(/g) ?? []).length === 1 &&
-      /const tile = !board \? tileFor\(\{ waiting: true \}\) : !sel \? null : tileFor\(/.test(body)
+    /return \(\s*<>\s*\{head\(\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
+      (body.match(/\{head\(/g) ?? []).length === 1
   );
   const providers = body.slice(body.indexOf("<PhotoProvider"), body.indexOf("</PhotoProvider>"));
   ok("nothing inside the photo and tint providers draws the header", providers.length > 0 && !/head\(/.test(providers));
@@ -6636,7 +6119,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ["tg-title", "page-title"],
     ["tg-mark__history", "btn-link"],
     ["tg-sheet__box", "textarea"],
-    ["tg-build__today", "qs-done-btn"],
     ["tg-quotes__strip", "picks__strip"],
   ];
   const alone = paired.filter(([own, base]) => {
@@ -6662,7 +6144,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ["NotesSection.jsx", "tg-more", "btn"],
     ["OverviewPatches.jsx", "ov-chip--aside", "chip"],
     ["NoteSheet.jsx", "tg-sheet__box", "textarea"],
-    ["BuildTile.jsx", "tg-build__today", "qs-done-btn"],
     ["LinkedQuotes.jsx", "tg-quotes__strip", "picks__strip"],
     ["LinkToTarget.jsx", "qprint__link", "qprint__save"],
   ].filter(([p, own, base]) => {
@@ -6693,7 +6174,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a print's foot tightens to 4px on a phone, past cork.css's 6px", footGap.length === 1 && footGap[0][0] === ".qprint .qprint__foot" && /gap: 4px;/.test(footGap[0][1]), JSON.stringify(footGap));
 
   // Taps (findings 5 and 33).
-  ok("the build tile's links are 40px tall", /\.tg-build__go \{[^}]*min-height: 40px;/.test(css) && /\.qs-done-btn\.tg-build__today \{ min-height: 40px; margin: 0 -4px;/.test(css));
   ok("the why's More is the house's 36px", /\.tg-why__more \{ min-height: 36px; \}/.test(css));
 
   // The quests row wraps on a desk; a phone still scrolls it (finding 27).
@@ -6743,7 +6223,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     if (missing.length) wrong.push(`${name}: no ${missing.join(", ")}`);
     if (!clip && at.clip) wrong.push(`${name}: names the clipboard`);
   }
-  ok("every desk layout of a quest's page names each cell it places, each a rectangle", placed.length === 7 && wrong.length === 0, wrong.join("; "));
+  ok("every desk layout of a quest's page names each cell it places, each a rectangle", placed.length === 6 && wrong.length === 0, wrong.join("; "));
   const rowOf = (areas, n) => areas.findIndex((r) => r.includes(n));
   const clipUnder = ["clip", "board and clip"].every((k) => {
     const a = layouts[k].areas ?? [];
@@ -6757,7 +6237,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     railFrom("clip") === railFrom("plain") && railFrom("board and clip") === railFrom("board") && railFrom("plain") === rowOf(layouts.plain.areas ?? [], "today") &&
       ["plain", "board", "clip", "board and clip"].every((k) => (layouts[k].areas ?? []).at(-1)?.join(" ") === ". side")
   );
-  ok("opening the clipboard leaves the build and camps in the first row alone", ["clip", "board and clip"].every((k) => (layouts[k].areas ?? []).filter((r) => r.includes("build")).length === 1 && layouts[k].areas?.[0].join(" ") === "camps build"));
+  ok("opening the clipboard leaves the camps in the first row alone", ["clip", "board and clip"].every((k) => layouts[k].areas?.[0].join(" ") === "camps camps"));
   const body = read("src/components/targets/QuestBody.jsx");
   ok("the page draws the clipboard's cell only with the clipboard's grid", /\(clipOpen \? " qs-grid--clip" : ""\)/.test(body) && /clipOpen \? <div className="qs-clip">\{clipCard\}<\/div> : clipCard/.test(body));
   ok(
@@ -7106,7 +6586,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("builder: blank sub-steps go", t.proposal.camps[0].sections[0].steps[0].subs.length === 1);
   const c = proposalCounts(t.proposal);
   ok("builder: counts include sub-steps", c.camps === 1 && c.sections === 1 && c.steps === 2, JSON.stringify(c));
-  ok("builder: counts line", countsLine(c) === "1 camp · 1 section · 2 steps", countsLine(c));
   ok("builder: his goal is kept", tidyAnswer({ ...raw, proposal: { ...raw.proposal, goal_id: "g1" } }, ["g1"]).proposal.goal_id === "g1");
   const q = tidyAnswer({ reply: "", question: { text: "Group by?", options: ["Phase", "Phase", "Area", "", "a", "b", "c"] }, proposal: null });
   ok("builder: question options deduped and capped at 4", q.question.options.join() === "Phase,Area,a,b", q.question.options.join());
@@ -7116,8 +6595,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("builder: a key with a newline is refused", !keyLooksOk("sk-ant-abc\ndefghijk") && keyLooksOk("sk-ant-abcdefghijk"));
   ok("builder: a model name with spaces falls back", modelFor("anthropic", "bad model") === "claude-sonnet-5-5" && modelFor("openrouter", "anthropic/claude-x") === "anthropic/claude-x");
   ok("builder: history keeps only his and its turns", trimHistory([{ role: "system", text: "x" }, { role: "user", text: "a" }, { role: "assistant", text: " " }]).length === 1);
-  const turns = asTurns([{ role: "user", text: "tasks" }, { role: "assistant", text: "Here", proposal: t.proposal, applied: { change_id: "c" } }]);
-  ok("builder: its proposal goes back with what he did", turns[1].text.includes("He applied it") && turns[1].text.includes('"Launch the site"'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

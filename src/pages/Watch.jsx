@@ -227,7 +227,7 @@ export default function Watch() {
           {data?.last && <span className="phone-status phone-status--on">Synced {ago(data.last.received_at)}</span>}
         </div>
         <p className="phone-note" style={{ marginTop: 0 }}>
-          Health Auto Export sends what your watch measures. Each night's sleep goes into your minutes as Sleep (unless you logged it), each workout as Exercise (unless you timed it), and the day's numbers sit quietly beside the evening and the Sunday mirror. Nothing becomes a win on its own.
+          Health Auto Export sends what your watch measures. Each night's sleep goes into your minutes as Sleep (unless you logged it), each workout as Exercise (unless you timed it), and the day's numbers sit quietly beside the evening. Nothing becomes a win on its own.
         </p>
         <ol className="phone-steps">
           <li>
