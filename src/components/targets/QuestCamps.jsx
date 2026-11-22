@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { BookOpen, Flag, Plus } from "lucide-react";
 import { splitSteps } from "../../lib/camp";
 import QuestTrail from "../ascent/QuestTrail";
@@ -24,6 +24,8 @@ const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.create
 
 export default function QuestCamps({ kind, camps, tally, climb, canReach, planted, onReach, onAddCamps, clip = null }) {
   const list = [...(camps ?? [])].sort(byPos);
+  // A camp opens under the tab you're in: Tasks, or Targets for a lesson.
+  const under = useLocation().pathname.startsWith("/tasks") ? "/tasks" : "/targets";
   // A camp reached a moment ago shows its flag before the lists reload.
   const reachedOf = new Map((climb?.state?.camps ?? []).map((c) => [c.id, c.reached_on ?? null]));
   const reached = (c) => (reachedOf.has(c.id) ? reachedOf.get(c.id) : c.reached_on);
@@ -56,7 +58,7 @@ export default function QuestCamps({ kind, camps, tally, climb, canReach, plante
             const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
             return (
               <li key={c.id}>
-                <Link to={`/targets/camp/${c.id}`} className={"qs-camp" + (on ? " reached" : "")}>
+                <Link to={`${under}/camp/${c.id}`} className={"qs-camp" + (on ? " reached" : "")}>
                   <span className="qs-camp__n" aria-hidden="true">
                     {on ? <Flag size={12} /> : i + 1}
                   </span>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { ClipboardList } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -34,7 +33,6 @@ import { boardOf, byPos, campTally, dayLabel, listDays, nextPosition, ongoingLis
 import { buildCamp, kindFields, pickDiff, questToday, resolvePlan, resolveWords, resolvedLine, stepsUnder } from "../../lib/camp";
 import { applyPinDrop, applyRows, inPageOrder, planMove, planPinDrop } from "../../lib/stepMoves";
 import { computersOf, moveKey, NO_FILTER, orderCards, todayCards } from "../../lib/todayBoard";
-import { villageOf } from "../../lib/village";
 import { allDoneToday, earlierOnToday, questDoneToday } from "../../lib/doneToday";
 import { appendToNote } from "../../lib/sketch";
 import { savesInOrder, undoableSave } from "../../lib/inOrder";
@@ -42,10 +40,8 @@ import { fmtDayHeading, todayStr } from "../../lib/planDates";
 import { useLoad } from "../../lib/useLoad";
 import { markDrop } from "../../lib/useDragSort";
 import { haptic } from "../../lib/haptics";
-import { playClink } from "../../lib/clink";
 import { useConfirm, useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
-import FloatingBuild, { buildNow } from "../quests/FloatingBuild";
 import { AddLine, DayList, OngoingList } from "../quests/Lines";
 import DoneToday from "../quests/DoneToday";
 import TodayBoard, { useBoardView } from "../quests/TodayBoard";
@@ -56,7 +52,6 @@ import { PhotoProvider, PhotoSide } from "../photos/Photos";
 import Clipboard, { ColumnSheet } from "../camp/Clipboard";
 import { SelectBar, SelectButton, useSelect } from "../camp/Select";
 import QuestCamps from "./QuestCamps";
-import BuildTile from "./BuildTile";
 import "../../styles/ascent.css";
 import "../../styles/camp.css";
 import "../../styles/quests.css";
@@ -83,13 +78,8 @@ import "../../styles/quests.css";
 // the same steps and lines, not copies, so a tick or a note here is a tick
 // or a note there too.
 //
-// The build going up in the village sits at the top right: small in the
-// header on a phone (BuildTile), the full card in the right rail on a desk.
-// Every task he ticks, on any list, lays its bricks on it until it stands;
-// then he chooses the next build (/village?choose).
-//
-// The count on Today, and the build's "N today", open everything finished
-// today (Aaron, 2026-10-27): on this quest, or on every quest.
+// The count on Today opens everything finished today (Aaron, 2026-10-27):
+// on this quest, or on every quest.
 //
 // Today is a board (0092, Aaron 2026-10-28): everything on it in the order
 // he drags it into, or in columns by camp or by the computer it's handed to
@@ -138,6 +128,10 @@ function useWide() {
   return wide;
 }
 
+// It's drawn in two places: the Tasks tab (pages/Tasks.jsx), where every
+// quest and every plain list keeps its lists, and a lesson's page on
+// Targets. `noun` is what the hints call it ("list" on a plain list).
+//
 // `kind` is "quest" or "lesson" and `id` its id (a lesson's own, never its
 // mountain's). `ladder` is the page's useLadder(): the climb (its camps
 // reached, the flag at the next one) and the ceremony. `board` is
@@ -160,11 +154,11 @@ export default function QuestBody({
   notes = null,
   history = null,
   reloadRef = null,
+  noun = kind,
 }) {
   const { user } = useAuth();
   const userId = user?.id;
   const today = todayStr();
-  const navigate = useNavigate();
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -201,13 +195,6 @@ export default function QuestBody({
   // Moves (drags, Undo) save one after another, in the order they were made.
   const inOrder = useMemo(savesInOrder, []);
 
-  const village = useMemo(
-    () =>
-      board
-        ? villageOf({ tasks: board.finished.tasks, steps: board.finished.steps, projects: board.projects, camps: board.camps, quests: board.quests, lessons: board.lessons }, today)
-        : null,
-    [board, today]
-  );
   const days = useMemo(() => listDays(lines ?? [], today), [lines, today]);
   const ongoing = useMemo(() => ongoingList(lines ?? [], today), [lines, today]);
 
@@ -311,7 +298,6 @@ export default function QuestBody({
         : [],
     [board, items, today, hereLoaded, questId, doneHere]
   );
-  const doneAllCount = doneAll.reduce((n, q) => n + q.count, 0);
 
   // A line open where it sits is its id; open in today's list, "t:" and its id.
   const [openId, setOpenId] = useState(null);
@@ -359,33 +345,23 @@ export default function QuestBody({
 
   // (before they're in, there's nothing to change: what loads is the saved)
   const setLine = (id, fields) => mutateLines((list) => list && list.map((x) => (x.id === id ? { ...x, ...fields } : x)));
-  // The village counts finished tasks, so it hears about every tick.
-  const tellVillage = (line) => mutateBoard((b) => b && { ...b, finished: { ...b.finished, tasks: withFinished(b.finished.tasks, line) } });
-
-  // A tick lays bricks; the one that finishes the build gets a little more.
-  function cheer(before) {
-    if (before && !before.complete && before.done + 1 >= before.need) {
-      playClink();
-      haptic("win");
-      toast.show(`The ${before.name.toLowerCase()} stands`, { actionLabel: "Choose the next build", onAction: () => navigate("/village?choose") });
-    } else haptic("tap");
-  }
+  // "Done today" counts finished tasks, so it hears about every tick.
+  const tellFinished = (line) => mutateBoard((b) => b && { ...b, finished: { ...b.finished, tasks: withFinished(b.finished.tasks, line) } });
 
   function toggleDone(line) {
     const done_on = line.done_on ? null : today;
     const done_at = done_on ? new Date().toISOString() : null;
-    const before = buildNow(village, today);
     // Finishing it means you're no longer working on it.
     const fields = done_on && line.working_since ? { done_on, done_at, working_since: null } : { done_on, done_at };
     setLine(line.id, fields);
-    tellVillage({ ...line, done_on, done_at });
-    if (done_on) cheer(before);
+    tellFinished({ ...line, done_on, done_at });
+    if (done_on) haptic("tap");
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't save that."));
   }
 
   function saveLine(line, fields) {
     setLine(line.id, fields);
-    if (line.done_on) tellVillage({ ...line, ...fields });
+    if (line.done_on) tellFinished({ ...line, ...fields });
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't save that."));
   }
 
@@ -394,7 +370,7 @@ export default function QuestBody({
   function switchKind(line) {
     const fields = line.kind === "note" ? { kind: "task" } : { kind: "note", done_on: null, done_at: null, urgency: null };
     setLine(line.id, fields);
-    tellVillage({ ...line, ...fields });
+    tellFinished({ ...line, ...fields });
     updateQuestTask(line.id, fields).catch((err) => failed(err, "Couldn't change that."));
   }
 
@@ -447,7 +423,7 @@ export default function QuestBody({
 
   const setCampSteps = (fn) => mutateCamps((d) => d && { ...d, steps: fn(d.steps) });
   const rawStep = (id) => campData?.steps.find((x) => x.id === id);
-  // The village counts finished steps, and the camps along the top count every step.
+  // "Done today" counts finished steps, and the camps along the top count every step.
   // Stamped now, as updateStep stamps it, so "Done today" lists it in turn.
   const tellBoard = (st) =>
     mutateBoard(
@@ -468,10 +444,9 @@ export default function QuestBody({
     const done_on = st.done_on ? null : today;
     // Finishing it means you're no longer working on it.
     const fields = done_on && st.working_since ? { done_on, working_since: null } : { done_on };
-    const before = buildNow(village, today);
     setCampSteps((list) => list.map((x) => (x.id === st.id ? { ...x, ...fields } : x)));
     tellBoard({ ...(rawStep(st.id) ?? st), ...fields });
-    if (done_on) cheer(before);
+    if (done_on) haptic("tap");
     updateStep(st.id, fields).catch((err) => stepFailed(err, "Couldn't save that step."));
   }
 
@@ -562,7 +537,7 @@ export default function QuestBody({
       run: () => deleteQuestTask(line.id).catch((err) => failed(err, "Couldn't remove that.")),
       onUndo: () => {
         mutateLines((list) => [...(list ?? []), ...removed]);
-        removed.forEach((x) => x.done_on && tellVillage(x));
+        removed.forEach((x) => x.done_on && tellFinished(x));
       },
     });
   }
@@ -1210,7 +1185,7 @@ export default function QuestBody({
     updateSection(sec.id, { title }).catch((err) => stepsFailed(err, "Couldn't rename that column."));
   }
 
-  // Its finished thoughts keep their bricks in the village (0097); the rest
+  // Its finished thoughts stay counted as done (0097); the rest
   // goes with it, so it asks first when there's anything else in it.
   async function removeColumn(sec) {
     const steps = campData?.steps ?? [];
@@ -1545,10 +1520,6 @@ export default function QuestBody({
 
   // ---------------------------------------------------------------------------------
 
-  // The build sits in the header on a phone; on a desk the full card heads
-  // the right rail instead (only one is drawn, so only one is painted).
-  const tileFor = (props) => (roomy ? null : <BuildTile {...props} />);
-
   // Whatever the lists are doing, the page is one tree: the header, then
   // the providers and the grid, where the camps, Today, the ongoing list
   // and the clipboard are drawn once the lists are in. The quotes, notes
@@ -1631,7 +1602,6 @@ export default function QuestBody({
   const earlierShown = allEarlier ? earlier : earlier.slice(0, EARLIER_SHOWN);
   // In columns, on a screen wide enough, Today spans the page above the rest.
   const spread = Boolean(sel) && roomy && boardView !== "order" && !picker.on && cards.length > 0;
-  const building = buildNow(village, today);
   const selected = select.on ? chosenSteps() : [];
   const clipPlaces = [
     ...clipCols.map((c) => ({ key: `${c.camp.id}|${c.section.id}`, label: c.section.title, group: `Clipboard · ${c.camp.title}` })),
@@ -1705,15 +1675,13 @@ export default function QuestBody({
       <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} ownInLead={!picker.on} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
         {!todayList.items.length && !linesLoading && (
           <p className="qs-hint">
-            {earlier.length ? "A fresh list for today." : `What will you do for this ${kind} today?`}{" "}
-            {building && !building.complete ? `Each task you tick lays pieces on the ${building.name.toLowerCase()}.` : "Each task you tick lays pieces in the village."}
+            {earlier.length ? "A fresh list for today." : `What will you do for this ${noun} today?`}
           </p>
         )}
         <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind)} />
       </DayList>
     </>
   ) : null;
-  const tile = !board ? tileFor({ waiting: true }) : !sel ? null : tileFor({ village, today, todayDone: doneAllCount, onToday: () => setDoneView("all") });
   const busyBar = picker.on || select.on;
 
   // Every part is its own cell of one grid, in the order a phone shows them
@@ -1725,19 +1693,13 @@ export default function QuestBody({
   // outside the providers, where it is while the lists load.
   return (
     <>
-      {head(tile)}
+      {head()}
       <PhotoProvider userId={userId} {...pinProps} handle={photoApi}>
         <SectionTints sections={campData?.sections} steps={campData?.steps}>
           {ready ? error && <LoadError what="this list" error={error} onRetry={reload} stale /> : waiting}
 
           <SketchProvider kind="task" userId={userId} scopeId={questId} about={(lid) => (lines ?? []).find((x) => x.id === lid)?.text} onAddToNote={addToNote}>
             <div className={"qs-grid" + (spread ? " qs-grid--board" : "") + (clipOpen ? " qs-grid--clip" : "") + (busyBar ? " qs-grid--picking" : "")}>
-              {ready && roomy && (
-                <div className="qs-rail__build">
-                  <FloatingBuild village={village} today={today} todayDone={doneAllCount} onToday={() => setDoneView("all")} />
-                </div>
-              )}
-
               {ready && (
                 <QuestCamps
                   kind={kind}

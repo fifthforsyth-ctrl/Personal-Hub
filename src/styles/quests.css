@@ -1,8 +1,8 @@
 /* ===========================================================================
    A quest's or lesson's page (/targets/<key>): its camps, its running list
-   and notepad, and the village's build beside them. The rows wear the camp
+   and notepad. The rows wear the camp
    checklist (camp.css); this adds the frame, the camps, the days, sub-tasks,
-   note lines and the build.
+   and note lines.
    Ink on white; orange only for today's bricks and what's added today.
    =========================================================================== */
 
@@ -69,8 +69,8 @@
 /* A quest's page body (QuestBody.jsx): every part its own cell of one grid,
    in the order a phone shows them: the camps, Today, the ongoing list, the
    clipboard, the quotes and notes, the earlier days with the history at
-   their foot. On a desk the build heads a 340px rail on the right with the
-   quotes and notes under it, beside Today and the ongoing list (with the
+   their foot. On a desk a 340px rail on the right holds the
+   quotes and notes, beside Today and the ongoing list (with the
    clipboard open, beside the earlier days under it). Nothing
    moves in the page as the layout changes, so what's open in a list stays
    open; and the rail's spare height goes into one row at its foot (the
@@ -78,7 +78,6 @@
 .qs-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .qs-today, .qs-ongoing, .qs-rest { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .qs-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.qs-rail__build { min-width: 0; }
 .qs .card + .card { margin-top: 0; }
 /* Room for the bar along the bottom while picking or selecting. */
 .qs-grid--picking { padding-bottom: 76px; }
@@ -87,61 +86,27 @@
   .qs-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
     grid-template-rows: auto auto auto auto 1fr;
-    grid-template-areas: "camps build" "today side" "ongoing side" "rest side" ". side";
+    grid-template-areas: "camps camps" "today side" "ongoing side" "rest side" ". side";
     gap: 16px;
   }
   .qs-side { gap: 16px; }
   .qs-campsec { grid-area: camps; align-self: stretch; }
-  .qs-rail__build { grid-area: build; }
   .qs-today { grid-area: today; }
   .qs-ongoing { grid-area: ongoing; }
   .qs-clip { grid-area: clip; }
   .qs-side { grid-area: side; }
   .qs-rest { grid-area: rest; }
   /* Today's board in columns (0092): Today spans the page under the camps. */
-  .qs-grid--board { grid-template-areas: "camps build" "today today" "ongoing side" "rest side" ". side"; }
+  .qs-grid--board { grid-template-areas: "camps camps" "today today" "ongoing side" "rest side" ". side"; }
   /* The clipboard (0095) sits right under the ongoing list, in the left
      column, with the quotes and notes beside it in the rail from Today
      down, as with the clipboard shut: the rail stays where it is when the
      clipboard opens or closes, and however tall the quotes and notes grow
      they only lengthen the spare row at the foot, never push the clipboard
-     down or leave a hole beside Today (review, 2026-11-04). The build stays
-     in the first row alone, as above, so the camps keep their height. */
-  .qs-grid--clip { grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "camps build" "today side" "ongoing side" "clip side" "rest side" ". side"; }
-  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps build" "today today" "ongoing side" "clip side" "rest side" ". side"; }
+     down or leave a hole beside Today (review, 2026-11-04). */
+  .qs-grid--clip { grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "camps camps" "today side" "ongoing side" "clip side" "rest side" ". side"; }
+  .qs-grid--board.qs-grid--clip { grid-template-areas: "camps camps" "today today" "ongoing side" "clip side" "rest side" ". side"; }
 }
-
-/* --- The floating build ----------------------------------------------------- */
-
-.qs-build { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 0 0 18px; overflow: hidden; }
-/* The build's painting (src/village/Painting.jsx), edge to edge in the card
-   (card--flush, so the phone's card padding from ascent.css stays off it). */
-.qs-build__scene { display: block; height: 196px; margin: 0 0 8px; overflow: hidden; border-radius: var(--r-lg) var(--r-lg) 0 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.qs-build__host.painting { width: 100%; height: 100%; }
-.qs-build__text { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 20px; min-width: 0; }
-.qs-build__name { margin: 0; font-family: var(--font-serif); font-size: 24px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
-.qs-build__count { display: flex; align-items: baseline; gap: 7px; margin-top: 2px; }
-.qs-build__count b { font: 500 28px var(--font-mono); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-.qs-build__count span { font-size: 13px; color: var(--text-2); }
-.qs-build__line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
-.qs-build__today { color: var(--accent-text); font-weight: 600; white-space: nowrap; }
-.qs-build__go { display: inline-flex; align-items: center; margin-top: 6px; }
-.qs-build .qs-bar { width: 100%; }
-
-/* Nothing going up: an empty staked plot instead of a building. */
-.qs-build--none { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; padding: 20px; }
-.qs-build--none .qs-build__text { padding: 0; }
-.qs-plot {
-  width: 64px; height: 64px; border-radius: 12px; border: 1.5px dashed var(--line-strong);
-  background:
-    radial-gradient(circle at 50% 50%, var(--accent) 0 4px, transparent 5px),
-    var(--surface);
-}
-
-/* How far along: done before today in ink, today's in orange. */
-.qs-bar { display: flex; height: 6px; border-radius: var(--r-pill); background: var(--inset); overflow: hidden; }
-.qs-bar i { display: block; height: 100%; background: var(--ink); transition: width 0.35s ease; }
-.qs-bar i.qs-bar__today { background: var(--accent); }
 
 /* --- The days --------------------------------------------------------------- */
 
@@ -209,14 +174,6 @@
   /* the mountain small, so the camps and Today start high */
   .qs-campsec__trail .qtrail { max-height: 96px; }
 
-  /* the build beside its count, so the list starts higher */
-  .qs-build { grid-template-columns: 46% minmax(0, 1fr); align-items: center; gap: 0; padding: 0; }
-  .qs-build__scene { align-self: stretch; height: auto; min-height: 176px; margin: 0; border-radius: var(--r-lg) 0 0 var(--r-lg); }
-  .qs-build__text { padding: 16px 18px 16px 4px; gap: 5px; }
-  .qs-build__name { font-size: 21px; }
-  .qs-build__count b { font-size: 24px; }
-  .qs-build--none { grid-template-columns: auto minmax(0, 1fr); padding: 18px; gap: 14px; }
-  .qs-build--none .qs-build__text { padding: 0; }
 }
 
 @media (max-width: 700px) {
@@ -234,7 +191,7 @@
 }
 
 /* --- Done today ------------------------------------------------------------
-   The count on Today and the build's "N today" open everything finished
+   The count on Today opens everything finished
    today (DoneToday.jsx). The count stays the words it was, underlined. */
 .qs-done-btn {
   display: inline-flex; align-items: center; gap: 1px; padding: 6px 2px; margin: -6px -2px; border: 0; background: none;

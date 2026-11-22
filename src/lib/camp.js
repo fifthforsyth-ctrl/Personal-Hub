@@ -212,7 +212,7 @@ export function shades(sections, steps) {
 
 // Resolving a section (0097, Aaron 2026-10-30): it goes, so it stops
 // taking room in the camp, but the steps he finished in it are kept: their
-// bricks stay in the village and the camp still counts them as done.
+// steps stay kept as done and the camp still counts them.
 // `steps` are the camp's; `extras` the section's photos and the sketches
 // and pasted pictures on its steps ({ photos, sketches, pictures }), or null
 // when they couldn't be counted.
@@ -249,7 +249,7 @@ export function resolveWords(section, plan, extras) {
   const n = plan.kept.length;
   const list = plan.lose.length <= 1 ? plan.lose[0] ?? "" : `${plan.lose.slice(0, -1).join(", ")} and ${plan.lose[plan.lose.length - 1]}`;
   const parts = [];
-  if (n) parts.push(`${n === 1 ? "Its finished step stays" : `Its ${n} finished steps stay`} in your village${section.clipboard ? "" : ", and the camp still counts them as done"}.`);
+  if (n) parts.push(`${n === 1 ? "Its finished step is" : `Its ${n} finished steps are`} kept as done${section.clipboard ? "" : ", and the camp still counts them"}.`);
   if (list) parts.push(`Going with it: ${list}. Move anything you want to keep first.`);
   if (!extras) parts.push("Any photos in it, and sketches on its steps, go too.");
   return {

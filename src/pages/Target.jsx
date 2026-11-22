@@ -29,8 +29,8 @@ import "../styles/targets.css";
 // /targets/mission): the mission, a lifetime goal, a quest, a lesson, or a
 // week's focus. At the top, the way up the ladder, the target itself and
 // why, and Reflect, Note, Quote and its pencil. Then what's its own: a
-// quest's or lesson's camps, today's list, clipboard and the rest (what
-// was the Quests page, QuestBody.jsx); a goal's target and what feeds it;
+// lesson's camps, today's list, clipboard and the rest (QuestBody.jsx); a
+// quest's way to its lists on the Tasks tab; a goal's target and what feeds it;
 // a focus's week and today's arrow; the mission's bow and what climbs
 // toward it. Then the quotes linked to it and everything written on it.
 //
@@ -255,7 +255,7 @@ export default function Target({ onCanonical = null }) {
 
   return (
     <div className={root}>
-      {quest ? (
+      {kind === "lesson" ? (
         <>
           {/* Only the head's arrows, the history and the climb wait on the
               ladder: the lists show whatever it does. */}
@@ -275,6 +275,27 @@ export default function Target({ onCanonical = null }) {
             history={t ? <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set(open ? { history: true } : { history: false, day: null })} pick={ui.day} /> : null}
             reloadRef={questReload}
           />
+        </>
+      ) : kind === "quest" ? (
+        <>
+          {/* A quest's lists (today, ongoing, camps, the clipboard) moved to
+              the Tasks tab (Aaron, 2026-11-22); its target stays here. */}
+          {head()}
+          <div className="tg-body">
+            {ladder.error && <LoadError what={`this ${kind}'s arrows and climb`} error={ladder.error} onRetry={ladder.reload} stale={Boolean(data)} />}
+            <section className="card tg-tasks">
+              <div>
+                <h2 className="eyebrow">Tasks</h2>
+                <p className="tg-quiet">Today's list, the camps and their sections, and the clipboard for this quest are on the Tasks tab.</p>
+              </div>
+              <Link to={`/tasks/${id}`} className="btn btn--accent">
+                Open its tasks
+              </Link>
+            </section>
+            {t && <TargetHistory key={`h:${key}`} target={t} today={today} ladder={ladder} open={ui.history} onOpen={(open) => set(open ? { history: true } : { history: false, day: null })} pick={ui.day} />}
+            {quotes}
+            {notes}
+          </div>
         </>
       ) : (
         <>

@@ -4,6 +4,7 @@ import {
   Sun,
   CalendarRange,
   Target,
+  ListChecks,
   LogOut,
   Flame,
   Wallet,
@@ -12,14 +13,11 @@ import {
   Menu,
   X,
   Sparkles,
-  ScanEye,
   Smartphone,
   Watch,
   Landmark,
-  Castle,
   RotateCw,
   Heart,
-  Wand2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
@@ -27,10 +25,12 @@ import { refreshApp } from "../lib/refresh";
 import { unreadLoveCount } from "../lib/love";
 import "../styles/love.css";
 
-// Five places you go, one thing you do from anywhere.
+// Six places you go, one thing you do from anywhere.
 //
-// The tabs are the places you actually spend time: Today, Week, Targets,
-// Board and Money. Targets holds the whole ladder, biggest to smallest: the
+// The tabs are the places you actually spend time: Today, Week, Tasks,
+// Targets, Board and Money. Tasks holds every list: each quest's today,
+// ongoing list, camps and clipboard, and plain lists for anything else
+// (Aaron, 2026-11-22). Targets holds the whole ladder, biggest to smallest: the
 // mission, the lifetime goals, the quests and lessons with their camps, and
 // the week's focus, each with a page of its own. It took the place of both
 // the Quests tab and the Range. The ＋ opens capture from wherever you are,
@@ -42,6 +42,7 @@ import "../styles/love.css";
 export const NAV = [
   { to: "/", label: "Today", Icon: Sun, end: true },
   { to: "/plan", label: "Week", Icon: CalendarRange },
+  { to: "/tasks", label: "Tasks", Icon: ListChecks },
   { to: "/targets", label: "Targets", Icon: Target },
   { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
@@ -96,9 +97,6 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // tap away from the week strip on Today, the Week page and the evening, and
 // /day/<date> still works.
 export const MORE = [
-  { to: "/builder", label: "Builder", Icon: Wand2 },
-  { to: "/mirror", label: "Weekly mirror", Icon: ScanEye },
-  { to: "/village", label: "Village", Icon: Castle },
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
   { to: "/watch", label: "On your watch", Icon: Watch },
@@ -284,8 +282,8 @@ export function TopBar() {
 }
 
 // Round icons with their names under them: the icon is quick once you know
-// it, and the word is there until you do. Five tabs and the ＋ have to fit a
-// 360px phone, so the ＋ sits after the first three (Today, Week, Targets:
+// it, and the word is there until you do. Six tabs and the ＋ have to fit a
+// 360px phone, so the ＋ sits after the first three (Today, Week, Tasks:
 // the ones you're in all day) rather than dead centre. A tab stays lit on
 // every page under it, so Targets shows as the place you are on a quest's
 // page, a camp or a plan too (/targets/...).

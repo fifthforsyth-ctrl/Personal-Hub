@@ -2900,9 +2900,15 @@ function onRef(query, ref, lineage) {
 
 // The quests on Today: each quest he's on and lesson he's learning, with
 // its camps and what's on today's list there (ladder.js questPills).
-export async function fetchQuestPills(userId, date) {
+// `lists`: include the Tasks tab's plain lists (0111) as well as the quests.
+export async function fetchQuestPills(userId, date, { lists = false } = {}) {
+  const quests = supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId);
+  return questPillsFrom(userId, date, lists ? quests : quests.eq("is_list", false));
+}
+
+async function questPillsFrom(userId, date, questsQuery) {
   const [quests, lessons, camps, work] = await Promise.all([
-    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    questsQuery,
     supabase.from("lessons").select("id, title, status, goal_id, position, created_at").eq("user_id", userId),
     supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
     fetchTodayQuestWork(userId, date),
@@ -3098,7 +3104,7 @@ export async function fetchLadderTargets(userId) {
     selectAllPages(() => supabase.from("nodes").select("id, title, created_at").eq("user_id", userId).order("id")),
     // Your own edges only, by row-level security.
     selectAllPages(() => supabase.from("node_edges").select("id, parent_id, child_id").order("id")),
-    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId).eq("is_list", false),
     supabase.from("lessons").select("id, title, status, goal_id, started_on, position, created_at").eq("user_id", userId),
     fetchFocusGoalRows(userId),
   ]);
@@ -3224,105 +3230,6 @@ export async function askHub({ conversationId = null, question, onEvent = () => 
   return answer;
 }
 
-// ---------------------------------------------------------------------------
-// The weekly mirror. One week's rows, read together; src/lib/mirror.js turns
-// them into the page's sentences and charts, so nothing new is stored.
-// Examples are left out here, and again there.
-// ---------------------------------------------------------------------------
-
-const MIRROR_ENTRY_COLUMNS =
-  "id, started_at, ended_at, duration_minutes, tags, category, depth, people, people_feel, is_nap, exercise_kind, alertness, client, is_example";
-
-export async function fetchMirrorWeek(userId, weekStart) {
-  const weekEnd = addDays(weekStart, 6);
-  const at = (date, time = "00:00:00") => new Date(`${date}T${time}`).toISOString();
-  const [plans, entries, winLosses, watched, focus, txns, budgets, targets, categories, weights, healthDays] = await Promise.all([
-    supabase
-      .from("day_plans")
-      .select("date, alarm_at, woke_at, lights_out_at, snoozed, mood, energy, stress, stress_source, is_example")
-      .eq("user_id", userId)
-      .eq("is_example", false)
-      .gte("date", weekStart)
-      .lte("date", weekEnd),
-    // From noon the Saturday before, so Sunday morning's night is whole.
-    selectAllPages(() =>
-      supabase
-        .from("time_log_entries")
-        .select(MIRROR_ENTRY_COLUMNS)
-        .eq("user_id", userId)
-        .eq("is_example", false)
-        .not("ended_at", "is", null)
-        .gte("started_at", at(addDays(weekStart, -1), "12:00:00"))
-        .lt("started_at", at(addDays(weekEnd, 1)))
-        .order("started_at", { ascending: true })
-        .order("id", { ascending: true })
-    ),
-    supabase
-      .from("win_losses")
-      .select("id, kind, habit_label, reason, occurred_at, is_example")
-      .eq("user_id", userId)
-      .eq("is_example", false)
-      .gte("occurred_at", at(weekStart))
-      .lt("occurred_at", at(addDays(weekEnd, 1)))
-      .order("occurred_at", { ascending: true })
-      .limit(1000),
-    fetchWatchedHabits(userId),
-    fetchFocusWeek(userId, weekStart),
-    // Spending, from the first of the month the week starts in: budgets are
-    // monthly, so each one is read as the week left it.
-    selectAllPages(() =>
-      supabase
-        .from("bank_transactions")
-        .select("id, posted_at, amount, is_transfer, is_business, budget_id, purchase_kind, intent, reviewed_at")
-        .eq("user_id", userId)
-        .lt("amount", 0)
-        .eq("is_transfer", false)
-        .gte("posted_at", at(startOfMonth(weekStart)))
-        .lt("posted_at", at(addDays(weekEnd, 1)))
-        .order("posted_at", { ascending: true })
-        .order("id", { ascending: true })
-    ),
-    fetchBudgets(userId),
-    fetchWeeklyTargets(weekStart),
-    // Archived ones too: an old entry still names its category.
-    supabase.from("user_categories").select("name, family, is_work").eq("user_id", userId),
-    // Eight weeks of weigh-ins, for the trend the week's reading joins.
-    supabase
-      .from("body_metrics")
-      .select("id, date, measured_at, value, unit, is_example")
-      .eq("user_id", userId)
-      .eq("kind", "weight")
-      .eq("is_example", false)
-      .gte("date", addDays(weekStart, -49))
-      .lte("date", weekEnd)
-      .order("measured_at", { ascending: true }),
-    // What the watch measured (0099). The mirror still opens without it.
-    supabase
-      .from("health_days")
-      .select(HEALTH_DAY_COLUMNS)
-      .eq("user_id", userId)
-      .gte("date", weekStart)
-      .lte("date", weekEnd)
-      .then((r) => r, (err) => ({ data: [], error: null, failed: err })),
-  ]);
-  for (const r of [plans, winLosses, categories, weights]) if (r.error) throw r.error;
-  if (healthDays.error) console.warn(healthDays.error);
-  return {
-    dayPlans: plans.data ?? [],
-    entries,
-    winLosses: winLosses.data ?? [],
-    watched,
-    goals: focus.goals,
-    checkins: focus.checkins,
-    txns,
-    budgets,
-    targets,
-    categories: categories.data ?? [],
-    weights: weights.data ?? [],
-    healthDays: healthDays.error ? [] : healthDays.data ?? [],
-  };
-}
-
 // The home screen widget's key (see 0073_phone_widget.sql). The row says
 // whether a widget is on and when it last asked; the key itself only ever
 // comes back once, from newWidgetKey.
@@ -3426,7 +3333,8 @@ export async function fetchAscent(userId, today) {
     // row-level security.
     selectAllPages(() => supabase.from("node_edges").select("id, child_id").order("id")),
     supabase.from("focuses").select(ASCENT_FOCUS).eq("user_id", userId),
-    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    // Plain lists from the Tasks tab (0111) are never targets.
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId).eq("is_list", false),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase
@@ -3478,7 +3386,7 @@ export async function deleteFocus(id) {
 // A quest and its camps, in order. A quest added as already done becomes a
 // patch straight away. With `lessonId` it's that lesson's own mountain
 // (0079), shown with the lesson rather than as a quest.
-export async function addQuest(userId, { title, note, goalId, lessonId = null, status = "on", today, camps = [], position = 0 }) {
+export async function addQuest(userId, { title, note, goalId, lessonId = null, status = "on", today, camps = [], position = 0, isList = false }) {
   const { data, error } = await supabase
     .from("quests")
     .insert({
@@ -3491,6 +3399,8 @@ export async function addQuest(userId, { title, note, goalId, lessonId = null, s
       started_on: status === "on" ? today : null,
       finished_on: status === "done" ? today : null,
       position,
+      // Only a plain list names the column (0111), so a quest saves as before.
+      ...(isList ? { is_list: true } : {}),
     })
     .select("id")
     .single();
@@ -4276,16 +4186,13 @@ export async function deleteTempleHelper(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Quest lists and the village (0081). Each quest (and each lesson, on its own
-// mountain) keeps a running list of tasks, sub-tasks and notes. The village
-// keeps only the builds he chose; how far along each is comes from every
-// task and camp step finished, so this loads those beside the builds.
+// Quest lists (0081). Each quest (and each lesson, on its own mountain)
+// keeps a running list of tasks, sub-tasks and notes.
 // ---------------------------------------------------------------------------
 
 const QUEST_TASK = "id, quest_id, parent_id, kind, text, note, urgency, color, day, ongoing, today_on, computer, working_since, pin_id, done_on, done_at, position, created_at, updated_at";
-const VILLAGE_PROJECT = "id, kind, seed, plot, need, started_on, created_at";
 
-// What lays bricks: every finished task (not note lines) and camp step, with
+// Everything finished: every finished task (not note lines) and camp step, with
 // enough to say what it was and where it came from, and the finished steps
 // of sections he resolved (0097), in their places as they were.
 async function fetchFinished(userId, resolved = fetchResolvedSteps(userId)) {
@@ -4336,77 +4243,23 @@ export async function fetchQuestWorkDone(userId, date) {
   return questWorkDone({ date, chunks: tagged, quests: quests.data ?? [], camps: camps.data ?? [], tasks: tasks.data ?? [], steps: steps.data ?? [] });
 }
 
-// The builds and everything finished.
-async function villageBuilds(userId) {
-  const [[tasks, steps], projects] = await Promise.all([fetchFinished(userId), supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId)]);
-  if (projects.error) throw projects.error;
-  return { tasks, steps, projects: projects.data ?? [] };
-}
-
-// The village page: the builds and everything finished, the quests and
-// lessons that name each brick's quest, the arrows that train the soldiers,
-// and the people who live there.
-export async function fetchVillage(userId) {
-  const [builds, camps, quests, lessons, shots, temple] = await Promise.all([
-    villageBuilds(userId),
-    supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
-    supabase.from("quests").select("id, title, lesson_id").eq("user_id", userId),
-    supabase.from("lessons").select("id, title").eq("user_id", userId),
-    // Arrows that have flown (loosed on Bank the day); level 0 is a bullseye.
-    selectAllPages(() => supabase.from("mark_shots").select("id, date, level").eq("user_id", userId).not("loosed_at", "is", null).order("id")),
-    selectAllPages(() => supabase.from("temple_done").select(TEMPLE_DONE).eq("user_id", userId).order("pid")),
-  ]);
-  for (const r of [camps, quests, lessons]) if (r.error) throw r.error;
-  const { tasks, steps, projects } = builds;
-  return {
-    tasks,
-    steps,
-    projects,
-    camps: camps.data ?? [],
-    quests: quests.data ?? [],
-    lessons: lessons.data ?? [],
-    shots,
-    temple,
-  };
-}
-
-// A build chosen: it stands on `plot` and starts taking bricks today.
-export async function addVillageProject(userId, { kind, seed, plot, need, today }) {
-  const { data, error } = await supabase
-    .from("village_projects")
-    .insert({ user_id: userId, kind, seed, plot, need, started_on: today })
-    .select(VILLAGE_PROJECT)
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-// Build something else on the same plot, keeping the bricks already laid.
-export async function updateVillageProject(id, fields) {
-  const { error } = await supabase.from("village_projects").update(fields).eq("id", id);
-  if (error) throw error;
-}
-
 // The quests page: the lists along the top, the goals they serve, the camps
 // on each and every step and section in them (for how far along each camp
-// is and what's on today there), the builds and everything finished (for
-// the build going up).
+// is and what's on today there), and everything finished (for "Done today").
 export async function fetchQuestBoard(userId) {
   const resolved = fetchResolvedSteps(userId);
-  const [[tasks, steps], projects, quests, lessons, camps, goals, campSteps, campSections] = await Promise.all([
+  const [[tasks, steps], quests, lessons, camps, goals, campSteps, campSections] = await Promise.all([
     fetchFinished(userId, resolved),
-    supabase.from("village_projects").select(VILLAGE_PROJECT).eq("user_id", userId),
-    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("quests").select(`${ASCENT_QUEST}, is_list`).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),
     fetchStepTally(userId, resolved),
     fetchSectionTally(userId),
   ]);
-  for (const r of [projects, quests, lessons, camps]) if (r.error) throw r.error;
+  for (const r of [quests, lessons, camps]) if (r.error) throw r.error;
   return {
     finished: { tasks, steps },
-    projects: projects.data ?? [],
     quests: quests.data ?? [],
     lessons: lessons.data ?? [],
     camps: camps.data ?? [],
@@ -4756,54 +4609,4 @@ export async function updatePin(id, fields) {
 export async function deletePin(id) {
   const { error } = await supabase.from("image_pins").delete().eq("id", id);
   if (error) throw error;
-}
-
-
-// ---------------------------------------------------------------------------
-// The builder (0110, edge function `builder`): an AI on your own key that
-// proposes changes to your Hub. Your key goes to the function once and is
-// never sent back; applying and undoing run as you, under the same rules as
-// the rest of the app.
-// ---------------------------------------------------------------------------
-
-export function builderStatus() {
-  return callFunction("builder", { action: "status" }, "The builder");
-}
-
-export function saveBuilderKey({ provider, key, model }) {
-  return callFunction("builder", { action: "save", provider, key, model }, "The builder");
-}
-
-export function removeBuilderKey() {
-  return callFunction("builder", { action: "remove" }, "The builder");
-}
-
-// `messages`: [{ role: "user" | "assistant", text }], oldest first.
-export function builderChat(messages) {
-  return callFunction("builder", { action: "chat", messages }, "The builder");
-}
-
-export async function applyBuilderQuest(proposal, today) {
-  const { data, error } = await supabase.rpc("builder_apply_quest", { p_quest: proposal, p_today: today });
-  if (error) throw error;
-  return data;
-}
-
-// Resolves to { undone } or, when work was done or added since and `force`
-// is false, { ask, done, added } with nothing deleted.
-export async function undoBuilderChange(id, force = false) {
-  const { data, error } = await supabase.rpc("builder_undo", { p_change: id, p_force: force });
-  if (error) throw error;
-  return data;
-}
-
-export async function fetchBuilderChanges(userId) {
-  const { data, error } = await supabase
-    .from("ai_changes")
-    .select("id, kind, summary, made, created_at, undone_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  return data ?? [];
 }

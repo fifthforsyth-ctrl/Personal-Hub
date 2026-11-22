@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { BookOpen, Check, ChevronDown, ChevronLeft, Flag, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchCamp, addSteps, updateStep, updateSteps, deleteStep, addSection, updateSection, updateSections, updateCamp, reorder, moveStepToSection, placeSteps, fetchSectionExtras, resolveSection, savePinDrop } from "../lib/api";
@@ -96,7 +96,8 @@ const LOCKED = { on: true, locked: true, toggle: () => {} };
 // lesson's (its own id), never the mountain's.
 function homeOf(data) {
   if (data?.lesson) return pathOf("lesson", data.lesson.id);
-  return data?.camp?.quest_id ? pathOf("quest", data.camp.quest_id) : "/targets";
+  // A quest's camps, sections and lists live on the Tasks tab (2026-11-22).
+  return data?.camp?.quest_id ? `/tasks/${data.camp.quest_id}` : "/tasks";
 }
 
 export default function Camp() {
@@ -107,6 +108,8 @@ export default function Camp() {
   const toast = useToast();
   const confirm = useConfirm();
   const navigate = useNavigate();
+  // A camp opens under the tab it was opened from: Tasks, or Targets.
+  const under = useLocation().pathname.startsWith("/tasks") ? "/tasks" : "/targets";
 
   const { data, error, loading, reload, mutate } = useLoad(() => (userId ? fetchCamp(userId, id) : null), [userId, id]);
   const view = useMemo(() => (data ? buildCamp(data.sections, data.steps, today) : null), [data, today]);
@@ -769,9 +772,9 @@ export default function Camp() {
     return (
       <div className="page ascent camp">
         <header className="ascent-head">
-          <Link to="/targets" className="btn-link camp-back">
+          <Link to={under} className="btn-link camp-back">
             <ChevronLeft size={14} />
-            Targets
+            {under === "/tasks" ? "Tasks" : "Targets"}
           </Link>
         </header>
         {error && <LoadError what="this camp" error={error} onRetry={reload} />}
@@ -868,7 +871,7 @@ export default function Camp() {
       {camps.length > 1 && (
         <nav className="camp-tabs" aria-label="Camps on this mountain">
           {camps.map((c, i) => (
-            <Link key={c.id} to={`/targets/camp/${c.id}`} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
+            <Link key={c.id} to={`${under}/camp/${c.id}`} className="camp-tab" aria-current={c.id === id ? "page" : undefined} replace>
               {c.reached_on ? <Flag size={12} aria-hidden="true" /> : <span className="camp-tab__n">{i + 1}</span>}
               {c.title}
             </Link>

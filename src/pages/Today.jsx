@@ -21,11 +21,8 @@ import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
 import PlanBlocks from "../components/today/PlanBlocks";
-import MirrorLink from "../components/MirrorLink";
 import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
-import { isSunday } from "../lib/honest";
-import { lastWeekStart } from "../lib/mirror";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
@@ -128,7 +125,7 @@ export default function Today() {
       <FocusStrip userId={userId} date={date} />
 
       {/* The quests and lessons a tap away, camps and all (hidden when none). */}
-      <QuestsRow userId={userId} date={date} />
+      <QuestsRow userId={userId} date={date} label="Tasks" tasks />
 
       <WeekStrip date={date} />
 
@@ -146,8 +143,6 @@ export default function Today() {
           {data && (
             <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
           )}
-          {/* Sunday: last week in the mirror, before the new one is planned. */}
-          {isSunday(date) && <MirrorLink key={date} weekStart={lastWeekStart(date)} closable />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} checkinOnPage={Boolean(userId && data && !runaway)} />
           {/* The day's plan, right under the minutes it turns into. */}
           {data && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}

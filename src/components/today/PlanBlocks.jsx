@@ -143,7 +143,7 @@ function Loose({ loose, date, onToggle }) {
       {loose.quests.map((g) => (
         <div key={g.questId ?? "none"} className="plan-blocks__group">
           {g.questId ? (
-            <Link to={`/targets/${g.questId}`} className="plan-blocks__group-title">
+            <Link to={`/tasks/${g.questId}`} className="plan-blocks__group-title">
               <span className="truncate">{g.title}</span>
               <ArrowRight size={13} />
             </Link>
