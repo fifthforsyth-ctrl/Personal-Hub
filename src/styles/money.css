@@ -51,6 +51,24 @@
 
 .money-nudge { gap: 10px; color: inherit; }
 
+/* "More": everything you don't need every day, one tap away. */
+.money-more { border-top: 1px solid var(--line); padding-top: 4px; }
+.money-more__summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.money-more__summary::-webkit-details-marker { display: none; }
+.money-more__hint { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.money-more__chevron { color: var(--text-2); transition: transform 0.15s ease; flex-shrink: 0; }
+.money-more[open] .money-more__chevron { transform: rotate(180deg); }
+.money-more__body { padding-top: 8px; }
+
 /* --- Sheets: white, so the grey fields inside read as fields --------------- */
 
 .sheet.money-sheet { background: var(--card); max-width: 480px; }
@@ -344,6 +362,7 @@
   font-size: 12.5px;
   color: var(--text-2);
 }
+.money-unsorted--tight { margin-top: 6px; padding-top: 0; border-top: 0; }
 
 .money-archived { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .money-archived__toggle { min-height: 36px; }
