@@ -2900,9 +2900,15 @@ function onRef(query, ref, lineage) {
 
 // The quests on Today: each quest he's on and lesson he's learning, with
 // its camps and what's on today's list there (ladder.js questPills).
-export async function fetchQuestPills(userId, date) {
+// `lists`: include the Tasks tab's plain lists (0111) as well as the quests.
+export async function fetchQuestPills(userId, date, { lists = false } = {}) {
+  const quests = supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId);
+  return questPillsFrom(userId, date, lists ? quests : quests.eq("is_list", false));
+}
+
+async function questPillsFrom(userId, date, questsQuery) {
   const [quests, lessons, camps, work] = await Promise.all([
-    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    questsQuery,
     supabase.from("lessons").select("id, title, status, goal_id, position, created_at").eq("user_id", userId),
     supabase.from("quest_camps").select("id, quest_id").eq("user_id", userId),
     fetchTodayQuestWork(userId, date),
@@ -3098,7 +3104,7 @@ export async function fetchLadderTargets(userId) {
     selectAllPages(() => supabase.from("nodes").select("id, title, created_at").eq("user_id", userId).order("id")),
     // Your own edges only, by row-level security.
     selectAllPages(() => supabase.from("node_edges").select("id, parent_id, child_id").order("id")),
-    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId),
+    supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId).eq("is_list", false),
     supabase.from("lessons").select("id, title, status, goal_id, started_on, position, created_at").eq("user_id", userId),
     fetchFocusGoalRows(userId),
   ]);
@@ -3327,7 +3333,8 @@ export async function fetchAscent(userId, today) {
     // row-level security.
     selectAllPages(() => supabase.from("node_edges").select("id, child_id").order("id")),
     supabase.from("focuses").select(ASCENT_FOCUS).eq("user_id", userId),
-    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    // Plain lists from the Tasks tab (0111) are never targets.
+    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId).eq("is_list", false),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase
@@ -3379,7 +3386,7 @@ export async function deleteFocus(id) {
 // A quest and its camps, in order. A quest added as already done becomes a
 // patch straight away. With `lessonId` it's that lesson's own mountain
 // (0079), shown with the lesson rather than as a quest.
-export async function addQuest(userId, { title, note, goalId, lessonId = null, status = "on", today, camps = [], position = 0 }) {
+export async function addQuest(userId, { title, note, goalId, lessonId = null, status = "on", today, camps = [], position = 0, isList = false }) {
   const { data, error } = await supabase
     .from("quests")
     .insert({
@@ -3392,6 +3399,8 @@ export async function addQuest(userId, { title, note, goalId, lessonId = null, s
       started_on: status === "on" ? today : null,
       finished_on: status === "done" ? today : null,
       position,
+      // Only a plain list names the column (0111), so a quest saves as before.
+      ...(isList ? { is_list: true } : {}),
     })
     .select("id")
     .single();
@@ -4241,7 +4250,7 @@ export async function fetchQuestBoard(userId) {
   const resolved = fetchResolvedSteps(userId);
   const [[tasks, steps], quests, lessons, camps, goals, campSteps, campSections] = await Promise.all([
     fetchFinished(userId, resolved),
-    supabase.from("quests").select(ASCENT_QUEST).eq("user_id", userId),
+    supabase.from("quests").select(`${ASCENT_QUEST}, is_list`).eq("user_id", userId),
     supabase.from("lessons").select(ASCENT_LESSON).eq("user_id", userId),
     supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
     selectAllPages(() => supabase.from("nodes").select("id, title").eq("user_id", userId).order("id")),

@@ -5048,7 +5048,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     return from < 0 ? "" : nav.slice(from, nav.indexOf("];", from));
   };
   const tos = (list) => [...list.matchAll(/to: "([^"]*)"/g)].map((m) => m[1]);
-  ok("Targets is the third tab, where Quests was", tos(listOf("NAV"))[2] === "/targets" && listOf("NAV").includes('{ to: "/targets", label: "Targets", Icon: Target }'), tos(listOf("NAV")).join());
+  ok("Tasks is the third tab and Targets the fourth", tos(listOf("NAV"))[2] === "/tasks" && tos(listOf("NAV"))[3] === "/targets" && listOf("NAV").includes('{ to: "/targets", label: "Targets", Icon: Target }'), tos(listOf("NAV")).join());
   ok("no Quests tab, and the Range is out of More", !tos(listOf("NAV")).includes("/quests") && tos(listOf("MORE")).every((t) => !/^\/(ascent|quests)\b/.test(t)) && !/The Range/.test(nav));
   ok("the Range's old page is gone", !existsSync(new URL("../src/pages/Ascent.jsx", import.meta.url)));
 
@@ -5075,14 +5075,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   const today = src("pages/Today.jsx");
   const at = (s) => today.indexOf(s);
-  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at("<QuestsRow userId={userId} date={date} />") && at("<QuestsRow") < at("<WeekStrip"));
+  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at('<QuestsRow userId={userId} date={date} label="Tasks" tasks />') && at("<QuestsRow") < at("<WeekStrip"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
-  ok("a plan's quest opens its page", src("components/today/PlanBlocks.jsx").includes("<Link to={`/targets/${g.questId}`}"));
+  ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));
   const camp = src("pages/Camp.jsx");
-  ok("a camp goes back to its own quest or lesson", /if \(data\?\.lesson\) return pathOf\("lesson", data\.lesson\.id\);/.test(camp) && /pathOf\("quest", data\.camp\.quest_id\) : "\/targets"/.test(camp) && camp.includes("`/targets/camp/${c.id}`"));
+  ok("a camp goes back to its own lesson, or its quest's lists on Tasks", /if \(data\?\.lesson\) return pathOf\("lesson", data\.lesson\.id\);/.test(camp) && camp.includes('data?.camp?.quest_id ? `/tasks/${data.camp.quest_id}` : "/tasks"') && camp.includes("`${under}/camp/${c.id}`"));
   const plans = src("pages/Plans.jsx");
-  ok("plans live under Targets, and new camps open where they went", plans.includes('<Back to="/targets">Targets</Back>') && /mt\.lessonId \? pathOf\("lesson", mt\.lessonId\) : pathOf\("quest", questId\)\}#camps/.test(plans));
+  ok("plans live under Targets, and new camps open where they went", plans.includes('<Back to="/targets">Targets</Back>') && plans.includes('mt.lessonId ? pathOf("lesson", mt.lessonId) : `/tasks/${questId}`}#camps'));
   const sheet = src("components/focus/FocusSheet.jsx");
   ok("a focus's sheet says what it counts toward, as a link that closes the sheet", /<Link to=\{pathOf\(toward\.kind, toward\.id\)\} className="ladder-toward" onClick=\{onClose\}>/.test(sheet) && /toward=\{null\}/.test(sheet));
   const week = src("components/focus/FocusWeek.jsx");
@@ -5237,7 +5237,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // The camps: always there, never behind a pill or a fold.
   ok("the camps are drawn on every quest's page, not inside a fold", /\n\s*<QuestCamps\b/.test(body) && !/<details/.test(camps) && /id="camps"/.test(camps) && /className="qs-camps"/.test(camps));
-  ok("each camp goes to its own page under Targets, with no state trick", /to=\{`\/targets\/camp\/\$\{c\.id\}`\}/.test(camps) && !/<Link[^>]*\bstate=/.test(camps));
+  ok("each camp goes to its own page under the tab it's on, with no state trick", camps.includes("to={`${under}/camp/${c.id}`}") && !/<Link[^>]*\bstate=/.test(camps));
   ok("the flag at the next camp goes through the ladder (its ceremony and Undo)", /onReach=\{\(\) => ladder\?\.reachNext\(climb\)\}/.test(body) && /Mark the summit reached/.test(camps));
   ok("'Bring in a plan' goes to the plans under Targets", /to="\/targets\/plans"/.test(camps));
 
@@ -6276,7 +6276,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const lines = L.eveningLines([{ id: "s1", date: "2026-11-01", level: 2, reason: 0, note: "Phone in the studio again." }], ["Distracted"]);
   ok("an evening's line knows its shot", lines.length === 1 && lines[0].shot === "s1" && lines[0].ring === "Middle · Distracted", JSON.stringify(lines));
   ok("and a tap on it opens that day on the target", /item\.source === "evening" && item\.shot && onOpenDay \? \(\s*<button type="button" className="tg-note__text" onClick=\{\(\) => onOpenDay\(item\.shot\)\}/.test(notes));
-  ok("the page opens its history on that day", /const openDay = t \? \(shotId\) => openHistory\(\{ day: \{ id: shotId \} \}\) : null;/.test(page) && /onOpenDay=\{openDay\}/.test(page) && (page.match(/pick=\{ui\.day\}/g) ?? []).length === 2 && /onHistory=\{t \? \(\) => openHistory\(\) : null\}/.test(page));
+  ok("the page opens its history on that day", /const openDay = t \? \(shotId\) => openHistory\(\{ day: \{ id: shotId \} \}\) : null;/.test(page) && /onOpenDay=\{openDay\}/.test(page) && (page.match(/pick=\{ui\.day\}/g) ?? []).length === 3 && /onHistory=\{t \? \(\) => openHistory\(\) : null\}/.test(page));
   ok("closing the history forgets the day asked for", /set\(open \? \{ history: true \} : \{ history: false, day: null \}\)/.test(page));
   ok("the history shows the day asked for, widening the range when it's further back", /pick=\{pick\}/.test(hist) && /setPicked\(pick\.id\);\s*setRange\(\(r\) => \(inRange\(t\.shots, today, r\)\.some\(\(s\) => s\.id === pick\.id\) \? r : "all"\)\);/.test(view) && view.indexOf("setPicked(pick.id)") > view.indexOf("setPicked(null);"));
 

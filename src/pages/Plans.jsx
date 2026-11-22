@@ -427,7 +427,7 @@ function OnePlan({ id }) {
       toast.show(`Added ${p.sections.length} camps to ${mt.title}`);
       // On to the page they were made for, at its camps (a lesson's page is
       // the lesson's own, not its mountain's).
-      navigate(`${mt.lessonId ? pathOf("lesson", mt.lessonId) : pathOf("quest", questId)}#camps`);
+      navigate(`${mt.lessonId ? pathOf("lesson", mt.lessonId) : `/tasks/${questId}`}#camps`);
     } catch (err) {
       toast.error(err, "Couldn't make those camps.");
       setBusy(false);

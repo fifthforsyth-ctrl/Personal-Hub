@@ -24,6 +24,8 @@ const Targets = lazy(() => import("./pages/Targets"));
 const Target = lazy(() => import("./pages/Target"));
 const Camp = lazy(() => import("./pages/Camp"));
 const Plans = lazy(() => import("./pages/Plans"));
+// Tasks: every quest's lists and plain lists for anything (2026-11-22).
+const Tasks = lazy(() => import("./pages/Tasks"));
 const Ask = lazy(() => import("./pages/Ask"));
 const WatchPage = lazy(() => import("./pages/Watch"));
 const Phone = lazy(() => import("./pages/Phone"));
@@ -85,6 +87,9 @@ export default function App() {
             <Route path="/study" element={<Study />} />
             <Route path="/work" element={<Work />} />
             <Route path="/money" element={<Money />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/tasks/camp/:id" element={<Camp />} />
+            <Route path="/tasks/:id" element={<Tasks />} />
             <Route path="/targets" element={<Targets />} />
             <Route path="/targets/mission" element={<TargetAt />} />
             <Route path="/targets/camp/:id" element={<Camp />} />

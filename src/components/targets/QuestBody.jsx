@@ -128,6 +128,10 @@ function useWide() {
   return wide;
 }
 
+// It's drawn in two places: the Tasks tab (pages/Tasks.jsx), where every
+// quest and every plain list keeps its lists, and a lesson's page on
+// Targets. `noun` is what the hints call it ("list" on a plain list).
+//
 // `kind` is "quest" or "lesson" and `id` its id (a lesson's own, never its
 // mountain's). `ladder` is the page's useLadder(): the climb (its camps
 // reached, the flag at the next one) and the ceremony. `board` is
@@ -150,6 +154,7 @@ export default function QuestBody({
   notes = null,
   history = null,
   reloadRef = null,
+  noun = kind,
 }) {
   const { user } = useAuth();
   const userId = user?.id;
@@ -1670,7 +1675,7 @@ export default function QuestBody({
       <DayList day={todayList} label="Today" sub={fmtDayHeading(today)} today={today} openId={homeOpen} row={row} onAddSubs={addSubs} {...drag} drop="today" lead={todayLead} ownInLead={!picker.on} extra={todayExtra} doneToday={doneHere.count} onDoneToday={() => setDoneView("quest")}>
         {!todayList.items.length && !linesLoading && (
           <p className="qs-hint">
-            {earlier.length ? "A fresh list for today." : `What will you do for this ${kind} today?`}
+            {earlier.length ? "A fresh list for today." : `What will you do for this ${noun} today?`}
           </p>
         )}
         <AddLine key={sel.key} hidden={picker.on} onAdd={(parsed, lineKind) => addLines(parsed, lineKind)} />

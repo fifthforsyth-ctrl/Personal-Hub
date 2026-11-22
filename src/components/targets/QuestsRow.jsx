@@ -13,8 +13,10 @@ import "../../styles/targets.css";
 //
 // Nothing shows while it first loads, or when there's nothing on; a failed
 // read stays quiet too (the Targets tab is a tap away and says why).
-export default function QuestsRow({ userId, date, current = null, label = "Quests", className = "" }) {
-  const { data, reload } = useLoad(() => (userId ? fetchQuestPills(userId, date) : null), [userId, date]);
+//   tasks   link each quest (and plain list) to its lists on the Tasks tab
+//           rather than to its target; lessons still open on Targets.
+export default function QuestsRow({ userId, date, current = null, label = "Quests", className = "", tasks = false }) {
+  const { data, reload } = useLoad(() => (userId ? fetchQuestPills(userId, date, { lists: tasks }) : null), [userId, date, tasks]);
 
   // A camp ticked, a line written or a quest added elsewhere shows here too,
   // and so does what changed while the phone was away from the app.
@@ -43,7 +45,7 @@ export default function QuestsRow({ userId, date, current = null, label = "Quest
           return (
             <li key={p.key}>
               <Link
-                to={pathOf(p.kind, p.key)}
+                to={tasks && p.kind === "quest" ? `/tasks/${p.key}` : pathOf(p.kind, p.key)}
                 className={"quests-row__pill" + (on ? " is-on" : "")}
                 aria-current={on ? "page" : undefined}
                 title={p.name}

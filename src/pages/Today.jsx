@@ -125,7 +125,7 @@ export default function Today() {
       <FocusStrip userId={userId} date={date} />
 
       {/* The quests and lessons a tap away, camps and all (hidden when none). */}
-      <QuestsRow userId={userId} date={date} />
+      <QuestsRow userId={userId} date={date} label="Tasks" tasks />
 
       <WeekStrip date={date} />
 

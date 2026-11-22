@@ -1,0 +1,41 @@
+/* ===========================================================================
+   The Tasks tab (pages/Tasks.jsx): the lists along the top, then the open
+   list drawn as a quest's lists always were (quests.css). One column: no
+   quotes or notes rail here, so every part takes the whole width.
+   =========================================================================== */
+
+.tasks-head { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; min-width: 0; }
+.tasks-head .eyebrow { margin: 0; }
+
+.tasks-lists ul { display: flex; gap: 8px; margin: 0; padding: 2px 2px 4px; list-style: none; overflow-x: auto; scroll-snap-type: x proximity; }
+.tasks-lists li { flex: 0 0 auto; scroll-snap-align: start; }
+.tasks-pill {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; max-width: 240px; padding: 6px 14px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card); color: inherit;
+  font: inherit; font-size: 13.5px; font-weight: 650; text-decoration: none; white-space: nowrap; cursor: pointer;
+}
+.tasks-pill svg { flex: 0 0 auto; }
+.tasks-pill__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tasks-pill:hover { border-color: var(--ink); }
+.tasks-pill.is-on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.tasks-pill--new { border-style: dashed; color: var(--text-2); font-weight: 600; }
+
+.tasks-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tasks-title .page-title { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tasks-title__tools { display: inline-flex; gap: 6px; margin-left: auto; }
+.tasks-title__target { display: inline-flex; align-items: center; gap: 5px; min-height: 40px; margin-left: auto; white-space: nowrap; }
+
+.tasks-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tasks-name .input { flex: 1 1 220px; min-width: 0; }
+.tasks-lists .tasks-name { min-width: min(420px, 86vw); }
+
+@media (min-width: 901px) {
+  .tasks-lists ul { flex-wrap: wrap; overflow: visible; scroll-snap-type: none; }
+  /* No rail: the cells stack in source order (camps, today, ongoing, the
+     clipboard, earlier days), each the full width. */
+  .tasks-page .qs-grid,
+  .tasks-page .qs-grid--board,
+  .tasks-page .qs-grid--clip,
+  .tasks-page .qs-grid--board.qs-grid--clip { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: none; }
+  .tasks-page .qs-grid > * { grid-area: auto; }
+}
