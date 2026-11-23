@@ -397,26 +397,15 @@ export default function Study() {
   }
 
   return (
-    <div className="page">
-      <div className="page-head board-head">
-        <div>
-          <h1 className="page-title">Board</h1>
-          <p className="page-sub">What came, what you make of it, and what you're reading.</p>
-        </div>
-        <div className="board-head__actions">
-          <button type="button" className={"btn btn--sm" + (treeOpen ? " btn--accent" : "")} onClick={() => setTreeOpen((v) => !v)} aria-pressed={treeOpen}>
-            <Library size={14} />
-            All notes
-          </button>
-          <button type="button" className="btn btn--sm" onClick={createTop} disabled={creating}>
-            <Plus size={14} />
-            {creating ? "Starting…" : "New long note"}
-          </button>
-        </div>
-      </div>
+    <div className="page board-page">
+      <header className="hub-head board-head">
+        <h1 className="page-title">Board</h1>
+      </header>
+
+      {!searching && <CaptureBar onCapture={capture} />}
 
       <div className="board-search" role="search">
-        <Search size={16} aria-hidden="true" />
+        <Search size={18} aria-hidden="true" />
         <input
           className="input"
           value={query}
@@ -445,10 +434,6 @@ export default function Study() {
         />
       ) : (
         <div className="stack">
-          {treeOpen && tree}
-
-          <CaptureBar onCapture={capture} />
-
           {/* The quote chosen for this week, which used to close Today. */}
           <QuoteOfDay userId={user.id} onChanged={quoteChanged} />
 
@@ -474,6 +459,18 @@ export default function Study() {
                   }}
                 />
               )}
+              {/* All the notes as a list, and a long one started, sit with the board they belong to. */}
+              <div className="board-tools">
+                <button type="button" className={"btn btn--sm" + (treeOpen ? " btn--accent" : " btn--on-page")} onClick={() => setTreeOpen((v) => !v)} aria-pressed={treeOpen}>
+                  <Library size={15} />
+                  All notes
+                </button>
+                <button type="button" className="btn btn--sm btn--on-page" onClick={createTop} disabled={creating}>
+                  <Plus size={15} />
+                  {creating ? "Starting…" : "New long note"}
+                </button>
+              </div>
+              {treeOpen && tree}
               <CorkBoard
                 quotes={saved.data ?? []}
                 notes={notes}

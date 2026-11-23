@@ -6492,6 +6492,28 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("typing a task doesn't zoom an iPhone", /font-size: 16px;/.test(rule(".tk-add__input")) && /font-size: 16px;/.test(rule(".tk-edit")) && /min-height: 44px;/.test(rule(".tk-add__input")));
     ok("a camp's columns ask for their hooks before they can return early", cols.indexOf("const { removeColumn, addIn, rename } = useColumnOps(userId);") < cols.indexOf("if (!loadedCamps.has(camp.id)) return"));
   }
+
+  // The Board in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Study.jsx");
+    const bar = read("src/components/study/CaptureBar.jsx");
+    const quote = read("src/components/today/QuoteOfDay.jsx");
+    const css = read("src/styles/board.css");
+    const daily = read("src/styles/daily.css");
+    const cork = read("src/styles/cork.css");
+    const rule = (src, sel) => src.slice(src.indexOf(sel + " {"), src.indexOf("}", src.indexOf(sel + " {")));
+    ok("the Board opens on its own title and nothing else in the head", /<header className="hub-head board-head">\s*<h1 className="page-title">Board<\/h1>\s*<\/header>/.test(page) && !/board-head__actions|page-sub/.test(page));
+    ok("keeping a thought comes first, before search and the week's quote", page.indexOf("<CaptureBar onCapture={capture} />") < page.indexOf('className="board-search"') && page.indexOf('className="board-search"') < page.indexOf("<QuoteOfDay"));
+    ok("the box is one line that grows, with a round button that keeps it", /className="board-capture__box"\s*rows=\{1\}/.test(bar) && /el\.style\.height = `\$\{Math\.min\(el\.scrollHeight, 260\)\}px`;/.test(bar) && /<button type="submit" className="board-capture__keep" disabled=\{busy \|\| !text\.trim\(\)\}/.test(bar));
+    ok("Cmd or Ctrl and Enter still keeps it", /e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\) submit\(e\)/.test(bar));
+    ok("the sweet something circle shows once there's something to keep", /const open = Boolean\(text\.trim\(\)\) \|\| sweet;/.test(bar) && /\{open && \(\s*<div className="board-capture__foot">/.test(bar) && /Sweet something/.test(bar));
+    ok("the box and its button are a thumb tall and typing doesn't zoom an iPhone", /min-height: 52px;/.test(rule(css, ".board-capture__box")) && /font-size: 16px;/.test(rule(css, ".board-capture__box")) && /width: 52px; height: 52px;/.test(rule(css, ".board-capture__keep")) && /background: var\(--ink\);/.test(rule(css, ".board-capture__keep")));
+    ok("search is a white pill a thumb tall", /min-height: 48px;[^}]*background: var\(--card\);[^}]*border-radius: var\(--r-pill\); font-size: 16px;/.test(css));
+    ok("All notes and New long note sit with the board they belong to", page.indexOf('<div className="board-tools">') > page.indexOf("<Browse") && page.indexOf('<div className="board-tools">') < page.indexOf("<CorkBoard") && /min-height: 44px;/.test(rule(css, ".board-tools .btn")));
+    ok("the week's quote has a plain heading and three even answers a thumb tall", /<h2 className="quote-card__eyebrow">For this week<\/h2>/.test(quote) && /className="seg quote-card__seg" role="group"/.test(quote) && /\.seg\.quote-card__seg \.seg-btn \{ flex: 1; min-height: 44px;/.test(daily) && /\.seg\.quote-card__seg \.seg-btn\.active \{ background: var\(--ink\); color: var\(--on-ink\);/.test(daily));
+    ok("Save, Share and Link sit under the answers", quote.indexOf('<div className="quote-card__tools">') > quote.indexOf('className="seg quote-card__seg"') && quote.indexOf("<ShareQuote", quote.indexOf('<div className="quote-card__tools">')) > 0);
+    ok("on a phone a card's buttons sit at its foot, never over its words", /@media \(hover: none\) \{\s*\.paper__tools \{ top: auto; bottom: 3px;[^}]*opacity: 1; \}/.test(cork));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.

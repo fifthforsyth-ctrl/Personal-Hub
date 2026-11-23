@@ -9,17 +9,20 @@
 
 /* --- Page head and search ---------------------------------------------------- */
 
-.board-head { margin-bottom: 18px; }
-.board-head__actions { display: flex; gap: 8px; flex-wrap: wrap; }
-/* On the page's own background a plain button needs a card behind it to
-   read as a button at all. */
-.board-head__actions .btn:not(.btn--accent) { background: var(--card); border-color: var(--line); }
+.board-head .page-title { margin: 0; }
+.board-head { margin-bottom: 12px; }
 
-.board-search { position: relative; margin-bottom: 14px; }
-.board-search > svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
-.board-search .input { padding-left: 40px; padding-right: 44px; background: var(--card); border-color: var(--line); }
+/* Search: a white pill under the capture box. */
+.board-search { position: relative; margin-bottom: 12px; }
+.board-search > svg { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
+.board-search .input { min-height: 48px; padding-left: 46px; padding-right: 48px; background: var(--card); border-color: transparent; border-radius: var(--r-pill); font-size: 16px; }
 .board-search .input:focus { border-color: var(--line-strong); }
-.btn-icon.board-search__clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+.btn-icon.board-search__clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+
+/* All notes and a new long note, over the board they belong to. */
+.board-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.board-tools .btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.board-tools .btn--on-page { border-color: transparent; }
 
 .board-hit { background: var(--accent-soft); color: var(--text); border-radius: 3px; padding: 0 1px; }
 
@@ -52,10 +55,27 @@
 
 /* --- Capture ------------------------------------------------------------------ */
 
-.board-capture .card-head { margin-bottom: 10px; }
-.board-capture .textarea { min-height: 88px; font-family: var(--font-serif); font-size: 15.5px; line-height: 1.65; }
-.board-capture__foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 11px; }
-.board-capture__hint { flex: 1; min-width: 0; margin: 8px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+/* One white pill that grows with the words, a black button at its end to
+   keep them. Under it, once there's something to keep, the sweet something
+   circle and what happens to it. */
+.board-capture { margin-bottom: 8px; }
+.board-capture__row { display: flex; align-items: flex-end; gap: 8px; }
+.board-capture__box {
+  flex: 1; min-width: 0; display: block; min-height: 52px; max-height: 260px; padding: 15px 20px 13px; resize: none;
+  border: 1px solid transparent; border-radius: 26px; background: var(--card); color: var(--text);
+  font: inherit; font-size: 16px; line-height: 1.4;
+}
+.board-capture__box::placeholder { color: var(--text-2); }
+.board-capture__box:focus { outline: none; border-color: var(--line-strong); }
+.board-capture__keep {
+  flex: none; display: grid; place-items: center; width: 52px; height: 52px; border: 0; border-radius: 50%;
+  background: var(--ink); color: var(--on-ink); transition: opacity 0.14s, transform 0.1s;
+}
+.board-capture__keep:disabled { opacity: 0.28; }
+.board-capture__keep:not(:disabled):active { transform: scale(0.94); }
+.board-capture__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 64px 0 14px; }
+.board-capture__foot .sweet-check { min-height: 44px; }
+.board-capture__hint { margin: 0; font-size: 12.5px; color: var(--text-2); }
 
 /* --- A note open ---------------------------------------------------------------- */
 
@@ -253,9 +273,6 @@
 /* --- Phone ------------------------------------------------------------------ */
 
 @media (max-width: 600px) {
-  .board-head .board-head__actions { width: 100%; }
-  .board-capture__foot { flex-direction: column; align-items: stretch; }
-  .board-capture__foot > .btn { align-self: flex-end; }
   .board-note__title { font-size: 19px; }
 }
 
