@@ -355,29 +355,18 @@
 
 /* --- Reflection, close-out and the banked card ----------------------------- */
 
-/* Four steps, each a 4px bar inside a 24px-tall target, so jumping back to a
-   card is a tap rather than an aim. */
-.reflection-steps { display: flex; gap: 4px; margin: -6px 0 12px; }
+/* The four questions by name, under the one being answered: a pill each, a
+   thumb tall. The one open is black; one that's written has a tick. */
+.reflection-steps { display: flex; flex-direction: column; gap: 6px; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
 .reflection-step {
-  position: relative;
-  flex: 1;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: none;
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 18px; border: none;
+  border-radius: 24px; background: var(--bg); color: var(--text); font: inherit; font-size: 14.5px; font-weight: 600; text-align: left;
 }
-.reflection-step::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 10px;
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: var(--inset);
-}
-.reflection-step--done::before { background: var(--accent-line); }
-.reflection-step--here::before { background: var(--accent); }
+.reflection-step__n { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+.reflection-step__name { flex: 1; min-width: 0; }
+.reflection-step__tick { flex: none; color: var(--text-2); }
+.reflection-step--here { background: var(--ink); color: var(--on-ink); }
+.btn.reflection-card__prev { width: 44px; padding: 0; justify-content: center; }
 
 .close-out__skip { display: flex; margin: 12px auto 0; min-height: 36px; padding: 0 6px; font-size: 13px; }
 
@@ -827,3 +816,125 @@ a.quote-card__source:hover { text-decoration: underline; }
 .evening__switching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
 .evening-length[aria-busy="true"] .seg-btn { cursor: progress; }
 .evening-length[aria-busy="true"] .seg-btn:not(.active) { opacity: 0.6; }
+
+/* ===========================================================================
+   The evening in four steps (Clean slate, 2026-11-23). The bars at the top
+   say where you are; each step is a screen of white cards; Back and Next sit
+   under it. Rules here are under .evening so they hold over the shared ones.
+   =========================================================================== */
+
+.evening .eve-head { display: flex; align-items: center; margin-bottom: 6px; }
+.eve-progress { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.eve-progress__step { position: relative; flex: 1; height: 44px; padding: 0; border: 0; background: none; cursor: pointer; }
+.eve-progress__step::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 5px; margin-top: -2.5px;
+  border-radius: 3px; background: var(--line-strong); transition: background 0.15s;
+}
+.eve-progress__step.is-on::before { background: var(--ink); }
+.eve-progress__count { flex: none; width: 40px; text-align: right; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.eve-head__when { font-size: 13px; color: var(--text-2); }
+
+.eve-title { padding: 0 4px; margin-bottom: 14px; }
+.eve-title__when { font-size: 13px; color: var(--text-2); }
+.eve-title__h { margin: 2px 0 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; text-wrap: balance; }
+.evening .evening-nav { margin-top: 4px; }
+.evening .evening-nav .btn-link { min-height: 44px; font-size: 13.5px; }
+
+.eve-step[hidden] { display: none; }
+.evening .stack { gap: 12px; }
+.evening .card--accent { border-color: transparent; }
+.evening .card-title { font-size: 13px; font-weight: 600; letter-spacing: 0; margin: 0; }
+.evening .card-title svg { display: none; }
+
+.eve-foot { display: flex; gap: 8px; margin-top: 16px; }
+.eve-foot__back,
+.eve-foot__next { height: 56px; border: 0; border-radius: 28px; font: inherit; font-size: 16px; font-weight: 600; }
+.eve-foot__back { flex: none; padding: 0 24px; background: var(--card); color: var(--text); }
+.eve-foot__next { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--ink); color: var(--on-ink); }
+.eve-foot__back:active,
+.eve-foot__next:active { transform: scale(0.98); }
+
+/* Step one: wins with their count large, losses quietly under a line. */
+.evening .evening-wl { display: block; }
+.evening-wl__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.evening-wl__h { margin: 0; font-size: 13px; font-weight: 600; }
+.evening .evening-wl__count { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--text); }
+.evening-wl__none { margin: 4px 0 0; font-size: 14px; color: var(--text-2); }
+.evening .evening-wl__row { min-height: 36px; align-items: center; font-size: 15px; }
+.evening .evening-wl__row .evening-wl__mark { margin-top: 0; }
+.evening-wl__col--loss { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.evening-wl__col--loss .evening-wl__h { font-weight: 500; color: var(--text-2); }
+.evening .evening-wl__col--loss .evening-wl__count { font-size: 17px; font-weight: 600; color: var(--text-2); }
+.evening .evening-wl__hint { margin-top: 10px; font-size: 12.5px; }
+
+.evening-minutes__total { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.evening .time-strip--tall { height: 10px; gap: 2px; border-radius: 5px; }
+.evening .time-strip--tall > i { border-radius: 5px; }
+.evening .minutes-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin-top: 14px; font-size: 14px; }
+.evening .minutes-legend > .row { justify-content: space-between; }
+.evening .minutes-legend .truncate { flex: 1; }
+.evening .minutes-legend .mono { font-family: inherit; font-variant-numeric: tabular-nums; }
+
+/* Step two: the question large in the page's type, the answer on the page's
+   ground, and the four questions by name under it. */
+.evening .reflection-card { padding: 20px 18px 16px; }
+.evening .reflection-card__label { margin-bottom: 8px; color: var(--accent-text); }
+.evening .question { margin: 0 0 14px; font-family: var(--font); font-size: 22px; font-weight: 600; line-height: 1.28; letter-spacing: -0.02em; text-wrap: pretty; }
+.evening .reflection-card .textarea,
+.evening .evening-god .input {
+  min-height: 132px; padding: 14px 16px; border-color: transparent; border-radius: 18px;
+  background: var(--bg); font-size: 16px; line-height: 1.4;
+}
+.evening .reflection-card .textarea:focus,
+.evening .evening-god .input:focus { border-color: var(--line-strong); }
+.evening .reflection-card .btn,
+.evening .focus-arrows .btn,
+.evening .close-out .btn { min-height: 48px; padding: 0 18px; font-size: 14.5px; }
+.evening .reflection-card .voice-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.evening .reflection-card .btn.reflection-card__prev { width: 48px; padding: 0; justify-content: center; }
+.evening .reflection-card__nav .btn--ghost { padding: 0 6px; }
+
+/* Step three: each focus's rings are a thumb tall, three to a row. */
+.evening .ck-place__rings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.evening .ck-place__rings button { min-height: 44px; padding: 0 6px; border-color: transparent; border-radius: 22px; background: var(--bg); font-size: 14px; font-weight: 600; }
+.evening .ck-place__rings button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.evening .focus-arrow__title { font-size: 16px; font-weight: 600; }
+.evening .ck-place { align-items: stretch; }
+.evening .ck-place__face { align-self: center; }
+.evening .ck-place__read { text-align: center; }
+
+/* Step four: mood, the note for God and tomorrow's start are a card each. */
+.evening .card.evening-checkin { display: flex; flex-direction: column; gap: 12px; padding: 0; border: 0; background: none; box-shadow: none; }
+.evening .evening-checkin > .card-head { min-height: 0; margin: 0; padding: 0 4px; }
+.evening .evening-checkin > .card-head:empty,
+.evening .evening-checkin .card-title { display: none; }
+.evening .evening-checkin > .card-note { margin: 0 !important; padding: 0 4px; font-size: 13.5px; }
+.evening .evening-feel,
+.evening .evening-god,
+.evening-alarm { margin: 0; padding: 18px; border-radius: var(--r-lg); background: var(--card); }
+.evening .slider { gap: 8px; }
+.evening .slider__label,
+.evening .evening-god__q,
+.evening .evening-alarm .honest-label { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.evening .slider__track { gap: 4px; padding: 0; }
+.evening .slider__step { height: 44px; border-radius: 10px; background: var(--bg); box-shadow: none; }
+.evening .slider__step.is-on { background: var(--ink); }
+.evening .slider__thumb { display: none; }
+.evening .slider__ends { font-size: 12.5px; }
+.evening .evening-god__q { margin-bottom: 12px; }
+.evening .evening-god .input { min-height: 84px; }
+.evening .evening-god .voice-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.evening .evening-god__sunday .name-chip,
+.evening-alarm .name-chip { min-height: 44px; padding: 0 18px; border-color: transparent; border-radius: 22px; background: var(--bg); font-size: 15px; font-weight: 600; }
+.evening .evening-god__sunday .name-chip--on,
+.evening-alarm .name-chip.name-chip--on { background: var(--ink); color: var(--on-ink); }
+.evening-alarm .honest-chips { gap: 6px; margin-top: 12px; }
+.evening-alarm .honest-chips > .name-chip { flex: 1; justify-content: center; text-align: center; }
+.evening-alarm .name-chip--add { border-style: solid; color: var(--text); }
+.evening-alarm .input { min-height: 44px; font-size: 16px; }
+.evening .evening-checkin__lights { margin-top: 10px; font-size: 13px; }
+
+.evening .close-out .card-note { font-size: 13.5px; }
+.evening .close-out .btn.close-out__bank { min-height: 56px; border-radius: 28px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-size: 16px; font-weight: 600; }
+.evening .close-out .btn.close-out__bank:disabled { background: var(--inset); border-color: var(--inset); color: var(--text-2); opacity: 1; }
+.evening .close-out__skip { min-height: 44px; font-size: 13.5px; }

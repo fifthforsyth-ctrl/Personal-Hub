@@ -197,7 +197,7 @@ export default function EveningCheckin({ userId, date, dayPlan, journal, flushRe
       </div>
 
       {tonight && (
-        <>
+        <div className="evening-alarm">
           <div className="honest-label">Tomorrow starts at</div>
           <div className="honest-chips">
             {ALARMS.map((a) => (
@@ -229,7 +229,7 @@ export default function EveningCheckin({ userId, date, dayPlan, journal, flushRe
               usual && <>Usually {fmtClock(usual)}. Pick one to see tonight's lights-out time.</>
             )}
           </p>
-        </>
+        </div>
       )}
     </div>
   );

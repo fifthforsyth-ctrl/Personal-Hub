@@ -4850,7 +4850,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // --- The page --------------------------------------------------------------------
   const page = src("src/pages/Evening.jsx");
-  const full = page.slice(page.indexOf(") : (\n        <div className=\"stack\">"), page.indexOf("{volley &&"));
+  // Four steps since 2026-11-23, all on the page at once (one shows), in the same order.
+  const full = page.slice(page.indexOf("<div className=\"eve-steps\">"), page.indexOf("{volley &&"));
   const order = ["<WinsAndLosses", "<MinutesCard", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
   ok("the evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
   ok("the reflection questions stay; the watch row, the board card, What got done and the short evening are gone", /<ReflectionFlow\b/.test(page) && !/<WatchLine|<CuratedCards|<EveningTasks|<ShortEvening/.test(page));
@@ -6550,6 +6551,29 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("what he said is a black bubble, the answer a white one", /background: var\(--ink\); color: var\(--on-ink\);/.test(rule(".voice-turn__you")) && /\.voice-turn__hub \{ align-self: flex-start;[^}]*background: var\(--card\);/.test(css));
     ok("typing is a white pill a thumb tall that doesn't zoom an iPhone, with a round send", /\.voice-sheet__type \.input \{ min-height: 52px;[^}]*font-size: 16px; \}/.test(css) && /width: 52px; height: 52px;/.test(rule(".voice-sheet__send")));
     ok("close is a white circle a thumb wide, and capture by tapping is still a tap away", /width: 44px;\s*height: 44px;/.test(rule(".voice-full__close")) && /<button type="button" className="voice-sheet__capture" onClick=\{onCapture\}>/.test(sheet) && /min-height: 44px;/.test(rule(".voice-sheet__capture")));
+  }
+
+  // The evening in four steps, in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Evening.jsx");
+    const flow = read("src/components/day/ReflectionFlow.jsx");
+    const checkin = read("src/components/day/EveningCheckin.jsx");
+    const close = read("src/components/day/CloseOut.jsx");
+    const css = read("src/styles/daily.css");
+    const steps = page.slice(page.indexOf('<div className="eve-steps">'), page.indexOf("{volley &&"));
+    const sections = steps.split('<section className="stack eve-step"').slice(1);
+    ok("the evening is four steps: the day, the reflection, the week's aim, before banking", /const STEPS = \["How the day really went", "Reflection", "This week's aim", "Before you bank it"\];/.test(page) && sections.length === 4);
+    ok("each step holds its own part of the evening", /<WinsAndLosses[\s\S]*<MinutesCard/.test(sections[0]) && /<ReflectionFlow/.test(sections[1]) && /<FocusArrows[\s\S]*<TonightShots/.test(sections[2]) && /<EveningCheckin[\s\S]*<CloseOut/.test(sections[3]));
+    ok("every step stays on the page while another shows, so nothing typed is lost and banking still saves it all", sections.every((sec, i) => new RegExp("^ hidden=\\{step !== " + i + "\\}").test(sec)) && /\.eve-step\[hidden\] \{ display: none; \}/.test(css) && !/step === \d && </.test(steps));
+    ok("the bars at the top say where you are, and a tap on one goes there", /className=\{"eve-progress__step" \+ \(i <= step \? " is-on" : ""\)\}/.test(page) && /aria-current=\{i === step \? "step" : undefined\}/.test(page) && /onClick=\{\(\) => go\(i\)\}/.test(page) && /\.eve-progress__step \{[^}]*height: 44px;/.test(css));
+    ok("Back and Next are a thumb tall, the first step's Back closes to Today, and the last has no Next", /onClick=\{\(\) => \(step > 0 \? go\(step - 1\) : navigate\("\/"\)\)\}/.test(page) && /\{step < STEPS\.length - 1 && \(/.test(page) && /\.eve-foot__next \{ height: 56px;/.test(css));
+    ok("another evening starts at the first step, and a banked day has no steps", /useEffect\(\(\) => setStep\(0\), \[date\]\);/.test(page) && /const stepping = Boolean\(data\) && !banked;/.test(page));
+    ok("all four reflection questions are there by name, a thumb tall, the open one black", /label: "God's hand"/.test(flow) && /label: "Toward the Savior"/.test(flow) && /label: "Learning from today"/.test(flow) && /label: "Anything else"/.test(flow) && /<span className="reflection-step__name">\{c\.label\}<\/span>/.test(flow) && /\.reflection-step \{[^}]*min-height: 48px;/.test(css) && /\.reflection-step--here \{ background: var\(--ink\); color: var\(--on-ink\); \}/.test(css));
+    ok("the reflection's own buttons are named, so they aren't taken for the evening's", /aria-label="Previous question"/.test(flow) && /Next question/.test(flow));
+    ok("the question is large in the page's type and the answer doesn't zoom an iPhone", /\.evening \.question \{[^}]*font-family: var\(--font\); font-size: 22px;/.test(css) && /\.evening \.reflection-card \.textarea,\s*\.evening \.evening-god \.input \{[^}]*font-size: 16px;/.test(css));
+    ok("mood, the note for God and tomorrow's start are a card each", /<div className="evening-alarm">/.test(checkin) && /\.evening \.evening-feel,\s*\.evening \.evening-god,\s*\.evening-alarm \{[^}]*border-radius: var\(--r-lg\); background: var\(--card\);/.test(css));
+    ok("mood is ten blocks a thumb tall and the rings are too", /\.evening \.slider__step \{ height: 44px;/.test(css) && /\.evening \.ck-place__rings button \{ min-height: 44px;/.test(css));
+    ok("Bank the day is the evening's one orange button, with ink on it", /className="btn btn--accent btn--block close-out__bank"/.test(close) && /\.close-out__bank \{ min-height: 56px;[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\);/.test(css));
   }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
