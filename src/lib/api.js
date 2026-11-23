@@ -2920,7 +2920,8 @@ function onRef(query, ref, lineage) {
 // `lists`: include the Tasks tab's plain lists (0111) as well as the quests.
 export async function fetchQuestPills(userId, date, { lists = false } = {}) {
   const quests = supabase.from("quests").select("id, title, status, lesson_id, goal_id, position, created_at").eq("user_id", userId);
-  return questPillsFrom(userId, date, lists ? quests : quests.eq("is_list", false));
+  // The home for free-standing columns (COLUMNS_HOME) is no project, so it's never a pill.
+  return questPillsFrom(userId, date, lists ? quests.or(`note.is.null,note.neq.${COLUMNS_HOME}`) : quests.eq("is_list", false));
 }
 
 async function questPillsFrom(userId, date, questsQuery) {
@@ -4668,6 +4669,53 @@ export async function fetchCampColumns(userId, campId) {
   const [sections, steps] = await Promise.all([
     selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("user_id", userId).eq("camp_id", campId).order("id")),
     selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).eq("camp_id", campId).order("id")),
+  ]);
+  return { sections, steps };
+}
+
+// Columns that belong to no project (Aaron, 2026-11-23: "Not every column
+// has to be organized by task") live in one plain list kept out of sight,
+// marked by its note, with one camp. Made the first time it's needed.
+export const COLUMNS_HOME = "hub:columns-home";
+
+export async function columnsHome(userId, today) {
+  const found = await supabase.from("quests").select("id").eq("user_id", userId).eq("note", COLUMNS_HOME).order("created_at").limit(1);
+  if (found.error) throw found.error;
+  let questId = found.data?.[0]?.id;
+  if (!questId) questId = await addQuest(userId, { title: "Columns", note: COLUMNS_HOME, today, isList: true, position: 999, camps: [{ title: "Columns" }] });
+  const camp = await supabase.from("quest_camps").select(ASCENT_CAMP).eq("quest_id", questId).order("position").limit(1);
+  if (camp.error) throw camp.error;
+  if (camp.data?.[0]) return camp.data[0];
+  const [made] = await addCamps(userId, questId, ["Columns"]);
+  return made;
+}
+
+// The columns he's touched most lately, anywhere: by the newest change to a
+// step in them, else when the column was made. Ids, newest first.
+export async function fetchRecentColumnIds(userId, limit = 12) {
+  const [sections, steps] = await Promise.all([
+    supabase.from("camp_sections").select("id, created_at").eq("user_id", userId).eq("clipboard", false).order("created_at", { ascending: false }).limit(60),
+    supabase.from("camp_steps").select("section_id, updated_at").eq("user_id", userId).not("section_id", "is", null).order("updated_at", { ascending: false }).limit(600),
+  ]);
+  for (const r of [sections, steps]) if (r.error) throw r.error;
+  const at = new Map();
+  for (const s of sections.data ?? []) at.set(s.id, s.created_at);
+  for (const st of steps.data ?? []) if (!at.has(st.section_id) || at.get(st.section_id) < st.updated_at) at.set(st.section_id, st.updated_at);
+  const ids = [...at.entries()].sort((a, b) => String(b[1]).localeCompare(String(a[1]))).map(([id]) => id);
+  if (!ids.length) return [];
+  // Steps in a clipboard column count for nothing here.
+  const real = await supabase.from("camp_sections").select("id").eq("clipboard", false).in("id", ids.slice(0, 80));
+  if (real.error) throw real.error;
+  const ok = new Set((real.data ?? []).map((r) => r.id));
+  return ids.filter((id) => ok.has(id)).slice(0, limit);
+}
+
+// Those columns and everything in them.
+export async function fetchColumns(userId, sectionIds) {
+  if (!sectionIds.length) return { sections: [], steps: [] };
+  const [sections, steps] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("user_id", userId).in("id", sectionIds).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).in("section_id", sectionIds).order("id")),
   ]);
   return { sections, steps };
 }
