@@ -62,3 +62,84 @@
 .voice-talk__row .input {
   flex: 1;
 }
+
+/* Speak to the Hub, from the mic in the tab bar. */
+.voice-sheet__talk {
+  max-height: 42vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 8px;
+}
+.voice-sheet__hint {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted, #666);
+}
+.voice-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.voice-turn__you {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--ink, #111);
+  color: #fff;
+  font-size: 14px;
+}
+.voice-turn__hub {
+  align-self: flex-start;
+  max-width: 85%;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.4;
+}
+.voice-turn__hub--off {
+  color: var(--accent-text, #b84a08);
+}
+.voice-sheet__mic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 4px;
+}
+.voice-orb {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink, #111);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.voice-orb:active {
+  transform: scale(0.94);
+}
+.voice-orb:disabled {
+  opacity: 0.75;
+}
+.voice-orb--on {
+  background: var(--accent, #f26a1b);
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+.voice-sheet__status {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted, #666);
+}
+.voice-sheet__capture {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+}

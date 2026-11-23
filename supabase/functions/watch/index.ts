@@ -40,7 +40,9 @@
 //    epoch milliseconds. "voice" takes { audio (base64), mime } or { text }:
 //    ElevenLabs turns the audio into words (eleven.ts), Claude does what was
 //    said with a few tools (voice.ts), and the answer comes back as
-//    { ok, heard, say, did, audio (base64 mp3) }. "listen" is words only
+//    { ok, heard, say, did, ask, audio (base64 mp3) }. Send the last few
+//    turns back as history [{ heard, say }] to keep a conversation going;
+//    ask is true when the answer is a question back. "listen" is words only
 //    ({ ok, text }), for the journal's mic button.
 //
 // 5. The Hub in a browser, for "voice" and "listen": it sends your session
@@ -505,13 +507,19 @@ async function voiceCommand(db: DB, userId: string, tz: string, date: string, st
 
   let result: { say: string; did: string[] };
   try {
-    result = await runCommand(heard, snapshot, handlers);
+    const history = (Array.isArray(body.history) ? body.history : [])
+      .slice(-6)
+      .map((t: any) => ({ heard: clean(t?.heard, 2000), say: clean(t?.say, 2000) }))
+      .filter((t: { heard: string }) => t.heard);
+    result = await runCommand(heard, snapshot, handlers, history);
   } catch (err) {
     console.error("voice", err);
     result = { say: "The Hub couldn't work that out just now. Try again.", did: [] };
   }
   console.log("voice", JSON.stringify({ heard, say: result.say, did: result.did }));
-  return { ok: true, heard, say: result.say, did: result.did, audio: await voiced(result.say) };
+  // ask: the Hub needs more from him, so the app listens again after it speaks.
+  const ask = /\?\s*$/.test(result.say);
+  return { ok: true, heard, say: result.say, did: result.did, ask, audio: await voiced(result.say) };
 }
 
 async function dayCounts(db: DB, userId: string, startISO: string) {
