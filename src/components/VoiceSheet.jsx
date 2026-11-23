@@ -56,7 +56,9 @@ export default function VoiceSheet({ onClose, onCapture }) {
     setPhase("working");
     setError("");
     try {
-      const r = await voiceCommand({ blob, text, history: turnsRef.current.filter((t) => t.ok !== false) });
+      // Spoken in, spoken back; typed in, words back (no audio, no listening
+      // again).
+      const r = await voiceCommand({ blob, text, speak: !text, history: turnsRef.current.filter((t) => t.ok !== false) });
       if (!alive.current) return;
       const turn = { heard: r.heard || text || "", say: r.say || "", ok: r.ok !== false };
       setTurns((all) => [...all, turn]);
@@ -68,7 +70,7 @@ export default function VoiceSheet({ onClose, onCapture }) {
       }
       if (!alive.current) return;
       // A question back: listen for the answer straight away.
-      if (r.ask && supported) start();
+      if (r.ask && supported && !text) start();
       else setPhase("idle");
     } catch (err) {
       if (!alive.current) return;
