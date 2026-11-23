@@ -100,7 +100,7 @@ export default function TasksHome({ userId, board }) {
             <NewColumn onDone={() => setAdding(false)} onSave={newColumn} />
           ) : (
             <button type="button" className="tk-newcol tk-newcol--big" onClick={() => setAdding(true)} aria-label="New column">
-              <Plus size={44} strokeWidth={1.6} aria-hidden="true" />
+              <Plus size={28} strokeWidth={2} aria-hidden="true" />
               <span>New column</span>
             </button>
           )}

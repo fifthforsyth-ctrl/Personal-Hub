@@ -6461,6 +6461,25 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("presets for the week sit under the days on a phone, a thumb tall", wk.indexOf('className="wk-preset"') > wk.indexOf('className="wk-list"') && /\.wk-preset \{[^}]*min-height: 48px;/.test(css) && /\.wk, \.wk-bar \{ display: none; \}\s*\.wk-list, \.wk-preset \{ display: flex; \}/.test(css));
     ok("a day's two buttons are a thumb tall on a phone", /\.sday__actions \.btn \{ flex: 1; min-height: 48px;/.test(css));
   }
+
+  // The Tasks tab in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Tasks.jsx");
+    const cols = read("src/components/tasks/Columns.jsx");
+    const rowSrc = read("src/components/tasks/TaskRow.jsx");
+    const css = read("src/styles/tasks.css");
+    const rule = (sel) => css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
+    ok("Tasks opens on its own title, on every Tasks page", /<header className="hub-head tasks-head">\s*<h1 className="page-title">Tasks<\/h1>/.test(page) && !/BackToTasks|tasks-back/.test(page + css));
+    ok("one row of pills holds Recent and the projects, and the one open is marked", /<Link to="\/tasks" className=\{"tasks-pill" \+ \(on \? "" : " is-on"\)\}/.test(page) && /className=\{"tasks-pill" \+ \(l\.id === on \? " is-on" : ""\)\}/.test(page) && /<ProjectPills lists=\{lists\} on=\{param \?\? ""\} onNew=\{newProject\} \/>/.test(page));
+    ok("the open pill is brought into view without moving the page", /ul\.scrollLeft = Math\.max\(0, left - 16\)/.test(page) && !/scrollIntoView/.test(page));
+    ok("pills are a thumb tall; a project's is black, a target's orange with ink on it", /min-height: 44px;/.test(rule(".tasks-pill")) && /\.tasks-pill\.is-on \{ background: var\(--ink\); color: var\(--on-ink\); \}/.test(css) && /\.tasks-pill--camp\.is-on \{ background: var\(--accent\); color: var\(--on-accent\); \}/.test(css));
+    ok("a column is a white card with its colour as a dot by its name", /border-radius: var\(--r-lg\);/.test(rule(".tk-col")) && !/border-top: 3px/.test(css) && /<i className="tk-col__dot" aria-hidden="true" \/>/.test(cols) && /background: var\(--col, var\(--ink\)\);/.test(rule(".tk-col__dot")));
+    ok("where a recent column lives is said under its name", cols.indexOf("{where}") > cols.indexOf("</header>") && cols.indexOf("{where}") < cols.indexOf('<ul className="tk-col__list">'));
+    ok("a task is a round tick, its words, then the handle that carries it", rowSrc.indexOf('className={"tk-tick"') < rowSrc.indexOf('className="tk-text"') && rowSrc.indexOf('className="tk-text"') < rowSrc.indexOf('className="tk-grip"') && /beginDrag\(e, \{ ids: \[step\.id\]/.test(rowSrc));
+    ok("every row, tick and handle is a thumb tall", /min-height: 44px;/.test(rule(".tk-row__line")) && /width: 24px; height: 24px;/.test(rule(".tk-tick")) && /width: 32px; height: 44px;/.test(rule(".tk-grip")) && /touch-action: none;/.test(rule(".tk-grip")));
+    ok("typing a task doesn't zoom an iPhone", /font-size: 16px;/.test(rule(".tk-add__input")) && /font-size: 16px;/.test(rule(".tk-edit")) && /min-height: 44px;/.test(rule(".tk-add__input")));
+    ok("a camp's columns ask for their hooks before they can return early", cols.indexOf("const { removeColumn, addIn, rename } = useColumnOps(userId);") < cols.indexOf("if (!loadedCamps.has(camp.id)) return"));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.
