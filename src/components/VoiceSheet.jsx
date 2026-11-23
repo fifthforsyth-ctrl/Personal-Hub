@@ -23,7 +23,8 @@ const QUIET_MS = 1600;
 const LOUD = 0.012; // RMS that counts as speech
 const MAX_SECONDS = 60;
 
-// Opened from the mic in the tab bar, whose tap already called unlockAudio()
+// Takes the whole screen, with the X at the top to leave (Aaron,
+// 2026-11-23). Opened from the mic in the tab bar, whose tap already called unlockAudio()
 // so the answer can play out loud.
 export default function VoiceSheet({ onClose, onCapture }) {
   const [turns, setTurns] = useState([]); // { heard, say, ok }
@@ -220,21 +221,15 @@ export default function VoiceSheet({ onClose, onCapture }) {
   // On the page itself, not inside the tab bar, whose blur would trap a
   // fixed backdrop.
   return createPortal(
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet voice-sheet" role="dialog" aria-modal="true" aria-label="Speak to the Hub" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head">
+    <div className="voice-full" role="dialog" aria-modal="true" aria-label="Speak to the Hub">
+        <div className="voice-full__head">
           <span className="card-title">Speak to the Hub</span>
-          <button className="btn-icon" onClick={onClose} aria-label="Close" title="Close">
-            <X size={17} />
+          <button className="voice-full__close" onClick={onClose} aria-label="Close" title="Close">
+            <X size={22} />
           </button>
         </div>
 
         <div className="voice-sheet__talk" ref={listRef}>
-          {turns.length === 0 && (
-            <p className="voice-sheet__hint">
-              “Stop my last task and start Forsyth Media.” “I'm going to bed.” “Add a $25.50 purchase under personal, it was groceries.” “Add laundry to my clipboard.”
-            </p>
-          )}
           {turns.map((t, i) => (
             <div key={i} className="voice-turn">
               {t.heard && <p className="voice-turn__you">{t.heard}</p>}
@@ -286,7 +281,6 @@ export default function VoiceSheet({ onClose, onCapture }) {
             Capture a win, loss, minutes or thought by tapping
           </button>
         )}
-      </div>
     </div>,
     document.body
   );
