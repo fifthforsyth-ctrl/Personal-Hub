@@ -99,8 +99,8 @@ export function layoutCard(quote, measureAt, { hasPhoto = true } = {}) {
 // --- Browser only from here down ---------------------------------------
 
 const SERIF = 'Fraunces, Georgia, "Iowan Old Style", serif';
-const SANS = '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif';
-const MONO = '"DM Mono", ui-monospace, Menlo, monospace';
+const SANS = 'Geist, -apple-system, BlinkMacSystemFont, sans-serif';
+const MONO = '"Geist Mono", ui-monospace, Menlo, monospace';
 
 // The picture, fetched so the canvas may read it. Most come from Wikimedia,
 // which allows that; one that doesn't (or is slow) gives the initials block,
@@ -134,8 +134,8 @@ async function fontsReady() {
   try {
     await Promise.all([
       document.fonts.load(`500 48px Fraunces`),
-      document.fonts.load(`700 26px "DM Sans"`),
-      document.fonts.load(`400 22px "DM Mono"`),
+      document.fonts.load(`700 26px Geist`),
+      document.fonts.load(`400 22px "Geist Mono"`),
     ]);
   } catch {
     // The fallbacks look fine.

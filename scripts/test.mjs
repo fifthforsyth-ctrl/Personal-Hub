@@ -3417,18 +3417,15 @@ console.log("\napple watch");
   ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(putBack\)/.test(sheetSrc));
   delete globalThis.__focusSheetStandIns;
 
-  // The strip's titles: whole goals on a phone at 390, and on a desk.
+  // The strip is a row of chips (Clean slate, 2026-11-23): a small target
+  // and the focus's name on one line, a thumb tall.
   const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
-  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
-  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
-  const cell = (390 - 2 * pad - 4 * gap) / 5;
-  // 68px is what "Time developing artistic ability" needs for three lines at 10.5px, measured in the app's font.
-  ok("five across at 390 leave each title room for three lines of its words", cell >= 68 && /font-size: 10\.5px;/.test(css), `${cell}px`);
-  const title = css.slice(css.indexOf(".focus-strip__title {"));
-  ok("titles get three lines, not two", /-webkit-line-clamp: 3;/.test(title) && !/-webkit-line-clamp: 2;/.test(title));
-  const least = Number(css.match(/repeat\(auto-fill, minmax\((\d+)px, 1fr\)\)/)?.[1]);
-  const deskGap = Number(css.match(/gap: 10px (\d+)px;/)?.[1]);
-  ok("five fit across the narrowest desk column (613px at 901 wide), each wider than the old 88px", least > 88 && 5 * least + 4 * deskGap <= 613, `${least}px`);
+  const item = css.slice(css.indexOf(".focus-strip__item {"), css.indexOf("}", css.indexOf(".focus-strip__item {")));
+  ok("each focus is a chip a thumb can hit, 44px tall", /height: 44px;/.test(item) && /border-radius: var\(--r-pill\);/.test(item), item);
+  const title = css.slice(css.indexOf(".focus-strip__title {"), css.indexOf("}", css.indexOf(".focus-strip__title {")));
+  ok("a chip's name stays on one line, at a size that reads", /white-space: nowrap;/.test(title) && /text-overflow: ellipsis;/.test(title) && Number(title.match(/font-size: ([\d.]+)px;/)?.[1]) >= 14, title);
+  const row = css.slice(css.indexOf(".focus-strip__row {"), css.indexOf("}", css.indexOf(".focus-strip__row {")));
+  ok("the chips slide sideways on a phone and wrap on a desk", /overflow-x: auto;/.test(row) && /@media \(min-width: 901px\) \{\s*\.focus-strip__row \{ flex-wrap: wrap; overflow: visible; \}/.test(css));
 }
 
 {
@@ -3619,28 +3616,17 @@ console.log("\napple watch");
     /onNoteLanded\(\(\{ goalId, sent, row \}\) =>/.test(sheetSrc) && /if \(shown\.current\) putBack\(row\);\s*else reload\(\);/.test(sheetSrc) && /mutate\(\(d\) => withNote\(d, note\)\)/.test(sheetSrc)
   );
 
-  // The strip's titles on the narrowest iPhones, and the "…" with room to spare.
+  // The strip's chips on a phone: edge to edge, and never wider than the screen.
   const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
-  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
-  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
-  const narrow = css.match(/@media \(max-width: (\d+)px\) \{[^}]*\.focus-strip__title \{ font-size: ([\d.]+)px; \}/);
-  const cell375 = (375 - 2 * pad - 4 * gap) / 5;
-  // At 10px, "Time developing artistic ability" fits three lines in a 67px cell, measured in the app's font.
+  const phoneRow = css.match(/\.focus-strip__row \{ margin: 0 -(\d+)px; padding: 1px (\d+)px 3px; scroll-padding-inline: (\d+)px; \}/);
   ok(
-    "375-wide iPhones get 10px titles, which fit the longest real goal in three lines; 390 keeps 10.5px",
-    Boolean(narrow) && Number(narrow[1]) >= 375 && Number(narrow[1]) < 390 && Number(narrow[2]) === 10 && cell375 >= 67,
-    JSON.stringify([narrow?.[1], narrow?.[2], cell375])
+    "the row runs to the screen's edges and its first chip lines up with the page (16px)",
+    Boolean(phoneRow) && phoneRow[1] === "16" && phoneRow[2] === "16" && phoneRow[3] === "16",
+    JSON.stringify(phoneRow?.slice(1))
   );
-  const title = css.slice(css.indexOf(".focus-strip__title {"));
-  const bleed = Number(title.match(/margin-inline: -(\d+)px;/)?.[1]);
-  const padIn = Number(title.match(/padding-inline: (\d+)px;/)?.[1]);
-  const wider = Number(title.match(/max-width: calc\(100% \+ (\d+)px\);/)?.[1]);
-  // Chrome's clamped "…" was measured up to 3px past the end of a line.
-  ok(
-    "the title box reaches a pixel past where a clamped \"…\" can sit, and not into the next cell",
-    bleed === padIn && wider === 2 * bleed && bleed >= 3 + 1 && bleed <= gap,
-    JSON.stringify({ bleed, padIn, wider, gap })
-  );
+  const chip = css.slice(css.indexOf(".focus-strip__item {"), css.indexOf("}", css.indexOf(".focus-strip__item {")));
+  const widest = Number(chip.match(/max-width: (\d+)px;/)?.[1]);
+  ok("the longest name is cut inside its chip, which still fits a 375-wide iPhone", widest > 0 && widest <= 375 - 2 * 16, `${widest}px`);
 }
 
 {
@@ -4744,7 +4730,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("Sunday's carry still leaves a quest or lesson link to addFocusGoal", /const row = await add\(title, goal\.node_id, goal\.id\);/.test(weekSrc));
   const css = read("../src/styles/focus.css");
   ok("what a focus counts toward gives up its end before it widens the card", /\.focus-arrow__toward \{ max-width: 100%; min-width: 0; overflow: hidden;/.test(css));
-  ok("the strip's measurements are still the first the stylesheet has", css.indexOf("--focus-gap:") < css.indexOf(".focus-arrow") && (css.match(/repeat\(auto-fill, minmax\(/g) ?? []).length === 1 && (css.match(/-webkit-line-clamp: 2;/g) ?? []).length === 0);
+  ok("the strip's chips are still the first the stylesheet has", css.indexOf(".focus-strip__item {") > 0 && css.indexOf(".focus-strip__item {") < css.indexOf(".focus-arrow") && (css.match(/\.focus-strip__item \{/g) ?? []).length === 1);
 }
 
 // (end of arrows on the week's focus)
@@ -5071,7 +5057,11 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   const today = src("pages/Today.jsx");
   const at = (s) => today.indexOf(s);
-  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at('<QuestsRow userId={userId} date={date} label="Tasks" tasks />') && at("<QuestsRow") < at("<WeekStrip"));
+  ok(
+    "Today runs focus, timer, wins, plan, then the walk with God (Clean slate)",
+    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
+  );
+  ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
   ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));

@@ -133,12 +133,22 @@ html.tk-dragging, html.tk-dragging * { -webkit-user-select: none; user-select: n
 /* --- The clipboard, pulled down from the top --------------------------- */
 
 .tk-pulltab {
-  position: fixed; z-index: 60; left: 50%; top: calc(var(--safe-top) + var(--topbar-h) - 4px); transform: translateX(-50%);
+  position: fixed; z-index: 60; left: 50%; top: var(--safe-top); transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 12px;
   border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; background: var(--card); color: var(--text-2);
   font: inherit; font-size: 11.5px; font-weight: 700; box-shadow: 0 2px 6px rgba(20, 18, 14, 0.06); cursor: pointer; touch-action: none;
 }
 .tk-pulltab.is-hidden { opacity: 0; pointer-events: none; }
+/* In the phone's top corner it's a round white chip beside the menu. */
+.tk-pulltab.tk-pulltab--chip {
+  position: relative; z-index: auto; left: auto; top: auto; transform: none;
+  gap: 7px; height: 44px; min-width: 44px; padding: 0 15px; justify-content: center;
+  border: none; border-radius: var(--r-pill); color: var(--ink);
+  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; box-shadow: var(--shadow);
+}
+.tk-pulltab.tk-pulltab--chip:active { transform: scale(0.94); }
+/* Scrolled past the title on a phone, the plain tab hangs from the top of
+   the screen instead, just under the status bar. */
 .tk-clip {
   position: fixed; z-index: 70; left: 0; right: 0; top: 0;
   display: flex; flex-direction: column; max-height: min(58vh, 560px);
@@ -157,7 +167,7 @@ html.tk-dragging, html.tk-dragging * { -webkit-user-select: none; user-select: n
 .tk-clip__foot { display: grid; place-items: center; height: 26px; flex: 0 0 auto; cursor: grab; touch-action: none; }
 .tk-clip__grab { width: 44px; height: 5px; border-radius: 3px; background: var(--line-strong); }
 
-/* On a desk there's no top bar: the tab hangs from the top of the page,
+/* On a desk the tab hangs from the top of the page,
    and the clipboard drops down over the page beside the sidebar. */
 @media (min-width: 901px) {
   .tk-pulltab { top: 0; left: calc(50% + var(--sidebar-w) / 2); }

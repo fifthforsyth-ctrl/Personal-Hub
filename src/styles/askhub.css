@@ -143,6 +143,6 @@
   .askhub__head .page-title { font-size: 25px; }
   .askhub-starters { grid-template-columns: 1fr; gap: 8px; }
   .askhub-starter { padding: 12px 14px; }
-  .askhub-compose { padding-bottom: 12px; }
+  .askhub-compose { padding-bottom: 26px; }
   .askhub-a__chart { padding: 14px 12px 8px; margin: 0 -4px; }
 }

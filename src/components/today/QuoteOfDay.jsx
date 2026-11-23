@@ -55,7 +55,10 @@ function ask(date) {
   return asked.get(date);
 }
 
-export default function QuoteOfDay({ userId, date = todayStr() }) {
+// It opens the Board (it sat at the foot of Today until 2026-11-23);
+// `onChanged` tells the Board when it's saved or taken off, so the cork
+// below follows.
+export default function QuoteOfDay({ userId, date = todayStr(), onChanged }) {
   const { data, error, loading, reload, mutate } = useLoad(() => fetchQuoteDay(userId, date), [userId, date]);
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState(null);
@@ -121,7 +124,15 @@ export default function QuoteOfDay({ userId, date = todayStr() }) {
     return null;
   }
 
-  return <QuoteCard day={data} onRated={(quote) => mutate((d) => d && { ...d, quote })} />;
+  return (
+    <QuoteCard
+      day={data}
+      onRated={(quote) => {
+        mutate((d) => d && { ...d, quote });
+        onChanged?.(quote);
+      }}
+    />
+  );
 }
 
 function QuoteCard({ day, onRated }) {

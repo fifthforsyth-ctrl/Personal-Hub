@@ -7,25 +7,30 @@
    allowed to be a card in a different accent, corner radius, or rhythm.
 
    Palette is a warm off-white with white cards, near-black ink and a single
-   orange highlight. Depth comes from the card sitting on the page and a very
-   soft shadow, never from heavy borders.
+   orange highlight. Depth comes from the white card sitting on the warm
+   page, almost flat, never from heavy borders.
+
+   The look is "Clean slate" (Aaron's pick, 2026-11-23): Geist for every
+   word and Geist Mono for the small labels and times, generous round cards,
+   black pills, and each page opening on its own big title instead of a
+   brand bar.
    =========================================================================== */
 
 :root {
   /* Light and quiet: a warm off-white page, white cards that sit on it with
      almost no edge, near-black ink for text and the main buttons, and one
      orange that marks what's live — today, wins, the thing running now. */
-  --bg: #f2f1ee;
+  --bg: #f3f2ef;
   --surface: #f8f7f5;
   --card: #ffffff;
   --card-hover: #fafaf8;
   --inset: #f1f0ed;
 
-  --line: #e9e7e3;
+  --line: #e8e6e1;
   --line-strong: #d9d6d0;
 
   --text: #121212;
-  --text-2: #6f6d69;
+  --text-2: #6b6964;
   /* The faintest grey still reads on white (3.8:1); anything meant to be
      read at small sizes uses --text-2. */
   --text-3: #85827c;
@@ -40,10 +45,11 @@
   --accent-hot: #e05a0c;
   --accent-soft: rgba(242, 106, 27, 0.1);
   --accent-line: rgba(242, 106, 27, 0.35);
-  --on-accent: #ffffff;
+  /* What sits on an orange fill is ink: white on this orange is too faint. */
+  --on-accent: #141414;
   /* Orange as text: the highlight colour fails as small text on white, so
      words that must be orange use this darker cut of it (5.2:1). */
-  --accent-text: #b84a08;
+  --accent-text: #b8470a;
 
   --good: #1f9d63;
   --good-text: #178a55;
@@ -52,25 +58,26 @@
 
   --r-sm: 10px;
   --r: 14px;
-  --r-lg: 22px;
-  --r-xl: 28px;
+  --r-lg: 28px;
+  --r-xl: 32px;
   --r-pill: 999px;
 
-  --shadow: 0 1px 2px rgba(20, 18, 14, 0.04), 0 4px 14px rgba(20, 18, 14, 0.05);
+  --shadow: 0 1px 2px rgba(20, 18, 14, 0.03);
   --shadow-lift: 0 2px 6px rgba(20, 18, 14, 0.06), 0 18px 44px rgba(20, 18, 14, 0.12);
 
-  --font: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: Geist, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Reserved for written reflection — journal prose, the questions you answer.
      Never for UI chrome. */
   --font-serif: Fraunces, Georgia, "Iowan Old Style", serif;
 
   --sidebar-w: 232px;
-  --topbar-h: 56px;
+  /* The phone's title row: the clipboard chip and the menu button. */
+  --top-row-h: 52px;
   /* The phone's status bar / notch / Dynamic Island. The Hub draws under it
      (viewport-fit=cover), so anything pinned to the top must start below it. */
   --safe-top: env(safe-area-inset-top, 0px);
-  --tabs-h: calc(74px + env(safe-area-inset-bottom, 0px));
+  --tabs-h: calc(66px + env(safe-area-inset-bottom, 0px));
 
   color-scheme: light;
 }
@@ -189,26 +196,67 @@ button { cursor: pointer; touch-action: manipulation; }
   -webkit-overflow-scrolling: touch;
 }
 
-.topbar {
-  display: none;
-  /* border-box: the status bar's height goes on top of the bar's own 56px,
-     not inside it (inside, the buttons were squeezed up under the clock). */
-  height: calc(var(--topbar-h) + var(--safe-top));
+/* The phone has no brand bar. Each page opens on its own title, and the
+   top right corner holds two round white buttons: the clipboard (with how
+   many thoughts wait on it) and one menu for everything that isn't a tab.
+   They scroll away with the title; once they have, the clipboard's small
+   tab hangs from the top of the screen instead (tasks.css). */
+.phone-top { display: none; }
+
+.hub-chip,
+.hub-menu {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  padding-top: var(--safe-top);
-  background: var(--bg);
-  border-bottom: none;
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  justify-content: center;
+  gap: 7px;
+  height: 44px;
+  min-width: 44px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow);
+  position: relative;
+  transition: transform 0.12s;
+}
+.hub-chip { padding: 0 15px; }
+.hub-chip:active,
+.hub-menu:active { transform: scale(0.94); }
+/* Something new on Love: one orange dot on the menu that leads to it. */
+.hub-menu__dot {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--card);
 }
 
-.topbar-ask.active { color: var(--accent); }
+/* A tab's own page: a small label over a big title. */
+.hub-head { margin-bottom: 16px; }
 
 /* Refresh, top right on a phone and beside the name in the sidebar. */
 .brand .refresh-btn { margin-left: auto; width: 32px; height: 32px; }
+.more-link.busy svg { color: var(--accent); animation: spin 0.8s linear infinite; }
+.more-link__count {
+  margin-left: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
 .refresh-btn.busy svg { color: var(--accent); animation: spin 0.8s linear infinite; }
 
 .bottom-tabs { display: none; }
@@ -233,7 +281,7 @@ button { cursor: pointer; touch-action: manipulation; }
   flex-wrap: wrap;
 }
 
-.page-title { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 4px; }
+.page-title { font-size: 28px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.08; margin: 0 0 4px; }
 
 .page-sub {
   color: var(--text-2);
@@ -243,56 +291,73 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .eyebrow {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--text-3);
+  letter-spacing: 0.12em;
+  color: var(--text-2);
   font-weight: 500;
 }
 
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+  /* The page starts under the status bar, so nothing scrolls behind the
+     clock: the strip above it is the page's own colour. */
+  .shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding-top: var(--safe-top); }
   .sidebar { display: none; }
-  .topbar { display: flex; }
   .bottom-tabs {
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    align-items: start;
     height: var(--tabs-h);
-    padding: 0 6px env(safe-area-inset-bottom, 0px);
+    padding: 0 4px env(safe-area-inset-bottom, 0px);
     background: var(--card);
     border-top: 1px solid var(--line);
   }
-  .page { padding: 16px 14px 28px; }
+  .page { padding: 14px 16px 32px; }
+
+  .phone-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    height: var(--top-row-h);
+    padding: 8px 16px 0;
+    position: relative;
+    z-index: 5;
+    /* Only the buttons take a touch: the title under the row stays live. */
+    pointer-events: none;
+  }
+  .phone-top > * { pointer-events: auto; }
+  .phone-top__slot { display: inline-flex; }
+
+  /* Under the row of buttons a page needs less air of its own. */
+  .phone-top + .page { padding-top: 6px; }
+  .main:has(.hub-head) .phone-top + .page { padding-top: 14px; }
+
+  /* On a tab's own page the title and the buttons share one row. */
+  .main:has(.hub-head) .phone-top { margin-bottom: calc(-1 * var(--top-row-h)); }
+  .hub-head { min-height: 56px; padding-right: 124px; }
+  .hub-head .page-title { font-size: 36px; margin: 2px 0 0; }
+  .hub-head .eyebrow { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
-/* Round icon buttons with a small name under each, so a new tab is never a
-   guess. The current tab gets a dark ring and a dark name. */
-/* Six tabs and the ＋ share a 360px phone: 6 × 46 + 50 + 12 = 338. */
+/* Plain icons with their names under them, in seven even slots: three
+   tabs, the mic, three tabs. The tab you're on is ink with one orange dot
+   under its name; the rest are grey. */
 .bottom-tab {
-  flex: 0 0 auto;
-  min-width: 46px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  color: var(--text-3);
+  gap: 5px;
+  padding-top: 11px;
+  color: var(--text-2);
 }
-.bottom-tab__icon {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 1.5px solid var(--line);
-  transition: color 0.14s, border-color 0.14s;
-}
-.bottom-tab__label { font-size: 10.5px; font-weight: 600; line-height: 1; color: var(--text-2); letter-spacing: 0.01em; }
+.bottom-tab__icon { display: grid; place-items: center; height: 24px; transition: transform 0.12s; }
+.bottom-tab__label { font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: 0.01em; }
 
 .bottom-tab.active { color: var(--ink); }
-.bottom-tab.active .bottom-tab__icon { border-color: var(--ink); }
-.bottom-tab.active .bottom-tab__label { color: var(--text); }
-.bottom-tab:not(.active):active .bottom-tab__icon { background: var(--inset); }
+.bottom-tab.active::after { content: ""; width: 4px; height: 4px; margin-top: -1px; border-radius: 50%; background: var(--accent); }
+.bottom-tab:active .bottom-tab__icon { transform: scale(0.9); }
 
 /* ---------------------------------------------------------------------------
    Cards
@@ -1339,17 +1404,19 @@ form.card + .card { margin-top: 14px; }
 .signout-ask__actions { display: flex; gap: 8px; }
 .signout-ask__actions .btn { flex: 1; }
 
+/* The mic: a black circle standing a little proud of the bar. */
 .bottom-plus {
-  flex: 0 0 auto;
-  width: 50px;
-  height: 50px;
+  justify-self: center;
+  width: 58px;
+  height: 58px;
+  margin-top: -18px;
   border-radius: 50%;
   border: none;
   background: var(--ink);
   color: var(--on-ink);
   display: grid;
   place-items: center;
-  box-shadow: 0 6px 18px rgba(20, 18, 14, 0.18);
+  box-shadow: 0 8px 20px rgba(20, 18, 14, 0.22);
   transition: transform 0.12s;
 }
 .bottom-plus:active { transform: scale(0.92); }
@@ -1460,6 +1527,23 @@ form.card + .card { margin-top: 14px; }
 
 /* A one-tap win is a thumb target: as tall as the win pills under it. */
 .chip--tap { cursor: pointer; min-height: 36px; padding: 7px 12px; font-size: 12.5px; color: var(--text); }
+/* One-tap wins and, at the row's end, the quiet way to log a loss. */
+.win-quick { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.win-quick__chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* The last chip fades out under the edge when there are more to slide to. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  padding-right: 14px;
+}
+.win-quick__chips::-webkit-scrollbar { display: none; }
+.win-quick .chip--tap { flex: none; min-height: 40px; padding: 7px 14px; font-size: 14px; font-weight: 500; }
+.win-quick .loss-link { flex: none; white-space: nowrap; }
 .chip--tap:active { border-color: var(--accent-line); background: var(--accent-soft); }
 @media (hover: hover) { .chip--tap:hover { border-color: var(--accent-line); background: var(--accent-soft); } }
 
@@ -1472,18 +1556,48 @@ form.card + .card { margin-top: 14px; }
   align-items: start;
 }
 @media (max-width: 900px) {
-  .today-grid { grid-template-columns: 1fr; }
+  .today-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+.card.win-hero { padding: 22px; }
+.win-hero__top { display: flex; align-items: center; gap: 16px; }
 .win-count {
-  font-size: 68px;
+  flex: none;
+  font-size: 60px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.05em;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  margin-top: 4px;
 }
+/* The latest wins by name; a tap opens the list to rename or remove one. */
+.win-hero__names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.win-hero__label { display: inline-flex; align-items: center; gap: 4px; font-size: 13.5px; color: var(--text-2); }
+.win-hero__chev { color: var(--text-3); transition: transform 0.15s ease; }
+.win-hero__chev.is-open { transform: rotate(180deg); }
+.win-hero__list {
+  font-size: 15.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.win-hero__list--none { font-size: 14px; font-weight: 400; color: var(--text-2); }
 .win-count--bump { animation: win-pop 0.42s cubic-bezier(0.3, 1.6, 0.5, 1); }
 
 @keyframes win-pop {
@@ -1492,22 +1606,27 @@ form.card + .card { margin-top: 14px; }
   100% { transform: scale(1); }
 }
 
-.win-actions { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .win-btn {
-  padding: 16px 30px;
+  flex: none;
+  height: 56px;
+  padding: 0 22px;
   border-radius: var(--r-pill);
-  font-size: 17px;
+  font-size: 18px;
+  gap: 9px;
   transition: transform 0.1s, background 0.14s;
 }
 .win-btn:active { transform: scale(0.95); }
+/* The crossed swords are the one orange thing on the card. */
+.win-btn .swords { color: var(--accent); }
 
 .loss-link {
   background: none;
   border: none;
-  min-height: 36px;
-  padding: 4px 10px;
-  color: var(--text-3);
-  font-size: 12px;
+  min-height: 40px;
+  margin-left: auto;
+  padding: 4px 6px;
+  color: var(--text-2);
+  font-size: 14px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1516,7 +1635,7 @@ form.card + .card { margin-top: 14px; }
 
 .win-name { margin-top: 14px; animation: fade-in 0.2s ease-out; }
 
-.win-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.win-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); animation: fade-in 0.16s ease-out; }
 /* Each logged win, newest first; tapping one opens Rename / Remove. */
 .win-pill {
   min-height: 36px;
@@ -1547,16 +1666,6 @@ form.card + .card { margin-top: 14px; }
 /* "6h 30m" stays on one line; a long category name truncates instead. */
 .minutes-legend .mono { white-space: nowrap; flex-shrink: 0; }
 
-.running-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: var(--r);
-  background: var(--accent-soft);
-  border: none;
-}
 .running-dot {
   width: 9px;
   height: 9px;
@@ -1568,24 +1677,28 @@ form.card + .card { margin-top: 14px; }
 }
 @keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(242, 106, 27, 0); } 100% { box-shadow: 0 0 0 0 rgba(242, 106, 27, 0); } }
 
+.card.walk-card { padding: 22px; }
 .walk-verse {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 17px;
-  line-height: 1.55;
-  font-style: italic;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.38;
+  letter-spacing: -0.015em;
   color: var(--text);
+  text-wrap: pretty;
 }
-.walk-ref { margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); letter-spacing: 0.04em; }
-.walk-prompt { margin: 14px 0 0; font-size: 14.5px; line-height: 1.55; color: var(--text); }
+.walk-ref { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; text-transform: uppercase; color: var(--accent-text); letter-spacing: 0.1em; }
+.walk-prompt { margin: 14px 0 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+.walk-card__save { flex-shrink: 0; height: 46px; padding: 0 20px; }
+.walk-card .input { height: 46px; border-radius: var(--r-pill); padding: 0 18px; font-size: 15px; }
 
 /* The way into the evening: a big black button, the only one. */
 .evening-banner {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 64px;
-  padding: 16px 20px;
+  gap: 14px;
+  min-height: 72px;
+  padding: 16px 22px;
   border-radius: var(--r-lg);
   background: var(--ink);
   color: var(--on-ink);
@@ -1600,7 +1713,7 @@ form.card + .card { margin-top: 14px; }
 .evening-banner__sub { font-size: 12.5px; font-weight: 500; opacity: 0.72; }
 @media (hover: hover) { .evening-banner:not(.evening-banner--done):hover { background: var(--ink-hover); } }
 .evening-banner:active { transform: scale(0.99); }
-.evening-banner--done { min-height: 0; background: var(--card); color: var(--text-2); }
+.evening-banner--done { min-height: 56px; background: var(--card); color: var(--text-2); }
 
 /* --- Evening ------------------------------------------------------------ */
 
@@ -1649,42 +1762,9 @@ form.card + .card { margin-top: 14px; }
 
 /* Stacks already space their children; the older card+card margin would
    double it. */
+.today__foot { margin-top: 14px; }
 .today .stack > .card + .card,
 .evening .stack > .card + .card { margin-top: 0; }
-
-/* --- This week, as seven circles ------------------------------------------ */
-
-.week-strip {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  margin-bottom: 16px;
-  max-width: 460px;
-}
-.week-strip__day { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.week-strip__dow { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.06em; }
-.week-strip a { color: inherit; }
-.week-strip__dot {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.week-strip__dot--banked { background: var(--ink); color: var(--on-ink); }
-.week-strip__dot--today { background: var(--accent); color: var(--on-accent); }
-/* A past day never banked: a dashed orange ring, still waiting for you.
-   Before the week has loaded, past days stay plain. */
-.week-strip__dot--open { background: var(--card); color: var(--text); border: 1.5px dashed var(--accent); }
-.week-strip__dot--past { background: var(--card); color: var(--text-2); border: 1.5px solid var(--line-strong); }
-.week-strip__dot--ahead { background: rgba(20, 18, 14, 0.06); color: var(--text-3); }
-@media (max-width: 380px) {
-  .week-strip__dot { width: 36px; height: 36px; font-size: 11.5px; }
-}
 
 /* ===========================================================================
    Shared feedback: focus, toasts, confirm, load errors
@@ -1717,7 +1797,8 @@ summary:focus-visible,
   padding: 0 16px;
 }
 @media (max-width: 900px) {
-  .toast-region { bottom: calc(var(--tabs-h) + 12px); }
+  /* Clear of the mic, which stands 18px proud of the tab bar. */
+  .toast-region { bottom: calc(var(--tabs-h) + 26px); }
 }
 
 .toast {
@@ -1800,5 +1881,4 @@ summary:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .swords--clash .swords__a, .swords--clash .swords__b { animation: none; }
 }
-.win-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
 .win-btn .swords { margin: -3px 0; }

@@ -171,7 +171,7 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(var(--tabs-h) + 12px);
+  bottom: calc(var(--tabs-h) + 26px);
   justify-content: space-between;
   border-radius: var(--r-lg);
   padding: 6px;

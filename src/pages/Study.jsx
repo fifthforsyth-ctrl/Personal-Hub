@@ -29,6 +29,8 @@ import CorkBoard from "../components/board/CorkBoard";
 import { TopPicks, Browse, ShelfView } from "../components/board/Shelves";
 import { MOODS, PEOPLE, THEMES, shelfFor } from "../lib/quoteShelves";
 import CuratedCards from "../components/curator/CuratedCards";
+import QuoteOfDay from "../components/today/QuoteOfDay";
+import "../styles/daily.css";
 import { dayLabel } from "../components/study/dayLabel";
 import { changesFrom, clearNoteDraft, draftClashes, draftOver, draftTime, editableFields, readNoteDraft, writeNoteDraft } from "../components/study/noteDraft";
 import { buildTree, resolveHighlights } from "../lib/noteText";
@@ -446,6 +448,9 @@ export default function Study() {
           {treeOpen && tree}
 
           <CaptureBar onCapture={capture} />
+
+          {/* The quote chosen for this week, which used to close Today. */}
+          <QuoteOfDay userId={user.id} onChanged={quoteChanged} />
 
           <TopPicks userId={user.id} onSaved={quoteChanged} />
 
