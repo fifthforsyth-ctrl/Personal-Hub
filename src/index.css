@@ -67,6 +67,9 @@
 
   --sidebar-w: 232px;
   --topbar-h: 56px;
+  /* The phone's status bar / notch / Dynamic Island. The Hub draws under it
+     (viewport-fit=cover), so anything pinned to the top must start below it. */
+  --safe-top: env(safe-area-inset-top, 0px);
   --tabs-h: calc(74px + env(safe-area-inset-bottom, 0px));
 
   color-scheme: light;
@@ -188,11 +191,13 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .topbar {
   display: none;
-  height: var(--topbar-h);
+  /* border-box: the status bar's height goes on top of the bar's own 56px,
+     not inside it (inside, the buttons were squeezed up under the clock). */
+  height: calc(var(--topbar-h) + var(--safe-top));
   align-items: center;
   gap: 12px;
   padding: 0 16px;
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--safe-top);
   background: var(--bg);
   border-bottom: none;
   position: sticky;
@@ -776,7 +781,7 @@ button { cursor: pointer; touch-action: manipulation; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: calc(20px + var(--safe-top)) 20px 20px;
   z-index: 60;
 }
 
@@ -1387,6 +1392,7 @@ form.card + .card { margin-top: 14px; }
   .sheet-backdrop { align-items: flex-end; padding: 0; }
   .sheet {
     max-width: none;
+    max-height: min(86vh, calc(100dvh - var(--safe-top) - 12px));
     border-radius: var(--r-xl) var(--r-xl) 0 0;
     border-bottom: none;
     padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
