@@ -58,7 +58,6 @@ export function useRecorder({ onAudio, maxSeconds = 180 }) {
           setState("idle");
         }
       };
-      r.stream = stream;
       rec.current = r;
       r.start();
       setSeconds(0);
