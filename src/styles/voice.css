@@ -172,3 +172,43 @@
   width: 100%;
   justify-content: center;
 }
+
+/* Talk it through, on the evening reflection. */
+.voice-btn--ghost {
+  background: transparent;
+  color: var(--ink, #111);
+}
+.talk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.12));
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+}
+.talk-bar--on {
+  border-color: var(--accent, #f26a1b);
+}
+.talk-bar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink, #111);
+  color: #fff;
+  flex: none;
+}
+.talk-bar--on .talk-bar__icon {
+  background: var(--accent, #f26a1b);
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+.talk-bar__text {
+  font-size: 13px;
+  line-height: 1.35;
+  flex: 1 1 160px;
+}

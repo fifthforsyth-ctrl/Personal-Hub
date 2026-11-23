@@ -43,9 +43,11 @@
 //    { ok, heard, say, did, ask, audio (base64 mp3) }. Send the last few
 //    turns back as history [{ heard, say }] to keep a conversation going;
 //    ask is true when the answer is a question back. "listen" is words only
-//    ({ ok, text }), for the journal's mic button.
+//    ({ ok, text }), for the journal's mic button, and "say" is the other
+//    way ({ text } -> { ok, audio }), for the evening reflection reading its
+//    questions aloud.
 //
-// 5. The Hub in a browser, for "voice" and "listen": it sends your session
+// 5. The Hub in a browser, for "voice", "listen" and "say": it sends your session
 //    token (Authorization: Bearer <jwt>) instead of a watch key.
 //
 // The key comes in the x-watch-key header (or ?key= for apps that can only
@@ -369,6 +371,14 @@ async function app(db: DB, userId: string, tz: string, body: Record<string, unkn
       } catch (err) {
         return reply(err instanceof VoiceError ? err.message : "Couldn't turn that into words. Try again.", false);
       }
+    }
+    // Text to speech only: the evening reflection reading its questions aloud.
+    case "say": {
+      const words = clean(body.text, 600);
+      if (!words) return reply("Nothing to say.", false);
+      const audio = await speak(words);
+      if (!audio) return reply("Couldn't speak that. Is the ELEVENLABS_API_KEY secret set?", false);
+      return json({ ok: true, audio });
     }
     // Say anything: audio (or typed text) in, done, and a spoken answer out.
     case "voice":
