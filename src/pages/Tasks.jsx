@@ -1,36 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, Target as TargetIcon } from "lucide-react";
-import { addQuest, deleteQuest, fetchQuestBoard, updateQuest } from "../lib/api";
+import { addCamps, addQuest, deleteQuest, fetchTaskLists, updateQuest } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
+import { todayStr } from "../lib/planDates";
+import { homeCamp, setHomeCamp } from "../lib/tasksStore";
 import LoadError from "../components/ui/LoadError";
 import { useConfirm, useToast } from "../components/ui/Feedback";
-import { useLadder } from "../components/targets/useLadder";
-import QuestBody from "../components/targets/QuestBody";
-import "../styles/ascent.css";
-import "../styles/mark.css";
-import "../styles/camp.css";
-import "../styles/quests.css";
-import "../styles/targets.css";
+import Columns from "../components/tasks/Columns";
 import "../styles/tasks.css";
 
-// Tasks: the task system on a tab of its own (Aaron, 2026-11-22: "this is
-// useful for lots of other things and should be a tab of its own").
+// Tasks: the task system on a tab of its own (Aaron, 2026-11-22), made
+// simple (Aaron, 2026-11-23: "the only organize we need is to be able to
+// create a new column and have it remain there until i delete it").
 //
-// Every list is drawn the way a quest's lists always were (QuestBody.jsx):
-// today's list as a board, the ongoing list, the camps with their sections,
-// and the clipboard, with earlier days under them. A list is one of two
-// things:
+// Along the top, the lists (each quest he's on, then his plain lists), then
+// the open list's camps as pills. Under them, the open camp's columns side
+// by side, swiped through on the phone: as many as he makes, each kept until
+// he deletes it. A column is one of the camp's sections, so everything
+// already sorted into sections is right there. Tasks are carried between
+// columns by their handles, and onto them from the clipboard, which now
+// pulls down from the top of any page (components/tasks/ClipboardPull.jsx).
 //
-// - a quest on Targets: its lists live here now, and its target (arrows,
-//   notes, quotes) stays on Targets, a tap away from the head;
-// - a plain list (0111, quests.is_list): made here for anything at all,
-//   never a target. It starts with one camp, "Main", so the clipboard and
-//   sections work from the first minute. It can be renamed or deleted here.
+// Today's board, the ongoing list and the earlier days are no longer drawn
+// here; their rows are all still in the database.
 //
 // /tasks opens the list last open on this device (or the first one);
-// /tasks/<id> opens that one.
+// /tasks/<id>?camp=<camp> opens that one, on that camp.
 
 const LAST_KEY = "hub:tasks-last";
 
@@ -63,38 +61,38 @@ export function listsOf(board) {
 
 export default function Tasks() {
   const { id: param } = useParams();
-  const { hash } = useLocation();
+  const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  const userId = user?.id;
+  const today = todayStr();
 
-  // After an edit in a sheet (a camp renamed or taken off), the open list
-  // reads its own rows again.
-  const listReload = useRef(null);
-  const ladder = useLadder({ onSaved: () => listReload.current?.() });
-  const { userId, today } = ladder;
-  const board = useLoad(() => (userId ? fetchQuestBoard(userId) : null), [userId]);
-
+  const board = useLoad(() => (userId ? fetchTaskLists(userId) : null), [userId]);
   const lists = useMemo(() => listsOf(board.data), [board.data]);
   const all = useMemo(() => (board.data?.quests ?? []).filter((q) => !q.lesson_id), [board.data]);
   const remembered = readLast();
   const current = param ?? (lists.find((l) => l.id === remembered)?.id || lists[0]?.id || null);
   const open = all.find((q) => q.id === current) ?? null;
 
+  // The camps of the open list, as pills; the one open is in the address
+  // (?camp=), else the one last open on this device, else the first.
+  const camps = useMemo(() => (board.data?.camps ?? []).filter((c) => c.quest_id === open?.id).sort(byPos), [board.data, open]);
+  const home = homeCamp();
+  const campId = camps.find((c) => c.id === search.get("camp"))?.id ?? camps.find((c) => c.id === home)?.id ?? camps[0]?.id ?? null;
+  const camp = camps.find((c) => c.id === campId) ?? null;
+
   // /tasks moves to the list it opens, so Back and a reload stay on it.
   useEffect(() => {
-    if (!param && current) navigate(`/tasks/${current}${hash}`, { replace: true });
-  }, [param, current, hash, navigate]);
+    if (!param && current) navigate(`/tasks/${current}`, { replace: true });
+  }, [param, current, navigate]);
   useEffect(() => {
     if (open) keepLast(open.id);
   }, [open]);
-
-  // /tasks/<id>#camps (from a camp's "Plant the flag") opens on the camps.
   useEffect(() => {
-    if (hash !== "#camps" || !open || !board.data) return undefined;
-    const t = setTimeout(() => document.getElementById("camps")?.scrollIntoView({ block: "start" }), 300);
-    return () => clearTimeout(t);
-  }, [hash, open, board.data]);
+    if (campId) setHomeCamp(campId);
+  }, [campId]);
 
   async function newList(title) {
     try {
@@ -122,7 +120,7 @@ export default function Tasks() {
   async function removeList(list) {
     const ok = await confirm({
       title: `Delete “${list.title}”?`,
-      body: "Everything on it goes too: its days, its camps and their sections, and its clipboard.",
+      body: "Everything on it goes too: its camps, their columns and tasks, and its clipboard.",
       confirmLabel: "Delete list",
     });
     if (!ok) return;
@@ -136,45 +134,77 @@ export default function Tasks() {
     }
   }
 
-  const head = () => <TasksHead lists={lists} open={open} onNew={newList} onRename={renameList} onRemove={removeList} />;
+  async function newCamp(title) {
+    try {
+      const [row] = await addCamps(userId, open.id, [title], camps.length);
+      haptic("success");
+      board.mutate((b) => b && { ...b, camps: [...b.camps, row] });
+      setSearch({ camp: row.id }, { replace: true });
+      return true;
+    } catch (err) {
+      toast.error(err, "Couldn't make that camp.");
+      return false;
+    }
+  }
 
   return (
-    <div className="page ascent mark qs tg-page tg-page--climb tasks-page">
+    <div className="page tasks-page">
       {board.error && !board.data && <LoadError what="your lists" error={board.error} onRetry={board.reload} />}
       {!board.data ? (
         !board.error && <p className="empty">Loading…</p>
-      ) : !open ? (
+      ) : (
         <>
-          {head()}
-          {param ? (
-            <section className="card tg-gone">
-              <p>That list isn't here any more.</p>
-              <Link to="/tasks" className="btn btn--accent">
-                Back to Tasks
-              </Link>
-            </section>
+          <TasksHead lists={lists} open={open} onNew={newList} onRename={renameList} onRemove={removeList} />
+          {!open ? (
+            param ? (
+              <section className="card tg-gone">
+                <p>That list isn't here any more.</p>
+                <Link to="/tasks" className="btn btn--accent">
+                  Back to Tasks
+                </Link>
+              </section>
+            ) : (
+              <p className="empty">Make a list for anything: a project, errands, a meeting's thoughts.</p>
+            )
           ) : (
-            <p className="empty">Make a list for anything: a project, errands, a meeting's thoughts.</p>
+            <>
+              <CampPills camps={camps} on={campId} onPick={(id) => setSearch({ camp: id }, { replace: true })} onNew={newCamp} />
+              {camp ? <Columns key={camp.id} userId={userId} camp={camp} /> : <p className="empty">Add a camp to start making columns.</p>}
+            </>
           )}
         </>
-      ) : (
-        <QuestBody
-          key={open.id}
-          kind="quest"
-          id={open.id}
-          noun={open.is_list ? "list" : "quest"}
-          ladder={ladder}
-          board={board.data}
-          boardError={board.error}
-          boardLoading={board.loading}
-          reloadBoard={board.reload}
-          mutateBoard={board.mutate}
-          head={head}
-          reloadRef={listReload}
-        />
       )}
-      {ladder.overlay}
     </div>
+  );
+}
+
+// The camps of the open list, as pills (Aaron, 2026-11-23: "remove the
+// mountain graphic at the top and just place the camps at the top as
+// pills"), with a new one at the end.
+function CampPills({ camps, on, onPick, onNew }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <nav className="tasks-camps" aria-label="Camps">
+      <ul>
+        {camps.map((c) => (
+          <li key={c.id}>
+            <button type="button" className={"tasks-pill tasks-pill--camp" + (c.id === on ? " is-on" : "")} aria-pressed={c.id === on} onClick={() => onPick(c.id)}>
+              <span className="tasks-pill__text">{c.title}</span>
+            </button>
+          </li>
+        ))}
+        <li>
+          {adding ? (
+            <NameForm label="New camp" placeholder="Name the camp" submit="Add" onDone={() => setAdding(false)} onSave={onNew} />
+          ) : (
+            <button type="button" className="tasks-pill tasks-pill--camp tasks-pill--new" onClick={() => setAdding(true)}>
+              <Plus size={13} aria-hidden="true" />
+              Camp
+            </button>
+          )}
+        </li>
+      </ul>
+    </nav>
   );
 }
 

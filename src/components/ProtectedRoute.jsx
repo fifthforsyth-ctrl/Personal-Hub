@@ -7,6 +7,7 @@ import { Sidebar, TopBar, BottomTabs } from "./NavBar";
 import { CaptureProvider } from "./CaptureSheet";
 import { FeedbackProvider } from "./ui/Feedback";
 import ErrorBoundary from "./ErrorBoundary";
+import ClipboardPull from "./tasks/ClipboardPull";
 
 // The tab or window title follows the page, so a desktop tab, the app
 // switcher and browser history all say where you were.
@@ -74,6 +75,8 @@ export default function ProtectedRoute() {
             </ErrorBoundary>
           </main>
           <BottomTabs />
+          {/* The clipboard pulls down from the top of every page (2026-11-23). */}
+          <ClipboardPull />
         </div>
       </CaptureProvider>
     </FeedbackProvider>
