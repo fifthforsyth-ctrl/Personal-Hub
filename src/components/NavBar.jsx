@@ -10,6 +10,7 @@ import {
   Wallet,
   StickyNote,
   Plus,
+  Mic,
   Menu,
   X,
   Sparkles,
@@ -21,6 +22,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useCapture } from "./CaptureSheet";
+import VoiceSheet from "./VoiceSheet";
+import { unlockAudio } from "../lib/voice";
 import { refreshApp } from "../lib/refresh";
 import { unreadLoveCount } from "../lib/love";
 import "../styles/love.css";
@@ -33,7 +36,8 @@ import "../styles/love.css";
 // (Aaron, 2026-11-22). Targets holds the whole ladder, biggest to smallest: the
 // mission, the lifetime goals, the quests and lessons with their camps, and
 // the week's focus, each with a page of its own. It took the place of both
-// the Quests tab and the Range. The ＋ opens capture from wherever you are,
+// the Quests tab and the Range. The mic (the ＋ until 2026-11-23) takes
+// anything you say from wherever you are,
 // and everything else lives under More.
 //
 // The evening isn't a tab. You go to it from the big black "Evening
@@ -284,11 +288,15 @@ export function TopBar() {
 // Round icons with their names under them: the icon is quick once you know
 // it, and the word is there until you do. Six tabs and the ＋ have to fit a
 // 360px phone, so the ＋ sits after the first three (Today, Week, Tasks:
-// the ones you're in all day) rather than dead centre. A tab stays lit on
+// the ones you're in all day) rather than dead centre. The round button was
+// a ＋ for capture; since 2026-11-23 it's a mic (Aaron): say what you want
+// done and the Hub does it and answers out loud. Capture is a tap away at
+// the bottom of the voice sheet. A tab stays lit on
 // every page under it, so Targets shows as the place you are on a quest's
 // page, a camp or a plan too (/targets/...).
 export function BottomTabs() {
   const capture = useCapture();
+  const [talking, setTalking] = useState(false);
   const tab = ({ to, label, Icon, end }) => (
     <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "bottom-tab" + (on ? " active" : "")}>
       <span className="bottom-tab__icon">
@@ -301,10 +309,28 @@ export function BottomTabs() {
   return (
     <nav className="bottom-tabs" aria-label="Main">
       {NAV.slice(0, 3).map(tab)}
-      <button className="bottom-plus" onClick={() => capture.open()} aria-label="Capture" title="Capture">
-        <Plus size={24} strokeWidth={2.6} />
+      <button
+        className="bottom-plus"
+        onClick={() => {
+          // Inside the tap, so the spoken answer is allowed to play later.
+          unlockAudio();
+          setTalking(true);
+        }}
+        aria-label="Speak to the Hub"
+        title="Speak to the Hub"
+      >
+        <Mic size={23} strokeWidth={2.4} />
       </button>
       {NAV.slice(3).map(tab)}
+      {talking && (
+        <VoiceSheet
+          onClose={() => setTalking(false)}
+          onCapture={() => {
+            setTalking(false);
+            capture.open();
+          }}
+        />
+      )}
     </nav>
   );
 }

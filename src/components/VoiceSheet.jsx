@@ -1,0 +1,289 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Mic, Square, Loader2, X, Send, Plus, Volume2 } from "lucide-react";
+import { canRecord, recordingType, voiceCommand, playReply, stopReply, unlockAudio, audioContext } from "../lib/voice";
+import { haptic } from "../lib/haptics";
+import { announceChange } from "./today/announce";
+import "../styles/voice.css";
+
+// Talk to the Hub, from the mic in the tab bar.
+//
+// Tap the mic and say it: "stop my last task and start Forsyth Media", "I'm
+// going to bed", "add a $25.50 purchase under personal, it was groceries",
+// "add laundry to my clipboard". It stops by itself when you stop talking
+// (or tap to send), the Hub does it, and the answer is spoken back. When the
+// Hub needs more ("How much was it?") it listens again on its own, and your
+// answer goes back with the conversation so it can finish the job.
+//
+// Capture (Win, Loss, Minutes, Thought) is one tap away at the bottom, for
+// when typing or tapping is quicker than talking.
+
+// Quiet for this long after you've said something, and it sends.
+const QUIET_MS = 1600;
+const LOUD = 0.02; // RMS that counts as speech
+const MAX_SECONDS = 60;
+
+// Opened from the mic in the tab bar, whose tap already called unlockAudio()
+// so the answer can play out loud.
+export default function VoiceSheet({ onClose, onCapture }) {
+  const [turns, setTurns] = useState([]); // { heard, say, ok }
+  const [phase, setPhase] = useState("idle"); // idle | recording | working | speaking
+  const [error, setError] = useState("");
+  const [typed, setTyped] = useState("");
+  const rec = useRef(null);
+  const watch = useRef(null);
+  const alive = useRef(true);
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
+  const listRef = useRef(null);
+
+  const supported = canRecord();
+
+  const release = () => {
+    clearInterval(watch.current);
+    watch.current = null;
+    rec.current?.stream?.getTracks().forEach((t) => t.stop());
+    try {
+      rec.current?.meter?.disconnect();
+    } catch {
+      // gone
+    }
+  };
+
+  // Every callback below reads refs and state setters only, so it doesn't
+  // matter which render's copy runs.
+  async function send({ blob, text }) {
+    setPhase("working");
+    setError("");
+    try {
+      const r = await voiceCommand({ blob, text, history: turnsRef.current.filter((t) => t.ok !== false) });
+      if (!alive.current) return;
+      const turn = { heard: r.heard || text || "", say: r.say || "", ok: r.ok !== false };
+      setTurns((all) => [...all, turn]);
+      if (r.did?.length) announceChange();
+      haptic(turn.ok ? "success" : "warning");
+      if (r.audio) {
+        setPhase("speaking");
+        await playReply(r.audio);
+      }
+      if (!alive.current) return;
+      // A question back: listen for the answer straight away.
+      if (r.ask && supported) start();
+      else setPhase("idle");
+    } catch (err) {
+      if (!alive.current) return;
+      haptic("warning");
+      setError(err?.message || "That didn't work. Try again.");
+      setPhase("idle");
+    }
+  }
+
+  async function start() {
+    setError("");
+    stopReply();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!alive.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const type = recordingType();
+      const r = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+      const chunks = [];
+      r.ondataavailable = (e) => e.data?.size && chunks.push(e.data);
+      r.onstop = () => {
+        release();
+        if (!alive.current) return;
+        const blob = new Blob(chunks, { type: r.mimeType || type || "audio/mp4" });
+        if (blob.size < 500 || !r.heardSpeech) {
+          setPhase("idle");
+          setError(r.heardSpeech ? "Too short. Tap and speak." : "I didn't hear anything. Tap and speak.");
+          return;
+        }
+        send({ blob });
+      };
+      r.stream = stream;
+      r.heardSpeech = false;
+      rec.current = r;
+      r.start();
+      setPhase("recording");
+      haptic("tap");
+
+      // Listen to the level, so it sends when you stop talking.
+      const ac = audioContext();
+      let meter = null;
+      if (ac) {
+        try {
+          const srcNode = ac.createMediaStreamSource(stream);
+          meter = ac.createAnalyser();
+          meter.fftSize = 1024;
+          srcNode.connect(meter);
+          r.meter = srcNode;
+        } catch {
+          meter = null;
+        }
+      }
+      const samples = meter ? new Float32Array(meter.fftSize) : null;
+      const began = Date.now();
+      let lastLoud = 0;
+      watch.current = setInterval(() => {
+        if (r.state !== "recording") return;
+        const now = Date.now();
+        if (meter) {
+          meter.getFloatTimeDomainData(samples);
+          let sum = 0;
+          for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+          if (Math.sqrt(sum / samples.length) > LOUD) {
+            r.heardSpeech = true;
+            lastLoud = now;
+          }
+          if (r.heardSpeech && now - lastLoud > QUIET_MS) r.stop();
+          // Nothing said at all in 8 seconds: stop listening.
+          if (!r.heardSpeech && now - began > 8000) r.stop();
+        } else {
+          r.heardSpeech = true; // can't tell; trust the tap
+        }
+        if (now - began > MAX_SECONDS * 1000) r.stop();
+      }, 100);
+    } catch (err) {
+      release();
+      setPhase("idle");
+      setError(err?.name === "NotAllowedError" ? "The Hub needs the microphone. Allow it in Settings for this app." : "Couldn't start the microphone.");
+    }
+  }
+
+  function stop() {
+    if (rec.current?.state === "recording") {
+      rec.current.heardSpeech = true; // you tapped send: send it
+      rec.current.stop();
+    }
+  }
+
+  // Opening the sheet is the tap: start listening right away.
+  useEffect(() => {
+    alive.current = true;
+    if (supported) start();
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => {
+      alive.current = false;
+      window.removeEventListener("keydown", onKey);
+      if (rec.current?.state === "recording") {
+        rec.current.onstop = null;
+        rec.current.stop();
+      }
+      release();
+      stopReply();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    listRef.current?.scrollTo?.({ top: listRef.current.scrollHeight, behavior: "smooth" });
+  }, [turns.length, phase]);
+
+  const tapMic = () => {
+    unlockAudio();
+    if (phase === "recording") stop();
+    else if (phase === "speaking") {
+      stopReply();
+      start();
+    } else if (phase === "idle") start();
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    const text = typed.trim();
+    if (!text || phase === "working") return;
+    unlockAudio();
+    if (rec.current?.state === "recording") {
+      rec.current.onstop = null;
+      rec.current.stop();
+      release();
+    }
+    stopReply();
+    setTyped("");
+    send({ text });
+  };
+
+  const status = {
+    recording: "Listening… it sends when you stop talking",
+    working: "Working on it…",
+    speaking: "Tap the mic to answer or say more",
+    idle: turns.length ? "Tap the mic to say more" : "Tap the mic and speak",
+  }[phase];
+
+  // On the page itself, not inside the tab bar, whose blur would trap a
+  // fixed backdrop.
+  return createPortal(
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet voice-sheet" role="dialog" aria-modal="true" aria-label="Speak to the Hub" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head">
+          <span className="card-title">Speak to the Hub</span>
+          <button className="btn-icon" onClick={onClose} aria-label="Close" title="Close">
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="voice-sheet__talk" ref={listRef}>
+          {turns.length === 0 && (
+            <p className="voice-sheet__hint">
+              “Stop my last task and start Forsyth Media.” “I'm going to bed.” “Add a $25.50 purchase under personal, it was groceries.” “Add laundry to my clipboard.”
+            </p>
+          )}
+          {turns.map((t, i) => (
+            <div key={i} className="voice-turn">
+              {t.heard && <p className="voice-turn__you">{t.heard}</p>}
+              {t.say && (
+                <p className={"voice-turn__hub" + (t.ok ? "" : " voice-turn__hub--off")}>
+                  {t.say}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="voice-sheet__mic">
+          {supported ? (
+            <button
+              type="button"
+              className={"voice-orb" + (phase === "recording" ? " voice-orb--on" : "")}
+              onClick={tapMic}
+              disabled={phase === "working"}
+              aria-label={phase === "recording" ? "Send" : "Speak"}
+            >
+              {phase === "working" ? (
+                <Loader2 size={28} className="voice-spin" />
+              ) : phase === "recording" ? (
+                <Square size={22} />
+              ) : phase === "speaking" ? (
+                <Volume2 size={28} />
+              ) : (
+                <Mic size={28} />
+              )}
+            </button>
+          ) : (
+            <p className="voice-error">This browser can't record. Type it below.</p>
+          )}
+          <p className="voice-sheet__status">{status}</p>
+          {error && <p className="voice-error">{error}</p>}
+        </div>
+
+        <form className="voice-talk__row" onSubmit={submit}>
+          <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type it" aria-label="Type it instead" maxLength={500} />
+          <button type="submit" className="btn btn--accent" disabled={!typed.trim() || phase === "working"} aria-label="Send">
+            <Send size={15} />
+          </button>
+        </form>
+
+        {onCapture && (
+          <button type="button" className="btn btn--ghost btn--sm voice-sheet__capture" onClick={onCapture}>
+            <Plus size={14} />
+            Capture a win, loss, minutes or thought by tapping
+          </button>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}

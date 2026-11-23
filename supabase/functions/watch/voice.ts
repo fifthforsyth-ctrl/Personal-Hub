@@ -91,20 +91,32 @@ const SYSTEM = `You are the voice of Aaron's Hub, the app he uses to track minut
 
 How to work:
 - Do what he asked with the tools, then reply. Several asks in one breath: do them all.
-- Only do what he clearly asked. If something essential is missing or it's truly ambiguous (e.g. an amount you can't make out), ask one short question instead of guessing, and do nothing.
+- "Stop my last task", "stop what I'm doing", "I'm done with that" mean stop_timer. "Stop X and start Y" is stop_timer then start_timer (start_timer alone also stops what's running).
+- "I'm going to bed", "goodnight", "heading to sleep": start_timer with category "Sleep". "I'm up" or "I'm awake" while Sleep runs: stop_timer.
+- "Add X as a note" or "note that X": keep_note. "Add X to my clipboard": add_to_clipboard.
+- "Add a 25.50 purchase under personal, it was groceries": log_spend with amount 25.5, business false, budget "groceries" (personal/business is not the budget).
+- Only do what he clearly asked. If something essential is missing or it's truly ambiguous (e.g. an amount you can't make out), ask one short question instead of guessing, and do nothing yet. His answer comes back as his next message, with this conversation above it: then finish the job. A question must end with a question mark; anything else must not.
 - If he asks a question about today, answer from the snapshot.
 - If a tool reports a problem, say so plainly.
 
 Your reply is spoken: one or two short sentences, plain words, no lists, no emoji, no markdown. Confirm what was done with the key detail ("Logged 25 dollars to Groceries." / "Added three things to your clipboard."). Calm and direct; no cheerleading.`;
 
 export type VoiceResult = { say: string; did: string[] };
+export type Turn = { heard: string; say: string };
 
-export async function runCommand(heard: string, snapshot: string, handlers: Handlers): Promise<VoiceResult> {
+export async function runCommand(heard: string, snapshot: string, handlers: Handlers, history: Turn[] = []): Promise<VoiceResult> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return { say: "The Hub's AI key is missing, so I can't act on that yet.", did: [] };
   const anthropic = new Anthropic({ apiKey });
 
-  const messages: any[] = [{ role: "user", content: `${snapshot}\n\nHe said: "${heard}"` }];
+  // A back-and-forth: the last few things he said and what the Hub answered,
+  // so "how much?" "25 dollars" finishes the first ask.
+  const messages: any[] = [];
+  for (const t of history.slice(-6)) {
+    messages.push({ role: "user", content: messages.length ? `He said: "${t.heard}"` : `${snapshot}\n\nHe said: "${t.heard}"` });
+    messages.push({ role: "assistant", content: t.say || "OK." });
+  }
+  messages.push({ role: "user", content: messages.length ? `He said: "${heard}"` : `${snapshot}\n\nHe said: "${heard}"` });
   const did: string[] = [];
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -134,21 +146,22 @@ export async function runCommand(heard: string, snapshot: string, handlers: Hand
       return { say: say || (did.length ? did.join(" ") : "Done."), did };
     }
 
-    const results = await Promise.all(
-      uses.map(async (u: any) => {
-        const fn = (handlers as Record<string, (a: any) => Promise<string>>)[u.name];
-        try {
-          if (!fn) throw new Error(`No tool called ${u.name}.`);
-          const out = await fn(u.input ?? {});
-          did.push(out);
-          return { type: "tool_result", tool_use_id: u.id, content: out };
-        } catch (err) {
-          const msg = String((err as Error)?.message ?? err);
-          console.error("voice tool", u.name, msg);
-          return { type: "tool_result", tool_use_id: u.id, content: msg, is_error: true };
-        }
-      })
-    );
+    // One at a time, in the order asked: "stop X and start Y" must stop
+    // before it starts.
+    const results: any[] = [];
+    for (const u of uses) {
+      const fn = (handlers as Record<string, (a: any) => Promise<string>>)[u.name];
+      try {
+        if (!fn) throw new Error(`No tool called ${u.name}.`);
+        const out = await fn(u.input ?? {});
+        did.push(out);
+        results.push({ type: "tool_result", tool_use_id: u.id, content: out });
+      } catch (err) {
+        const msg = String((err as Error)?.message ?? err);
+        console.error("voice tool", u.name, msg);
+        results.push({ type: "tool_result", tool_use_id: u.id, content: msg, is_error: true });
+      }
+    }
     messages.push({ role: "user", content: results });
   }
   return { say: did.join(" ") || "Done.", did };
