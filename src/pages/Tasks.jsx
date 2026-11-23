@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, Target as TargetIcon } from "lucide-react";
-import { addCamps, addQuest, deleteQuest, fetchTaskLists, updateQuest } from "../lib/api";
+import { ChevronLeft, Plus, Pencil, Trash2, Target as TargetIcon } from "lucide-react";
+import { addCamps, addQuest, COLUMNS_HOME, deleteQuest, fetchTaskLists, updateQuest } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLoad } from "../lib/useLoad";
 import { haptic } from "../lib/haptics";
@@ -10,51 +10,37 @@ import { homeCamp, setHomeCamp } from "../lib/tasksStore";
 import LoadError from "../components/ui/LoadError";
 import { useConfirm, useToast } from "../components/ui/Feedback";
 import Columns from "../components/tasks/Columns";
+import TasksHome from "../components/tasks/TasksHome";
 import "../styles/tasks.css";
 
 // Tasks: the task system on a tab of its own (Aaron, 2026-11-22), made
-// simple (Aaron, 2026-11-23: "the only organize we need is to be able to
-// create a new column and have it remain there until i delete it").
+// simple (Aaron, 2026-11-23): "the only organize we need is to be able to
+// create a new column and have it remain there until i delete it".
 //
-// Along the top, the lists (each quest he's on, then his plain lists), then
-// the open list's camps as pills. Under them, the open camp's columns side
-// by side, swiped through on the phone: as many as he makes, each kept until
-// he deletes it. A column is one of the camp's sections, so everything
-// already sorted into sections is right there. Tasks are carried between
-// columns by their handles, and onto them from the clipboard, which now
-// pulls down from the top of any page (components/tasks/ClipboardPull.jsx).
+// /tasks is the home (Aaron, 2026-11-23, later): "just be the option to
+// click a big + to form a new column, or to scrub to look at my most recent
+// columns. Not every column has to be organized by task". A column made
+// there belongs to no project (api.js columnsHome). Above it, the projects.
 //
-// Today's board, the ongoing list and the earlier days are no longer drawn
-// here; their rows are all still in the database.
+// A project (what were the lists: each quest he's on, and each plain list)
+// opens at /tasks/<id>: its targets (the project's camps) as pills, and the
+// open target's columns side by side. Projects, targets and columns can all
+// be made from here, in any mix.
 //
-// /tasks opens the list last open on this device (or the first one);
-// /tasks/<id>?camp=<camp> opens that one, on that camp.
-
-const LAST_KEY = "hub:tasks-last";
-
-function readLast() {
-  try {
-    return localStorage.getItem(LAST_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function keepLast(id) {
-  try {
-    localStorage.setItem(LAST_KEY, id);
-  } catch {
-    /* private window: it just won't be remembered */
-  }
-}
+// A column is one of a camp's sections, so everything sorted into sections
+// before is right there. Tasks are carried between columns by their
+// handles, and onto them from the clipboard, which pulls down from the top
+// of any page (components/tasks/ClipboardPull.jsx). Today's board, the
+// ongoing list and the earlier days are no longer drawn here; their rows are
+// all still in the database.
 
 const byPos = (a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
-// The lists along the top: the quests he's on, then his plain lists, each
-// in its own order. A quest that's done or set aside drops off the row but
-// still opens by its address.
+// The projects: the quests he's on, then his plain lists, each in its own
+// order. A quest that's done or set aside drops off the row but still opens
+// by its address. The free columns' own home is never one.
 export function listsOf(board) {
-  const quests = (board?.quests ?? []).filter((q) => !q.lesson_id);
+  const quests = (board?.quests ?? []).filter((q) => !q.lesson_id && q.note !== COLUMNS_HOME);
   const on = quests.filter((q) => q.status === "on");
   return [...on.filter((q) => !q.is_list).sort(byPos), ...on.filter((q) => q.is_list).sort(byPos)];
 }
@@ -71,30 +57,19 @@ export default function Tasks() {
 
   const board = useLoad(() => (userId ? fetchTaskLists(userId) : null), [userId]);
   const lists = useMemo(() => listsOf(board.data), [board.data]);
-  const all = useMemo(() => (board.data?.quests ?? []).filter((q) => !q.lesson_id), [board.data]);
-  const remembered = readLast();
-  const current = param ?? (lists.find((l) => l.id === remembered)?.id || lists[0]?.id || null);
-  const open = all.find((q) => q.id === current) ?? null;
+  const open = param ? ((board.data?.quests ?? []).find((q) => q.id === param && !q.lesson_id) ?? null) : null;
 
-  // The camps of the open list, as pills; the one open is in the address
-  // (?camp=), else the one last open on this device, else the first.
+  // The targets of the open project, as pills; the one open is in the
+  // address (?camp=), else the one last open on this device, else the first.
   const camps = useMemo(() => (board.data?.camps ?? []).filter((c) => c.quest_id === open?.id).sort(byPos), [board.data, open]);
   const home = homeCamp();
   const campId = camps.find((c) => c.id === search.get("camp"))?.id ?? camps.find((c) => c.id === home)?.id ?? camps[0]?.id ?? null;
   const camp = camps.find((c) => c.id === campId) ?? null;
-
-  // /tasks moves to the list it opens, so Back and a reload stay on it.
-  useEffect(() => {
-    if (!param && current) navigate(`/tasks/${current}`, { replace: true });
-  }, [param, current, navigate]);
-  useEffect(() => {
-    if (open) keepLast(open.id);
-  }, [open]);
   useEffect(() => {
     if (campId) setHomeCamp(campId);
   }, [campId]);
 
-  async function newList(title) {
+  async function newProject(title) {
     try {
       const id = await addQuest(userId, { title, today, isList: true, position: lists.length, camps: [{ title: "Main" }] });
       haptic("success");
@@ -102,39 +77,38 @@ export default function Tasks() {
       navigate(`/tasks/${id}`);
       return true;
     } catch (err) {
-      toast.error(err, "Couldn't make that list.");
+      toast.error(err, "Couldn't make that project.");
       return false;
     }
   }
 
-  async function renameList(list, title) {
+  async function renameProject(list, title) {
     board.mutate((b) => b && { ...b, quests: b.quests.map((q) => (q.id === list.id ? { ...q, title } : q)) });
     try {
       await updateQuest(list.id, { title });
     } catch (err) {
-      toast.error(err, "Couldn't rename that list.");
+      toast.error(err, "Couldn't rename that project.");
       board.reload();
     }
   }
 
-  async function removeList(list) {
+  async function removeProject(list) {
     const ok = await confirm({
       title: `Delete “${list.title}”?`,
-      body: "Everything on it goes too: its camps, their columns and tasks, and its clipboard.",
-      confirmLabel: "Delete list",
+      body: "Everything in it goes too: its targets, their columns and tasks, and its clipboard.",
+      confirmLabel: "Delete project",
     });
     if (!ok) return;
     try {
       await deleteQuest(list.id);
-      const rest = lists.filter((l) => l.id !== list.id);
       await board.reload();
-      navigate(rest[0] ? `/tasks/${rest[0].id}` : "/tasks", { replace: true });
+      navigate("/tasks", { replace: true });
     } catch (err) {
-      toast.error(err, "Couldn't delete that list.");
+      toast.error(err, "Couldn't delete that project.");
     }
   }
 
-  async function newCamp(title) {
+  async function newTarget(title) {
     try {
       const [row] = await addCamps(userId, open.id, [title], camps.length);
       haptic("success");
@@ -142,49 +116,128 @@ export default function Tasks() {
       setSearch({ camp: row.id }, { replace: true });
       return true;
     } catch (err) {
-      toast.error(err, "Couldn't make that camp.");
+      toast.error(err, "Couldn't make that target.");
       return false;
     }
   }
 
   return (
     <div className="page tasks-page">
-      {board.error && !board.data && <LoadError what="your lists" error={board.error} onRetry={board.reload} />}
+      {board.error && !board.data && <LoadError what="your projects" error={board.error} onRetry={board.reload} />}
       {!board.data ? (
         !board.error && <p className="empty">Loading…</p>
+      ) : !param ? (
+        <>
+          <header className="tasks-head">
+            <div className="eyebrow">Tasks</div>
+            <ProjectPills lists={lists} onNew={newProject} />
+          </header>
+          <TasksHome userId={userId} board={board.data} />
+        </>
+      ) : !open ? (
+        <>
+          <BackToTasks />
+          <section className="card tg-gone">
+            <p>That project isn't here any more.</p>
+            <Link to="/tasks" className="btn btn--accent">
+              Back to Tasks
+            </Link>
+          </section>
+        </>
       ) : (
         <>
-          <TasksHead lists={lists} open={open} onNew={newList} onRename={renameList} onRemove={removeList} />
-          {!open ? (
-            param ? (
-              <section className="card tg-gone">
-                <p>That list isn't here any more.</p>
-                <Link to="/tasks" className="btn btn--accent">
-                  Back to Tasks
-                </Link>
-              </section>
-            ) : (
-              <p className="empty">Make a list for anything: a project, errands, a meeting's thoughts.</p>
-            )
-          ) : (
-            <>
-              <CampPills camps={camps} on={campId} onPick={(id) => setSearch({ camp: id }, { replace: true })} onNew={newCamp} />
-              {camp ? <Columns key={camp.id} userId={userId} camp={camp} /> : <p className="empty">Add a camp to start making columns.</p>}
-            </>
-          )}
+          <BackToTasks />
+          <ProjectTitle open={open} onRename={renameProject} onRemove={removeProject} />
+          <TargetPills camps={camps} on={campId} onPick={(id) => setSearch({ camp: id }, { replace: true })} onNew={newTarget} />
+          {camp ? <Columns key={camp.id} userId={userId} camp={camp} /> : <p className="empty">Add a target to start making columns.</p>}
         </>
       )}
     </div>
   );
 }
 
-// The camps of the open list, as pills (Aaron, 2026-11-23: "remove the
-// mountain graphic at the top and just place the camps at the top as
-// pills"), with a new one at the end.
-function CampPills({ camps, on, onPick, onNew }) {
+function BackToTasks() {
+  return (
+    <Link to="/tasks" className="tasks-back">
+      <ChevronLeft size={16} aria-hidden="true" />
+      Tasks
+    </Link>
+  );
+}
+
+// The projects, as pills along the top of the home, and a new one.
+function ProjectPills({ lists, onNew }) {
   const [adding, setAdding] = useState(false);
   return (
-    <nav className="tasks-camps" aria-label="Camps">
+    <nav className="tasks-lists" aria-label="Projects">
+      <ul>
+        {lists.map((l) => (
+          <li key={l.id}>
+            <Link to={`/tasks/${l.id}`} className="tasks-pill">
+              {!l.is_list && <TargetIcon size={12} aria-label="Quest" />}
+              <span className="tasks-pill__text">{l.title}</span>
+            </Link>
+          </li>
+        ))}
+        <li>
+          {adding ? (
+            <NameForm label="New project" placeholder="Name the project" submit="Make it" onDone={() => setAdding(false)} onSave={onNew} />
+          ) : (
+            <button type="button" className="tasks-pill tasks-pill--new" onClick={() => setAdding(true)}>
+              <Plus size={13} aria-hidden="true" />
+              Project
+            </button>
+          )}
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+// The open project's name, with its rename and delete (a plain one) or the
+// way to its target on Targets (a quest).
+function ProjectTitle({ open, onRename, onRemove }) {
+  const [renaming, setRenaming] = useState(false);
+  if (renaming)
+    return (
+      <NameForm
+        label="Rename the project"
+        initial={open.title}
+        submit="Save"
+        onDone={() => setRenaming(false)}
+        onSave={async (title) => {
+          await onRename(open, title);
+          return true;
+        }}
+      />
+    );
+  return (
+    <div className="tasks-title">
+      <h1 className="page-title">{open.title}</h1>
+      {open.is_list ? (
+        <div className="tasks-title__tools">
+          <button type="button" className="btn-icon" onClick={() => setRenaming(true)} aria-label="Rename the project" title="Rename">
+            <Pencil size={15} />
+          </button>
+          <button type="button" className="btn-icon" onClick={() => onRemove(open)} aria-label="Delete the project" title="Delete">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      ) : (
+        <Link to={`/targets/${open.id}`} className="btn-link tasks-title__target">
+          <TargetIcon size={13} aria-hidden="true" />
+          On Targets
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// The project's targets (its camps) as pills, with a new one at the end.
+function TargetPills({ camps, on, onPick, onNew }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <nav className="tasks-camps" aria-label="Targets">
       <ul>
         {camps.map((c) => (
           <li key={c.id}>
@@ -195,85 +248,16 @@ function CampPills({ camps, on, onPick, onNew }) {
         ))}
         <li>
           {adding ? (
-            <NameForm label="New camp" placeholder="Name the camp" submit="Add" onDone={() => setAdding(false)} onSave={onNew} />
+            <NameForm label="New target" placeholder="Name the target" submit="Add" onDone={() => setAdding(false)} onSave={onNew} />
           ) : (
             <button type="button" className="tasks-pill tasks-pill--camp tasks-pill--new" onClick={() => setAdding(true)}>
               <Plus size={13} aria-hidden="true" />
-              Camp
+              Target
             </button>
           )}
         </li>
       </ul>
     </nav>
-  );
-}
-
-// The head of the tab: its name, the lists to switch between, a new list,
-// and what the open one is (a quest with a way to its target, or a plain
-// list with its rename and delete).
-function TasksHead({ lists, open, onNew, onRename, onRemove }) {
-  const [adding, setAdding] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-
-  return (
-    <header className="tasks-head">
-      <div className="eyebrow">Tasks</div>
-      <nav className="tasks-lists" aria-label="Your lists">
-        <ul>
-          {lists.map((l) => (
-            <li key={l.id}>
-              <Link to={`/tasks/${l.id}`} className={"tasks-pill" + (open?.id === l.id ? " is-on" : "")} aria-current={open?.id === l.id ? "page" : undefined}>
-                {!l.is_list && <TargetIcon size={12} aria-label="Quest" />}
-                <span className="tasks-pill__text">{l.title}</span>
-              </Link>
-            </li>
-          ))}
-          <li>
-            {adding ? (
-              <NameForm label="New list" placeholder="Name the list" submit="Make it" onDone={() => setAdding(false)} onSave={onNew} />
-            ) : (
-              <button type="button" className="tasks-pill tasks-pill--new" onClick={() => setAdding(true)}>
-                <Plus size={13} aria-hidden="true" />
-                New list
-              </button>
-            )}
-          </li>
-        </ul>
-      </nav>
-
-      {open &&
-        (renaming ? (
-          <NameForm
-            label="Rename the list"
-            initial={open.title}
-            submit="Save"
-            onDone={() => setRenaming(false)}
-            onSave={async (title) => {
-              await onRename(open, title);
-              return true;
-            }}
-          />
-        ) : (
-          <div className="tasks-title">
-            <h1 className="page-title">{open.title}</h1>
-            {open.is_list ? (
-              <div className="tasks-title__tools">
-                <button type="button" className="btn-icon" onClick={() => setRenaming(true)} aria-label="Rename the list" title="Rename">
-                  <Pencil size={15} />
-                </button>
-                <button type="button" className="btn-icon" onClick={() => onRemove(open)} aria-label="Delete the list" title="Delete">
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ) : (
-              <Link to={`/targets/${open.id}`} className="btn-link tasks-title__target">
-                <TargetIcon size={13} aria-hidden="true" />
-                Its target
-              </Link>
-            )}
-          </div>
-        ))}
-    </header>
   );
 }
 

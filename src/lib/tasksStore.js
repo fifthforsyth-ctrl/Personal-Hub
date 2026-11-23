@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { addSection, addSteps, deleteStep, fetchCampColumns, fetchClipboardAll, placeSteps, updateSection, updateStep } from "./api";
+import { addSection, addSteps, deleteStep, fetchCampColumns, fetchClipboardAll, fetchColumns, placeSteps, updateSection, updateStep } from "./api";
 import { applyRows, planMove } from "./stepMoves";
 
 // What the Tasks tab and the pull-down clipboard share (Aaron, 2026-11-23):
@@ -76,6 +76,17 @@ export async function loadCamp(userId, campId) {
   for (const s of data.sections) sections.set(s.id, s);
   for (const st of data.steps) steps.set(st.id, st);
   loadedCamps = new Set(loadedCamps).add(campId);
+  emit();
+}
+
+// Some columns (the Tasks home's recent ones), wherever they are.
+export async function loadColumns(userId, sectionIds) {
+  const data = await fetchColumns(userId, sectionIds);
+  const ids = new Set(sectionIds);
+  for (const id of ids) sections.delete(id);
+  for (const st of [...steps.values()]) if (ids.has(st.section_id)) steps.delete(st.id);
+  for (const s of data.sections) sections.set(s.id, s);
+  for (const st of data.steps) steps.set(st.id, st);
   emit();
 }
 
