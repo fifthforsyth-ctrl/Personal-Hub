@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Target, Plus, ChevronRight, ChevronDown, RotateCcw, Loader2 } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown, RotateCcw, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { fetchArchivedBudgets, restoreBudget } from "../../lib/api";
 import { fmtMoney } from "../../lib/money";
@@ -28,11 +28,13 @@ export default function Budgets({ overview, monthKey, isCurrentMonth, version, h
   const openBudget = open === "new" ? {} : budgets.find((b) => b.id === open);
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title"><Target size={14} />{isCurrentMonth ? "Budgets this month" : `Budgets in ${month}`}</span>
-        <button type="button" className="btn-link" style={{ minHeight: 36 }} onClick={() => setOpen("new")}>
-          <Plus size={13} />
+    <section className="card money-budgets-card" aria-labelledby="money-budgets-h">
+      <div className="money-card-head">
+        <h2 className="money-card-h" id="money-budgets-h">
+          {isCurrentMonth ? "Budgets" : `Budgets in ${month}`}
+        </h2>
+        <button type="button" className="btn-link money-card-link" onClick={() => setOpen("new")}>
+          <Plus size={14} />
           New budget
         </button>
       </div>
@@ -84,7 +86,7 @@ export default function Budgets({ overview, monthKey, isCurrentMonth, version, h
           onOpenTxn={onOpenTxn}
         />
       )}
-    </div>
+    </section>
   );
 }
 
@@ -102,9 +104,9 @@ function BudgetRow({ budget, isCurrentMonth, onOpen }) {
           {budget.kind === "business" && <span className="money-tag">Business</span>}
         </span>
         <span className="row" style={{ gap: 6, flexShrink: 0 }}>
-          <span className="money-budget__figure mono">
-            <span className={over ? "is-over" : undefined}>{fmtMoney(budget.spent, { round: true })}</span>
-            {limit != null && <span className="muted"> / {fmtMoney(limit, { round: true })}</span>}
+          <span className="money-budget__figure">
+            <span className={"money-budget__spent" + (over ? " is-over" : "")}>{fmtMoney(budget.spent, { round: true })}</span>
+            {limit != null && <span className="money-budget__limit"> of {fmtMoney(limit, { round: true })}</span>}
           </span>
           <ChevronRight size={15} className="money-budget__chev" aria-hidden="true" />
         </span>

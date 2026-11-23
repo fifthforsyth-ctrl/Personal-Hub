@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ChevronLeft, ChevronRight, Wallet, History, Archive, ChevronDown, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Wallet, History, Archive, Check } from "lucide-react";
 import { fetchMoneyOverview, deleteManualExpense, setAsidePurchases, unsetAsidePurchases } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
 import { useToast } from "../components/ui/Feedback";
@@ -11,7 +11,7 @@ import Business from "../components/money/Business";
 import Transactions, { Pending } from "../components/money/Transactions";
 import TransactionSheet from "../components/money/TransactionSheet";
 import IncomeByClient from "../components/money/IncomeByClient";
-import { monthKey, shiftMonth, monthName } from "../components/money/shared";
+import { monthKey, shiftMonth, monthName, Sorted } from "../components/money/shared";
 import { fmtMoney } from "../lib/money";
 import { savingsRate } from "../lib/honest";
 
@@ -19,9 +19,11 @@ import { savingsRate } from "../lib/honest";
 // business spent.
 //
 // Built around one small daily habit: answer today's purchases (most are one
-// tap, the guess is already filled in), glance at the budgets, done. The
-// accounts, today's question and the budgets are all that show; the business,
-// income, every transaction and the old-history offer fold under "More".
+// tap, the guess is already filled in), glance at the budgets, done. So the
+// page runs in that order (Clean slate, 2026-11-23): the month and its three
+// figures, the purchase waiting (the page's one black card), the budgets,
+// the accounts, and then one card of rows that open: the business, income,
+// every transaction, and catching up.
 //
 // Falling behind is planned for rather than scolded: once purchases are a
 // week old, one press sets them aside. They stay in their month, unsorted and
@@ -82,46 +84,52 @@ export default function Money() {
 
   const cards = { monthKey: key, isCurrentMonth, version, hidden, onChanged: changed, onOpenTxn: setOpenTxn };
 
+  const bankFirst = reconnecting || overview?.connection?.status === "error";
+  const accounts = (
+    <>
+      {reconnecting && (
+        <ConnectBank
+          reconnect
+          onCancel={() => setReconnecting(false)}
+          onConnected={() => {
+            setReconnecting(false);
+            changed();
+          }}
+        />
+      )}
+      <AccountCards overview={overview} onChanged={changed} reconnecting={reconnecting} onReconnect={() => setReconnecting(true)} />
+    </>
+  );
+
   return (
-    <div className="page">
-      <div className="money-head">
-        <div className="money-month">
-          <button
-            type="button"
-            className="btn-icon btn-icon--bordered"
-            onClick={() => goTo(shiftMonth(key, -1))}
-            aria-label={`Back to ${monthName(shiftMonth(key, -1))}`}
-            title="Previous month"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <div style={{ minWidth: 0 }}>
-            <div className="eyebrow">Money</div>
-            <h1 className="page-title">{title}</h1>
-          </div>
-          <button
-            type="button"
-            className="btn-icon btn-icon--bordered"
-            onClick={() => goTo(nextKey)}
-            disabled={isCurrentMonth}
-            aria-label={`On to ${monthName(nextKey)}`}
-            title="Next month"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-        {overview && (
-          <div className="money-figures">
-            <Figure label="Spent (personal)" value={fmtMoney(overview.spent_this_month, { round: true })} />
-            <Figure label="Came in" value={fmtMoney(overview.income_this_month, { round: true })} />
-            <Figure
-              label="Savings rate"
-              value={fmtRate(savingsRate(overview.income_this_month, Number(overview.spent_this_month || 0) + Number(overview.business?.month_total || 0)))}
-              title="The share of what came in this month that wasn't spent, personal and business together."
-            />
-          </div>
-        )}
+    <div className="page money-page">
+      <header className="hub-head money-head">
+        <h1 className="page-title">Money</h1>
+      </header>
+
+      <div className="money-month">
+        <button type="button" className="money-month__btn" onClick={() => goTo(shiftMonth(key, -1))} aria-label={`Back to ${monthName(shiftMonth(key, -1))}`} title="Previous month">
+          <ChevronLeft size={18} />
+        </button>
+        <h2 className="money-month__name" aria-live="polite">
+          {title}
+        </h2>
+        <button type="button" className="money-month__btn" onClick={() => goTo(nextKey)} disabled={isCurrentMonth} aria-label={`On to ${monthName(nextKey)}`} title="Next month">
+          <ChevronRight size={18} />
+        </button>
       </div>
+
+      {overview && (
+        <div className="card money-figures">
+          <Figure label="Spent" value={fmtMoney(overview.spent_this_month, { round: true })} title="Personal spending this month." />
+          <Figure label="Came in" value={fmtMoney(overview.income_this_month, { round: true })} />
+          <Figure
+            label="Saved"
+            value={fmtRate(savingsRate(overview.income_this_month, Number(overview.spent_this_month || 0) + Number(overview.business?.month_total || 0)))}
+            title="The share of what came in this month that wasn't spent, personal and business together."
+          />
+        </div>
+      )}
 
       {loading ? (
         <p className="money-loading">Loading…</p>
@@ -131,70 +139,48 @@ export default function Money() {
         <div className="stack">
           {error && <LoadError stale error={error} onRetry={reload} />}
 
-          {!connected ? (
-            <ConnectBank onConnected={changed} />
-          ) : (
-            <>
-              {reconnecting && (
-                <ConnectBank
-                  reconnect
-                  onCancel={() => setReconnecting(false)}
-                  onConnected={() => {
-                    setReconnecting(false);
-                    changed();
-                  }}
-                />
-              )}
-              <AccountCards overview={overview} onChanged={changed} reconnecting={reconnecting} onReconnect={() => setReconnecting(true)} />
-            </>
-          )}
+          {!connected && <ConnectBank onConnected={changed} />}
+
+          {/* A bank that stopped answering is said first; otherwise the accounts wait under the budgets. */}
+          {connected && bankFirst && accounts}
 
           {isCurrentMonth && <PurchaseQuestion title="Purchases to sort" version={version} onAnswered={changed} />}
 
           {isCurrentMonth && <CatchUp inbox={history} onChanged={changed} />}
 
-          {isCurrentMonth && Number(history.count) === 0 && connected && (
-            <div className="card row money-caught-up">
-              <Check size={16} style={{ color: "var(--good)" }} />
-              <span style={{ flex: 1, fontSize: 13.5 }}>All caught up. Every purchase has a home.</span>
-            </div>
-          )}
+          {isCurrentMonth && Number(history.count) === 0 && connected && <Sorted />}
 
           <Budgets overview={overview} {...cards} />
 
-          <details className="money-more">
-            <summary className="money-more__summary">
-              <span>More</span>
-              <span className="faint money-more__hint">Business, income, transactions, fresh start</span>
-              <ChevronDown size={15} className="money-more__chevron" />
-            </summary>
-            <div className="stack money-more__body">
-              {isCurrentMonth && <Pending version={overview?.connection?.last_synced_at ?? ""} />}
+          {connected && !bankFirst && accounts}
 
+          <div className="card money-folds">
+            <Fold title="Business" hint={fmtMoney(overview?.business?.month_total, { round: true })}>
               <Business overview={overview} {...cards} />
+            </Fold>
 
+            <Fold title="Income" hint={fmtMoney(overview?.income_this_month, { round: true })}>
               <IncomeByClient monthKey={key} version={version} />
+            </Fold>
 
+            <Fold title="Every transaction">
+              {isCurrentMonth && <Pending version={overview?.connection?.last_synced_at ?? ""} />}
               <Transactions
                 start={key}
                 end={nextKey}
-                title={isCurrentMonth ? "This month's transactions" : `${monthName(key)}'s transactions`}
+                title={isCurrentMonth ? "This month" : monthName(key)}
                 when={isCurrentMonth ? "this month yet" : `in ${monthName(key)}`}
                 version={version}
                 hidden={hidden}
                 onOpen={setOpenTxn}
               />
+            </Fold>
 
-              {/* The 90-day backfill. Offered, never pushed. */}
-              {isCurrentMonth &&
-                (sortingHistory ? (
-                  <PurchaseQuestion
-                    includeHistory
-                    title="Older purchases"
-                    version={version}
-                    onAnswered={changed}
-                    onDismiss={() => setSortingHistory(false)}
-                  />
+            {/* The 90-day backfill and the fresh start. Offered, never pushed. */}
+            {isCurrentMonth && (sortingHistory || Number(history.history_count) > 0 || Number(history.count) > 0) && (
+              <Fold title="Catch up" hint={Number(history.count) > 0 ? `${history.count} waiting` : null} open={sortingHistory}>
+                {sortingHistory ? (
+                  <PurchaseQuestion includeHistory title="Older purchases" version={version} onAnswered={changed} onDismiss={() => setSortingHistory(false)} />
                 ) : (
                   Number(history.history_count) > 0 && (
                     <div className="card money-history">
@@ -204,20 +190,18 @@ export default function Money() {
                           {history.history_count} older {Number(history.history_count) === 1 ? "purchase" : "purchases"} you weren't asked about ·{" "}
                           {fmtMoney(history.history_total, { round: true })}
                         </span>
-                        <span className="money-history__sub">
-                          From before you connected the bank. Sorting some teaches the app your regular stores.
-                        </span>
+                        <span className="money-history__sub">From before you connected the bank. Sorting some teaches the app your regular stores.</span>
                       </span>
                       <button type="button" className="btn btn--sm" onClick={() => setSortingHistory(true)}>
                         Sort them
                       </button>
                     </div>
                   )
-                ))}
-
-              {isCurrentMonth && <FreshStart inbox={history} onChanged={changed} />}
-            </div>
-          </details>
+                )}
+                <FreshStart inbox={history} onChanged={changed} />
+              </Fold>
+            )}
+          </div>
 
           {!connected && (
             <p className="row faint" style={{ gap: 6, fontSize: 12, margin: 0 }}>
@@ -244,10 +228,26 @@ function fmtRate(rate) {
 
 function Figure({ label, value, title }) {
   return (
-    <div title={title}>
-      <div className="eyebrow">{label}</div>
+    <div className="money-figure" title={title}>
       <div className="money-figure__value">{value}</div>
+      <div className="money-figure__label">{label}</div>
     </div>
+  );
+}
+
+// One row of the card under the accounts. A tap opens what it names, in
+// place. What's inside is loaded either way, so its figure can show on the
+// row.
+function Fold({ title, hint, open, children }) {
+  return (
+    <details className="money-fold" open={open || undefined}>
+      <summary className="money-fold__row">
+        <span className="money-fold__name">{title}</span>
+        {hint && <span className="money-fold__hint">{hint}</span>}
+        <ChevronRight size={16} className="money-fold__chev" aria-hidden="true" />
+      </summary>
+      <div className="money-fold__body">{children}</div>
+    </details>
   );
 }
 

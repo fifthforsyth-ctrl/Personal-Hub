@@ -24,7 +24,8 @@ export function budgetLine(status, isCurrentMonth) {
 }
 
 // The bar, with a thin marker at today's place in the month: past the marker
-// means spending faster than the month is passing.
+// means spending faster than the month is passing. The bar is ink (red once
+// it's over); the budget's own colour stays on its dot.
 export function BudgetMeter({ budget, isCurrentMonth }) {
   const limit = Number(budget.limit) > 0 ? Number(budget.limit) : null;
   if (limit == null) return null;
@@ -36,7 +37,7 @@ export function BudgetMeter({ budget, isCurrentMonth }) {
       <span className="money-bar" style={{ display: "block" }}>
         <span
           className="money-bar__fill"
-          style={{ display: "block", width: `${Math.min(1, status.share) * 100}%`, background: line.over ? "var(--danger)" : budget.color }}
+          style={{ display: "block", width: `${Math.min(1, status.share) * 100}%`, background: line.over ? "var(--danger)" : "var(--ink)" }}
         />
         {isCurrentMonth && <span className="money-bar__today" style={{ left: `${progress * 100}%` }} />}
       </span>

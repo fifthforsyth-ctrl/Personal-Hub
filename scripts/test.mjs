@@ -6514,6 +6514,29 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("Save, Share and Link sit under the answers", quote.indexOf('<div className="quote-card__tools">') > quote.indexOf('className="seg quote-card__seg"') && quote.indexOf("<ShareQuote", quote.indexOf('<div className="quote-card__tools">')) > 0);
     ok("on a phone a card's buttons sit at its foot, never over its words", /@media \(hover: none\) \{\s*\.paper__tools \{ top: auto; bottom: 3px;[^}]*opacity: 1; \}/.test(cork));
   }
+
+  // Money in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Money.jsx");
+    const q = read("src/components/money/PurchaseQuestion.jsx");
+    const budgets = read("src/components/money/Budgets.jsx");
+    const meter = read("src/components/money/BudgetSheet.jsx");
+    const shared = read("src/components/money/shared.jsx");
+    const css = read("src/styles/money.css");
+    const rule = (sel) => css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
+    ok("Money opens on its own title, with the month between its arrows under it", /<header className="hub-head money-head">\s*<h1 className="page-title">Money<\/h1>/.test(page) && page.indexOf('className="money-month"') > page.indexOf("</header>") && /width: 48px; height: 44px;/.test(rule(".money-month__btn")));
+    ok("the month's three figures share one card, the number over its name", /<div className="card money-figures">/.test(page) && page.indexOf('className="money-figure__value"') < page.indexOf('className="money-figure__label"') && /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(rule(".card.money-figures")));
+    ok("the page runs purchase, budgets, accounts, then the rows that open", page.indexOf('<PurchaseQuestion title="Purchases to sort"') < page.indexOf("<Budgets overview") && page.indexOf("<Budgets overview") < page.indexOf("{connected && !bankFirst && accounts}") && page.indexOf("{connected && !bankFirst && accounts}") < page.indexOf('<div className="card money-folds">'));
+    ok("a bank that stopped answering is still said first", /const bankFirst = reconnecting \|\| overview\?\.connection\?\.status === "error";/.test(page) && page.indexOf("{connected && bankFirst && accounts}") < page.indexOf('<PurchaseQuestion title="Purchases to sort"'));
+    ok("the business, income and every transaction are rows a thumb tall that open in place", /<Fold title="Business"/.test(page) && /<Fold title="Income"/.test(page) && /<Fold title="Every transaction">/.test(page) && /<details className="money-fold"/.test(page) && /min-height: 52px;/.test(rule(".money-fold__row")));
+    ok("the purchase waiting is the page's black card, with Save in orange", /<div className="card money-question">/.test(q) && /\n\.card\.money-question \{[^}]*background: var\(--ink\);[^}]*color: var\(--on-ink\);/.test(css) && /\.money-question \.btn--accent \{ min-height: 48px;[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\);/.test(css));
+    ok("its budgets are two columns of pills a thumb tall, the chosen one orange", /<div className="money-chips money-chips--grid">/.test(q) && /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/.test(rule(".money-chips--grid")) && /\.money-question \.money-chips--grid \.chip\.money-chip \{ min-height: 48px;/.test(css) && /\.money-question \.chip\.money-chip\.is-on \{ background: var\(--accent\);[^}]*color: var\(--on-accent\); \}/.test(css));
+    ok("typing a note there doesn't zoom an iPhone", /\.money-question \.input \{[^}]*font-size: 16px; \}/.test(css));
+    ok("\"everything is sorted\" is said once: by the page for this month, by the older purchases when they're done", /export function Sorted\(/.test(shared) && /if \(answered\.size > 0 && onDismiss\) \{/.test(q) && /Number\(history\.count\) === 0 && connected && <Sorted \/>/.test(page));
+    ok("a budget's bar is ink, red once it's over, and its colour stays on its dot", /background: line\.over \? "var\(--danger\)" : "var\(--ink\)"/.test(meter) && /<span className="dot" style=\{\{ background: budget\.color \}\} \/>/.test(budgets) && /height: 8px;/.test(rule(".money-bar")));
+    ok("a budget says what's spent of its limit in words", /<span className="money-budget__limit"> of \{fmtMoney\(limit, \{ round: true \}\)\}<\/span>/.test(budgets));
+    ok("an account is one line: its name and what's there", /grid-template-columns: minmax\(0, 1fr\) auto;/.test(rule(".stat.money-account")));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.
