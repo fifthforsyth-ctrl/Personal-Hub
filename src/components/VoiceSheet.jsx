@@ -20,7 +20,7 @@ import "../styles/voice.css";
 
 // Quiet for this long after you've said something, and it sends.
 const QUIET_MS = 1600;
-const LOUD = 0.02; // RMS that counts as speech
+const LOUD = 0.012; // RMS that counts as speech
 const MAX_SECONDS = 60;
 
 // Opened from the mic in the tab bar, whose tap already called unlockAudio()
@@ -95,14 +95,16 @@ export default function VoiceSheet({ onClose, onCapture }) {
         release();
         if (!alive.current) return;
         const blob = new Blob(chunks, { type: r.mimeType || type || "audio/mp4" });
-        if (blob.size < 500 || !r.heardSpeech) {
+        // Sent even when the level meter heard nothing: on some phones the
+        // meter reads silence while the recording is fine, and ElevenLabs
+        // says so if there really was nothing.
+        if (blob.size < 500) {
           setPhase("idle");
-          setError(r.heardSpeech ? "Too short. Tap and speak." : "I didn't hear anything. Tap and speak.");
+          setError("Too short. Tap and speak.");
           return;
         }
         send({ blob });
       };
-      r.stream = stream;
       r.heardSpeech = false;
       rec.current = r;
       r.start();
@@ -112,7 +114,7 @@ export default function VoiceSheet({ onClose, onCapture }) {
       // Listen to the level, so it sends when you stop talking.
       const ac = audioContext();
       let meter = null;
-      if (ac) {
+      if (ac && ac.state === "running") {
         try {
           const srcNode = ac.createMediaStreamSource(stream);
           meter = ac.createAnalyser();
@@ -138,8 +140,8 @@ export default function VoiceSheet({ onClose, onCapture }) {
             lastLoud = now;
           }
           if (r.heardSpeech && now - lastLoud > QUIET_MS) r.stop();
-          // Nothing said at all in 8 seconds: stop listening.
-          if (!r.heardSpeech && now - began > 8000) r.stop();
+          // Nothing heard at all in 12 seconds: stop and send what there is.
+          if (!r.heardSpeech && now - began > 12000) r.stop();
         } else {
           r.heardSpeech = true; // can't tell; trust the tap
         }
