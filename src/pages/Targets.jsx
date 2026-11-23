@@ -3,14 +3,15 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Plus } from "lucide-react";
 import { fetchQuestPills } from "../lib/api";
 import { ladderOf, pathOf } from "../lib/ladder";
-import { focusWeekOf, weekShots, arrowsLabel, checkinOn, checkinLevel } from "../lib/focus";
+import { focusWeekOf, arrowsLabel, checkinOn, checkinLevel, dayState } from "../lib/focus";
 import { LEVELS } from "../lib/mark";
+import { addDays, parseDateStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import LoadError from "../components/ui/LoadError";
 import TargetFace from "../components/mark/TargetFace";
 import { useLadder, FRESH_PATCH_KEY } from "../components/targets/useLadder";
 import { useScrollTop } from "../components/targets/useScrollTop";
-import { MissionCard, FaceRow, ClimbRows, NO_MARKS, keepDashes, markWords } from "../components/targets/OverviewTiers";
+import { MissionCard, FaceRow, ClimbRows, FocusRows, WeekLetters, NO_MARKS, keepDashes, markWords } from "../components/targets/OverviewTiers";
 import { BowCard } from "../components/targets/OverviewBow";
 import { BehindYou } from "../components/targets/OverviewPatches";
 import FocusWeek from "../components/focus/FocusWeek";
@@ -24,19 +25,19 @@ import "../styles/targets.css";
 // mission, then lifetime goals, then Quests and lessons, then weekly
 // focuses").
 //
-// The four tiers are kept small so they come close to fitting a phone's
-// first screen: the mission's words, a small target for each lifetime goal
-// (the top goals of the goal wheel, last 30 days of arrows), a row for each
-// quest he's on and lesson he's learning (with its camps and what's on
-// today's list there), and the week's focus as Today draws it. Every one of
-// them is a tap from its own page (/targets/<its id>): the target, notes
+// Each tier is a card (Clean slate, 2026-11-23): the mission in black, a
+// small target for each lifetime goal (the top goals of the goal wheel,
+// last 30 days of arrows), a row for each quest he's on and lesson he's
+// learning (with its camps and what's on today's list there), and the
+// week's focus by name with the week's arrows as seven squares. Every one
+// of them is a tap from its own page (/targets/<its id>): the target, notes
 // and reflections, linked quotes, and for a quest or lesson its camps,
 // today's list and the clipboard.
 //
 // Under the ladder, the bow his bullseyes have earned, and what's behind
 // him: patches for the mountains finished, lessons learned, and what was
 // set aside, each still a tap from its page. Plans (bring in a plan for a
-// quest's camps) is in the corner.
+// quest's camps) sits with New quest and New lesson.
 
 export default function Targets() {
   const navigate = useNavigate();
@@ -116,15 +117,8 @@ export default function Targets() {
 
   return (
     <div className="page ascent mark ov">
-      <header className="ov-top">
-        <div>
-          <div className="eyebrow">My goals</div>
-          <h1 className="page-title">Targets</h1>
-        </div>
-        <Link to="/targets/plans" className="btn btn--sm btn--on-page">
-          <BookOpen size={14} />
-          Plans
-        </Link>
+      <header className="hub-head ov-top">
+        <h1 className="page-title">Targets</h1>
       </header>
 
       {error && <LoadError what="your targets" error={error} onRetry={reload} stale={Boolean(view)} />}
@@ -135,9 +129,9 @@ export default function Targets() {
           <div className="ov-ladder">
             <MissionCard mission={tiers.mission} onWrite={() => open({ kind: "mission" })} />
 
-            <section className="ov-tier" aria-labelledby="ov-goals-h">
+            <section className="card ov-tier ov-card" aria-labelledby="ov-goals-h">
               <div className="ov-tier__head">
-                <h2 className="eyebrow" id="ov-goals-h">
+                <h2 className="ov-h" id="ov-goals-h">
                   Lifetime goals
                 </h2>
                 {tiers.goals.length > 0 && <span className="ov-note">Last 30 days</span>}
@@ -166,22 +160,26 @@ export default function Targets() {
               )}
             </section>
 
-            <section className="ov-tier" aria-labelledby="ov-climbs-h">
+            <section className="card ov-tier ov-card ov-card--rows" aria-labelledby="ov-climbs-h">
               <div className="ov-tier__head">
-                <h2 className="eyebrow" id="ov-climbs-h">
+                <h2 className="ov-h" id="ov-climbs-h">
                   Quests and lessons
                 </h2>
               </div>
-              {climbs.length > 0 ? <ClimbRows climbs={climbs} today={today} /> : <p className="empty">The quests you're on and the lessons you're learning show here.</p>}
+              {climbs.length > 0 ? <ClimbRows climbs={climbs} today={today} /> : <p className="ov-none">The quests you're on and the lessons you're learning show here.</p>}
               <div className="ov-adds">
-                <button type="button" className="btn btn--sm btn--on-page" onClick={newQuest}>
-                  <Plus size={14} />
-                  New quest
+                <button type="button" className="btn btn--sm" onClick={newQuest} aria-label="New quest">
+                  <Plus size={15} />
+                  Quest
                 </button>
-                <button type="button" className="btn btn--sm btn--on-page" onClick={newLesson}>
-                  <Plus size={14} />
-                  New lesson
+                <button type="button" className="btn btn--sm" onClick={newLesson} aria-label="New lesson">
+                  <Plus size={15} />
+                  Lesson
                 </button>
+                <Link to="/targets/plans" className="btn btn--sm">
+                  <BookOpen size={15} />
+                  Plans
+                </Link>
               </div>
             </section>
 
@@ -202,14 +200,16 @@ export default function Targets() {
 
 // --- This week's focus ------------------------------------------------------------
 
-// The same small targets Today's strip draws, each a tap from its page here
-// (Today's opens its sheet instead). Nothing while the week first loads.
+// Each focus by its whole name with the week's arrows as seven squares,
+// each a tap from its page here (Today's chip opens its sheet instead).
+// Nothing while the week first loads.
 //
 // Setting them happens here too: "Edit" (or the Week tab's Edit, which comes
 // here as ?focus=edit&week=<its Sunday>) opens the week's focus in place,
 // with Sunday's review of last week, to add, change, keep or let go. From
 // the Week tab that's the week it was showing, so next week's focus can be
 // set ahead of time.
+
 function FocusTier({ fw, today }) {
   const weekStart = focusWeekOf(today);
   const { data, week, error, reload } = fw;
@@ -246,10 +246,8 @@ function FocusTier({ fw, today }) {
       </div>
     );
   } else {
-    const shots = weekShots(data.goals, data.checkins, weekStart);
     body = (
-      <FaceRow
-        week
+      <FocusRows
         label="This week's focus"
         items={week.map((g) => {
           const on = checkinOn(data.checkins, g.id, today);
@@ -257,28 +255,31 @@ function FocusTier({ fw, today }) {
           return {
             key: g.id,
             to: pathOf("focus", g.id),
-            title: g.title,
+            title: keepDashes(g.title),
             label: `${g.title}. Today: ${todayWords}. ${arrowsLabel(g)}.`,
-            name: keepDashes(g.title),
-            answered: Boolean(on),
-            face: <TargetFace target={{ shots: shots[g.id] ?? [], reasons: [] }} today={today} range="7" mini />,
+            days: Array.from({ length: 7 }, (_, i) => {
+              const d = addDays(weekStart, i);
+              return dayState(checkinOn(data.checkins, g.id, d), d, today);
+            }),
           };
         })}
       />
     );
   }
+  const showWeek = !editing && data && week?.length > 0;
 
   return (
-    <section className="ov-tier" aria-labelledby="ov-focus-h" ref={tierRef} style={{ scrollMarginTop: 80 }}>
+    <section className={editing ? "ov-tier ov-tier--editing" : "card ov-tier ov-card" + (showWeek ? " ov-card--rows" : "")} aria-labelledby="ov-focus-h" ref={tierRef} style={{ scrollMarginTop: 80 }}>
       <div className="ov-tier__head">
-        <h2 className="eyebrow" id="ov-focus-h">
+        <h2 className="ov-h" id="ov-focus-h">
           {whoseWeek(editWeek, today)} focus
         </h2>
         {(editing || week?.length > 0) && (
-          <button type="button" className={editing ? "btn btn--sm btn--accent" : "btn-link"} style={{ minHeight: 32 }} onClick={() => setEditing(!editing)}>
+          <button type="button" className={editing ? "btn btn--sm btn--accent ov-done" : "btn-link ov-edit"} onClick={() => setEditing(!editing)}>
             {editing ? "Done" : "Edit"}
           </button>
         )}
+        {showWeek && <WeekLetters todayIndex={parseDateStr(today).getDay()} />}
       </div>
       {body}
       {!editing && data && error && <LoadError what="this week's focus" error={error} onRetry={reload} stale />}

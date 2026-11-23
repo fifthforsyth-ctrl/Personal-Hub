@@ -5138,6 +5138,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const faces = html(O.FaceRow, { week: true, label: "This week's focus", items: [{ key: "f1", to: "/targets/f1", label: "Up at 4:30", name: "Up at 4:30", answered: true }, { key: "f2", to: "/targets/f2", label: "Scripture", name: "Scripture" }] });
   ok("a row of small targets, each a link", hrefs(faces).join() === "/targets/f1,/targets/f2" && faces.includes("ov-faces--week") && (faces.match(/is-answered/g) ?? []).length === 1);
 
+  // The week's focus as rows with seven squares (Clean slate, 2026-11-23).
+  const F = await import("../src/lib/focus.js");
+  ok("a day's square says what landed", F.dayState({ level: 0 }, "2026-11-23", "2026-11-25") === "bull" && F.dayState({ level: 3 }, "2026-11-23", "2026-11-25") === "ring" && F.dayState({ level: 5 }, "2026-11-23", "2026-11-25") === "miss");
+  ok("or what the day is with no arrow on it", F.dayState(null, "2026-11-25", "2026-11-25") === "now" && F.dayState(null, "2026-11-26", "2026-11-25") === "later" && F.dayState(null, "2026-11-24", "2026-11-25") === "none");
+  ok("an arrow from before levels still reads as on the target or missed", F.dayState({ moved: true }, "2026-11-23", "2026-11-25") !== "none" && F.dayState({ moved: false }, "2026-11-23", "2026-11-25") !== "none");
+  const rows = html(O.FocusRows, { label: "This week's focus", items: [{ key: "f1", to: "/targets/f1", title: "Up at 4:30", label: "Up at 4:30. Today: bullseye. 3 arrows this week.", days: ["bull", "ring", "miss", "now", "later", "later", "later"] }] });
+  ok("each focus is a row that opens its page, with its whole name and seven squares", hrefs(rows).join() === "/targets/f1" && rows.includes(">Up at 4:30<") && (rows.match(/class="ov-day ov-day--/g) ?? []).length === 7 && rows.includes("ov-day--now") && rows.includes('aria-label="Up at 4:30. Today: bullseye. 3 arrows this week."'));
+  ok("the letters over them mark today", (html(O.WeekLetters, { todayIndex: 3 }).match(/is-today/g) ?? []).length === 1 && (html(O.WeekLetters, {}).match(/<i/g) ?? []).length === 7);
+
   const view = {
     patches: [{ id: "q3", title: "Finish the garage", finished_on: "2026-10-20" }, { id: "m2", lesson_id: "l5", title: "Patience", finished_on: "2026-10-25" }],
     learned: [{ id: "l2", title: "More integrity" }],
@@ -5159,7 +5168,9 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const css = src("styles/targets.css");
   const part2 = css.slice(css.indexOf("/* --- Part 2:"), css.indexOf("/* --- end of part 2 --- */"));
   const missionRules = [...part2.matchAll(/([^{}]*ov-mission[^{}]*)\{([^}]*)\}/g)].map((m) => m[2]);
-  ok("the mission's card is white like the rest", missionRules.length > 0 && missionRules.every((r) => !/background:\s*var\(--ink\)/.test(r)));
+  // Clean slate (2026-11-23): the written mission is the page's one black
+  // card; the empty one asking for it stays white.
+  ok("the written mission is the one black card, the empty one stays white", /(^|\n)a\.ov-mission \{ background: var\(--ink\); color: var\(--on-ink\);/.test(part2) && missionRules.filter((r) => /background:\s*var\(--ink\)/.test(r)).length === 1 && !/\.ov-mission--empty[^{]*\{[^}]*background/.test(part2));
 }
 
 // (end of targets tab, part 2)
@@ -6142,14 +6153,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   // past ascent.css's 16px on every card of its pages.
   ok(
     "the mission card and Behind you keep their own padding, on a phone too",
-    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 14px 16px 15px; \}/.test(css) &&
+    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 20px 20px 22px; \}/.test(css) &&
       /\.card\.ov-behind, \.ascent \.card\.ov-behind:not\(\.card--flush\) \{ padding-top: 10px; padding-bottom: 10px; \}/.test(css)
   );
-  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 3px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
+  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 6px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
   ok("a target's history card is flush on a phone too", /\.tg-history\.card, \.ascent \.tg-history\.card:not\(\.card--flush\) \{ padding: 0;/.test(css));
   ok("the history sits a little apart from the last day, past .qs .card + .card", /\.tg-page \.qs-rest > \.tg-history\.card \{ margin-top: 4px; \}/.test(css));
   ok("a feeds row is centred on a phone, past ascent.css's own", /\.tg-page \.feeds \.feeds__row \{ min-height: 40px; align-items: center; \}/.test(media(css, "@media (max-width: 900px)")));
-  ok("the overview's eyebrow keeps its 2px, past ascent.css's margin", /\.ov \.ov-top \.eyebrow \{ margin: 0 0 2px; \}/.test(css));
+  ok("the overview opens on its title alone, in the phone's top row", /<header className="hub-head ov-top">\s*<h1 className="page-title">Targets<\/h1>\s*<\/header>/.test(read("src/pages/Targets.jsx")) && !/\.ov-top \.eyebrow/.test(css));
+  ok("each tier's card keeps its own padding, on a phone too", /\.card\.ov-card, \.ascent \.card\.ov-card:not\(\.card--flush\) \{ padding: 16px 14px 14px; \}/.test(css) && /\.card\.ov-card--rows, \.ascent \.card\.ov-card--rows:not\(\.card--flush\) \{ padding: 14px 0 6px; \}/.test(css));
   ok("the quotes strip keeps its own padding, past the Board's", /\.picks__strip\.tg-quotes__strip \{ padding-top: 12px; padding-bottom: 16px; \}/.test(css));
 
   // Link's quiet look and the phone's 4px gap beat cork.css (finding 23).

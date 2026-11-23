@@ -129,7 +129,7 @@
 .qs-earlier { margin: 10px 4px 0; }
 
 /* The ongoing list: the quest's own, beside the days. */
-.qs-day--ongoing .qs-day__title h2 { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-serif); font-size: 21px; font-weight: 500; letter-spacing: -0.015em; }
+.qs-day--ongoing .qs-day__title h2 { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
 .qs-day--ongoing .qs-day__title h2 svg { color: var(--text-3); }
 .qs-ongoing__done { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin-top: 2px; }
 .qs-ongoing__done svg { transition: transform 0.2s ease; }
@@ -210,7 +210,7 @@
 .done-quest + .done-quest { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .done-quest__name {
   display: flex; align-items: baseline; gap: 8px; color: var(--text); text-decoration: none;
-  font-family: var(--font-serif); font-size: 19px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25;
+  font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25;
 }
 .done-quest__name span { min-width: 0; overflow-wrap: anywhere; }
 .done-quest__name small { font: 500 11px var(--font-mono); color: var(--text-2); letter-spacing: 0; }
