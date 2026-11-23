@@ -4627,3 +4627,47 @@ export async function deletePin(id) {
   const { error } = await supabase.from("image_pins").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// The Tasks tab, simplified (Aaron, 2026-11-23): camps as pills, each
+// camp's columns side by side (its sections, not the clipboard ones), and
+// one clipboard that pulls down from the top of any page (every clipboard
+// column's open thoughts). Read by lib/tasksStore.js.
+// ---------------------------------------------------------------------------
+
+// Every quest and plain list he's on, with their camps.
+export async function fetchTaskLists(userId) {
+  const [quests, camps] = await Promise.all([
+    supabase.from("quests").select(`${ASCENT_QUEST}, is_list`).eq("user_id", userId),
+    supabase.from("quest_camps").select(ASCENT_CAMP).eq("user_id", userId),
+  ]);
+  for (const r of [quests, camps]) if (r.error) throw r.error;
+  return { quests: quests.data ?? [], camps: camps.data ?? [] };
+}
+
+// Every clipboard column (in any camp) and what's in them.
+export async function fetchClipboardAll(userId) {
+  const sections = await selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("user_id", userId).eq("clipboard", true).order("id"));
+  if (!sections.length) return { sections, steps: [] };
+  const steps = await selectAllPages(() =>
+    supabase
+      .from("camp_steps")
+      .select(CAMP_STEP)
+      .eq("user_id", userId)
+      .in(
+        "section_id",
+        sections.map((s) => s.id)
+      )
+      .order("id")
+  );
+  return { sections, steps };
+}
+
+// One camp's sections and steps, for its columns.
+export async function fetchCampColumns(userId, campId) {
+  const [sections, steps] = await Promise.all([
+    selectAllPages(() => supabase.from("camp_sections").select(CAMP_SECTION).eq("user_id", userId).eq("camp_id", campId).order("id")),
+    selectAllPages(() => supabase.from("camp_steps").select(CAMP_STEP).eq("user_id", userId).eq("camp_id", campId).order("id")),
+  ]);
+  return { sections, steps };
+}
