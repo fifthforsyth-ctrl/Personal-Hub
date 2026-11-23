@@ -63,7 +63,10 @@
   flex: 1;
 }
 
-/* Speak to the Hub, from the mic in the tab bar: the whole screen. */
+/* Speak to the Hub, from the mic in the tab bar: the whole screen. The mic
+   is the screen (Clean slate, 2026-11-23): a large black circle with one
+   word under it, the conversation above once there is one, and a white pill
+   to type in at the foot. */
 .voice-full {
   position: fixed;
   inset: 0;
@@ -71,7 +74,7 @@
   background: var(--bg);
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
   animation: fade-in 0.16s ease-out;
 }
 .voice-full > * {
@@ -80,97 +83,91 @@
   margin-left: auto;
   margin-right: auto;
 }
-.voice-full__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 44px;
-}
+.voice-full__head { display: flex; align-items: center; min-height: 44px; }
 .voice-full__close {
   width: 44px;
   height: 44px;
-  margin-right: -8px;
   border: none;
   border-radius: 50%;
-  background: transparent;
-  color: var(--ink, #111);
+  background: var(--card);
+  color: var(--ink);
   display: grid;
   place-items: center;
   cursor: pointer;
 }
 .voice-sheet__talk {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 2px 8px;
+  gap: 8px;
+  padding: 12px 0 8px;
+  scrollbar-width: none;
 }
-.voice-turn {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.voice-turn__you {
-  align-self: flex-end;
-  max-width: 85%;
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: 14px 14px 4px 14px;
-  background: var(--ink, #111);
-  color: #fff;
-  font-size: 14px;
-}
-.voice-turn__hub {
-  align-self: flex-start;
-  max-width: 85%;
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 15.5px;
-  line-height: 1.4;
-}
-.voice-turn__hub--off {
-  color: var(--accent-text, #b84a08);
-}
+.voice-full--talking .voice-sheet__talk { flex: 1; }
+.voice-turn { display: flex; flex-direction: column; gap: 8px; }
+.voice-turn__you,
+.voice-turn__hub { max-width: 85%; margin: 0; padding: 12px 16px; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.voice-turn__you { align-self: flex-end; border-radius: 22px 22px 6px 22px; background: var(--ink); color: var(--on-ink); }
+.voice-turn__hub { align-self: flex-start; border-radius: 22px 22px 22px 6px; background: var(--card); color: var(--text); }
+.voice-turn__hub--off { color: var(--accent-text, #b84a08); }
+
 .voice-sheet__mic {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 10px 0 4px;
+  padding: 10px 0 14px;
+  text-align: center;
 }
+.voice-full--talking .voice-sheet__mic { flex: none; }
 .voice-orb {
-  width: 76px;
-  height: 76px;
+  width: 150px;
+  height: 150px;
+  margin-bottom: 22px;
   border-radius: 50%;
   border: none;
-  background: var(--ink, #111);
-  color: #fff;
+  background: var(--ink);
+  color: var(--on-ink);
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: transform 0.12s;
+  transition: transform 0.12s, width 0.2s, height 0.2s;
 }
-.voice-orb:active {
-  transform: scale(0.94);
+.voice-orb svg { width: 52px; height: 52px; stroke-width: 1.6; }
+.voice-orb .voice-orb__stop { width: 36px; height: 36px; fill: currentColor; }
+.voice-full--talking .voice-orb { width: 88px; height: 88px; margin-bottom: 10px; }
+.voice-full--talking .voice-orb svg { width: 32px; height: 32px; stroke-width: 1.8; }
+.voice-full--talking .voice-orb .voice-orb__stop { width: 24px; height: 24px; }
+.voice-orb:active { transform: scale(0.95); }
+.voice-orb:disabled { opacity: 0.75; }
+/* Listening: the circle stays black and an orange ring breathes out of it. */
+.voice-orb--on { animation: voice-ring 1.8s ease-out infinite; }
+@keyframes voice-ring {
+  0% { box-shadow: 0 0 0 0 rgba(242, 106, 27, 0.75); }
+  100% { box-shadow: 0 0 0 30px rgba(242, 106, 27, 0); }
 }
-.voice-orb:disabled {
-  opacity: 0.75;
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb--on { animation: none; box-shadow: 0 0 0 8px var(--accent); }
 }
-.voice-orb--on {
-  background: var(--accent, #f26a1b);
-  animation: voice-pulse 1.4s ease-in-out infinite;
+.voice-sheet__status { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; color: var(--text); }
+.voice-full--talking .voice-sheet__status { font-size: 20px; letter-spacing: -0.02em; }
+.voice-sheet__hint { margin: 0; min-height: 20px; font-size: 14px; color: var(--text-2); }
+
+.voice-sheet__type { margin-top: 0; }
+.voice-sheet__type .input { min-height: 52px; padding: 0 18px; border-radius: 26px; border-color: transparent; background: var(--card); font-size: 16px; }
+.voice-sheet__type .input:focus { border-color: var(--line-strong); }
+.voice-sheet__send {
+  flex: none; display: grid; place-items: center; width: 52px; height: 52px; border: 0; border-radius: 50%;
+  background: var(--ink); color: var(--on-ink);
 }
-.voice-sheet__status {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--muted, #666);
-}
+.voice-sheet__send:disabled { opacity: 0.28; }
 .voice-sheet__capture {
-  margin-top: 8px;
-  width: 100%;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; margin-top: 6px;
+  border: 0; background: none; color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 500;
 }
 
 /* Talk it through, on the evening reflection. */

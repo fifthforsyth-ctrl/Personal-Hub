@@ -6537,6 +6537,20 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("a budget says what's spent of its limit in words", /<span className="money-budget__limit"> of \{fmtMoney\(limit, \{ round: true \}\)\}<\/span>/.test(budgets));
     ok("an account is one line: its name and what's there", /grid-template-columns: minmax\(0, 1fr\) auto;/.test(rule(".stat.money-account")));
   }
+
+  // The mic sheet in the Clean slate look (2026-11-23).
+  {
+    const sheet = read("src/components/VoiceSheet.jsx");
+    const css = read("src/styles/voice.css");
+    const rule = (sel) => css.slice(css.indexOf("\n" + sel + " {"), css.indexOf("}", css.indexOf("\n" + sel + " {")));
+    ok("the mic is the screen: a large black circle with one word under it", /width: 150px;\s*height: 150px;/.test(rule(".voice-orb")) && /background: var\(--ink\);/.test(rule(".voice-orb")) && /font-size: 30px; font-weight: 700;/.test(rule(".voice-sheet__status")));
+    ok("that word says what's happening, and is read out when it changes", /recording: \["Listening", "It sends when you stop talking\."\]/.test(sheet) && /working: \["Working on it", ""\]/.test(sheet) && /<p className="voice-sheet__status" aria-live="polite">/.test(sheet));
+    ok("listening keeps the circle black with an orange ring, still for reduced motion", /\.voice-orb--on \{ animation: voice-ring 1\.8s ease-out infinite; \}/.test(css) && /@media \(prefers-reduced-motion: reduce\) \{\s*\.voice-orb--on \{ animation: none;/.test(css));
+    ok("once there's a conversation it takes the room and the mic steps down", /className=\{"voice-full" \+ \(turns\.length \? " voice-full--talking" : ""\)\}/.test(sheet) && /\.voice-full--talking \.voice-sheet__talk \{ flex: 1; \}/.test(css) && /\.voice-full--talking \.voice-orb \{ width: 88px; height: 88px;/.test(css));
+    ok("what he said is a black bubble, the answer a white one", /background: var\(--ink\); color: var\(--on-ink\);/.test(rule(".voice-turn__you")) && /\.voice-turn__hub \{ align-self: flex-start;[^}]*background: var\(--card\);/.test(css));
+    ok("typing is a white pill a thumb tall that doesn't zoom an iPhone, with a round send", /\.voice-sheet__type \.input \{ min-height: 52px;[^}]*font-size: 16px; \}/.test(css) && /width: 52px; height: 52px;/.test(rule(".voice-sheet__send")));
+    ok("close is a white circle a thumb wide, and capture by tapping is still a tap away", /width: 44px;\s*height: 44px;/.test(rule(".voice-full__close")) && /<button type="button" className="voice-sheet__capture" onClick=\{onCapture\}>/.test(sheet) && /min-height: 44px;/.test(rule(".voice-sheet__capture")));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.
