@@ -47,6 +47,113 @@ export async function transcribeBlob(blob) {
   return String(body.text ?? "").trim();
 }
 
+// Words -> an mp3 (base64) in the Hub's voice, for reading a question aloud.
+export async function sayAloud(text) {
+  const body = await callWatch({ api: "say", text: String(text ?? "").slice(0, 600) });
+  if (!body.audio) throw new Error(body.say || "Couldn't read that aloud.");
+  return body.audio;
+}
+
+// Record one answer and stop by itself when you go quiet. Returns
+// { done, stop, cancel }: done resolves to the recording (a Blob), or null
+// when it was cancelled or too short to hold anything. stop() sends what
+// there is now; cancel() throws it away. Needs unlockAudio() to have run in
+// a tap to hear the level; without it, it records until stop() or
+// maxSeconds.
+export function recordUntilQuiet({ quietMs = 2500, loud = 0.012, noSpeechMs = 15000, maxSeconds = 180 } = {}) {
+  let rec = null;
+  let stream = null;
+  let watch = null;
+  let source = null;
+  let cancelled = false;
+  let finish = () => {};
+
+  const release = () => {
+    clearInterval(watch);
+    watch = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    try {
+      source?.disconnect();
+    } catch {
+      // gone
+    }
+  };
+
+  const done = new Promise((resolve, reject) => {
+    finish = resolve;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) {
+          release();
+          return resolve(null);
+        }
+        const type = recordingType();
+        rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+        const chunks = [];
+        rec.ondataavailable = (e) => e.data?.size && chunks.push(e.data);
+        rec.onstop = () => {
+          release();
+          if (cancelled) return resolve(null);
+          const blob = new Blob(chunks, { type: rec.mimeType || type || "audio/mp4" });
+          resolve(blob.size < 500 ? null : blob);
+        };
+        rec.start();
+
+        const ac = audioContext();
+        let meter = null;
+        if (ac && ac.state === "running") {
+          try {
+            source = ac.createMediaStreamSource(stream);
+            meter = ac.createAnalyser();
+            meter.fftSize = 1024;
+            source.connect(meter);
+          } catch {
+            meter = null;
+          }
+        }
+        const samples = meter ? new Float32Array(meter.fftSize) : null;
+        const began = Date.now();
+        let heard = false;
+        let lastLoud = 0;
+        watch = setInterval(() => {
+          if (rec.state !== "recording") return;
+          const now = Date.now();
+          if (meter) {
+            meter.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+            if (Math.sqrt(sum / samples.length) > loud) {
+              heard = true;
+              lastLoud = now;
+            }
+            if (heard && now - lastLoud > quietMs) rec.stop();
+            // Nothing heard at all: send what there is and let ElevenLabs say.
+            if (!heard && now - began > noSpeechMs) rec.stop();
+          }
+          if (now - began > maxSeconds * 1000) rec.stop();
+        }, 100);
+      } catch (err) {
+        release();
+        reject(err);
+      }
+    })();
+  });
+
+  return {
+    done,
+    stop: () => {
+      if (rec?.state === "recording") rec.stop();
+    },
+    cancel: () => {
+      cancelled = true;
+      if (rec?.state === "recording") rec.stop();
+      else release();
+      finish(null);
+    },
+  };
+}
+
 // Audio (or typed words) -> done, plus { heard, say, ask, audio } to show and
 // play. history is the conversation so far ([{ heard, say }]), so an answer
 // to the Hub's question finishes the first ask; ask is true when the Hub is

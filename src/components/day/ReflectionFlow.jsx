@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart } from "lucide-react";
+import { PenLine, Check, ChevronLeft, ChevronRight, Sparkles, HandHeart, AudioLines, Loader2, Mic, Volume2, Square, RotateCcw } from "lucide-react";
 import { saveJournalEntry, generateReflectionQuestions } from "../../lib/api";
 import MentionHint from "../love/MentionHint";
 import VoiceButton from "../ui/VoiceButton";
-import { transcribeBlob, appendWords } from "../../lib/voice";
+import { transcribeBlob, appendWords, canRecord, unlockAudio, sayAloud, playReply, stopReply, recordUntilQuiet } from "../../lib/voice";
+import { haptic } from "../../lib/haptics";
 import { friendlyError, plainError } from "../../lib/errors";
 
 // The evening's four cards.
@@ -18,6 +19,14 @@ import { friendlyError, plainError } from "../../lib/errors";
 //
 // They're asked one at a time rather than as a wall of boxes: a page of
 // empty textareas gets skimmed, a single question gets answered.
+//
+// "Talk it through" does the same out loud (Aaron, 2026-11-23): the Hub reads
+// each question in its ElevenLabs voice, listens, writes what you said into
+// the box, and moves to the next card when you go quiet. "Skip" or "nothing"
+// moves on without writing anything.
+
+// Said instead of an answer: move on, write nothing.
+const SKIP = /^\s*(no|nope|nothing|none|skip|skip it|pass|next|that's it|that's all|nothing else)[\s.!,]*$/i;
 
 const GODS_HAND = "Where did you see God's hand today?";
 const ANYTHING_ELSE = "Anything else about today?";
@@ -195,6 +204,13 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  // Talk it through: off, or reading | listening | writing | missed.
+  const [talking, setTalking] = useState(false);
+  const [talkPhase, setTalkPhase] = useState("reading");
+  const [talkError, setTalkError] = useState("");
+  const [talkTry, setTalkTry] = useState(0);
+  const recording = useRef(null);
+  const spoken = useRef(new Map()); // question -> its audio, so Back doesn't pay twice
 
   // What the database holds, as far as this page knows: only answers that
   // differ from it are sent, so an untouched empty box never blanks a saved one.
@@ -237,6 +253,101 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
   const written = answeredCards(journal);
   const cards = cardsFor({ ...(journal ?? {}), ...(questions ?? {}) });
   const allEmpty = KEYS.every((k) => !(answers[k] ?? "").trim());
+
+  const readAloud = (text) => {
+    if (!spoken.current.has(text)) {
+      const p = sayAloud(text);
+      p.catch(() => spoken.current.delete(text));
+      spoken.current.set(text, p);
+    }
+    return spoken.current.get(text);
+  };
+
+  // One card, out loud: read the question, listen, write it down, next.
+  // Runs again whenever the card changes, so tapping a step or Back while
+  // talking asks that card instead.
+  useEffect(() => {
+    if (!running || !talking) return;
+    const card = cards[step];
+    if (!card) return;
+    let off = false;
+    (async () => {
+      setTalkError("");
+      try {
+        setTalkPhase("reading");
+        const audio = await readAloud(card.question);
+        if (off) return;
+        // The next question gets ready while you answer this one.
+        if (cards[step + 1]) readAloud(cards[step + 1].question);
+        await playReply(audio);
+        if (off) return;
+
+        setTalkPhase("listening");
+        haptic("tap");
+        const take = recordUntilQuiet();
+        recording.current = take;
+        const blob = await take.done;
+        recording.current = null;
+        if (off) return;
+        if (!blob) {
+          setTalkPhase("missed");
+          return;
+        }
+
+        setTalkPhase("writing");
+        const words = await transcribeBlob(blob);
+        if (off) return;
+        if (!words) {
+          setTalkPhase("missed");
+          setTalkError("I didn't catch anything.");
+          return;
+        }
+        if (!SKIP.test(words)) {
+          typedAt.current = Date.now();
+          const next = { ...latest.current, [card.key]: appendWords(latest.current[card.key], words) };
+          latest.current = next;
+          setAnswers(next);
+        }
+        haptic("success");
+        save();
+        if (step < cards.length - 1) setStep(step + 1);
+        else setTalking(false); // all four: Finish is yours to tap
+      } catch (err) {
+        if (off) return;
+        recording.current = null;
+        haptic("warning");
+        setTalkPhase("missed");
+        setTalkError(
+          err?.name === "NotAllowedError" ? "The Hub needs the microphone. Allow it in Settings for this app." : err?.message || "That didn't work."
+        );
+      }
+    })();
+    return () => {
+      off = true;
+      recording.current?.cancel();
+      recording.current = null;
+      stopReply();
+    };
+    // cards only change when tonight's questions arrive, before talking starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, talking, step, talkTry]);
+
+  // Every tap that starts talking unlocks sound first (iPhones only play
+  // what a tap started).
+  function talkThrough() {
+    unlockAudio();
+    setTalkTry((n) => n + 1);
+    setTalking(true);
+  }
+  function startTalking() {
+    talkThrough();
+    if (!running) start();
+  }
+  function stopTalking() {
+    setTalking(false);
+    setTalkPhase("reading");
+    setTalkError("");
+  }
 
   async function start() {
     setStep(0);
@@ -292,6 +403,7 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
   // around this reloads; Next only saves.
   async function close({ finish }) {
     if (closing) return;
+    setTalking(false);
     setClosing(true);
     const ok = await save({ finish });
     setClosing(false);
@@ -299,6 +411,14 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
     setRunning(false);
     await onSaved?.();
   }
+
+  const talkButton =
+    canRecord() && !preparing ? (
+      <button type="button" className="btn" onClick={startTalking}>
+        <AudioLines size={14} />
+        Talk it through
+      </button>
+    ) : null;
 
   // --- not started ---------------------------------------------------------
   if (!running) {
@@ -318,10 +438,13 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
                 <div className="prose">{c.text}</div>
               </div>
             ))}
-            <button className="btn" onClick={start} disabled={preparing}>
-              <PenLine size={14} />
-              {preparing ? "Writing tonight's questions…" : completed ? "Revisit the reflection" : "Continue reflecting"}
-            </button>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button className="btn" onClick={start} disabled={preparing}>
+                <PenLine size={14} />
+                {preparing ? "Writing tonight's questions…" : completed ? "Revisit the reflection" : "Continue reflecting"}
+              </button>
+              {talkButton}
+            </div>
           </>
         ) : (
           <>
@@ -330,10 +453,13 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
                 ? "Finished without writing anything down."
                 : "Four cards: where you saw God's hand, two questions written from your day tonight, and anything else."}
             </p>
-            <button className={completed ? "btn" : "btn btn--accent"} onClick={start} disabled={preparing}>
-              {completed ? <PenLine size={14} /> : <Sparkles size={15} />}
-              {preparing ? "Writing tonight's questions…" : completed ? "Revisit the reflection" : "Start reflection"}
-            </button>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button className={completed ? "btn" : "btn btn--accent"} onClick={start} disabled={preparing}>
+                {completed ? <PenLine size={14} /> : <Sparkles size={15} />}
+                {preparing ? "Writing tonight's questions…" : completed ? "Revisit the reflection" : "Start reflection"}
+              </button>
+              {talkButton}
+            </div>
           </>
         )}
         {!same(answers, saved.current) && (
@@ -408,8 +534,52 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         placeholder={card.placeholder}
         aria-label={card.question}
         style={{ minHeight: 148, fontFamily: "var(--font-serif)", fontSize: 15 }}
-        autoFocus
+        autoFocus={!talking}
       />
+      {talking ? (
+        <div className={"talk-bar" + (talkPhase === "listening" ? " talk-bar--on" : "")} role="status">
+          <span className="talk-bar__icon">
+            {talkPhase === "reading" ? (
+              <Volume2 size={16} />
+            ) : talkPhase === "listening" ? (
+              <Mic size={16} />
+            ) : talkPhase === "writing" ? (
+              <Loader2 size={16} className="voice-spin" />
+            ) : (
+              <RotateCcw size={16} />
+            )}
+          </span>
+          <span className="talk-bar__text">
+            {
+              {
+                reading: "Reading the question…",
+                listening: "Listening… it moves on when you stop talking. Say \u201cskip\u201d to pass.",
+                writing: "Writing it down…",
+                missed: talkError || "I didn't catch that.",
+              }[talkPhase]
+            }
+          </span>
+          <span className="row" style={{ gap: 6, marginLeft: "auto" }}>
+            {talkPhase === "listening" && (
+              <button type="button" className="btn btn--sm btn--accent" onClick={() => recording.current?.stop()}>
+                <Check size={13} />
+                Done
+              </button>
+            )}
+            {talkPhase === "missed" && (
+              <button type="button" className="btn btn--sm btn--accent" onClick={talkThrough}>
+                <Mic size={13} />
+                Try again
+              </button>
+            )}
+            <button type="button" className="btn btn--sm" onClick={stopTalking} aria-label="Stop talking it through">
+              <Square size={12} />
+              Stop
+            </button>
+          </span>
+        </div>
+      ) : (
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
       <VoiceButton
         key={`voice-${card.key}`}
         label="Speak your answer"
@@ -420,6 +590,14 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
           setAnswers((a) => ({ ...a, [card.key]: appendWords(a[card.key], words) }));
         }}
       />
+          {canRecord() && (
+            <button type="button" className="voice-btn voice-btn--ghost" onClick={talkThrough} style={{ marginTop: 8 }}>
+              <AudioLines size={14} />
+              <span>Talk it through</span>
+            </button>
+          )}
+        </div>
+      )}
       <MentionHint text={answers[card.key]} />
 
       {error && (
