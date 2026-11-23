@@ -549,6 +549,12 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .seg--block { display: flex; width: 100%; }
 
+/* Sitting on the page itself, not in a card: a white track, and the choice
+   made is a black pill. */
+.seg--page { background: var(--card); gap: 0; }
+.seg--page .seg-btn { min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 600; }
+.seg--page .seg-btn.active { background: var(--ink); color: var(--on-ink); font-weight: 600; box-shadow: none; }
+
 .seg-btn {
   flex: 1;
   border: none;

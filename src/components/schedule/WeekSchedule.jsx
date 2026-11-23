@@ -111,10 +111,10 @@ export default function WeekSchedule({ anchorDate, onOpenDay }) {
                   <span className="wk__num">{dt.getDate()}</span>
                 </span>
                 <span className="wk-row__main">
-                  <MiniStrip chunks={chunks} range={range} />
+                  <MiniStrip chunks={chunks} range={range} ticks={false} />
                   <span className="wk-row__meta">
                     {chunks.length
-                      ? `${plural(chunks.length, "block")} · ${shortTime(first)}–${shortTime(last % (24 * 60))} · ${fmtHours(plannedMinutes(chunks))} planned`
+                      ? `${plural(chunks.length, "block")} · ${shortTime(first)} to ${shortTime(last % (24 * 60))} · ${fmtHours(plannedMinutes(chunks))}`
                       : "Nothing planned"}
                   </span>
                 </span>
@@ -124,6 +124,12 @@ export default function WeekSchedule({ anchorDate, onOpenDay }) {
           );
         })}
       </ul>
+
+      {/* Phone: the Sunday sit down, under the days it fills. */}
+      <button type="button" className="wk-preset" onClick={() => setFilling(true)}>
+        <LayoutTemplate size={18} />
+        Use a preset on days
+      </button>
 
       {filling && <FillSheet userId={user?.id} days={days} byDay={byDay} onClose={() => setFilling(false)} onDone={reload} />}
     </>

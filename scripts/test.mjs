@@ -6441,6 +6441,26 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the focus line edits the week it shows", /const edit = focusEditFor\(weekStart\)/.test(line) && (line.match(/to=\{edit\}/g) ?? []).length === 2 && /next\.delete\("week"\)/.test(read("src/pages/Targets.jsx")));
   ok("and draws arrows up to today, or to the end of a past week", /today=\{upTo\}/.test(line) && /const upTo = today < lastDay \? today : lastDay/.test(line));
   ok("a day shows its own week's focus", /<FocusLine date=\{view === "month" \? today : date\} \/>/.test(read("src/pages/Plan.jsx")));
+
+  // The Week tab in the Clean slate look (2026-11-23).
+  {
+    const PD = await import("../src/lib/planDates.js");
+    const wk = read("src/components/schedule/WeekSchedule.jsx");
+    const css = read("src/styles/schedule.css");
+    const planJsx = read("src/pages/Plan.jsx");
+    ok("this year's week is named without the year", PD.fmtWeekHeading("2026-11-23", 2026) === "Nov 22 – 28" && PD.fmtWeekHeading("2026-11-30", 2026) === "Nov 29 – Dec 5", PD.fmtWeekHeading("2026-11-23", 2026));
+    ok("so is a week that crosses into or out of it", PD.fmtWeekHeading("2026-12-28", 2026) === "Dec 27 – Jan 2" && PD.fmtWeekHeading("2026-01-01", 2026) === "Dec 28 – Jan 3");
+    ok("another year's week still says which year", PD.fmtWeekHeading("2027-11-23", 2026) === "Nov 21 – 27, 2027" && PD.fmtWeekHeading("2026-11-23") === "Nov 22 – 28, 2026");
+    ok("the Week tab's title shares the phone's top row, and a long one steps down a size", /<header className="hub-head plan-head__title">/.test(planJsx) && /heading\.length > 14 \? " plan-head__h--xs" : heading\.length > 11 \? " plan-head__h--sm"/.test(planJsx) && /\.plan-head__h--sm \{ font-size: 30px; \}/.test(css));
+    ok("the zoom is a white track with a black pill", /className="seg seg--page plan-views"/.test(planJsx) && /\.seg--page \.seg-btn\.active \{ background: var\(--ink\); color: var\(--on-ink\);/.test(read("src/index.css")));
+    ok("on a phone the arrows are a thumb wide and Today shows only when you've left it", /\.plan-head__nav \.btn-icon \{ width: 44px; height: 44px;/.test(css) && /\.plan-head__today:disabled \{ display: none; \}/.test(css));
+    const list = css.slice(css.indexOf(".wk-list {"), css.indexOf("}", css.indexOf(".wk-list {")));
+    ok("a phone's week is one card with a hairline between days", /border-radius: var\(--r-lg\);/.test(list) && /background: var\(--card\);/.test(list) && /\.wk-list > li \+ li \{ border-top: 1px solid var\(--line\); \}/.test(css));
+    ok("each day is a bar and one line, with no clock under the bar", /<MiniStrip chunks=\{chunks\} range=\{range\} ticks=\{false\} \/>/.test(wk) && /\$\{shortTime\(first\)\} to \$\{shortTime\(last % \(24 \* 60\)\)\}/.test(wk));
+    ok("today is the orange number, not an orange edge", /\.wk-row\.is-today \.wk__num \{ color: var\(--accent\); \}/.test(css) && !/\.wk-row\.is-today \{ box-shadow/.test(css));
+    ok("presets for the week sit under the days on a phone, a thumb tall", wk.indexOf('className="wk-preset"') > wk.indexOf('className="wk-list"') && /\.wk-preset \{[^}]*min-height: 48px;/.test(css) && /\.wk, \.wk-bar \{ display: none; \}\s*\.wk-list, \.wk-preset \{ display: flex; \}/.test(css));
+    ok("a day's two buttons are a thumb tall on a phone", /\.sday__actions \.btn \{ flex: 1; min-height: 48px;/.test(css));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.
