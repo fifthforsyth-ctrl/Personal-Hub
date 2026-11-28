@@ -17,6 +17,7 @@ import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
 import PlanBlocks from "../components/today/PlanBlocks";
+import StudyWeek from "../components/today/StudyWeek";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
@@ -30,6 +31,8 @@ import "../styles/daily.css";
 // button that matters most where a thumb finds it. Then the day's plan from
 // the block you're in now onward, with its tasks to tick. Then the walk
 // with God: a verse, a prompt, and a line to write where you saw His hand.
+// Under the wins, the week's scripture study: four kinds, each with its
+// weekly minimum and a token when it's met.
 // Last, a one-line note about purchases to sort and the way into the
 // evening.
 //
@@ -143,6 +146,8 @@ export default function Today() {
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
           <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} chunks={data?.chunks} checkinOnPage={Boolean(userId && data && !runaway)} />
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
+          {/* The week's scripture study: four minimums, a token for each. */}
+          {userId && <StudyWeek userId={userId} date={date} running={data?.running} />}
           {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
           {data && (
             <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
