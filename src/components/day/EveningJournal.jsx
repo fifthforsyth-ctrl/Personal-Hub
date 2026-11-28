@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioLines, Check, Loader2, Mic, PenLine, RotateCcw, Sparkles, Square, Trash2, Volume2 } from "lucide-react";
+import { AudioLines, Check, Loader2, Mic, PenLine, Plus, RotateCcw, Sparkles, Square, Trash2, Volume2, X } from "lucide-react";
 import { deleteEveningEntry, fetchEveningEntries, generateReflectionQuestions, saveEveningEntry } from "../../lib/api";
 import { mergeEntries, newEntry, questionsFrom, targetChoices, unsaved, TEXT_MAX } from "../../lib/eveningEntries";
 import { appendWords, canRecord, playReply, recordUntilQuiet, sayAloud, stopReply, transcribeBlob, unlockAudio } from "../../lib/voice";
@@ -17,6 +17,8 @@ import { useConfirm } from "../ui/Feedback";
 // Writing about a target places an arrow on it, the entry as its note;
 // emptying or removing the entry takes the arrow back.
 //
+// A big + (as on the Tasks home) starts a new entry; only then do you
+// choose what it's about: Choose for me, I pick, or one of your targets.
 // Each pick adds an entry: a box to write in (or speak into), and "Talk it
 // through", where the Hub reads the entry's question aloud, listens, and
 // writes down what you say. Entries save as you go; what's typed lives on
@@ -57,6 +59,8 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
   const [savingIds, setSavingIds] = useState(() => new Set());
   const [focusLocal, setFocusLocal] = useState(null);
   const [asking, setAsking] = useState(false);
+  // The + was tapped: choosing what the new entry is about.
+  const [choosing, setChoosing] = useState(false);
   const [talkingLocal, setTalkingLocal] = useState(null);
   const latest = useRef([]);
   const chains = useRef(new Map());
@@ -176,6 +180,7 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
   const add = (entry) => {
     update((list) => [...list, { ...entry, position: list.length }]);
     setFocusLocal(entry.local);
+    setChoosing(false);
     haptic("tap");
     requestAnimationFrame(() => document.getElementById(`ej-${entry.local}`)?.scrollIntoView?.({ behavior: "smooth", block: "center" }));
   };
@@ -250,43 +255,56 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
 
       {error && <div className="form-error">{error}</div>}
 
-      <section className="card ej-pick" aria-label="Write about">
-        <h2 className="ej-pick__h">{entries.length ? "Write about something else" : "What do you want to write about?"}</h2>
-        <div className="ej-pick__ways">
-          <button type="button" className="ej-way ej-way--ink" onClick={chooseForMe} disabled={asking}>
-            {asking ? <Loader2 size={18} className="voice-spin" aria-hidden="true" /> : <Sparkles size={18} aria-hidden="true" />}
-            <span>{asking ? "Writing a question…" : "Choose for me"}</span>
-          </button>
-          <button type="button" className="ej-way" onClick={() => add(newEntry("free"))}>
-            <PenLine size={18} aria-hidden="true" />
-            <span>I pick</span>
-          </button>
-        </div>
-
-        {choices.length > 0 && (
-          <div className="ej-targets">
-            {groups.map((g) => (
-              <div key={g.name} className="ej-targets__group">
-                <div className="eyebrow">{g.name}</div>
-                <div className="ej-targets__chips">
-                  {g.items.map((c) => (
-                    <button
-                      key={`${c.kind}-${c.key}`}
-                      type="button"
-                      className={"ej-chip" + (written.has(c.key) ? " is-written" : "")}
-                      onClick={() => add(newEntry("target", { choice: c }))}
-                    >
-                      {written.has(c.key) && <Check size={13} aria-hidden="true" />}
-                      {c.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
+      {/* Like the Tasks home: a big + adds an entry, and only then do you
+          choose what it's about. */}
+      {choosing ? (
+        <section className="card ej-pick" aria-label="What's this entry about?">
+          <div className="ej-pick__top">
+            <h2 className="ej-pick__h">What's this entry about?</h2>
+            <button type="button" className="btn-icon" onClick={() => setChoosing(false)} aria-label="Cancel" title="Cancel">
+              <X size={18} />
+            </button>
           </div>
-        )}
-        {!ladder && <p className="muted ej-pick__note">Loading your targets…</p>}
-      </section>
+          <div className="ej-pick__ways">
+            <button type="button" className="ej-way ej-way--ink" onClick={chooseForMe} disabled={asking}>
+              {asking ? <Loader2 size={18} className="voice-spin" aria-hidden="true" /> : <Sparkles size={18} aria-hidden="true" />}
+              <span>{asking ? "Writing a question…" : "Choose for me"}</span>
+            </button>
+            <button type="button" className="ej-way" onClick={() => add(newEntry("free"))}>
+              <PenLine size={18} aria-hidden="true" />
+              <span>I pick</span>
+            </button>
+          </div>
+          {choices.length > 0 && (
+            <div className="ej-targets">
+              {groups.map((g) => (
+                <div key={g.name} className="ej-targets__group">
+                  <div className="eyebrow">{g.name}</div>
+                  <div className="ej-targets__chips">
+                    {g.items.map((c) => (
+                      <button
+                        key={`${c.kind}-${c.key}`}
+                        type="button"
+                        className={"ej-chip" + (written.has(c.key) ? " is-written" : "")}
+                        onClick={() => add(newEntry("target", { choice: c }))}
+                      >
+                        {written.has(c.key) && <Check size={13} aria-hidden="true" />}
+                        {c.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!ladder && <p className="muted ej-pick__note">Loading your targets…</p>}
+        </section>
+      ) : (
+        <button type="button" className="card ej-new" onClick={() => setChoosing(true)} aria-label="New entry">
+          <Plus size={28} strokeWidth={2} aria-hidden="true" />
+          <span>{entries.length ? "New entry" : "Add an entry"}</span>
+        </button>
+      )}
     </div>
   );
 }

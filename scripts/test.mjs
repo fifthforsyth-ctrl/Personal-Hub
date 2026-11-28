@@ -6217,6 +6217,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("entries: the banked card shows every entry with words", cards.length === 1 && cards[0].label === "Chosen for you" && cards[0].question === "Q?");
   const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
   const j = src("components/day/EveningJournal.jsx");
+  ok("entries: a big + starts an entry, and only then the choices show (like the Tasks home)", /className="card ej-new" onClick=\{\(\) => setChoosing\(true\)\}/.test(j) && /\{choosing \? \(\s*<section className="card ej-pick"/.test(j) && /setChoosing\(false\);/.test(j));
   ok("entries: each one has Speak and Talk it through", /<VoiceButton/.test(j) && /Talk it through/.test(j) && /function TalkBar/.test(j));
   ok("entries: an emptied entry isn't kept", /if \(e\.id\) await deleteEveningEntry\(e\.id, e\.arrowId\);/.test(j));
   const apiSrc = src("lib/api.js");

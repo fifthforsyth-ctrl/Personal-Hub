@@ -981,3 +981,11 @@ a.quote-card__source:hover { text-decoration: underline; }
 .ej-earlier { display: flex; flex-direction: column; gap: 12px; }
 .ej-earlier__q { font-size: 13px; color: var(--text-2); font-family: var(--font-serif); margin-bottom: 4px; }
 .ej-close { align-self: center; min-height: 44px; }
+/* The big + for a new entry, as on the Tasks home: a white card with a
+   black circle and its name under it. */
+.ej-new {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  width: 100%; min-height: 168px; border: 0; color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.ej-new svg { box-sizing: content-box; padding: 18px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
+.ej-pick__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
