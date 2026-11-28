@@ -5071,7 +5071,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   const today = src("pages/Today.jsx");
   const at = (s) => today.indexOf(s);
-  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at('<QuestsRow userId={userId} date={date} label="Tasks" tasks />') && at("<QuestsRow") < at("<WeekStrip"));
+  // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
+  ok("Today has no Tasks row at the top; the week follows the focus", !today.includes("<QuestsRow") && at("<FocusStrip") > 0 && at("<FocusStrip") < at("<WeekStrip"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
   ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));
