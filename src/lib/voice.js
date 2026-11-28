@@ -157,9 +157,11 @@ export function recordUntilQuiet({ quietMs = 2500, loud = 0.012, noSpeechMs = 15
 // Audio (or typed words) -> done, plus { heard, say, ask, audio } to show and
 // play. history is the conversation so far ([{ heard, say }]), so an answer
 // to the Hub's question finishes the first ask; ask is true when the Hub is
-// asking something back.
-export async function voiceCommand({ blob, text, speak = true, history }) {
+// asking something back. where is the page he's on, and go comes back when
+// he asked to open one.
+export async function voiceCommand({ blob, text, speak = true, history, where }) {
   const payload = { api: "voice", speak: speak ? "yes" : "no" };
+  if (where) payload.where = String(where).slice(0, 120);
   if (history?.length) payload.history = history.slice(-6).map((t) => ({ heard: t.heard, say: t.say }));
   if (text) payload.text = text;
   else {

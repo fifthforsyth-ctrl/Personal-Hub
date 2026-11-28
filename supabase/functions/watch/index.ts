@@ -42,8 +42,10 @@
 //    said with a few tools (voice.ts), and the answer comes back as
 //    { ok, heard, say, did, ask, audio (base64 mp3) }. Send the last few
 //    turns back as history [{ heard, say }] to keep a conversation going;
-//    ask is true when the answer is a question back. "listen" is words only
-//    ({ ok, text }), for the journal's mic button, and "say" is the other
+//    ask is true when the answer is a question back. From the Hub in a
+//    browser it can do anything he can (full.ts), and go is a page to open.
+//    "listen" is words only ({ ok, text }), for the journal's mic button,
+//    and "say" is the other
 //    way ({ text } -> { ok, audio }), for the evening reflection reading its
 //    questions aloud.
 //
@@ -58,6 +60,7 @@ import { readHealthPayload, mergeDay, sleepAction, workoutAction, exerciseEntry,
 import { ms, planOf, blockAt, focusWeek, targetsToday, sleptLast } from "./app.js";
 import { transcribe, speak, fromBase64, VoiceError } from "./eleven.ts";
 import { runCommand } from "./voice.ts";
+import { FULL_TOOLS, FULL_RULES, TAB_GUIDE, fullHandlers } from "./full.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -166,7 +169,7 @@ Deno.serve(async (req) => {
 
   try {
     if (by === "health") return await importHealth(db, userId, tz, body);
-    if (by === "app") return await app(db, userId, tz, body);
+    if (by === "app") return await app(db, userId, tz, body, session);
     return await wrist(db, userId, tz, body);
   } catch (err) {
     console.error(err);
@@ -329,7 +332,7 @@ async function keepNote(db: DB, userId: string, date: string, answer: string) {
 
 // --- The watch app -----------------------------------------------------------------------------
 
-async function app(db: DB, userId: string, tz: string, body: Record<string, unknown>) {
+async function app(db: DB, userId: string, tz: string, body: Record<string, unknown>, session = "") {
   const { date, startISO } = dayIn(tz);
   const api = clean(body.api, 20);
   const reply = (say: string, ok = true) => json({ ok, say });
@@ -382,7 +385,7 @@ async function app(db: DB, userId: string, tz: string, body: Record<string, unkn
     }
     // Say anything: audio (or typed text) in, done, and a spoken answer out.
     case "voice":
-      return json(await voiceCommand(db, userId, tz, date, startISO, body));
+      return json(await voiceCommand(db, userId, tz, date, startISO, body, session));
   }
   return reply("The Hub doesn't know that yet. Update the watch app.", false);
 }
@@ -458,7 +461,7 @@ async function logSpend(db: DB, userId: string, a: { amount: number; budget?: st
   return `Recorded $${Math.abs(Number(r.amount ?? amount)).toFixed(2)} ${where}${r.business ? ", business" : ""}${on ? ` on ${on}` : ""}.`;
 }
 
-async function voiceCommand(db: DB, userId: string, tz: string, date: string, startISO: string, body: Record<string, unknown>) {
+async function voiceCommand(db: DB, userId: string, tz: string, date: string, startISO: string, body: Record<string, unknown>, session = "") {
   const voiced = async (say: string) => (body.speak === "no" ? null : await speak(say));
   let heard = clean(body.text, 2000);
   if (!heard && body.audio) {
@@ -515,13 +518,27 @@ async function voiceCommand(db: DB, userId: string, tz: string, date: string, st
     },
   };
 
+  // From the Hub in a browser (his own session): everything he can do,
+  // with a guide to the tabs (full.ts). From a watch key: the quick tools.
+  const nav: { go?: string } = {};
+  const where = clean(body.where, 120);
+  const extra = session
+    ? {
+        tools: FULL_TOOLS,
+        handlers: fullHandlers(session, nav),
+        system: `${FULL_RULES}\n\n${TAB_GUIDE}\n\nHis user id: ${userId}. His time zone: ${tz}.`,
+        rounds: 10,
+      }
+    : undefined;
+  const said = where ? `${snapshot}\nHe is on the page ${where}.` : snapshot;
+
   let result: { say: string; did: string[] };
   try {
     const history = (Array.isArray(body.history) ? body.history : [])
       .slice(-6)
       .map((t: any) => ({ heard: clean(t?.heard, 2000), say: clean(t?.say, 2000) }))
       .filter((t: { heard: string }) => t.heard);
-    result = await runCommand(heard, snapshot, handlers, history);
+    result = await runCommand(heard, said, handlers, history, extra);
   } catch (err) {
     console.error("voice", err);
     result = { say: "The Hub couldn't work that out just now. Try again.", did: [] };
@@ -529,7 +546,7 @@ async function voiceCommand(db: DB, userId: string, tz: string, date: string, st
   console.log("voice", JSON.stringify({ heard, say: result.say, did: result.did }));
   // ask: the Hub needs more from him, so the app listens again after it speaks.
   const ask = /\?\s*$/.test(result.say);
-  return { ok: true, heard, say: result.say, did: result.did, ask, audio: await voiced(result.say) };
+  return { ok: true, heard, say: result.say, did: result.did, ask, go: nav.go ?? null, audio: await voiced(result.say) };
 }
 
 async function dayCounts(db: DB, userId: string, startISO: string) {

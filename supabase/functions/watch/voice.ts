@@ -103,8 +103,11 @@ Your reply is spoken: one or two short sentences, plain words, no lists, no emoj
 
 export type VoiceResult = { say: string; did: string[] };
 export type Turn = { heard: string; say: string };
+// More tools on top of the quick ones (full.ts, for the Hub in a browser),
+// with their handlers and the rules that go with them.
+export type Extra = { tools: unknown[]; handlers: Record<string, (a: any) => Promise<string>>; system: string; rounds: number };
 
-export async function runCommand(heard: string, snapshot: string, handlers: Handlers, history: Turn[] = []): Promise<VoiceResult> {
+export async function runCommand(heard: string, snapshot: string, handlers: Handlers, history: Turn[] = [], extra?: Extra): Promise<VoiceResult> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return { say: "The Hub's AI key is missing, so I can't act on that yet.", did: [] };
   const anthropic = new Anthropic({ apiKey });
@@ -118,16 +121,22 @@ export async function runCommand(heard: string, snapshot: string, handlers: Hand
   }
   messages.push({ role: "user", content: messages.length ? `He said: "${heard}"` : `${snapshot}\n\nHe said: "${heard}"` });
   const did: string[] = [];
+  const rounds = extra?.rounds ?? MAX_ROUNDS;
+  const all: any[] = [...TOOLS, ...(extra?.tools ?? [])];
+  // The tools and rules are the same every round and every call: cached.
+  all[all.length - 1] = { ...all[all.length - 1], cache_control: { type: "ephemeral" } };
+  const system = [{ type: "text", text: extra ? `${SYSTEM}\n\n${extra.system}` : SYSTEM, cache_control: { type: "ephemeral" } }];
+  const run: Record<string, (a: any) => Promise<string>> = { ...(handlers as any), ...(extra?.handlers ?? {}) };
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    const last = round === MAX_ROUNDS - 1;
+  for (let round = 0; round < rounds; round++) {
+    const last = round === rounds - 1;
     const response: any = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 4000,
-      system: SYSTEM,
+      system: system as any,
       thinking: { type: "adaptive" },
       output_config: { effort: "low" },
-      tools: TOOLS as any,
+      tools: all,
       tool_choice: last ? { type: "none" } : { type: "auto" },
       messages,
     });
@@ -150,11 +159,13 @@ export async function runCommand(heard: string, snapshot: string, handlers: Hand
     // before it starts.
     const results: any[] = [];
     for (const u of uses) {
-      const fn = (handlers as Record<string, (a: any) => Promise<string>>)[u.name];
+      const fn = run[u.name];
       try {
         if (!fn) throw new Error(`No tool called ${u.name}.`);
         const out = await fn(u.input ?? {});
-        did.push(out);
+        // What he hears about: the quick tools' lines and the writes, not
+        // every look around.
+        if (!/^(look_up|describe_tables)$/.test(u.name)) did.push(out.length > 300 ? `${out.slice(0, 297)}…` : out);
         results.push({ type: "tool_result", tool_use_id: u.id, content: out });
       } catch (err) {
         const msg = String((err as Error)?.message ?? err);
