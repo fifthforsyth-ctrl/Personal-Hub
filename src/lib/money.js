@@ -135,3 +135,73 @@ export function kindForBudget(budgetName, { suggestedKind = null, suggestedBudge
   if (suggestedKind && (suggestedBudgetId || null) === (budgetId || null)) return suggestedKind;
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Budgets you spend out of by hand (Nov 2026).
+//
+// The bank only shows what's in the accounts now. Spending is what you add
+// yourself: an amount, a title, the budget it comes out of. Everything below
+// works on those purchases, as rows of { posted_at, amount (negative), budget_id }.
+
+// The month a purchase falls in, "2026-11-01", by the local calendar.
+export function monthOf(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+// Total spent per month, newest first: [{ month, total, count }].
+export function spentByMonth(purchases) {
+  const by = new Map();
+  for (const p of purchases ?? []) {
+    const k = monthOf(p.posted_at);
+    const row = by.get(k) ?? { month: k, total: 0, count: 0 };
+    row.total = round2(row.total + spentOf(p.amount));
+    row.count += 1;
+    by.set(k, row);
+  }
+  return [...by.values()].sort((a, b) => (a.month < b.month ? 1 : -1));
+}
+
+// What came out of each budget in one month: { [budgetId | "none"]: total }.
+export function spentByBudget(purchases, month) {
+  const out = {};
+  for (const p of purchases ?? []) {
+    if (monthOf(p.posted_at) !== month) continue;
+    const k = p.budget_id || "none";
+    out[k] = round2((out[k] ?? 0) + spentOf(p.amount));
+  }
+  return out;
+}
+
+// A budget's average month, counted only over whole months: from the first
+// month the budget existed AND purchases were being added (a start after the
+// 3rd waits for the next month, so a few days don't pass for a month), up to
+// the month before `current`. Null until there's at least one such month.
+export function budgetAverage(budget, purchases, current) {
+  const list = purchases ?? [];
+  if (!budget || list.length === 0) return null;
+  const first = list.reduce((min, p) => (p.posted_at < min ? p.posted_at : min), list[0].posted_at);
+  const created = budget.created_at ?? first;
+  const startAt = new Date(Math.max(new Date(created).getTime(), new Date(first).getTime()));
+  let y = startAt.getFullYear();
+  let m = startAt.getMonth();
+  if (startAt.getDate() > 3) m += 1;
+  const months = [];
+  for (let d = new Date(y, m, 1); ; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    if (k >= current) break;
+    months.push(k);
+    if (months.length > 600) break;
+  }
+  if (months.length === 0) return null;
+  const inThem = new Set(months);
+  let total = 0;
+  for (const p of list) {
+    if (p.budget_id === budget.id && inThem.has(monthOf(p.posted_at))) total += spentOf(p.amount);
+  }
+  return { average: round2(total / months.length), months: months.length };
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}

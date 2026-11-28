@@ -89,7 +89,7 @@ import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TI
 import { normCheck as ckNorm, markOf as ckMark, clockDiff as ckClock, scores as ckScores, answered as ckAnswered, allAnswered as ckAll, checksLevel as ckLevel, shareOf as ckShare, shareOfLevel as ckShareOfLevel, levelOfShare as ckLevelOfShare, passText as ckPassText, valueText as ckValueText, clockText as ckClockText, answerEntry as ckEntry, legacyValue as ckLegacy, autoValue as ckAuto, wokeAt as ckWoke, toFive as ckToFive, tenOf as ckTenOf } from "../src/lib/checks.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
-import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
+import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget, monthOf, spentByMonth, spentByBudget, budgetAverage } from "../src/lib/money.js";
 import { withTaps, waitingTaps, isUnnamed, KEEP_MS } from "../src/components/today/tapRows.js";
 import { editableFields, changesFrom, draftOver, draftClashes, draftTime } from "../src/components/study/noteDraft.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
@@ -460,6 +460,27 @@ ok("spending shows positive", spentOf(-6.45) === 6.45);
 ok("a deposit is not spending", spentOf(1800) === 0);
 ok("money formats with cents", fmtMoney(1234.5) === "$1,234.50");
 ok("money can round", fmtMoney(1234.5, { round: true }) === "$1,235");
+{
+  const buys = [
+    { posted_at: "2026-12-02T19:00:00Z", amount: -40, budget_id: "g" },
+    { posted_at: "2026-12-20T19:00:00Z", amount: -60, budget_id: "g" },
+    { posted_at: "2027-01-10T19:00:00Z", amount: -50, budget_id: "g" },
+    { posted_at: "2027-01-11T19:00:00Z", amount: -25.5, budget_id: "r" },
+    { posted_at: "2027-02-03T19:00:00Z", amount: -10, budget_id: null },
+  ];
+  ok("a purchase's month is the local month", monthOf("2026-12-20T19:00:00Z") === "2026-12-01");
+  const months = spentByMonth(buys);
+  ok("months total newest first", months[0].month === "2027-02-01" && months[1].total === 75.5 && months[2].total === 100 && months[2].count === 2);
+  const jan = spentByBudget(buys, "2027-01-01");
+  ok("a month splits by budget", jan.g === 50 && jan.r === 25.5 && jan.none === undefined);
+  ok("a purchase with no budget is counted apart", spentByBudget(buys, "2027-02-01").none === 10);
+  const avg = budgetAverage({ id: "g", created_at: "2026-11-01T00:00:00Z" }, buys, "2027-02-01");
+  ok("a budget's average counts whole months only", avg && avg.months === 2 && avg.average === 75, JSON.stringify(avg));
+  ok("no average in the first month", budgetAverage({ id: "g", created_at: "2026-11-01T00:00:00Z" }, buys, "2026-12-01") === null);
+  const late = budgetAverage({ id: "r", created_at: "2027-01-11T00:00:00Z" }, buys, "2027-02-01");
+  ok("a budget made mid-month waits for its first whole month", late === null);
+  ok("no purchases, no average", budgetAverage({ id: "g" }, [], "2027-02-01") === null);
+}
 ok("nonsense isn't formatted as $NaN", fmtMoney("abc") === "—");
 
 ok("processor prefix and city go", merchantTitle("CARD PURCHASE 09/30 SQ *BLUE BOTTLE COF 1234 DENVER CO") === "Blue Bottle Cof",
@@ -5907,27 +5928,22 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     ok("on a phone a card's buttons sit at its foot, never over its words", /@media \(hover: none\) \{\s*\.paper__tools \{ top: auto; bottom: 3px;[^}]*opacity: 1; \}/.test(cork));
   }
 
-  // Money in the Clean slate look (2026-11-23).
+  // Money in the Clean slate look, spent by hand (2026-11-28).
   {
     const page = read("src/pages/Money.jsx");
-    const q = read("src/components/money/PurchaseQuestion.jsx");
-    const budgets = read("src/components/money/Budgets.jsx");
     const meter = read("src/components/money/BudgetSheet.jsx");
-    const shared = read("src/components/money/shared.jsx");
+    const today = read("src/pages/Today.jsx");
     const css = read("src/styles/money.css");
     const rule = (sel) => css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
-    ok("Money opens on its own title, with the month between its arrows under it", /<header className="hub-head money-head">\s*<h1 className="page-title">Money<\/h1>/.test(page) && page.indexOf('className="money-month"') > page.indexOf("</header>") && /width: 48px; height: 44px;/.test(rule(".money-month__btn")));
-    ok("the month's three figures share one card, the number over its name", /<div className="card money-figures">/.test(page) && page.indexOf('className="money-figure__value"') < page.indexOf('className="money-figure__label"') && /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(rule(".card.money-figures")));
-    ok("the page runs purchase, budgets, accounts, then the rows that open", page.indexOf('<PurchaseQuestion title="Purchases to sort"') < page.indexOf("<Budgets overview") && page.indexOf("<Budgets overview") < page.indexOf("{connected && !bankFirst && accounts}") && page.indexOf("{connected && !bankFirst && accounts}") < page.indexOf('<div className="card money-folds">'));
-    ok("a bank that stopped answering is still said first", /const bankFirst = reconnecting \|\| overview\?\.connection\?\.status === "error";/.test(page) && page.indexOf("{connected && bankFirst && accounts}") < page.indexOf('<PurchaseQuestion title="Purchases to sort"'));
-    ok("the business, income and every transaction are rows a thumb tall that open in place", /<Fold title="Business"/.test(page) && /<Fold title="Income"/.test(page) && /<Fold title="Every transaction">/.test(page) && /<details className="money-fold"/.test(page) && /min-height: 52px;/.test(rule(".money-fold__row")));
-    ok("the purchase waiting is the page's black card, with Save in orange", /<div className="card money-question">/.test(q) && /\n\.card\.money-question \{[^}]*background: var\(--ink\);[^}]*color: var\(--on-ink\);/.test(css) && /\.money-question \.btn--accent \{ min-height: 48px;[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\);/.test(css));
-    ok("its budgets are two columns of pills a thumb tall, the chosen one orange", /<div className="money-chips money-chips--grid">/.test(q) && /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/.test(rule(".money-chips--grid")) && /\.money-question \.money-chips--grid \.chip\.money-chip \{ min-height: 48px;/.test(css) && /\.money-question \.chip\.money-chip\.is-on \{ background: var\(--accent\);[^}]*color: var\(--on-accent\); \}/.test(css));
-    ok("typing a note there doesn't zoom an iPhone", /\.money-question \.input \{[^}]*font-size: 16px; \}/.test(css));
-    ok("\"everything is sorted\" is said once: by the page for this month, by the older purchases when they're done", /export function Sorted\(/.test(shared) && /if \(answered\.size > 0 && onDismiss\) \{/.test(q) && /Number\(history\.count\) === 0 && connected && <Sorted \/>/.test(page));
-    ok("a budget's bar is ink, red once it's over, and its colour stays on its dot", /background: line\.over \? "var\(--danger\)" : "var\(--ink\)"/.test(meter) && /<span className="dot" style=\{\{ background: budget\.color \}\} \/>/.test(budgets) && /height: 8px;/.test(rule(".money-bar")));
-    ok("a budget says what's spent of its limit in words", /<span className="money-budget__limit"> of \{fmtMoney\(limit, \{ round: true \}\)\}<\/span>/.test(budgets));
-    ok("an account is one line: its name and what's there", /grid-template-columns: minmax\(0, 1fr\) auto;/.test(rule(".stat.money-account")));
+    ok("Money opens on its own title, then what's in the bank", /<header className="hub-head money-head">\s*<h1 className="page-title">Money<\/h1>/.test(page) && page.indexOf("<BankTotals") > page.indexOf("</header>"));
+    ok("nothing from the bank is sorted any more: no purchase question, here or on Today", !/PurchaseQuestion|PurchaseNudge|setAsidePurchases/.test(page + today));
+    ok("purchases are only the ones added by hand or by voice", /fetchPurchases\(user\.id\)/.test(page));
+    ok("the page runs bank, the month, budgets, purchases, earlier months", page.indexOf("<BankTotals overview") < page.indexOf('className="card spend-month"') && page.indexOf('className="card spend-month"') < page.indexOf("<BudgetRow") && page.indexOf("<BudgetRow") < page.indexOf("<PurchaseRow") && page.indexOf("<PurchaseRow") < page.indexOf("Earlier months"));
+    ok("the month is the page's one black card, with Add purchase in orange", /background: var\(--ink\); color: var\(--on-ink\);/.test(rule(".spend-month")) && /background: var\(--accent\);/.test(rule(".spend-add")) && /min-height: 52px;/.test(rule(".spend-add")));
+    ok("a purchase needs an amount and a budget, and says where it's coming from", /const ready = value > 0 && Boolean\(budget\);/.test(page) && /Take \$\{fmtMoney\(value\)\} from \$\{budget\.name\}/.test(page));
+    ok("a budget says what's spent of its limit in words, and its usual month once it has one", /<span className="money-budget__limit"> of \{fmtMoney\(limit, \{ round: true \}\)\}<\/span>/.test(page) && /Usually \{fmtMoney\(avg\.average, \{ round: true \}\)\} a month/.test(page));
+    ok("a budget's bar is ink, red once it's over", /background: line\.over \? "var\(--danger\)" : "var\(--ink\)"/.test(meter) && /height: 8px;/.test(rule(".money-bar")));
+    ok("purchase rows are a thumb tall", /min-height: 52px;/.test(css.slice(css.indexOf(".spend-row,"), css.indexOf("}", css.indexOf(".spend-row,")))));
   }
 
   // The mic sheet in the Clean slate look (2026-11-23).

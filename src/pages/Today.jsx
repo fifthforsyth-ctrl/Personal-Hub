@@ -17,7 +17,6 @@ import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
 import PlanBlocks from "../components/today/PlanBlocks";
-import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
@@ -157,8 +156,6 @@ export default function Today() {
       </div>
 
       <div className="stack today__foot">
-        {/* One line, and only when there's something to sort. */}
-        <PurchaseNudge />
         {/* On a phone during the day, the way into the evening closes the page. */}
         {!eveningOnTop && showEvening && <EveningButton className="today-evening--phone" />}
       </div>
