@@ -4766,12 +4766,16 @@ export async function columnsHome(userId, today) {
   return made;
 }
 
-// The columns he's touched most lately, anywhere: by the newest change to a
-// step in them, else when the column was made. Ids, newest first.
-export async function fetchRecentColumnIds(userId, limit = 12) {
+// The columns he's touched most lately: by the newest change to a step in
+// them, else when the column was made. Ids, newest first. With `campIds`,
+// only columns in those camps (the Tasks home passes its free columns' camp,
+// so a project's columns stay inside the project: Aaron, 2026-11-28).
+export async function fetchRecentColumnIds(userId, limit = 12, { campIds = null } = {}) {
+  if (campIds && !campIds.length) return [];
+  const only = (q) => (campIds ? q.in("camp_id", campIds) : q);
   const [sections, steps] = await Promise.all([
-    supabase.from("camp_sections").select("id, created_at").eq("user_id", userId).eq("clipboard", false).order("created_at", { ascending: false }).limit(60),
-    supabase.from("camp_steps").select("section_id, updated_at").eq("user_id", userId).not("section_id", "is", null).order("updated_at", { ascending: false }).limit(600),
+    only(supabase.from("camp_sections").select("id, created_at").eq("user_id", userId).eq("clipboard", false)).order("created_at", { ascending: false }).limit(60),
+    only(supabase.from("camp_steps").select("section_id, updated_at").eq("user_id", userId).not("section_id", "is", null)).order("updated_at", { ascending: false }).limit(600),
   ]);
   for (const r of [sections, steps]) if (r.error) throw r.error;
   const at = new Map();
@@ -4780,7 +4784,7 @@ export async function fetchRecentColumnIds(userId, limit = 12) {
   const ids = [...at.entries()].sort((a, b) => String(b[1]).localeCompare(String(a[1]))).map(([id]) => id);
   if (!ids.length) return [];
   // Steps in a clipboard column count for nothing here.
-  const real = await supabase.from("camp_sections").select("id").eq("clipboard", false).in("id", ids.slice(0, 80));
+  const real = await only(supabase.from("camp_sections").select("id").eq("clipboard", false).in("id", ids.slice(0, 80)));
   if (real.error) throw real.error;
   const ok = new Set((real.data ?? []).map((r) => r.id));
   return ids.filter((id) => ok.has(id)).slice(0, limit);

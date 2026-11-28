@@ -5063,6 +5063,9 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
   );
   ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
+  // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
+  // (On main this also checked the week strip's place; Clean slate took that strip off Today.)
+  ok("Today has no Tasks row at the top; the timer follows the focus", !today.includes("QuestsRow") && at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
   ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));
@@ -6757,6 +6760,21 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const two = C.drawPool(C.fillCollections([{ ...cols[0] }, { ...cols[1], feeds_today: true }], items, quotes, []));
   ok("collections: the same quote all day, and Another moves on", C.drawFor(two, "2026-11-27").id === C.drawFor(two, "2026-11-27").id && C.drawFor(two, "2026-11-27", 1).id !== C.drawFor(two, "2026-11-27").id);
   ok("collections: no pool, no draw", C.drawFor([], "2026-11-27") === null);
+}
+
+// Tasks (Aaron, 2026-11-28): a project's tasks stay in the project; any
+// task on a column can go to the clipboard.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const home = src("components/tasks/TasksHome.jsx");
+  const api = src("lib/api.js");
+  ok("the Tasks home only asks for the free columns' camps", home.includes("fetchRecentColumnIds(userId, SHOWN, { campIds: freeCampIds(board) })") && home.includes("q.note === COLUMNS_HOME"));
+  ok("recent columns can be kept to some camps, and none means none", api.includes('if (campIds && !campIds.length) return [];') && api.includes('campIds ? q.in("camp_id", campIds) : q'));
+  const row = src("components/tasks/TaskRow.jsx");
+  const acts = src("components/tasks/useTaskActions.js");
+  ok("a column's open task has a To the clipboard button, passed down to sub-tasks", row.includes("{onClip && !done && !editing && (") && row.includes("onClip={onClip} childrenOf={childrenOf}") && src("components/tasks/Columns.jsx").includes("onClip={onClip} />"));
+  ok("it goes to its own camp's clipboard, with Undo", acts.includes("clipSectionOf(userId, step.camp_id)") && acts.includes("moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id })") && acts.includes('"On the clipboard"'));
+  ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

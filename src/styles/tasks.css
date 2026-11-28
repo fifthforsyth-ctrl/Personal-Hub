@@ -118,6 +118,12 @@
   flex: 1 1 auto; min-width: 0; padding: 12px 0 10px; border: 0; background: none; color: inherit; text-align: left;
   font: inherit; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text;
 }
+/* To the clipboard: quiet, just before the handle, plain on a hover. */
+.tk-toclip {
+  flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 44px; padding: 0;
+  border: 0; border-radius: 12px; background: none; color: var(--text-2); cursor: pointer; opacity: 0.6;
+}
+.tk-toclip:hover, .tk-toclip:focus-visible { opacity: 1; color: var(--ink); }
 .tk-row.is-done > .tk-row__line .tk-text { color: var(--text-2); text-decoration: line-through; }
 .tk-row.is-note > .tk-row__line .tk-text { color: var(--text-2); font-style: italic; }
 .tk-grip {
