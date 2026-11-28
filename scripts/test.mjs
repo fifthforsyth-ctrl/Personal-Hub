@@ -6253,5 +6253,17 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("entries: 0113 is additive and day_archive returns them", !/\bdrop\b/i.test(mig.replace(/--.*$/gm, "")) && /'evening_entries', coalesce/.test(mig) && /create policy "Own evening entries"/.test(mig));
 }
 
+{
+  // The whole screen on the home screen app, and the mic never cut off (Aaron, 2026-11-28).
+  const { appHeight } = await import("../src/lib/appHeight.js");
+  const phone = { standalone: true, innerWidth: 390, screenWidth: 390, screenHeight: 844 };
+  ok("app height: a home screen window short by the status bar takes the screen's height", appHeight({ ...phone, innerHeight: 797 }) === 844);
+  ok("app height: a full window, Safari, or a far shorter window are left alone", appHeight({ ...phone, innerHeight: 844 }) === null && appHeight({ ...phone, standalone: false, innerHeight: 797 }) === null && appHeight({ ...phone, innerHeight: 500 }) === null);
+  ok("app height: sideways it's the screen's short side", appHeight({ standalone: true, innerWidth: 844, innerHeight: 360, screenWidth: 390, screenHeight: 844 }) === 390);
+  const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+  ok("the shell is as tall as the screen when told", /\.shell \{\s*position: fixed;\s*inset: 0;\s*bottom: auto;\s*height: var\(--app-h, 100%\);/.test(css) && readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8").includes("installAppHeight();"));
+  ok("the tab bar sits over the page, so the mic isn't cut off, and under sheets", /\.bottom-tabs \{[^}]*position: relative;\s*z-index: 20;/.test(css) && /\.sheet-backdrop \{[^}]*z-index: 60;/.test(css));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
