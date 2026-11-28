@@ -125,10 +125,14 @@ button { cursor: pointer; touch-action: manipulation; }
 /* Pinned to the screen (Aaron 2026-11-28): with the shell only 100% tall,
    anything that poked out below the page let the phone scroll the whole
    shell, and the bottom tabs rode up the screen with it. Fixed, only
-   `.main` ever scrolls and the tabs stay at the bottom. */
+   `.main` ever scrolls and the tabs stay at the bottom. On the home
+   screen app it is as tall as the screen (--app-h, lib/appHeight.js), so
+   no band shows under the tabs. */
 .shell {
   position: fixed;
   inset: 0;
+  bottom: auto;
+  height: var(--app-h, 100%);
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   background: var(--bg);
@@ -314,6 +318,10 @@ button { cursor: pointer; touch-action: manipulation; }
     align-items: start;
     height: var(--tabs-h);
     padding: 0 4px env(safe-area-inset-bottom, 0px);
+    /* Over the page, so the mic that rises out of the bar is never cut
+       off by a card scrolled under it (sheets, at 60, still cover it). */
+    position: relative;
+    z-index: 20;
     background: var(--card);
     border-top: 1px solid var(--line);
   }
