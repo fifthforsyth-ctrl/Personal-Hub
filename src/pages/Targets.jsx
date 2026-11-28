@@ -3,18 +3,21 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Plus } from "lucide-react";
 import { fetchQuestPills } from "../lib/api";
 import { ladderOf, pathOf } from "../lib/ladder";
-import { focusWeekOf, arrowsLabel, checkinOn, checkinLevel, dayState } from "../lib/focus";
-import { LEVELS } from "../lib/mark";
+import { focusWeekOf, checkinOn, dayState } from "../lib/focus";
+import { arrowsOn, arrowWords, faceOf } from "../lib/arrows";
 import { addDays, parseDateStr } from "../lib/planDates";
 import { useLoad } from "../lib/useLoad";
 import LoadError from "../components/ui/LoadError";
 import TargetFace from "../components/mark/TargetFace";
 import { useLadder, FRESH_PATCH_KEY } from "../components/targets/useLadder";
 import { useScrollTop } from "../components/targets/useScrollTop";
-import { MissionCard, FaceRow, ClimbRows, FocusRows, WeekLetters, NO_MARKS, keepDashes, markWords } from "../components/targets/OverviewTiers";
+import { MissionCard, FaceRow, ClimbRows, FocusRows, WeekLetters, keepDashes } from "../components/targets/OverviewTiers";
 import { BowCard } from "../components/targets/OverviewBow";
 import { BehindYou } from "../components/targets/OverviewPatches";
 import FocusWeek from "../components/focus/FocusWeek";
+import FocusSettings from "../components/focus/FocusSettings";
+import TargetPopup, { placeTarget } from "../components/targets/TargetPopup";
+import { useArrows } from "../components/targets/useArrows";
 import { whoseWeek } from "../components/schedule/FocusLine";
 import "../styles/ascent.css";
 import "../styles/mark.css";
@@ -29,10 +32,13 @@ import "../styles/targets.css";
 // small target for each lifetime goal (the top goals of the goal wheel,
 // last 30 days of arrows), a row for each quest he's on and lesson he's
 // learning (with its camps and what's on today's list there), and the
-// week's focus by name with the week's arrows as seven squares. Every one
-// of them is a tap from its own page (/targets/<its id>): the target, notes
-// and reflections, linked quotes, and for a quest or lesson its camps,
-// today's list and the clipboard.
+// week's focus by name with the week's arrows as seven squares.
+//
+// A tap on any of them opens its pop-up (Aaron, 2026-11-28): place an arrow,
+// add a note (which places one), or edit the target. Every arrow is a good
+// one, placed by him whenever he does something toward it. The pop-up's
+// address is /targets?t=<its id>, so every older link to a target's page
+// opens it here.
 //
 // Under the ladder, the bow his bullseyes have earned, and what's behind
 // him: patches for the mountains finished, lessons learned, and what was
@@ -60,6 +66,25 @@ export default function Targets() {
   });
   const { userId, today, view, range, error, loading, reload, focusWeek, open, overlay } = ladder;
   useScrollTop("targets");
+  const arrows = useArrows(userId, today);
+
+  // The target whose pop-up is open (?t=<its id>), and a week's focus's
+  // settings opened from it.
+  const [params, setParams] = useSearchParams();
+  const ref = params.get("t");
+  const target = useMemo(() => placeTarget(ref, ladder), [ref, ladder]);
+  const [focusEdit, setFocusEdit] = useState(null);
+  const openTarget = (key) => {
+    const next = new URLSearchParams(params);
+    next.set("t", key);
+    setParams(next);
+  };
+  const closeTarget = () => {
+    const next = new URLSearchParams(params);
+    next.delete("t");
+    setParams(next, { replace: true });
+  };
+  const on = (kind, key) => arrowsOn(arrows.list, kind, key);
 
   // A patch just earned on its quest's page: "Behind you" opens on it and
   // it springs in, this once.
@@ -127,7 +152,7 @@ export default function Targets() {
       {tiers && (
         <div className="ov-body">
           <div className="ov-ladder">
-            <MissionCard mission={tiers.mission} onWrite={() => open({ kind: "mission" })} />
+            <MissionCard mission={tiers.mission} onWrite={() => open({ kind: "mission" })} onOpen={() => openTarget("mission")} />
 
             <section className="card ov-tier ov-card" aria-labelledby="ov-goals-h">
               <div className="ov-tier__head">
@@ -141,12 +166,12 @@ export default function Targets() {
                   label="Lifetime goals"
                   items={tiers.goals.map((g) => ({
                     key: g.key,
-                    to: pathOf("goal", g.key),
+                    onOpen: () => openTarget(g.key),
                     title: g.title,
-                    label: `${g.title}: ${markWords(g.target, today)}`,
+                    label: `${g.title}: ${arrowWords(on("goal", g.key), today)}`,
                     name: g.target?.short ?? g.short,
                     gear: g.gear,
-                    face: <TargetFace target={g.target ?? NO_MARKS} today={today} range="30" mini arrow />,
+                    face: <TargetFace target={faceOf(on("goal", g.key))} today={today} range="30" mini arrow />,
                   }))}
                 />
               ) : (
@@ -166,7 +191,7 @@ export default function Targets() {
                   Quests and lessons
                 </h2>
               </div>
-              {climbs.length > 0 ? <ClimbRows climbs={climbs} today={today} /> : <p className="ov-none">The quests you're on and the lessons you're learning show here.</p>}
+              {climbs.length > 0 ? <ClimbRows climbs={climbs} today={today} arrowsOf={(c) => on(c.kind, c.key)} onOpen={(c) => openTarget(c.key)} /> : <p className="ov-none">The quests you're on and the lessons you're learning show here.</p>}
               <div className="ov-adds">
                 <button type="button" className="btn btn--sm" onClick={newQuest} aria-label="New quest">
                   <Plus size={15} />
@@ -183,7 +208,7 @@ export default function Targets() {
               </div>
             </section>
 
-            <FocusTier fw={focusWeek} today={today} />
+            <FocusTier fw={focusWeek} today={today} arrows={arrows.list} onOpen={openTarget} />
           </div>
 
           <aside className="ov-side" aria-label="Your bow, and what's behind you">
@@ -193,6 +218,17 @@ export default function Targets() {
         </div>
       )}
 
+      {target && <TargetPopup target={target} ladder={ladder} arrows={arrows} onClose={closeTarget} onFocusEdit={setFocusEdit} />}
+      {focusEdit && (
+        <FocusSettings
+          userId={userId}
+          goal={(focusWeek.week ?? []).find((g) => g.id === focusEdit.id) ?? focusEdit}
+          date={today}
+          fw={focusWeek}
+          ascent={{ data: ladder.data, view, focuses: ladder.focuses, focusesById: ladder.focusesById, error, loading, reload }}
+          onClose={() => setFocusEdit(null)}
+        />
+      )}
       {overlay}
     </div>
   );
@@ -210,7 +246,7 @@ export default function Targets() {
 // the Week tab that's the week it was showing, so next week's focus can be
 // set ahead of time.
 
-function FocusTier({ fw, today }) {
+function FocusTier({ fw, today, arrows, onOpen }) {
   const weekStart = focusWeekOf(today);
   const { data, week, error, reload } = fw;
   const [params, setParams] = useSearchParams();
@@ -250,16 +286,17 @@ function FocusTier({ fw, today }) {
       <FocusRows
         label="This week's focus"
         items={week.map((g) => {
-          const on = checkinOn(data.checkins, g.id, today);
-          const todayWords = on ? LEVELS[checkinLevel(on)].name.toLowerCase() : "no arrow yet";
+          // A day he placed an arrow on it is a good day (black), whatever
+          // the evening said.
+          const placed = new Set(arrowsOn(arrows, "focus", g.id).map((a) => a.date));
           return {
             key: g.id,
-            to: pathOf("focus", g.id),
+            onOpen: () => onOpen(g.id),
             title: keepDashes(g.title),
-            label: `${g.title}. Today: ${todayWords}. ${arrowsLabel(g)}.`,
+            label: `${g.title}. ${arrowWords(arrowsOn(arrows, "focus", g.id), today, 7)}.`,
             days: Array.from({ length: 7 }, (_, i) => {
               const d = addDays(weekStart, i);
-              return dayState(checkinOn(data.checkins, g.id, d), d, today);
+              return placed.has(d) ? "bull" : dayState(checkinOn(data.checkins, g.id, d), d, today);
             }),
           };
         })}
