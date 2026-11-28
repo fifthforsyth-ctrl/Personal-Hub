@@ -4871,16 +4871,13 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // --- The page --------------------------------------------------------------------
   const page = src("src/pages/Evening.jsx");
-  // Four steps since 2026-11-23, all on the page at once (one shows), in the same order.
-  const full = page.slice(page.indexOf("<div className=\"eve-steps\">"), page.indexOf("{volley &&"));
-  const order = ["<WinsAndLosses", "<MinutesCard", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
-  ok("the evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
-  ok("the reflection questions stay; the watch row, the board card, What got done and the short evening are gone", /<ReflectionFlow\b/.test(page) && !/<WatchLine|<CuratedCards|<EveningTasks|<ShortEvening/.test(page));
-  ok("one tap per target and per focus, and the check-in is slim", /flushRef=\{flushFocus\} quick \/>/.test(full) && /onReady=\{setArrows\}\s*quick\s*\/>/.test(full) && /flushRef=\{flushCheckin\} slim \/>/.test(full));
+  // One page since 2026-11-28 (Aaron): the entries, then Bank the day.
+  const simple = page.slice(page.indexOf('<div className="stack eve-simple">'));
+  ok("the evening is the entries and Bank the day, in that order", simple.indexOf("<EveningJournal") > 0 && simple.indexOf("<EveningJournal") < simple.indexOf("<CloseOut"));
+  ok("everything else left the evening", !/<WinsAndLosses|<MinutesCard|<ReflectionFlow|<FocusArrows|<TonightShots|<EveningCheckin|<Volley|const STEPS|<WatchLine|<CuratedCards|<EveningTasks|<ShortEvening/.test(page));
   ok("FocusDay is gone from the evening", !/FocusDay/.test(page));
-  ok("the focus arrows and the shots get the day's plan", (page.match(/dayPlan=\{data\.dayPlan\}/g) ?? []).length >= 3 && (page.match(/<FocusArrows[^>]*flushRef=\{flushFocus\}/g) ?? []).length === 1);
   const before = page.slice(page.indexOf("const beforeBank"), page.indexOf("const a = data?.archive"));
-  ok("banking saves the reflection, then the focus arrows, then the check-in", before.indexOf("flushReflection") < before.indexOf("flushFocus") && before.indexOf("flushFocus") < before.indexOf("flushCheckin") && /onBefore=\{beforeBank\}/.test(page));
+  ok("banking saves the entries, then marks a written evening reflected", before.indexOf("flushEntries") >= 0 && before.indexOf("flushEntries") < before.indexOf("completed: true") && /onBefore=\{beforeBank\} short \/>/.test(page));
   const slimSrc = src("src/components/day/EveningCheckin.jsx");
   ok("slim leaves out stress and the mood and stress notes", /\{!slim && <NoteInput note=\{moodNote\}/.test(slimSrc) && /\{!slim && \(\s*<div className="evening-feel">\s*<Slider label="Stress"/.test(slimSrc));
 
@@ -5081,7 +5078,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const at = (s) => today.indexOf(s);
   ok(
     "Today runs focus, timer, wins, plan, then the walk with God (Clean slate)",
-    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
+    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanSwipe") && at("<PlanSwipe") < at("<WalkWithGod")
+  );
+  ok(
+    "swipe right on Today's plan for tomorrow's (Aaron, 2026-11-28)",
+    /<PlanBlocks userId=\{userId\} date=\{addDays\(date, 1\)\} chunks=\{tomorrowChunks\} tomorrow \/>/.test(today) &&
+      /fetchTimeChunks\(userId, addDays\(date, 1\)\)/.test(today) &&
+      /const now = tomorrow \? -1 : clock;/.test(src("components/today/PlanBlocks.jsx")) &&
+      /\.plan-swipe__row \{[^}]*scroll-snap-type: x mandatory/.test(src("styles/daily.css"))
   );
   ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
   // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
@@ -5967,14 +5971,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     const checkin = read("src/components/day/EveningCheckin.jsx");
     const close = read("src/components/day/CloseOut.jsx");
     const css = read("src/styles/daily.css");
-    const steps = page.slice(page.indexOf('<div className="eve-steps">'), page.indexOf("{volley &&"));
-    const sections = steps.split('<section className="stack eve-step"').slice(1);
-    ok("the evening is four steps: the day, the reflection, the week's aim, before banking", /const STEPS = \["How the day really went", "Reflection", "This week's aim", "Before you bank it"\];/.test(page) && sections.length === 4);
-    ok("each step holds its own part of the evening", /<WinsAndLosses[\s\S]*<MinutesCard/.test(sections[0]) && /<ReflectionFlow/.test(sections[1]) && /<FocusArrows[\s\S]*<TonightShots/.test(sections[2]) && /<EveningCheckin[\s\S]*<CloseOut/.test(sections[3]));
-    ok("every step stays on the page while another shows, so nothing typed is lost and banking still saves it all", sections.every((sec, i) => new RegExp("^ hidden=\\{step !== " + i + "\\}").test(sec)) && /\.eve-step\[hidden\] \{ display: none; \}/.test(css) && !/step === \d && </.test(steps));
-    ok("the bars at the top say where you are, and a tap on one goes there", /className=\{"eve-progress__step" \+ \(i <= step \? " is-on" : ""\)\}/.test(page) && /aria-current=\{i === step \? "step" : undefined\}/.test(page) && /onClick=\{\(\) => go\(i\)\}/.test(page) && /\.eve-progress__step \{[^}]*height: 44px;/.test(css));
-    ok("Back and Next are a thumb tall, the first step's Back closes to Today, and the last has no Next", /onClick=\{\(\) => \(step > 0 \? go\(step - 1\) : navigate\("\/"\)\)\}/.test(page) && /\{step < STEPS\.length - 1 && \(/.test(page) && /\.eve-foot__next \{ height: 56px;/.test(css));
-    ok("another evening starts at the first step, and a banked day has no steps", /useEffect\(\(\) => setStep\(0\), \[date\]\);/.test(page) && /const stepping = Boolean\(data\) && !banked;/.test(page));
     ok("all four reflection questions are there by name, a thumb tall, the open one black", /label: "God's hand"/.test(flow) && /label: "Toward the Savior"/.test(flow) && /label: "Learning from today"/.test(flow) && /label: "Anything else"/.test(flow) && /<span className="reflection-step__name">\{c\.label\}<\/span>/.test(flow) && /\.reflection-step \{[^}]*min-height: 48px;/.test(css) && /\.reflection-step--here \{ background: var\(--ink\); color: var\(--on-ink\); \}/.test(css));
     ok("the reflection's own buttons are named, so they aren't taken for the evening's", /aria-label="Previous question"/.test(flow) && /Next question/.test(flow));
     ok("the question is large in the page's type and the answer doesn't zoom an iPhone", /\.evening \.question \{[^}]*font-family: var\(--font\); font-size: 22px;/.test(css) && /\.evening \.reflection-card \.textarea,\s*\.evening \.evening-god \.input \{[^}]*font-size: 16px;/.test(css));
@@ -6216,6 +6212,45 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a column's open task has a To the clipboard button, passed down to sub-tasks", row.includes("{onClip && !done && !editing && (") && row.includes("onClip={onClip} childrenOf={childrenOf}") && src("components/tasks/Columns.jsx").includes("onClip={onClip} />"));
   ok("it goes to its own camp's clipboard, with Undo", acts.includes("clipSectionOf(userId, step.camp_id)") && acts.includes("moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id })") && acts.includes('"On the clipboard"'));
   ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
+}
+
+// The evening as journal entries (Aaron, 2026-11-28).
+{
+  const E = await import("../src/lib/eveningEntries.js");
+  const ladder = {
+    mission: { statement: "Become a trusted servant" },
+    goals: [{ key: "g1", title: "Highly skilled", short: "Skilled" }],
+    climbs: [{ key: "q1", kind: "quest", title: "Premiere plugin" }, { key: "l1", kind: "lesson", title: "More integrity" }],
+    focuses: [{ key: "f1", title: "Draw 30 minutes" }],
+  };
+  const choices = E.targetChoices(ladder);
+  ok("entries: every target to choose from, biggest first", choices.map((c) => c.key).join() === "mission,g1,q1,l1,f1" && choices[3].group === "Lessons");
+  ok("entries: no mission written, no mission to pick", !E.targetChoices({ ...ladder, mission: { statement: "" } }).some((c) => c.kind === "mission"));
+  const t = E.newEntry("target", { choice: choices[1] });
+  ok("entries: a target entry saves under its target, named as it reads tonight", t.ref.goal_id === "g1" && t.topic === "Skilled" && /Highly skilled/.test(t.prompt) && !t.id);
+  ok("entries: I pick has no question, Choose for me says so", E.newEntry("free").prompt === null && E.newEntry("ask", { prompt: "Q?" }).topic === "Chosen for you");
+  const rows = [{ id: "a", kind: "free", text: "saved", position: 0 }];
+  const merged = E.mergeEntries(rows, [{ local: "a", id: "a", text: "saved and more", saved: "saved" }, { local: "n1", id: null, kind: "ask", text: "draft", saved: "" }]);
+  ok("entries: the phone's draft lays over what's saved and keeps a new one", merged.length === 2 && merged[0].text === "saved and more" && merged[1].text === "draft");
+  ok("entries: an old draft never undoes a newer save", E.mergeEntries([{ id: "a", text: "newer" }], [{ local: "a", id: "a", text: "old", saved: "old" }])[0].text === "newer");
+  ok("entries: only words not yet on the Hub wait", E.unsaved(merged).length === 2 && E.unsaved([{ text: "x", saved: "x" }]).length === 0);
+  const asked = E.questionsFrom({ savior_question: "S?", learn_question: "L?", gods_hand_nudge: "Look at noon." }, ["S?"]);
+  ok("entries: Choose for me hands out tonight's questions one at a time, never twice", asked.join("|") === `L?|${E.GODS_HAND} Look at noon.`);
+  const cards = E.entryCards([{ kind: "ask", topic: null, prompt: "Q?", text: "A" }, { kind: "free", text: "  " }]);
+  ok("entries: the banked card shows every entry with words", cards.length === 1 && cards[0].label === "Chosen for you" && cards[0].question === "Q?");
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const j = src("components/day/EveningJournal.jsx");
+  ok("entries: a big + starts an entry, and the choices pop up over the page (like the Tasks home)", /className="ej-new" onClick=\{\(\) => setChoosing\(true\)\}/.test(j) && /\{choosing && \(\s*<div className="sheet-backdrop ej-sheet"/.test(j) && /className="sheet ej-pick" role="dialog"/.test(j) && /setChoosing\(false\);/.test(j));
+  ok("entries: they sit side by side, the + first and the newest beside it, swiped left and right", /<div className="ej-row" data-hscroll>/.test(j) && /\[\.\.\.entries\]\.reverse\(\)\.map/.test(j) && /\.ej-row \{[^}]*overflow-x: auto; scroll-snap-type: x mandatory;/.test(readFileSync(new URL("../src/styles/daily.css", import.meta.url), "utf8")));
+  ok("entries: each one has Speak and Talk it through", /<VoiceButton/.test(j) && /Talk it through/.test(j) && /function TalkBar/.test(j));
+  ok("entries: an emptied entry isn't kept", /if \(e\.id\) await deleteEveningEntry\(e\.id, e\.arrowId\);/.test(j));
+  const apiSrc = src("lib/api.js");
+  const saveFn = apiSrc.slice(apiSrc.indexOf("export async function saveEveningEntry"), apiSrc.indexOf("export async function deleteEveningEntry"));
+  ok("entries: writing about a target places an arrow on it, the entry as its note, and edits keep it in step", /if \(entry\.kind === "target" && entry\.ref\)[\s\S]*addTargetArrow\(userId, entry\.ref, \{ date: dateStr,/.test(saveFn) && /note: text \}\);\n    row\.arrow_id/.test(saveFn) && /row\.arrow_id = arrow\.id/.test(saveFn) && /updateTargetArrow\(data\.arrow_id/.test(saveFn));
+  ok("entries: an entry that fails to save takes its arrow back, and removing one removes it", /if \(row\.arrow_id\) await deleteTargetArrow\(row\.arrow_id\)/.test(saveFn) && /if \(arrowId\) await deleteTargetArrow\(arrowId\)/.test(apiSrc) && /deleteEveningEntry\(e\.id, e\.arrowId\)/.test(j));
+  ok("entries: the banked card reads them", src("components/day/BankedDayCard.jsx").includes("...entryCards(a.evening_entries)"));
+  const mig = readFileSync(new URL("../supabase/migrations/0113_evening_entries.sql", import.meta.url), "utf8");
+  ok("entries: 0113 is additive and day_archive returns them", !/\bdrop\b/i.test(mig.replace(/--.*$/gm, "")) && /'evening_entries', coalesce/.test(mig) && /create policy "Own evening entries"/.test(mig));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

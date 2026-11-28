@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Moon, ArrowRight, Archive, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -54,7 +54,7 @@ import "../styles/daily.css";
 
 async function loadToday(userId, date) {
   const since = parseDateStr(date).toISOString();
-  const [wl, list, open, plan, yesterdayPlan, tomorrowPlan, chunks, cats] = await Promise.all([
+  const [wl, list, open, plan, yesterdayPlan, tomorrowPlan, chunks, tomorrowChunks, cats] = await Promise.all([
     fetchWinLosses(userId, { sinceISO: since, limit: 200 }),
     fetchTimeEntries(userId, { sinceISO: since, limit: 200 }),
     fetchOpenTimeEntry(userId),
@@ -63,6 +63,11 @@ async function loadToday(userId, date) {
     fetchDayPlan(userId, addDays(date, 1)),
     // The day's planned blocks: Today still opens if these don't come.
     fetchTimeChunks(userId, date).catch((err) => {
+      console.warn(err);
+      return null;
+    }),
+    // Tomorrow's, one swipe to the right of today's plan.
+    fetchTimeChunks(userId, addDays(date, 1)).catch((err) => {
       console.warn(err);
       return null;
     }),
@@ -81,6 +86,7 @@ async function loadToday(userId, date) {
     yesterdayBanked: Boolean(yesterdayPlan?.banked_at),
     tomorrowAlarm: tomorrowPlan?.alarm_at ?? null,
     chunks,
+    tomorrowChunks,
   };
 }
 
@@ -141,8 +147,8 @@ export default function Today() {
           {data && (
             <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
           )}
-          {/* The day's plan, from the block you're in now. */}
-          {data && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
+          {/* The day's plan, from the block you're in now; swipe for tomorrow's. */}
+          {data && <PlanSwipe userId={userId} date={date} chunks={data.chunks} tomorrowChunks={data.tomorrowChunks} />}
           {/* Old timers that ran through the night, offered once. */}
           {userId && data && !runaway && <OldRunaways userId={userId} />}
         </div>
@@ -158,6 +164,35 @@ export default function Today() {
       <div className="stack today__foot">
         {/* On a phone during the day, the way into the evening closes the page. */}
         {!eveningOnTop && showEvening && <EveningButton className="today-evening--phone" />}
+      </div>
+    </div>
+  );
+}
+
+// Today's plan, and tomorrow's one swipe to the right (Aaron, 2026-11-28).
+// Two dots under the cards say which one you're on; a tap on a dot goes
+// there.
+function PlanSwipe({ userId, date, chunks, tomorrowChunks }) {
+  const row = useRef(null);
+  const [at, setAt] = useState(0);
+  const onScroll = () => {
+    const el = row.current;
+    if (el) setAt(el.scrollLeft > el.clientWidth / 2 ? 1 : 0);
+  };
+  const go = (i) => {
+    const el = row.current;
+    el?.children[i]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+  };
+  return (
+    <div className="plan-swipe">
+      <div className="plan-swipe__row" ref={row} onScroll={onScroll}>
+        <PlanBlocks userId={userId} date={date} chunks={chunks} />
+        <PlanBlocks userId={userId} date={addDays(date, 1)} chunks={tomorrowChunks} tomorrow />
+      </div>
+      <div className="plan-swipe__dots">
+        {["Today's plan", "Tomorrow's plan"].map((label, i) => (
+          <button key={label} type="button" className={"plan-swipe__dot" + (at === i ? " is-on" : "")} aria-label={label} aria-current={at === i} onClick={() => go(i)} />
+        ))}
       </div>
     </div>
   );

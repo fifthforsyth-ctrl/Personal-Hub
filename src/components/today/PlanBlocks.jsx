@@ -36,8 +36,13 @@ import { usePlanTicks } from "./usePlanTicks";
 // The card loads its own tasks, so Today opens as fast as it did; while
 // they come, or if they don't, the blocks still show from the day's plan.
 // Changing a block still happens on the day page, one tap away.
-export default function PlanBlocks({ userId, date, chunks }) {
-  const now = useNowMinutes();
+//
+// `tomorrow` shows the next day's plan the same way (Aaron, 2026-11-28:
+// "swipe right to see tomorrow's plan"): every block is still ahead, so
+// all of them are open with what's in them.
+export default function PlanBlocks({ userId, date, chunks, tomorrow = false }) {
+  const clock = useNowMinutes();
+  const now = tomorrow ? -1 : clock;
   const [openPast, setOpenPast] = useState(() => new Set());
   const [showPast, setShowPast] = useState(false);
 
@@ -73,7 +78,7 @@ export default function PlanBlocks({ userId, date, chunks }) {
   return (
     <div className="card plan-blocks">
       <div className="plan-blocks__head">
-        <span className="card-title">Today's plan</span>
+        <span className="card-title">{tomorrow ? "Tomorrow's plan" : "Today's plan"}</span>
         {!blocksMissing && past.length > 0 && !allPast && (
           <button type="button" className="plan-blocks__earlier" aria-expanded={showPast} onClick={() => setShowPast((v) => !v)}>
             <span className="truncate">{past.map((b) => b.title || "Untitled block").join(", ")} done</span>
@@ -82,12 +87,14 @@ export default function PlanBlocks({ userId, date, chunks }) {
         )}
       </div>
 
-      {error && <LoadError what="today's tasks" error={error} onRetry={reload} stale={Boolean(data)} className="plan-blocks__error" />}
+      {error && <LoadError what={tomorrow ? "tomorrow's tasks" : "today's tasks"} error={error} onRetry={reload} stale={Boolean(data)} className="plan-blocks__error" />}
 
       {blocksMissing ? (
-        <p className="card-note plan-blocks__note">Couldn't load today's blocks. They'll be back when Today reloads.</p>
+        <p className="card-note plan-blocks__note">
+          Couldn't load {tomorrow ? "tomorrow's" : "today's"} blocks. They'll be back when Today reloads.
+        </p>
       ) : (
-        blocks.length === 0 && looseCount === 0 && <p className="card-note plan-blocks__note">Nothing planned for today yet.</p>
+        blocks.length === 0 && looseCount === 0 && <p className="card-note plan-blocks__note">{tomorrow ? "Nothing planned for tomorrow yet." : "Nothing planned for today yet."}</p>
       )}
 
       {!blocksMissing && listed.length > 0 && (
@@ -101,7 +108,7 @@ export default function PlanBlocks({ userId, date, chunks }) {
       {!blocksMissing && looseCount > 0 && <Loose loose={loose} date={date} onToggle={toggle} />}
 
       <Link to={`/plan/day/${date}`} className="plan-blocks__open">
-        {blocks.length > 0 ? "Open schedule" : "Plan the day"}
+        {blocks.length > 0 ? "Open schedule" : tomorrow ? "Plan tomorrow" : "Plan the day"}
         <ArrowRight size={14} />
       </Link>
     </div>
