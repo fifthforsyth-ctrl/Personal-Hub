@@ -117,9 +117,9 @@
    statement under them in a softer white. */
 .ov-mission { display: flex; flex-direction: column; gap: 6px; color: var(--text); text-decoration: none; }
 .card.ov-mission, .ascent .card.ov-mission:not(.card--flush) { padding: 20px 20px 22px; }
-a.ov-mission { background: var(--ink); color: var(--on-ink); transition: opacity 0.14s; }
-a.ov-mission:active { opacity: 0.92; }
-a.ov-mission .eyebrow, a.ov-mission .ov-go { color: #b9b6af; }
+.ov-mission:is(a, button) { background: var(--ink); color: var(--on-ink); transition: opacity 0.14s; }
+.ov-mission:is(a, button):active { opacity: 0.92; }
+.ov-mission:is(a, button) .eyebrow, .ov-mission:is(a, button) .ov-go { color: #b9b6af; }
 .ov-mission__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ov-mission__summit { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.12; overflow-wrap: anywhere; }
 .ov-mission__creed {
@@ -832,3 +832,46 @@ a.ov-mission .eyebrow, a.ov-mission .ov-go { color: #b9b6af; }
 .tg-tasks { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .tg-tasks .eyebrow { margin: 0 0 4px; }
 .tg-tasks .btn { display: inline-flex; align-items: center; min-height: 40px; }
+
+/* --- A target's pop-up: place an arrow, add a note (2026-11-28) ------------- */
+
+.ar-sheet { display: flex; flex-direction: column; gap: 16px; }
+.ar-top { display: flex; align-items: center; gap: 16px; }
+.mark .mk-face.ar-face, .ar-face { width: 112px; height: 112px; max-width: 112px; flex: none; margin: 0; }
+.ar-count { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ar-count b { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.ar-count small { font-size: 13px; color: var(--text-2); }
+.ar-acts { display: flex; align-items: center; gap: 8px; }
+.ar-act { flex: 1 1 0; min-height: 48px; font-size: 14px; }
+.ar-act.is-on:not(.btn--accent) { background: var(--card); border-color: var(--ink); }
+.ar-edit { flex: none; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 999px; }
+.ascent-sheet .ar-form, .ar-form { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 20px; background: var(--inset); }
+.ar-form--edit { margin: 2px 0 6px; }
+.ar-label { font-size: 13px; font-weight: 600; }
+.ar-input { width: 100%; min-height: 44px; background: var(--card); font-size: 16px; }
+.ar-note { resize: vertical; line-height: 1.45; }
+.ar-form__row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.ar-form__row .btn { min-height: 44px; }
+.ar-form__gap { flex: 1; }
+.ar-form .btn { background: var(--card); }
+.ar-form .btn.ar-go { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 650; }
+@media (hover: hover) { .ar-form .btn.ar-go:hover { background: var(--accent-hot); } }
+.btn-link.ar-remove { color: var(--danger); min-height: 44px; }
+.ar-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.ar-list ul { list-style: none; margin: 0; padding: 0; }
+.ar-day { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.ar-list li:first-child .ar-day { margin-top: 0; }
+.ar-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.ar-dot { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--ink); }
+.ar-row__txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ar-row__txt b { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.ar-row__txt b.ar-row__plain { font-weight: 500; color: var(--text-2); }
+.ar-row__txt small { font-size: 13px; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ar-none { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.ar-more { margin-top: 8px; min-height: 40px; }
+
+/* The overview's targets are buttons now (they open the pop-up). */
+button.ov-face, button.ov-climb, button.ov-row, button.ov-mission { border: 0; font: inherit; text-align: left; cursor: pointer; width: 100%; }
+button.ov-face { background: none; text-align: center; }
+button.ov-climb, button.ov-row { background: none; }
+button.ov-face, button.ov-climb, button.ov-row { color: inherit; }

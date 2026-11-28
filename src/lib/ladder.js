@@ -24,10 +24,11 @@ export const KIND_NAME = {
   focus: "This week's focus",
 };
 
-// The page a target lives on.
+// Where a target opens: Targets, with its pop-up open (2026-11-28; it used
+// to be a page of its own at /targets/<id>, which now comes here too).
 export function pathOf(kind, id) {
-  if (kind === "mission") return "/targets/mission";
-  return id ? `/targets/${id}` : "/targets";
+  if (kind === "mission") return "/targets?t=mission";
+  return id ? `/targets?t=${encodeURIComponent(id)}` : "/targets";
 }
 
 // --- Which target a link means -------------------------------------------------

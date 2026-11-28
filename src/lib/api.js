@@ -8,6 +8,7 @@ import { questTagOptions, questWorkDone } from "./questWork";
 import { lineageIds, cleanNote } from "./focus";
 import { checkRow, sameCheck } from "./checks";
 import { questPills, cleanTargetNote } from "./ladder";
+import { cleanArrowWords } from "./arrows";
 import { questItemsForToday } from "./todayPlan";
 
 // ---------------------------------------------------------------------------
@@ -3005,6 +3006,44 @@ export async function restoreTargetNote(userId, note) {
     .single();
   if (error) throw error;
   return data;
+}
+
+// --- Arrows on a target (0112) ------------------------------------------------
+
+const TARGET_ARROW = "id, mission, goal_id, quest_id, lesson_id, focus_goal_id, date, title, note, created_at, updated_at";
+
+// Every arrow he's placed on any target, oldest first (the faces draw the
+// newest last). A few a day at most, so all of them are read at once.
+export async function fetchTargetArrows(userId) {
+  return selectAllPages(() =>
+    supabase.from("target_arrows").select(TARGET_ARROW).eq("user_id", userId).order("created_at").order("id")
+  );
+}
+
+// One arrow on a target, dated by his day, with a title, a note, both or
+// neither. `ref` is the target's column ({ goal_id: id }, { mission: true }...).
+export async function addTargetArrow(userId, ref, { date, title = "", note = "" }) {
+  const [column, value] = refEntry(ref);
+  const row = { user_id: userId, [column]: value, date, ...cleanArrowWords({ title, note }) };
+  const { data, error } = await supabase.from("target_arrows").insert(row).select(TARGET_ARROW).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTargetArrow(arrowId, { title = "", note = "" }) {
+  const { data, error } = await supabase
+    .from("target_arrows")
+    .update({ ...cleanArrowWords({ title, note }), updated_at: new Date().toISOString() })
+    .eq("id", arrowId)
+    .select(TARGET_ARROW)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTargetArrow(arrowId) {
+  const { error } = await supabase.from("target_arrows").delete().eq("id", arrowId);
+  if (error) throw error;
 }
 
 // His quotes, newest first, for the picker to search on the phone: every
