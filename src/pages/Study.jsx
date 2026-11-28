@@ -21,12 +21,25 @@ import {
   gistBacklog,
   repictureQuotes,
   fetchSavedQuotes,
+  fetchCollections,
+  createCollection,
+  updateCollection,
+  deleteCollection,
+  fileInCollection,
+  unfileFromCollection,
+  markFiled,
 } from "../lib/api";
 import NoteTree from "../components/study/NoteTree";
 import NoteReader from "../components/study/NoteReader";
 import CaptureBar from "../components/study/CaptureBar";
 import CorkBoard from "../components/board/CorkBoard";
-import { TopPicks, Browse, ShelfView } from "../components/board/Shelves";
+import { ShelfView } from "../components/board/Shelves";
+import QuoteCard from "../components/board/QuoteCard";
+import { PaperNote } from "../components/board/CorkBoard";
+import LinkToTarget from "../components/targets/LinkToTarget";
+import { CollectionsProvider, CollectionsButton, CollectionStacks, CollectionView, SortTray, TodayDraw } from "../components/board/Collections";
+import { drawFor, drawPool, fillCollections, trayQuotes } from "../lib/collections";
+import { todayStr } from "../lib/planDates";
 import { MOODS, PEOPLE, THEMES, shelfFor } from "../lib/quoteShelves";
 import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
@@ -41,10 +54,13 @@ import "../styles/board.css";
 // The Board: a cork board for what came, what you make of it, and the words
 // of others that help you press on.
 //
-// It opens on one box to record something, then this week's top picks: quotes
-// chosen for what the week is about. Under them, shelves of quotes to browse
-// by person, theme or mood (or anything you type), and then the cork itself:
-// the quotes you saved and the thoughts you kept, pinned up together.
+// It opens on one box to record something, then today's quote, drawn from
+// the collections he pins to Today. Under it, the "To sort" tray where new
+// saves wait to be filed, then his collections as small piles of prints
+// (Aaron, 2026-11-27: one long board meant nothing came back to him). The
+// whole board, every quote and thought pinned up together, is one tap away
+// under "Everything" (?all=1). The AI's shelves by person, theme and mood
+// left the Board then; a shelf link (?shelf=…) still opens one.
 //
 // Nothing is sorted into kinds: in the background each new thought gets a
 // one-line gist and a few quiet tags, so search and the curator can find it
@@ -60,9 +76,12 @@ export default function Study() {
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("note");
   const openShelf = useMemo(() => shelfFromParams(params), [params]);
+  const openCollectionId = params.get("collection");
+  const showAll = params.get("all") === "1";
 
   const shelf = useLoad(() => loadShelf(user.id), [user.id]);
   const saved = useLoad(() => fetchSavedQuotes(user.id), [user.id]);
+  const cols = useLoad(() => fetchCollections(user.id), [user.id]);
   const [gone, setGone] = useState(() => new Set()); // notes deleted, waiting out the Undo
   const [goneMarks, setGoneMarks] = useState(() => new Set()); // highlights, likewise
 
@@ -120,11 +139,11 @@ export default function Study() {
   // Opening a note or a shelf starts at its top; coming back puts the Board
   // where it was.
   const homeScroll = useRef(0);
-  const away = Boolean(selectedId || openShelf);
+  const away = Boolean(selectedId || openShelf || openCollectionId || showAll);
   useLayoutEffect(() => {
     const main = document.querySelector(".main");
     if (main) main.scrollTop = away ? 0 : homeScroll.current;
-  }, [away, selectedId, openShelf?.key]);
+  }, [away, selectedId, openShelf?.key, openCollectionId, showAll]);
 
   // Opening another note while you're editing one asks first, if anything in
   // it changed. Leaving the Board altogether keeps the changes as a draft
@@ -152,6 +171,132 @@ export default function Study() {
     if (!openShelf) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
     setParams(next ? shelfParams(next) : {});
   }
+
+  function go(next) {
+    if (!away) homeScroll.current = document.querySelector(".main")?.scrollTop ?? 0;
+    setParams(next ?? {});
+  }
+
+  // --- collections ------------------------------------------------------------
+
+  const savedQuotes = saved.data ?? [];
+  const colData = cols.data ?? { collections: [], items: [] };
+  const filled = useMemo(
+    () => fillCollections(colData.collections, colData.items, savedQuotes, notes),
+    [colData, savedQuotes, notes]
+  );
+  const tray = useMemo(() => (cols.data ? trayQuotes(savedQuotes, colData.items) : []), [cols.data, savedQuotes, colData.items]);
+  const feeding = filled.filter((c) => c.feeds_today);
+  const pool = useMemo(() => drawPool(filled), [filled]);
+  const [skip, setSkip] = useState(0);
+  const drawn = drawFor(pool, todayStr(), skip);
+  const openCollection = openCollectionId ? filled.find((c) => c.id === openCollectionId) ?? null : null;
+
+  function stampFiled(quoteId, filed) {
+    saved.mutate((list) => (list ?? []).map((q) => (q.id === quoteId ? { ...q, filed_at: filed ? new Date().toISOString() : null } : q)));
+  }
+
+  const sameTarget = (it, t) => (t.quote_id ? it.quote_id === t.quote_id : it.note_id === t.note_id);
+
+  const collectionsApi = {
+    collections: colData.collections,
+    items: colData.items,
+    async create(name) {
+      try {
+        const position = colData.collections.reduce((m, c) => Math.max(m, c.position), -1) + 1;
+        const row = await createCollection(name, position);
+        cols.mutate((d) => d && { ...d, collections: [...d.collections, row] });
+        return row;
+      } catch (err) {
+        toast.error(err, "Couldn't make that collection.");
+        return null;
+      }
+    },
+    async update(id, fields) {
+      cols.mutate((d) => d && { ...d, collections: d.collections.map((c) => (c.id === id ? { ...c, ...fields } : c)) });
+      try {
+        const row = await updateCollection(id, fields);
+        cols.mutate((d) => d && { ...d, collections: d.collections.map((c) => (c.id === id ? row : c)) });
+        return row;
+      } catch (err) {
+        cols.reload();
+        toast.error(err, "Couldn't change the collection.");
+        return null;
+      }
+    },
+    async remove(c) {
+      const ok = await confirm({
+        title: `Delete “${c.name}”?`,
+        body: "Only the collection goes. Every quote and thought in it stays on your board.",
+        confirmLabel: "Delete",
+      });
+      if (!ok) return;
+      try {
+        await deleteCollection(c.id);
+        go(null);
+        cols.reload();
+        toast.show("Collection deleted");
+      } catch (err) {
+        toast.error(err, "Couldn't delete the collection.");
+      }
+    },
+    async file(collectionId, target, { fromTray = false } = {}) {
+      const temp = { id: `temp-${collectionId}-${target.quote_id ?? target.note_id}`, collection_id: collectionId, quote_id: target.quote_id ?? null, note_id: target.note_id ?? null, position: -Math.floor(Date.now() / 1000), added_at: new Date().toISOString() };
+      cols.mutate((d) => d && { ...d, items: [temp, ...d.items.filter((it) => !(it.collection_id === collectionId && sameTarget(it, target)))] });
+      if (target.quote_id) stampFiled(target.quote_id, true);
+      try {
+        const row = await fileInCollection(collectionId, target);
+        if (row) cols.mutate((d) => d && { ...d, items: d.items.map((it) => (it.id === temp.id ? row : it)) });
+        if (fromTray) {
+          const name = colData.collections.find((c) => c.id === collectionId)?.name ?? "the collection";
+          toast.show(`Filed in ${name}`, {
+            actionLabel: "Undo",
+            onAction: () => {
+              cols.mutate((d) => d && { ...d, items: d.items.filter((it) => !(it.collection_id === collectionId && sameTarget(it, target))) });
+              stampFiled(target.quote_id, false);
+              Promise.all([unfileFromCollection(collectionId, target), markFiled(target.quote_id, false)]).catch((err) => {
+                cols.reload();
+                saved.reload();
+                toast.error(err, "Couldn't undo that.");
+              });
+            },
+          });
+        }
+      } catch (err) {
+        cols.reload();
+        saved.reload();
+        toast.error(err, "Couldn't file it.");
+      }
+    },
+    async unfile(collectionId, target) {
+      cols.mutate((d) => d && { ...d, items: d.items.filter((it) => !(it.collection_id === collectionId && sameTarget(it, target))) });
+      try {
+        await unfileFromCollection(collectionId, target);
+      } catch (err) {
+        cols.reload();
+        toast.error(err, "Couldn't take it out.");
+      }
+    },
+    async keepLoose(quoteId) {
+      stampFiled(quoteId, true);
+      try {
+        await markFiled(quoteId, true);
+        toast.show("Kept loose. It's under Everything.", {
+          actionLabel: "Undo",
+          onAction: () => {
+            stampFiled(quoteId, false);
+            markFiled(quoteId, false).catch((err) => {
+              saved.reload();
+              toast.error(err, "Couldn't undo that.");
+            });
+          },
+        });
+      } catch (err) {
+        saved.reload();
+        toast.error(err, "Couldn't keep it loose.");
+      }
+    },
+  };
 
   // A quote saved or unsaved anywhere on the page: the cork follows.
   function quoteChanged(quote) {
@@ -316,6 +461,42 @@ export default function Study() {
     />
   );
 
+  const renderEntry = (e) =>
+    e.kind === "quote" ? (
+      <QuoteCard
+        quote={e.quote}
+        variant="cork"
+        onChange={quoteChanged}
+        extra={
+          <>
+            <CollectionsButton target={{ quote_id: e.quote.id }} />
+            <LinkToTarget quote={e.quote} />
+          </>
+        }
+      />
+    ) : (
+      <PaperNote note={e.note} onOpen={(id) => select(id)} onChanged={shelf.reload} />
+    );
+
+  if (openCollectionId && !selectedId) {
+    return (
+      <CollectionsProvider value={collectionsApi}>
+        <div className="page board-page">
+          {openCollection ? (
+            <CollectionView collection={openCollection} onBack={() => go(null)} renderEntry={renderEntry} />
+          ) : cols.error ? (
+            <LoadError what="the collection" error={cols.error} onRetry={cols.reload} />
+          ) : (
+            <div className="card">
+              <BackBar onBack={() => go(null)} />
+              <p className="empty">{cols.loading || saved.loading || shelf.loading ? "Loading the collection…" : "That collection isn't here any more."}</p>
+            </div>
+          )}
+        </div>
+      </CollectionsProvider>
+    );
+  }
+
   if (openShelf && !selectedId) {
     return (
       <div className="page">
@@ -396,10 +577,73 @@ export default function Study() {
     );
   }
 
+  const boardCount = savedQuotes.length + notes.filter((n) => !n.parent_note_id).length;
+
+  if (showAll && !selectedId) {
+    return (
+      <CollectionsProvider value={collectionsApi}>
+        <div className="page board-page">
+          <div className="board-note__nav">
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => go(null)}>
+              <ChevronLeft size={15} />
+              Board
+            </button>
+          </div>
+          <header className="hub-head board-head">
+            <h1 className="page-title">Everything</h1>
+          </header>
+          {shelf.loading || saved.loading ? (
+            <div className="card">
+              <p className="empty">Loading your board…</p>
+            </div>
+          ) : shelf.error && !shelf.data ? (
+            <LoadError what="your notes" error={shelf.error} onRetry={shelf.reload} />
+          ) : (
+            <div className="stack">
+              {(shelf.error || saved.error) && (
+                <LoadError
+                  stale
+                  error={shelf.error ?? saved.error}
+                  onRetry={() => {
+                    shelf.reload();
+                    saved.reload();
+                  }}
+                />
+              )}
+              {/* All the notes as a list, and a long one started, sit with the board they belong to. */}
+              <div className="board-tools">
+                <button type="button" className={"btn btn--sm" + (treeOpen ? " btn--accent" : " btn--on-page")} onClick={() => setTreeOpen((v) => !v)} aria-pressed={treeOpen}>
+                  <Library size={15} />
+                  All notes
+                </button>
+                <button type="button" className="btn btn--sm btn--on-page" onClick={createTop} disabled={creating}>
+                  <Plus size={15} />
+                  {creating ? "Starting…" : "New long note"}
+                </button>
+              </div>
+              {treeOpen && tree}
+              <CorkBoard
+                quotes={savedQuotes}
+                notes={notes}
+                onOpenNote={(id) => select(id)}
+                onQuoteChange={quoteChanged}
+                onNotesChanged={shelf.reload}
+              />
+            </div>
+          )}
+        </div>
+      </CollectionsProvider>
+    );
+  }
+
   return (
+    <CollectionsProvider value={collectionsApi}>
     <div className="page board-page">
       <header className="hub-head board-head">
         <h1 className="page-title">Board</h1>
+        <button type="button" className="btn btn--sm btn--on-page board-head__all" onClick={() => go({ all: "1" })}>
+          Everything{shelf.data && saved.data ? ` (${boardCount})` : ""}
+        </button>
       </header>
 
       {!searching && <CaptureBar onCapture={capture} />}
@@ -434,57 +678,28 @@ export default function Study() {
         />
       ) : (
         <div className="stack">
-          {/* The quote chosen for this week, which used to close Today. */}
-          <QuoteOfDay userId={user.id} onChanged={quoteChanged} />
-
-          <TopPicks userId={user.id} onSaved={quoteChanged} />
-
-          <Browse userId={user.id} notes={notes} onOpen={browse} />
-
-          {shelf.loading || saved.loading ? (
+          {cols.loading || saved.loading || shelf.loading ? (
             <div className="card">
-              <p className="empty">Loading your board…</p>
+              <p className="empty">Loading your collections…</p>
             </div>
-          ) : shelf.error && !shelf.data ? (
-            <LoadError what="your notes" error={shelf.error} onRetry={shelf.reload} />
+          ) : cols.error && !cols.data ? (
+            <LoadError what="your collections" error={cols.error} onRetry={cols.reload} />
           ) : (
             <>
-              {(shelf.error || saved.error) && (
-                <LoadError
-                  stale
-                  error={shelf.error ?? saved.error}
-                  onRetry={() => {
-                    shelf.reload();
-                    saved.reload();
-                  }}
-                />
-              )}
-              {/* All the notes as a list, and a long one started, sit with the board they belong to. */}
-              <div className="board-tools">
-                <button type="button" className={"btn btn--sm" + (treeOpen ? " btn--accent" : " btn--on-page")} onClick={() => setTreeOpen((v) => !v)} aria-pressed={treeOpen}>
-                  <Library size={15} />
-                  All notes
-                </button>
-                <button type="button" className="btn btn--sm btn--on-page" onClick={createTop} disabled={creating}>
-                  <Plus size={15} />
-                  {creating ? "Starting…" : "New long note"}
-                </button>
-              </div>
-              {treeOpen && tree}
-              <CorkBoard
-                quotes={saved.data ?? []}
-                notes={notes}
-                onOpenNote={(id) => select(id)}
-                onQuoteChange={quoteChanged}
-                onNotesChanged={shelf.reload}
-              />
+              <TodayDraw quote={drawn} feeding={feeding} poolSize={pool.length} onAnother={() => setSkip((n) => n + 1)} />
+              <SortTray tray={tray} filled={filled} />
+              <CollectionStacks filled={filled} onOpen={(id) => go({ collection: id })} />
             </>
           )}
+
+          {/* The AI's quote for the week: save it and it waits in To sort. */}
+          <QuoteOfDay userId={user.id} onChanged={quoteChanged} />
 
           <CuratedCards slot="day" title="Back for today" />
         </div>
       )}
     </div>
+    </CollectionsProvider>
   );
 }
 
