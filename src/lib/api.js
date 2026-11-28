@@ -2838,6 +2838,82 @@ export async function fetchSavedQuotes(userId) {
 }
 
 // ---------------------------------------------------------------------------
+// Board collections (0112): collections he names, the quotes and thoughts
+// filed in them (one can sit in several), and the To sort tray: saved
+// quotes not yet filed or kept loose.
+
+export async function fetchCollections(userId) {
+  const [cols, items] = await Promise.all([
+    supabase.from("board_collections").select("*").eq("user_id", userId).order("position").order("created_at"),
+    selectAllPages(() =>
+      supabase
+        .from("board_collection_items")
+        .select("id, collection_id, quote_id, note_id, position, added_at")
+        .eq("user_id", userId)
+        .order("position")
+        .order("added_at", { ascending: false })
+        .order("id")
+    ),
+  ]);
+  if (cols.error) throw cols.error;
+  return { collections: cols.data ?? [], items };
+}
+
+export async function createCollection(name, position = 0) {
+  const { data, error } = await supabase
+    .from("board_collections")
+    .insert({ name: name.trim().slice(0, 60), position })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCollection(id, fields) {
+  const patch = { updated_at: new Date().toISOString() };
+  if ("name" in fields) patch.name = fields.name.trim().slice(0, 60);
+  if ("feeds_today" in fields) patch.feeds_today = Boolean(fields.feeds_today);
+  if ("position" in fields) patch.position = fields.position;
+  const { data, error } = await supabase.from("board_collections").update(patch).eq("id", id).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCollection(id) {
+  const { error } = await supabase.from("board_collections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Puts a quote ({ quote_id }) or a thought ({ note_id }) in a collection, at
+// its front. Already there is fine. A quote filed leaves the tray.
+export async function fileInCollection(collectionId, { quote_id = null, note_id = null }) {
+  const { data, error } = await supabase
+    .from("board_collection_items")
+    .insert({ collection_id: collectionId, quote_id, note_id, position: -Math.floor(Date.now() / 1000) })
+    .select("id, collection_id, quote_id, note_id, position, added_at")
+    .single();
+  if (error && error.code !== "23505") throw error;
+  if (quote_id) await markFiled(quote_id, true);
+  return data ?? null;
+}
+
+export async function unfileFromCollection(collectionId, { quote_id = null, note_id = null }) {
+  let q = supabase.from("board_collection_items").delete().eq("collection_id", collectionId);
+  q = quote_id ? q.eq("quote_id", quote_id) : q.eq("note_id", note_id);
+  const { error } = await q;
+  if (error) throw error;
+}
+
+// Out of the tray (filed, or kept loose), or back into it (Undo).
+export async function markFiled(quoteId, filed) {
+  const { error } = await supabase
+    .from("quotes")
+    .update({ filed_at: filed ? new Date().toISOString() : null })
+    .eq("id", quoteId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Quote shelves: top picks for the week, and shelves to browse by person,
 // theme or mood. The `quotes` function fills a shelf in the background; the
 // page reads the row until it's ready.
