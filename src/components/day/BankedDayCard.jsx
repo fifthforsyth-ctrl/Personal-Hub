@@ -5,6 +5,7 @@ import { friendlyError } from "../../lib/errors";
 import { Donut, RadialMeter, Legend } from "../charts";
 import DayTimeline from "./DayTimeline";
 import { answeredCards } from "./ReflectionFlow";
+import { entryCards } from "../../lib/eveningEntries";
 import { colorFor, fmtMinutes } from "../../lib/categories";
 import { fmtDayHeading, fmtTime } from "../../lib/planDates";
 import { toPlainText } from "../../lib/markdown";
@@ -54,7 +55,8 @@ export default function BankedDayCard({ userId, date, archive, plan, chunks, tas
   const wins = (a.wins_losses ?? []).filter((w) => w.kind === "win");
   const losses = (a.wins_losses ?? []).filter((w) => w.kind === "loss");
   const journal = a.journal ?? {};
-  const answered = answeredCards(journal);
+  // The old questions' answers, then the evening's entries (2026-11-28).
+  const answered = [...answeredCards(journal), ...entryCards(a.evening_entries)];
   const prayers = a.prayers ?? [];
   const experiences = a.experiences ?? [];
   const notes = a.study_notes ?? [];
@@ -261,10 +263,10 @@ export default function BankedDayCard({ userId, date, archive, plan, chunks, tas
       <div style={{ padding: "20px 22px" }}>
         {wroteAnything && <div className="eyebrow" style={{ marginBottom: 14 }}>In your own words</div>}
 
-        {answered.map((c) => (
-          <div key={c.label} style={{ marginBottom: 18 }}>
+        {answered.map((c, i) => (
+          <div key={i} style={{ marginBottom: 18 }}>
             <div className="eyebrow" style={{ marginBottom: 5 }}>{c.label}</div>
-            <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{c.question}</div>
+            {c.question && <div className="muted" style={{ fontFamily: "var(--font-serif)", fontSize: 13, marginBottom: 6 }}>{c.question}</div>}
             <div className="prose">{c.text}</div>
           </div>
         ))}

@@ -4894,3 +4894,76 @@ export async function fetchColumns(userId, sectionIds) {
   ]);
   return { sections, steps };
 }
+
+// ---------------------------------------------------------------------------
+// The evening's journal entries (0113, Aaron 2026-11-28): one per thing he
+// wrote, about a target, a question chosen for him, or his own.
+// ---------------------------------------------------------------------------
+
+const EVENING_ENTRY = "id, date, kind, arrow_id, mission, goal_id, quest_id, lesson_id, focus_goal_id, topic, prompt, text, position, created_at, updated_at";
+
+export async function fetchEveningEntries(userId, dateStr) {
+  const { data, error } = await supabase
+    .from("evening_entries")
+    .select(EVENING_ENTRY)
+    .eq("user_id", userId)
+    .eq("date", dateStr)
+    .order("position")
+    .order("created_at");
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Inserts the entry when it has no id yet, else changes its words. An entry
+// about a target places an arrow on it the first time it's saved, its words
+// as the arrow's note, and keeps that arrow's note in step after (Aaron,
+// 2026-11-28: "an arrow should be placed if I decide to write about
+// something in my reflection").
+export async function saveEveningEntry(userId, dateStr, entry) {
+  const text = String(entry.text ?? "").trim();
+  if (entry.id) {
+    const { data, error } = await supabase
+      .from("evening_entries")
+      .update({ text, updated_at: new Date().toISOString() })
+      .eq("id", entry.id)
+      .select(EVENING_ENTRY)
+      .single();
+    if (error) throw error;
+    if (data.arrow_id) {
+      try {
+        await updateTargetArrow(data.arrow_id, { title: data.topic ? `Evening: ${data.topic}` : "", note: text });
+      } catch (err) {
+        console.warn(err); // the words are saved; the arrow's note catches up next save
+      }
+    }
+    return data;
+  }
+  const row = {
+    user_id: userId,
+    date: dateStr,
+    kind: entry.kind,
+    ...(entry.ref ?? {}),
+    topic: entry.topic ? String(entry.topic).slice(0, 200) : null,
+    prompt: entry.prompt ? String(entry.prompt).slice(0, 600) : null,
+    text,
+    position: entry.position ?? 0,
+  };
+  if (entry.kind === "target" && entry.ref) {
+    const arrow = await addTargetArrow(userId, entry.ref, { date: dateStr, title: entry.topic ? `Evening: ${entry.topic}` : "", note: text });
+    row.arrow_id = arrow.id;
+  }
+  const { data, error } = await supabase.from("evening_entries").insert(row).select(EVENING_ENTRY).single();
+  if (error) {
+    // No entry, no arrow.
+    if (row.arrow_id) await deleteTargetArrow(row.arrow_id).catch((e) => console.warn(e));
+    throw error;
+  }
+  return data;
+}
+
+// Removing an entry takes its arrow with it.
+export async function deleteEveningEntry(entryId, arrowId = null) {
+  const { error } = await supabase.from("evening_entries").delete().eq("id", entryId);
+  if (error) throw error;
+  if (arrowId) await deleteTargetArrow(arrowId).catch((e) => console.warn(e));
+}
