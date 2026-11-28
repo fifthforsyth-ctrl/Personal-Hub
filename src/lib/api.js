@@ -2415,6 +2415,62 @@ export async function updateManualExpense(id, { date, amount, description }) {
   if (error) throw error;
 }
 
+// The Money tab's purchases: only what you add yourself (by hand or by voice).
+// The bank's own transactions still sync, but only the account totals are
+// shown from them.
+export async function fetchPurchases(userId) {
+  const { data, error } = await supabase
+    .from("bank_transactions")
+    .select("id, posted_at, amount, description, note, budget_id, created_at")
+    .eq("user_id", userId)
+    .eq("source", "manual")
+    .lt("amount", 0)
+    .is("archived_at", null)
+    .order("posted_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .range(0, 4999);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Every budget, archived ones too, so an old purchase still knows its name.
+export async function fetchAllBudgets(userId) {
+  const { data, error } = await supabase
+    .from("budgets")
+    .select("*")
+    .eq("user_id", userId)
+    .order("position")
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addPurchase(userId, { date, amount, title, budget }) {
+  return addManualExpense(userId, {
+    date,
+    amount,
+    description: title?.trim() || "Purchase",
+    budgetId: budget?.id ?? null,
+    isBusiness: budget?.kind === "business",
+  });
+}
+
+export async function updatePurchase(id, { date, amount, title, budget }) {
+  const value = Math.abs(Number(amount));
+  if (!value) throw new Error("Enter an amount.");
+  const row = {
+    posted_at: new Date(`${date}T12:00:00`).toISOString(),
+    amount: -value,
+    description: title?.trim() || "Purchase",
+    budget_id: budget?.id ?? null,
+    is_business: budget?.kind === "business",
+    awaits_bank: false,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from("bank_transactions").update(row).eq("id", id).eq("source", "manual");
+  if (error) throw error;
+}
+
 export async function deleteManualExpense(id) {
   const { error } = await supabase.from("bank_transactions").delete().eq("id", id).eq("source", "manual");
   if (error) throw error;

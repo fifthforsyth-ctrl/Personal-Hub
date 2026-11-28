@@ -89,7 +89,7 @@ import { levelFrom, placement, inRange, average, missCounts, fullest, tierOf, TI
 import { normCheck as ckNorm, markOf as ckMark, clockDiff as ckClock, scores as ckScores, answered as ckAnswered, allAnswered as ckAll, checksLevel as ckLevel, shareOf as ckShare, shareOfLevel as ckShareOfLevel, levelOfShare as ckLevelOfShare, passText as ckPassText, valueText as ckValueText, clockText as ckClockText, answerEntry as ckEntry, legacyValue as ckLegacy, autoValue as ckAuto, wokeAt as ckWoke, toFive as ckToFive, tenOf as ckTenOf } from "../src/lib/checks.js";
 import { resolveHighlights, splitParagraphs, segmentsFor, buildTree, findInSource } from "../src/lib/noteText.js";
 import { reportToText, fmtHours, buildReport } from "../src/lib/workReport.js";
-import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget } from "../src/lib/money.js";
+import { fmtMoney, spentOf, merchantTitle, monthProgress, budgetStatus, daysLeftInMonth, kindForBudget, monthOf, spentByMonth, spentByBudget, budgetAverage } from "../src/lib/money.js";
 import { withTaps, waitingTaps, isUnnamed, KEEP_MS } from "../src/components/today/tapRows.js";
 import { editableFields, changesFrom, draftOver, draftClashes, draftTime } from "../src/components/study/noteDraft.js";
 import { computeDepths, computeMinuteBrightness } from "../src/lib/heat.js";
@@ -460,6 +460,27 @@ ok("spending shows positive", spentOf(-6.45) === 6.45);
 ok("a deposit is not spending", spentOf(1800) === 0);
 ok("money formats with cents", fmtMoney(1234.5) === "$1,234.50");
 ok("money can round", fmtMoney(1234.5, { round: true }) === "$1,235");
+{
+  const buys = [
+    { posted_at: "2026-12-02T19:00:00Z", amount: -40, budget_id: "g" },
+    { posted_at: "2026-12-20T19:00:00Z", amount: -60, budget_id: "g" },
+    { posted_at: "2027-01-10T19:00:00Z", amount: -50, budget_id: "g" },
+    { posted_at: "2027-01-11T19:00:00Z", amount: -25.5, budget_id: "r" },
+    { posted_at: "2027-02-03T19:00:00Z", amount: -10, budget_id: null },
+  ];
+  ok("a purchase's month is the local month", monthOf("2026-12-20T19:00:00Z") === "2026-12-01");
+  const months = spentByMonth(buys);
+  ok("months total newest first", months[0].month === "2027-02-01" && months[1].total === 75.5 && months[2].total === 100 && months[2].count === 2);
+  const jan = spentByBudget(buys, "2027-01-01");
+  ok("a month splits by budget", jan.g === 50 && jan.r === 25.5 && jan.none === undefined);
+  ok("a purchase with no budget is counted apart", spentByBudget(buys, "2027-02-01").none === 10);
+  const avg = budgetAverage({ id: "g", created_at: "2026-11-01T00:00:00Z" }, buys, "2027-02-01");
+  ok("a budget's average counts whole months only", avg && avg.months === 2 && avg.average === 75, JSON.stringify(avg));
+  ok("no average in the first month", budgetAverage({ id: "g", created_at: "2026-11-01T00:00:00Z" }, buys, "2026-12-01") === null);
+  const late = budgetAverage({ id: "r", created_at: "2027-01-11T00:00:00Z" }, buys, "2027-02-01");
+  ok("a budget made mid-month waits for its first whole month", late === null);
+  ok("no purchases, no average", budgetAverage({ id: "g" }, [], "2027-02-01") === null);
+}
 ok("nonsense isn't formatted as $NaN", fmtMoney("abc") === "—");
 
 ok("processor prefix and city go", merchantTitle("CARD PURCHASE 09/30 SQ *BLUE BOTTLE COF 1234 DENVER CO") === "Blue Bottle Cof",

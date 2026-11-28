@@ -21,7 +21,6 @@ import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
 import OldRunaways from "../components/today/OldRunaways";
 import WindDown from "../components/today/WindDown";
 import PlanBlocks from "../components/today/PlanBlocks";
-import { PurchaseNudge } from "../components/money/PurchaseQuestion";
 import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
@@ -165,8 +164,6 @@ export default function Today() {
       <div className="stack" style={{ marginTop: 14 }}>
         <QuoteOfDay userId={userId} date={date} />
         <CuratedCards slot="home" title="For today" compact />
-        {/* One line, and only when there's something to sort. */}
-        <PurchaseNudge />
       </div>
     </div>
   );

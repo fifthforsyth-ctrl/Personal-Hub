@@ -446,3 +446,113 @@
 .money-clients__row--head { border-top: none; padding-top: 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
 .money-clients__name { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
 .money-clients__note { margin: 10px 0 0; }
+
+/* --- Spending by hand (Nov 2026): bank totals, the month, purchases. ------- */
+
+.spend-bank { padding: 2px 4px 16px; }
+.spend-bank__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.spend-bank__total {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.spend-bank__accounts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; font-size: 12.5px; }
+
+/* The month: the one black card on the page. */
+.spend-month { background: var(--ink); color: var(--on-ink); border-color: transparent; }
+.spend-month__nav { display: flex; align-items: center; gap: 6px; margin: -4px -6px 6px; }
+.spend-month__name { flex: 1; text-align: center; font-size: 13px; font-weight: 600; opacity: 0.8; }
+.spend-month__arrow {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+}
+.spend-month__arrow:disabled { opacity: 0.25; }
+.spend-month__figure {
+  text-align: center;
+  font-size: 44px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.spend-month__sub { text-align: center; font-size: 13px; opacity: 0.72; margin-top: 6px; }
+.spend-over { color: #ff8a6a; font-weight: 600; }
+.spend-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 18px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15.5px;
+  font-weight: 650;
+}
+
+.spend-avg { display: block; margin-top: 5px; font-size: 11.5px; color: var(--text-2); }
+
+.spend-list { display: flex; flex-direction: column; }
+.spend-row,
+.spend-past {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.spend-list > :first-child { border-top: 0; }
+.spend-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.spend-row__title { font-size: 14px; font-weight: 560; }
+.spend-row__sub { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
+.spend-row__amount { flex-shrink: 0; font-size: 14px; font-weight: 600; }
+.spend-nobudget { color: var(--accent-text); font-weight: 600; }
+.spend-past__name { flex: 1; font-size: 14px; font-weight: 560; }
+.spend-past__total { font-size: 14px; font-weight: 600; }
+.spend-past.is-on .spend-past__name { text-decoration: underline; text-underline-offset: 3px; }
+
+.spend-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin: 4px 0 18px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.spend-amount__sign { font-size: 30px; font-weight: 600; color: var(--text-2); }
+.spend-amount__input {
+  width: 6.5ch;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 44px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.spend-amount__input::-webkit-outer-spin-button,
+.spend-amount__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.spend-amount__input { -moz-appearance: textfield; }
+.spend-bank__stale { margin-top: 6px; font-size: 12.5px; color: var(--text-2); }

@@ -215,7 +215,7 @@ function Comparison({ spent, lastMonth, isCurrentMonth, month, prevMonth }) {
 
 const COLOR_NAMES = ["Red", "Blue", "Green", "Yellow", "Purple", "Pink", "Grey"];
 
-function BudgetForm({ budget, onBusy, onCancel, onSaved, onArchived }) {
+export function BudgetForm({ budget, onBusy, onCancel, onSaved, onArchived }) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -251,7 +251,7 @@ function BudgetForm({ budget, onBusy, onCancel, onSaved, onArchived }) {
     if (busy) return;
     const ok = await confirm({
       title: `Archive “${budget.name}”?`,
-      body: "It comes off the budget list and out of the purchase question. Purchases already in it keep its name, and you can bring it back from Archived budgets.",
+      body: "It comes off the budget list and can't be picked for new purchases. Purchases already in it keep its name, and you can bring it back from Archived budgets.",
       confirmLabel: "Archive",
       danger: false,
     });
@@ -317,7 +317,7 @@ function BudgetForm({ budget, onBusy, onCancel, onSaved, onArchived }) {
         ))}
       </div>
       <p className="card-note" style={{ marginTop: 8 }}>
-        {kind === "business" ? "Offered in the question only when a purchase is marked as business." : "Offered in the question for everyday purchases."}
+        {kind === "business" ? "Purchases taken from it are marked as business expenses." : "For everyday spending."}
       </p>
 
       {error && <div className="form-error" style={{ marginTop: 14 }}>{error}</div>}
