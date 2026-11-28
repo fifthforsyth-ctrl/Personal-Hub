@@ -938,3 +938,46 @@ a.quote-card__source:hover { text-decoration: underline; }
 .evening .close-out .btn.close-out__bank { min-height: 56px; border-radius: 28px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-size: 16px; font-weight: 600; }
 .evening .close-out .btn.close-out__bank:disabled { background: var(--inset); border-color: var(--inset); color: var(--text-2); opacity: 1; }
 .evening .close-out__skip { min-height: 44px; font-size: 13.5px; }
+
+/* --- The evening as journal entries (2026-11-28) -------------------------- */
+/* Each entry is a white card: what it's about, its question large, a box
+   that grows as you write, and the ways to speak. Under them the one card
+   for picking what's next: Choose for me (black), I pick (white), and his
+   targets as pills. Bank the day stays the page's one orange button. */
+.ej { display: flex; flex-direction: column; gap: 12px; }
+.ej-entry { display: flex; flex-direction: column; gap: 10px; }
+.ej-entry__head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.ej-entry__head .eyebrow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ej-entry__state { font-size: 12px; color: var(--text-3); }
+.ej-entry__remove { width: 36px; height: 36px; color: var(--text-3); }
+.ej-entry__q { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; text-wrap: pretty; }
+.ej .ej-entry__text { min-height: 120px; resize: none; overflow: hidden; font-family: var(--font-serif); font-size: 16px; line-height: 1.5; }
+.ej-entry__voice { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.ej-entry__voice .voice-btn--ghost { margin-top: 8px; }
+
+.ej-pick { display: flex; flex-direction: column; gap: 12px; }
+.ej-pick__h { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.ej-pick__ways { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ej-way {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--card); color: var(--text);
+  font: inherit; font-size: 15.5px; font-weight: 650; white-space: nowrap; cursor: pointer;
+}
+.ej-way--ink { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+.ej-way:disabled { opacity: 0.7; cursor: default; }
+.ej-pick__note { margin: 0; font-size: 13px; }
+.ej-targets { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+.ej-targets__group:first-child { padding-top: 10px; }
+.ej-targets__group .eyebrow { margin-bottom: 8px; }
+.ej-targets__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ej-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; max-width: 100%; padding: 0 16px;
+  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--bg); color: var(--text);
+  font: inherit; font-size: 14.5px; font-weight: 550; text-align: left; cursor: pointer;
+}
+.ej-chip.is-written { border-color: var(--ink); }
+@media (hover: hover) { .ej-chip:hover, .ej-way:not(.ej-way--ink):hover { border-color: var(--line-strong); } }
+
+.ej-earlier { display: flex; flex-direction: column; gap: 12px; }
+.ej-earlier__q { font-size: 13px; color: var(--text-2); font-family: var(--font-serif); margin-bottom: 4px; }
+.ej-close { align-self: center; min-height: 44px; }
