@@ -234,7 +234,7 @@ function RunningHead({ entry, chunks, onStop, busy }) {
           {sleeping ? "Asleep" : "Running"} since {timeOf(entry.started_at)}
         </div>
         <div className="timer__what">
-          {entry.description || tags.join(" · ")} <span className="timer__sep">·</span> <span className="timer__elapsed">{fmtElapsed(entry.started_at)}</span>
+          {entry.description || [...tags, entry.subcategory].filter(Boolean).join(" · ")} <span className="timer__sep">·</span> <span className="timer__elapsed">{fmtElapsed(entry.started_at)}</span>
         </div>
         {block && (
           <div className="timer__plan mono">

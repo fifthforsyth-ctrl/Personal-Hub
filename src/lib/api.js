@@ -316,9 +316,9 @@ export async function updateTimeEntry(entryId, fields) {
 // One tap from whatever is running to something else (Waste, a temple
 // visit): the running timer ends now and the new one starts. Returns both,
 // so the one that stopped can still be asked about.
-export async function switchTimer(userId, runningId, { categories, description }) {
+export async function switchTimer(userId, runningId, { categories, description, subcategory }) {
   const stopped = runningId ? await stopTimeEntry(runningId) : null;
-  const started = await startTimeEntry(userId, { categories, description });
+  const started = await startTimeEntry(userId, { categories, description, subcategory });
   return { stopped, started };
 }
 

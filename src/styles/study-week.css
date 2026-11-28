@@ -1,0 +1,165 @@
+/* Scripture study this week (Today). Ink and white, with orange only for
+   what's earned and what's running. */
+
+.study-week__head { align-items: flex-start; margin-bottom: 12px; }
+.study-week__eyebrow { font-size: 10px; margin-bottom: 4px; }
+
+.study-week__count {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.study-week__count .mono { font-size: 16px; font-weight: 700; color: var(--text); }
+.study-week__count.is-full { background: var(--ink); color: rgba(255, 255, 255, 0.7); }
+.study-week__count.is-full .mono { color: var(--accent); }
+
+.study-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.study-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.study-row:first-child { border-top: 0; padding-top: 2px; }
+
+.study-row__body { flex: 1; min-width: 0; }
+.study-row__line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.study-row__name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; min-width: 0; }
+.study-row__left { font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.study-row__mins { font-size: 12px; white-space: nowrap; color: var(--text); }
+.study-row__mins strong { font-weight: 700; }
+.study-row__min { color: var(--text-3); }
+
+.study-row__bar { height: 5px; border-radius: 3px; background: var(--inset); margin: 7px 0 6px; overflow: hidden; }
+.study-row__bar i { display: block; height: 100%; border-radius: 3px; background: var(--ink); transition: width 0.4s ease; }
+.study-row.is-met .study-row__bar i { background: var(--accent); }
+
+.study-row__sub { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--text-2); }
+.study-row__live { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-weight: 600; }
+.study-row__live .running-dot { width: 7px; height: 7px; }
+.study-row__done { color: var(--accent-text); font-weight: 650; font-size: 11.5px; white-space: nowrap; }
+
+.study-row__go {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.study-row__go svg { margin-left: 1px; }
+@media (hover: hover) { .study-row__go:hover { background: var(--ink); color: var(--on-ink); border-color: var(--ink); } }
+.study-row__go.is-stop { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.study-row__go.is-stop svg { margin-left: 0; }
+.study-row__go:disabled { opacity: 0.45; }
+
+/* The token: a ring that fills toward the week's minimum, then a solid
+   orange coin once it's met. */
+.study-token {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-2);
+}
+.study-token__ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.study-token__track { fill: none; stroke: var(--line-strong); stroke-width: 2.5; stroke-dasharray: 2.5 3.2; }
+.study-token__fill { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.5s ease; }
+.study-token__icon { position: relative; }
+
+.study-token.is-met {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.28), 0 2px 8px rgba(242, 106, 27, 0.35);
+}
+.study-token.is-met .study-token__ring { display: none; }
+.study-token__check {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--card);
+}
+
+/* Earned just now: the coin is struck and catches the light. */
+.study-token.is-struck { animation: study-strike 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.study-token.is-struck::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: study-ring 1.2s ease-out 0.25s both;
+}
+@keyframes study-strike {
+  0% { transform: scale(0.6) rotate(-25deg); }
+  55% { transform: scale(1.18) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes study-ring {
+  0% { opacity: 0.9; transform: scale(0.85); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .study-token.is-struck, .study-token.is-struck::after { animation: none; }
+}
+
+/* Study timed elsewhere, waiting for a kind. */
+.study-unsorted { margin-top: 10px; border-radius: var(--r); background: var(--inset); }
+.study-unsorted__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-align: left;
+  background: none;
+  border: 0;
+}
+.study-unsorted__head strong { color: var(--text); }
+.study-unsorted__head svg { flex-shrink: 0; transition: transform 0.2s; }
+.study-unsorted__head svg.is-open { transform: rotate(180deg); }
+.study-unsorted__list { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-direction: column; gap: 10px; }
+.study-unsorted__item { padding-top: 10px; border-top: 1px solid var(--line); }
+.study-unsorted__when { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--text-2); margin-bottom: 7px; }
+.study-unsorted__when .mono { color: var(--text); font-weight: 600; }
+.study-unsorted__desc { flex-basis: 100%; color: var(--text); }
+.study-unsorted__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.study-unsorted .study-chip { cursor: pointer; background: var(--card); border: 1px solid var(--line-strong); color: var(--text); font-size: 12px; padding: 6px 11px; }
+@media (hover: hover) { .study-unsorted .study-chip:hover { background: var(--ink); color: var(--on-ink); border-color: var(--ink); } }
+.study-unsorted .study-chip--other { color: var(--text-2); border-style: dashed; }
+
+/* Weeks that are over. */
+.study-past { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.study-past .section-label { margin-bottom: 8px; }
+.study-past__row { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.study-past__week { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.study-past__week .mono { font-size: 9px; color: var(--text-3); white-space: nowrap; }
+.study-past__dots { display: grid; grid-template-columns: repeat(2, 8px); gap: 3px; }
+.study-past__dots i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--line-strong); }
+.study-past__dots i.is-met { background: var(--accent); border-color: var(--accent); }
