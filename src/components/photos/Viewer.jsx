@@ -3,6 +3,7 @@ import { ClipboardList, MapPin, Maximize2, Minus, Plus, X } from "lucide-react";
 import { centreOn, clampView, fitView, toBox, toPicture, zoomAt } from "../../lib/zoom";
 import { drawStrokes } from "../../lib/sketch";
 import "../../styles/photos.css";
+import { overlay } from "../ui/Overlay";
 
 // A photo or a sketch over the whole screen, to look at up close (Aaron,
 // 2026-10-30: "allow me to zoom into and enlarge a sketch"). Pinch or
@@ -213,7 +214,7 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
   useEffect(() => {
     const onKey = (e) => {
       // (a sheet opened from the box beside it closes first)
-      if (document.querySelector(".modal-backdrop, .confirm-sheet") || root.current?.querySelector(".sheet-backdrop")) return;
+      if (document.querySelector(".modal-backdrop, .confirm-sheet") || document.querySelector(".sheet-backdrop")) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         e.preventDefault();
@@ -247,7 +248,7 @@ export default function Viewer({ title, src, sketch, width, height, pins = [], o
   };
   const pct = view && fit ? Math.round((view.k / fit.k) * 100) : 100;
 
-  return (
+  return overlay(
     <div className={"iv" + (panel ? " iv--panel" : "") + (side && sideOn ? " iv--side" : "")} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={root}>
       <div className="iv-bar">
         <button type="button" className="iv-btn" onClick={onClose} aria-label="Close" title="Close">

@@ -844,7 +844,7 @@
 
 .ar-sheet { display: flex; flex-direction: column; gap: 16px; }
 .ar-top { display: flex; align-items: center; gap: 16px; }
-.mark .mk-face.ar-face, .ar-face { width: 112px; height: 112px; max-width: 112px; flex: none; margin: 0; }
+:is(.mark, .sheet) .mk-face.ar-face, .ar-face { width: 112px; height: 112px; max-width: 112px; flex: none; margin: 0; }
 .ar-count { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ar-count b { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
 .ar-count small { font-size: 13px; color: var(--text-2); }

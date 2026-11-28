@@ -8,7 +8,7 @@
 // ways a passing build did not catch, which is the entire argument for this
 // file existing.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { tidyAnswer, parseAnswer, proposalCounts, keyLooksOk, modelFor, trimHistory } from "../supabase/functions/builder/shape.js";
 import { mentions as loveMentions, handlesFrom, cleanHandle, leaderboard as loveBoard } from "../src/lib/loveRules.js";
 import { fileURLToPath } from "node:url";
@@ -6247,7 +6247,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("entries: the banked card shows every entry with words", cards.length === 1 && cards[0].label === "Chosen for you" && cards[0].question === "Q?");
   const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
   const j = src("components/day/EveningJournal.jsx");
-  ok("entries: a big + starts an entry, and the choices pop up over the page (like the Tasks home)", /className="ej-new" onClick=\{\(\) => setChoosing\(true\)\}/.test(j) && /\{choosing && \(\s*<div className="sheet-backdrop ej-sheet"/.test(j) && /className="sheet ej-pick" role="dialog"/.test(j) && /setChoosing\(false\);/.test(j));
+  ok("entries: a big + starts an entry, and the choices pop up over the page (like the Tasks home)", /className="ej-new" onClick=\{\(\) => setChoosing\(true\)\}/.test(j) && /\{choosing && overlay\(\s*<div className="sheet-backdrop ej-sheet"/.test(j) && /className="sheet ej-pick" role="dialog"/.test(j) && /setChoosing\(false\);/.test(j));
   ok("entries: they sit side by side, the + first and the newest beside it, swiped left and right", /<div className="ej-row" data-hscroll>/.test(j) && /\[\.\.\.entries\]\.reverse\(\)\.map/.test(j) && /\.ej-row \{[^}]*overflow-x: auto; scroll-snap-type: x mandatory;/.test(readFileSync(new URL("../src/styles/daily.css", import.meta.url), "utf8")));
   ok("entries: each one has Speak and Talk it through", /<VoiceButton/.test(j) && /Talk it through/.test(j) && /function TalkBar/.test(j));
   ok("entries: an emptied entry isn't kept", /if \(e\.id\) await deleteEveningEntry\(e\.id, e\.arrowId\);/.test(j));
@@ -6270,6 +6270,54 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
   ok("the shell is as tall as the screen when told", /\.shell \{\s*position: fixed;\s*inset: 0;\s*bottom: auto;\s*height: var\(--app-h, 100%\);/.test(css) && readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8").includes("installAppHeight();"));
   ok("the tab bar sits over the page, so the mic isn't cut off, and under sheets", /\.bottom-tabs \{[^}]*position: relative;\s*z-index: 20;/.test(css) && /\.sheet-backdrop \{[^}]*z-index: 60;/.test(css));
+}
+
+// Every pop-up scrolls all the way down (Aaron 2026-11-28).
+{
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const css = rd("index.css");
+  const popups = ["components/ascent/Sheet.jsx", "components/money/shared.jsx", "components/GoalPicker.jsx", "components/ui/Feedback.jsx", "components/CaptureSheet.jsx", "components/plan/ChoiceSheet.jsx", "context/AuthContext.jsx", "components/ascent/Ceremony.jsx", "components/mark/BowUp.jsx", "components/mark/Volley.jsx", "components/photos/Viewer.jsx", "components/day/EveningJournal.jsx", "components/NavBar.jsx", "components/tree/NodeForm.jsx"];
+  const notPortaled = popups.filter((p) => !/import \{ overlay \} from "[./a-z]*\/Overlay";/.test(rd(p)) || !/overlay\(\s*<(div|>)/.test(rd(p)));
+  ok("pop-ups: every sheet, modal and full-screen moment renders at the end of <body>, outside the page and the tab bar", notPortaled.length === 0 || console.log("   not portaled:", notPortaled));
+  const loose = [];
+  for (const dir of ["components", "pages", "context"]) {
+    const walk = (d) => {
+      for (const e of readdirSync(new URL(`../src/${d}/`, import.meta.url), { withFileTypes: true })) {
+        const p = `${d}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.jsx$/.test(e.name) && /className="(sheet-backdrop|modal-backdrop)\b/.test(rd(p)) && !popups.includes(p) && p !== "components/ui/Overlay.jsx") loose.push(p);
+      }
+    };
+    walk(dir);
+  }
+  ok("pop-ups: no backdrop is drawn anywhere else without going through overlay()", loose.length === 0 || console.log("   add to the list:", loose));
+  ok("pop-ups: overlay() portals into document.body", /createPortal\(node, document\.body\)/.test(rd("components/ui/Overlay.jsx")));
+  ok("pop-ups: they cover only the visible screen, so the keyboard never hides the bottom", /\.sheet-backdrop,\n\.modal-backdrop,[\s\S]*?\{\n  top: var\(--vv-top, 0px\);\n  bottom: auto;\n  height: var\(--vv-h, var\(--app-h, 100%\)\);/.test(css) && /installVisibleViewport\(\);/.test(rd("main.jsx")));
+  ok("pop-ups: sheets and modals are capped to their backdrop and never in plain vh", /\.sheet \{[^}]*max-height: min\(86dvh, 100%\);/.test(css) && /\.modal \{[^}]*max-height: min\(88dvh, 100%\);[^}]*margin: auto;/.test(css) && /max-height: min\(86dvh, calc\(100% - var\(--safe-top\) - 12px\)\)/.test(css) && !/\.(sheet|modal) \{[^}]*max-height: \d+vh/.test(css));
+  ok("pop-ups: the evening choices are capped the same way", /\.ej-sheet \.sheet \{[^}]*max-height: min\(82dvh, calc\(100% - var\(--safe-top\) - 12px\)\)/.test(rd("styles/daily.css")));
+  ok("pop-ups: the camp flag scrolls when it doesn't fit", /\.camp-up \{[^}]*overflow-y: auto;/.test(rd("styles/ascent.css")));
+  const V = await import("../src/lib/visibleViewport.js");
+  ok("pop-ups: the keyboard's top edge is where they end", JSON.stringify(V.keyboardViewport({ height: 480, offsetTop: 12.4, scale: 1, layoutHeight: 844 })) === '{"h":480,"top":12}');
+  ok("pop-ups: with no keyboard up they keep the app's height", V.keyboardViewport({ height: 800, offsetTop: 0, scale: 1, layoutHeight: 844 }) === null);
+  ok("pop-ups: a pinch zoom doesn't shrink them", V.keyboardViewport({ height: 400, offsetTop: 0, scale: 2, layoutHeight: 844 }) === null);
+  const props = {};
+  const listeners = {};
+  const fakeWin = {
+    innerHeight: 844,
+    visualViewport: { height: 480, offsetTop: 0, scale: 1, addEventListener: (k, f) => (listeners[k] = f), removeEventListener: (k) => delete listeners[k] },
+    document: { documentElement: { style: { setProperty: (k, v) => (props[k] = v), removeProperty: (k) => delete props[k] } }, activeElement: null, body: {} },
+    requestAnimationFrame: (f) => (f(), 1),
+    cancelAnimationFrame: () => {},
+  };
+  const stop = V.installVisibleViewport(fakeWin);
+  const up = props["--vv-h"] === "480px" && props["--vv-top"] === "0px";
+  fakeWin.visualViewport.height = 844;
+  listeners.resize();
+  ok("pop-ups: the values follow the keyboard up and clear when it goes", up && !("--vv-h" in props) && !("--vv-top" in props));
+  stop();
+  ok("pop-ups: no window, nothing to do", typeof V.installVisibleViewport(null) === "function");
+  ok("no zooming in by itself: the viewport holds scale 1 and a double tap doesn't zoom", /maximum-scale=1\.0/.test(readFileSync(new URL("../index.html", import.meta.url), "utf8")) && /html \{ touch-action: manipulation; \}/.test(css));
+  ok("a target drawn in a pop-up keeps its look", /:is\(\.mark, \.sheet\) \.mk-board/.test(rd("styles/mark.css")) && !/^\.mark \./m.test(rd("styles/mark.css")) && /:is\(\.mark, \.sheet\) \.mk-face\.ar-face/.test(rd("styles/targets.css")));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

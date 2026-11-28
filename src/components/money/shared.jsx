@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { X, Check } from "lucide-react";
 import "../../styles/money.css";
+import { overlay } from "../ui/Overlay";
 
 // Money's cards keep each other current. Anything that changes a transaction
 // or a budget bumps one counter on the page, and every card reloads when it
@@ -65,7 +66,7 @@ export function MoneySheet({ title, onClose, children, busy = false, wide = fals
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  return (
+  return overlay(
     <div ref={backdropRef} className="sheet-backdrop" onClick={() => !busy && onClose()}>
       <div
         className={"sheet money-sheet" + (wide ? " money-sheet--wide" : "")}

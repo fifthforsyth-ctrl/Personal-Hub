@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { Flame } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { friendlyError } from "../lib/errors";
+import { overlay } from "../components/ui/Overlay";
 
 const AuthContext = createContext(null);
 
@@ -150,7 +151,7 @@ function NewPasswordSheet({ onDone }) {
     else setDone(true);
   }
 
-  return (
+  return overlay(
     <div className="sheet-backdrop">
       <form className="sheet auth-reset" role="dialog" aria-modal="true" aria-labelledby="new-password-title" onSubmit={save}>
         <h2 id="new-password-title" className="auth-reset__title">{done ? "Password changed" : "Set a new password"}</h2>

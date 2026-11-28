@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { X, CheckSquare, Hash, NotebookPen, ChevronDown, ChevronRight } from "lucide-react";
 import GoalPicker from "../GoalPicker";
+import { overlay } from "../ui/Overlay";
 
 function emptyFields() {
   return {
@@ -130,7 +131,7 @@ export default function NodeForm({ node, parentId: startParentId = null, goals =
   const parentPath = parentId ? pathById?.get(parentId) ?? "A goal" : null;
   const heading = isEditing ? "Edit goal" : startParentId ? "New sub-goal" : "New goal";
 
-  return (
+  return overlay(
     <>
       {/* A sheet like every other editor: it rises from the bottom on a phone
           and sits in the middle on a desk. */}

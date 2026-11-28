@@ -6,6 +6,7 @@ import { haptic } from "../../lib/haptics";
 import { BowShape } from "./Bow";
 import ShareWithLove from "../love/ShareWithLove";
 import "../../styles/mark.css";
+import { overlay } from "../ui/Overlay";
 
 // A new bow, earned. It comes in over the volley once the arrows that crossed
 // the line have landed: the bow, how many bullseyes it took, its verse, and
@@ -62,7 +63,7 @@ export default function BowUp({ tier, onClose }) {
     timers.current.push({ raf: requestAnimationFrame(step) });
   }
 
-  return (
+  return overlay(
     <div className="mark mk-bowup" role="dialog" aria-modal="true" aria-labelledby="mk-bowup-h">
       <svg className={"mk-bowup__bow" + (stage === "ready" ? " mk-bowup__bow--in" : "")} viewBox="-70 -78 160 156" aria-hidden="true">
         <BowShape tier={tier} pull={pull} arrow={stage !== "loosed"} />

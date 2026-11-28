@@ -4,48 +4,49 @@
    Line-drawn in ink on white like the rest of the goals page: a white face,
    grey rings, the bullseye in soft orange, and the one orange for the latest
    mark and the arrow. Older marks fade. Misses sit in their section; the
-   fullest section is shaded, never red. Scoped under `.mark`.
+   fullest section is shaded, never red. Scoped under `.mark`, or `.sheet`
+   for a target drawn in a pop-up (pop-ups render outside the page).
    =========================================================================== */
 
 /* ---------------------------------------------------------------------------
    The target
    --------------------------------------------------------------------------- */
 
-.mark .mk-face { display: block; width: 100%; height: auto; overflow: visible; }
-.mark .mk-board { fill: var(--card); stroke: var(--ink); stroke-width: 1.6; }
-.mark .mk-ring { fill: none; stroke: var(--ink); stroke-opacity: 0.32; stroke-width: 1; }
-.mark .mk-bull { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
-.mark .mk-miss { fill: none; stroke: var(--ink); stroke-opacity: 0.16; stroke-width: 1; stroke-dasharray: 2 4; }
-.mark .mk-div { stroke: var(--ink); stroke-opacity: 0.2; stroke-width: 1; stroke-dasharray: 3 3; }
-.mark .mk-hot { fill: var(--accent); fill-opacity: 0.08; }
-.mark .mk-lab { font: 600 8.6px var(--font); fill: var(--text-2); }
-.mark .mk-lab--hot { fill: var(--accent-text); }
-.mark .mk-dot { fill: var(--ink); stroke: var(--card); stroke-width: 1; }
-.mark .mk-dot--noted { fill: var(--card); stroke: var(--ink); stroke-width: 1.2; }
-.mark .mk-dot--last { fill: var(--accent); stroke: var(--card); }
-.mark .mk-hit { fill: transparent; cursor: pointer; }
-.mark .mk-sel { fill: none; stroke: var(--accent); stroke-width: 2; pointer-events: none; }
-.mark .mk-arrow .shaft { stroke: var(--ink); stroke-width: 2.2; stroke-linecap: round; }
-.mark .mk-arrow .fl { fill: var(--accent); }
-.mark .mk-arrow .tip { fill: var(--ink); }
-.mark .mk-face--big { max-width: 330px; margin: 4px auto 0; }
+:is(.mark, .sheet) .mk-face { display: block; width: 100%; height: auto; overflow: visible; }
+:is(.mark, .sheet) .mk-board { fill: var(--card); stroke: var(--ink); stroke-width: 1.6; }
+:is(.mark, .sheet) .mk-ring { fill: none; stroke: var(--ink); stroke-opacity: 0.32; stroke-width: 1; }
+:is(.mark, .sheet) .mk-bull { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+:is(.mark, .sheet) .mk-miss { fill: none; stroke: var(--ink); stroke-opacity: 0.16; stroke-width: 1; stroke-dasharray: 2 4; }
+:is(.mark, .sheet) .mk-div { stroke: var(--ink); stroke-opacity: 0.2; stroke-width: 1; stroke-dasharray: 3 3; }
+:is(.mark, .sheet) .mk-hot { fill: var(--accent); fill-opacity: 0.08; }
+:is(.mark, .sheet) .mk-lab { font: 600 8.6px var(--font); fill: var(--text-2); }
+:is(.mark, .sheet) .mk-lab--hot { fill: var(--accent-text); }
+:is(.mark, .sheet) .mk-dot { fill: var(--ink); stroke: var(--card); stroke-width: 1; }
+:is(.mark, .sheet) .mk-dot--noted { fill: var(--card); stroke: var(--ink); stroke-width: 1.2; }
+:is(.mark, .sheet) .mk-dot--last { fill: var(--accent); stroke: var(--card); }
+:is(.mark, .sheet) .mk-hit { fill: transparent; cursor: pointer; }
+:is(.mark, .sheet) .mk-sel { fill: none; stroke: var(--accent); stroke-width: 2; pointer-events: none; }
+:is(.mark, .sheet) .mk-arrow .shaft { stroke: var(--ink); stroke-width: 2.2; stroke-linecap: round; }
+:is(.mark, .sheet) .mk-arrow .fl { fill: var(--accent); }
+:is(.mark, .sheet) .mk-arrow .tip { fill: var(--ink); }
+:is(.mark, .sheet) .mk-face--big { max-width: 330px; margin: 4px auto 0; }
 
 /* ---------------------------------------------------------------------------
    The bow
    --------------------------------------------------------------------------- */
 
-.mark .mk-bow-pic { flex: 0 0 auto; overflow: visible; }
-.mark .b-limb { fill: none; stroke: var(--ink); stroke-linecap: round; }
-.mark .b-core { fill: none; stroke: var(--card); stroke-linecap: round; }
-.mark .mk-bow--3 .b-core { stroke: var(--inset); }
-.mark .b-grip, .mark .b-riser { fill: var(--ink); }
-.mark .b-wrap { stroke: var(--card); stroke-width: 0.8; }
-.mark .b-rivet { fill: var(--card); }
-.mark .b-tip { fill: var(--accent); }
-.mark .b-string { stroke: var(--ink); stroke-opacity: 0.7; stroke-width: 1; fill: none; }
-.mark .b-arrow { stroke: var(--ink); stroke-width: 1.8; stroke-linecap: round; }
-.mark .b-fl { fill: var(--accent); }
-.mark .b-head { fill: var(--ink); }
+:is(.mark, .sheet) .mk-bow-pic { flex: 0 0 auto; overflow: visible; }
+:is(.mark, .sheet) .b-limb { fill: none; stroke: var(--ink); stroke-linecap: round; }
+:is(.mark, .sheet) .b-core { fill: none; stroke: var(--card); stroke-linecap: round; }
+:is(.mark, .sheet) .mk-bow--3 .b-core { stroke: var(--inset); }
+:is(.mark, .sheet) .b-grip, :is(.mark, .sheet) .b-riser { fill: var(--ink); }
+:is(.mark, .sheet) .b-wrap { stroke: var(--card); stroke-width: 0.8; }
+:is(.mark, .sheet) .b-rivet { fill: var(--card); }
+:is(.mark, .sheet) .b-tip { fill: var(--accent); }
+:is(.mark, .sheet) .b-string { stroke: var(--ink); stroke-opacity: 0.7; stroke-width: 1; fill: none; }
+:is(.mark, .sheet) .b-arrow { stroke: var(--ink); stroke-width: 1.8; stroke-linecap: round; }
+:is(.mark, .sheet) .b-fl { fill: var(--accent); }
+:is(.mark, .sheet) .b-head { fill: var(--ink); }
 
 .mk-bow-card { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 14px 28px; align-items: center; }
 .mk-bow-card__top { display: flex; gap: 14px; align-items: center; min-width: 0; }
@@ -54,7 +55,7 @@
 .mk-bar { height: 6px; border-radius: 3px; background: var(--inset); overflow: hidden; margin-top: 5px; max-width: 320px; }
 .mk-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .mk-aim { display: flex; flex-direction: column; gap: 6px; padding-left: 28px; border-left: 1px solid var(--line); min-width: 0; }
-.mark .mk-aim .ascent-creed { font-size: 16px; }
+:is(.mark, .sheet) .mk-aim .ascent-creed { font-size: 16px; }
 
 .mk-rack { grid-column: 1 / -1; list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .mk-rack__bow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 14px; min-width: 0; }
@@ -103,7 +104,7 @@
 
 .mk-target__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .mk-target__side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.mark .mk-target__side > .card + .card { margin-top: 0; }
+:is(.mark, .sheet) .mk-target__side > .card + .card { margin-top: 0; }
 .mk-board-card { display: flex; flex-direction: column; gap: 10px; }
 .mk-range { max-width: 360px; width: 100%; align-self: center; }
 .mk-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -161,7 +162,7 @@
 .mk-aims small { font-weight: 400; font-size: 11.5px; color: var(--text-2); }
 .mk-reasons { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
 .mk-reasons__list { display: flex; flex-wrap: wrap; gap: 6px; }
-.mark .mk-chip--hot { background: var(--accent-soft); color: var(--accent-text); }
+:is(.mark, .sheet) .mk-chip--hot { background: var(--accent-soft); color: var(--accent-text); }
 .mk-feeds { display: flex; flex-direction: column; gap: 10px; }
 .mk-edit-ref { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; }
 
@@ -249,7 +250,7 @@
 .mk-volley__sum { min-height: 46px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
 .mk-volley__sum b { font-size: 18px; letter-spacing: -0.02em; }
 .mk-volley__sum span { font-size: 13.5px; color: var(--text-2); }
-.mark .mk-fly { animation: mk-fly 0.3s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+:is(.mark, .sheet) .mk-fly { animation: mk-fly 0.3s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
 @keyframes mk-fly {
   from { transform: translate(-170px, 62px); opacity: 0; }
   20% { opacity: 1; }

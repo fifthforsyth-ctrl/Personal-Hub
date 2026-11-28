@@ -27,6 +27,7 @@ import { unlockAudio } from "../lib/voice";
 import { refreshApp } from "../lib/refresh";
 import { unreadLoveCount } from "../lib/love";
 import "../styles/love.css";
+import { overlay } from "./ui/Overlay";
 
 // Six places you go, one thing you do from anywhere.
 //
@@ -261,7 +262,7 @@ export function PhoneTop() {
         </button>
       </div>
 
-      {open && (
+      {open && overlay(
         <div className="sheet-backdrop" onClick={() => setOpen(false)}>
           <div className="sheet" role="dialog" aria-modal="true" aria-label="Menu" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-head">
