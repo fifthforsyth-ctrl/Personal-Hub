@@ -1006,3 +1006,28 @@ a.quote-card__source:hover { text-decoration: underline; }
   .ej-sheet { align-items: flex-end; padding: 0; }
   .ej-sheet .sheet { max-width: none; max-height: 82vh; border-radius: 28px 28px 0 0; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Today's plan, and tomorrow's one swipe to the right (2026-11-28). */
+.plan-swipe__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.plan-swipe__row::-webkit-scrollbar { display: none; }
+.plan-swipe__row > .plan-blocks { flex: 0 0 100%; scroll-snap-align: start; }
+.plan-swipe__dots { display: flex; justify-content: center; gap: 2px; margin-top: 4px; }
+.plan-swipe__dot {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  display: grid;
+  place-items: center;
+}
+.plan-swipe__dot::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); transition: background 0.15s, width 0.15s; }
+.plan-swipe__dot.is-on::after { width: 16px; border-radius: 4px; background: var(--text); }

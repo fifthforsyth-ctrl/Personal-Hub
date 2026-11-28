@@ -5057,7 +5057,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const at = (s) => today.indexOf(s);
   ok(
     "Today runs focus, timer, wins, plan, then the walk with God (Clean slate)",
-    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
+    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanSwipe") && at("<PlanSwipe") < at("<WalkWithGod")
+  );
+  ok(
+    "swipe right on Today's plan for tomorrow's (Aaron, 2026-11-28)",
+    /<PlanBlocks userId=\{userId\} date=\{addDays\(date, 1\)\} chunks=\{tomorrowChunks\} tomorrow \/>/.test(today) &&
+      /fetchTimeChunks\(userId, addDays\(date, 1\)\)/.test(today) &&
+      /const now = tomorrow \? -1 : clock;/.test(src("components/today/PlanBlocks.jsx")) &&
+      /\.plan-swipe__row \{[^}]*scroll-snap-type: x mandatory/.test(src("styles/daily.css"))
   );
   ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
   // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
