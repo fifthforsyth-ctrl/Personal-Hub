@@ -15,6 +15,10 @@
 -- its link survives the target being deleted (set null), so a journal never
 -- loses words because a goal was tidied away.
 --
+-- Writing about a target also places an arrow on it (target_arrows, 0112),
+-- the entry's words as the arrow's note; arrow_id remembers which, so an
+-- edit changes that arrow and removing the entry removes it.
+--
 -- day_archive also returns the day's entries (evening_entries), so the
 -- banked card and the day's summary read them. Otherwise purely additive:
 -- one new table, its indexes and its policy, and day_archive rewritten with
@@ -41,6 +45,9 @@ create table if not exists public.evening_entries (
   -- The question it answered, when there was one.
   prompt text check (prompt is null or char_length(btrim(prompt)) between 1 and 600),
   text text not null check (char_length(btrim(text)) between 1 and 8000),
+  -- Writing about a target places an arrow on it (Aaron, 2026-11-28), with
+  -- the entry as its note: the arrow this entry placed.
+  arrow_id uuid references public.target_arrows(id) on delete set null,
   position integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -90,7 +97,7 @@ as $function$
     'journal', (select to_jsonb(j) from public.journal_entries j where j.user_id = auth.uid() and j.date = p_date),
     'evening_entries', coalesce((
       select jsonb_agg(jsonb_build_object('id', e.id, 'kind', e.kind, 'topic', e.topic, 'prompt', e.prompt, 'text', e.text,
-                                          'mission', e.mission, 'goal_id', e.goal_id, 'quest_id', e.quest_id,
+                                          'arrow_id', e.arrow_id, 'mission', e.mission, 'goal_id', e.goal_id, 'quest_id', e.quest_id,
                                           'lesson_id', e.lesson_id, 'focus_goal_id', e.focus_goal_id)
                        order by e.position, e.created_at)
       from public.evening_entries e where e.user_id = auth.uid() and e.date = p_date

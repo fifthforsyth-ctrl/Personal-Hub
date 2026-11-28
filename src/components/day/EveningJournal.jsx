@@ -14,6 +14,9 @@ import { useConfirm } from "../ui/Feedback";
 // 'I pick' and I can just keep adding journal entries. I can do as much or
 // as little as I want."
 //
+// Writing about a target places an arrow on it, the entry as its note;
+// emptying or removing the entry takes the arrow back.
+//
 // Each pick adds an entry: a box to write in (or speak into), and "Talk it
 // through", where the Hub reads the entry's question aloud, listens, and
 // writes down what you say. Entries save as you go; what's typed lives on
@@ -113,11 +116,11 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
         try {
           if (!words) {
             // Emptied: an entry with nothing in it isn't kept.
-            if (e.id) await deleteEveningEntry(e.id);
-            update((list) => list.map((x) => (x.local === local ? { ...x, id: null, saved: "" } : x)));
+            if (e.id) await deleteEveningEntry(e.id, e.arrowId);
+            update((list) => list.map((x) => (x.local === local ? { ...x, id: null, arrowId: null, saved: "" } : x)));
           } else {
             const row = await saveEveningEntry(userId, date, { ...e, text: words.slice(0, TEXT_MAX) });
-            update((list) => list.map((x) => (x.local === local ? { ...x, id: row.id, saved: row.text } : x)));
+            update((list) => list.map((x) => (x.local === local ? { ...x, id: row.id, arrowId: row.arrow_id ?? null, saved: row.text } : x)));
           }
           setError(null);
           return true;
@@ -206,7 +209,7 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
     clearTimeout(timers.current.get(e.local));
     try {
       await chains.current.get(e.local);
-      if (e.id) await deleteEveningEntry(e.id);
+      if (e.id) await deleteEveningEntry(e.id, e.arrowId);
       update((list) => list.filter((x) => x.local !== e.local));
     } catch (err) {
       setError(friendlyError(err, "Couldn't remove that."));

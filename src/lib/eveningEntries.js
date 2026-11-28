@@ -54,6 +54,7 @@ export function fromRow(r) {
     kind: r.kind,
     ref: null,
     targetKey,
+    arrowId: r.arrow_id ?? null,
     topic: r.topic,
     prompt: r.prompt,
     text: r.text ?? "",

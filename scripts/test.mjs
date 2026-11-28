@@ -6218,7 +6218,11 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
   const j = src("components/day/EveningJournal.jsx");
   ok("entries: each one has Speak and Talk it through", /<VoiceButton/.test(j) && /Talk it through/.test(j) && /function TalkBar/.test(j));
-  ok("entries: an emptied entry isn't kept", /if \(e\.id\) await deleteEveningEntry\(e\.id\);/.test(j));
+  ok("entries: an emptied entry isn't kept", /if \(e\.id\) await deleteEveningEntry\(e\.id, e\.arrowId\);/.test(j));
+  const apiSrc = src("lib/api.js");
+  const saveFn = apiSrc.slice(apiSrc.indexOf("export async function saveEveningEntry"), apiSrc.indexOf("export async function deleteEveningEntry"));
+  ok("entries: writing about a target places an arrow on it, the entry as its note, and edits keep it in step", /if \(entry\.kind === "target" && entry\.ref\)[\s\S]*addTargetArrow\(userId, entry\.ref, \{ date: dateStr,/.test(saveFn) && /note: text \}\);\n    row\.arrow_id/.test(saveFn) && /row\.arrow_id = arrow\.id/.test(saveFn) && /updateTargetArrow\(data\.arrow_id/.test(saveFn));
+  ok("entries: an entry that fails to save takes its arrow back, and removing one removes it", /if \(row\.arrow_id\) await deleteTargetArrow\(row\.arrow_id\)/.test(saveFn) && /if \(arrowId\) await deleteTargetArrow\(arrowId\)/.test(apiSrc) && /deleteEveningEntry\(e\.id, e\.arrowId\)/.test(j));
   ok("entries: the banked card reads them", src("components/day/BankedDayCard.jsx").includes("...entryCards(a.evening_entries)"));
   const mig = readFileSync(new URL("../supabase/migrations/0113_evening_entries.sql", import.meta.url), "utf8");
   ok("entries: 0113 is additive and day_archive returns them", !/\bdrop\b/i.test(mig.replace(/--.*$/gm, "")) && /'evening_entries', coalesce/.test(mig) && /create policy "Own evening entries"/.test(mig));
