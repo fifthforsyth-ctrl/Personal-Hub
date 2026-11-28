@@ -1,14 +1,17 @@
 import { useCallback, useMemo } from "react";
+import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../ui/Feedback";
 import { todayStr } from "../../lib/planDates";
 import { haptic } from "../../lib/haptics";
-import { BYPOS, deleteStep, editStep, moveSteps, putBack, takeOut, useTasksStore } from "../../lib/tasksStore";
+import { BYPOS, clipSectionOf, deleteStep, editStep, moveSteps, putBack, takeOut, useTasksStore } from "../../lib/tasksStore";
 
 // What a task row does, the same on a column and on the clipboard: tick,
-// change its words (emptied, it goes, with Undo), and land where it's
-// dropped (with Undo).
+// change its words (emptied, it goes, with Undo), land where it's dropped
+// (with Undo), and go onto the clipboard from any column (with Undo).
 export function useTaskActions() {
   const toast = useToast();
+  const { user } = useAuth();
+  const userId = user?.id;
   const { steps } = useTasksStore();
 
   const kidsOf = useMemo(() => {
@@ -67,5 +70,27 @@ export function useTaskActions() {
     [toast]
   );
 
-  return { onTick, onText, onDrop, kidsOf };
+  // Onto the clipboard (Aaron, 2026-11-28: "allow me to place any task from
+  // any list to the clipboard"). It goes to its own camp's clipboard, so it
+  // stays in its project, and shows on the pull-down with every other one.
+  // Sub-tasks under it go too; a sub-task goes on its own.
+  const onClip = useCallback(
+    async (step) => {
+      try {
+        const clip = await clipSectionOf(userId, step.camp_id);
+        const undo = await moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id });
+        if (!undo) return;
+        haptic("tap");
+        toast.show?.("On the clipboard", {
+          actionLabel: "Undo",
+          onAction: () => undo().catch((err) => toast.error(err, "Couldn't put it back.")),
+        });
+      } catch (err) {
+        toast.error(err, "Couldn't put that on the clipboard.");
+      }
+    },
+    [toast, userId]
+  );
+
+  return { onTick, onText, onDrop, onClip, kidsOf };
 }

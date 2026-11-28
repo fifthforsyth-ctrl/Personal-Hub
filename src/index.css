@@ -122,8 +122,13 @@ button { cursor: pointer; touch-action: manipulation; }
    Shell — sidebar + scrolling main on desktop, top bar + bottom tabs on phone
    --------------------------------------------------------------------------- */
 
+/* Pinned to the screen (Aaron 2026-11-28): with the shell only 100% tall,
+   anything that poked out below the page let the phone scroll the whole
+   shell, and the bottom tabs rode up the screen with it. Fixed, only
+   `.main` ever scrolls and the tabs stay at the bottom. */
 .shell {
-  height: 100%;
+  position: fixed;
+  inset: 0;
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   background: var(--bg);

@@ -5063,6 +5063,9 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
   );
   ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
+  // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
+  // (On main this also checked the week strip's place; Clean slate took that strip off Today.)
+  ok("Today has no Tasks row at the top; the timer follows the focus", !today.includes("QuestsRow") && at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
   ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));
@@ -5293,9 +5296,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // Where it goes.
   const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["the picks and shelves", "src/components/board/Shelves.jsx"]]) {
-    const cards = read(file).match(/<QuoteCard [^\n]*\/>/g) ?? [];
-    ok(`every print on ${where} has Link`, cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  {
+    const cards = read("src/components/board/Shelves.jsx").match(/<QuoteCard [^\n]*\/>/g) ?? [];
+    ok("every print on the picks and shelves has Link", cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  }
+  // On the cork and in a collection, a print carries Collections, then Link.
+  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["a collection", "src/pages/Study.jsx"]]) {
+    const src = read(file);
+    const cards = src.match(/<QuoteCard\b[\s\S]*?\n\s*\/>/g) ?? [];
+    ok(`every print on ${where} has Collections and Link`, cards.length > 0 && cards.every((c) => /<CollectionsButton target=\{\{ quote_id: [\w.]+ \}\} \/>\s*<LinkToTarget quote=\{[\w.]+\} \/>/.test(c)), cards.join("\n"));
   }
   ok("Today's quote has Link beside Share, in its own buttons' style", /<ShareQuote [^\n]*\/>\n\s*<LinkToTarget quote=\{quote\} className="btn btn--sm quote-card__link" \/>/.test(read("src/components/today/QuoteOfDay.jsx")));
 
@@ -5885,14 +5894,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     const daily = read("src/styles/daily.css");
     const cork = read("src/styles/cork.css");
     const rule = (src, sel) => src.slice(src.indexOf(sel + " {"), src.indexOf("}", src.indexOf(sel + " {")));
-    ok("the Board opens on its own title and nothing else in the head", /<header className="hub-head board-head">\s*<h1 className="page-title">Board<\/h1>\s*<\/header>/.test(page) && !/board-head__actions|page-sub/.test(page));
+    ok("the Board opens on its own title, with Everything beside it", /<header className="hub-head board-head">\s*<h1 className="page-title">Board<\/h1>\s*<button type="button" className="btn btn--sm btn--on-page board-head__all" onClick=\{\(\) => go\(\{ all: "1" \}\)\}>/.test(page) && !/board-head__actions|page-sub/.test(page));
     ok("keeping a thought comes first, before search and the week's quote", page.indexOf("<CaptureBar onCapture={capture} />") < page.indexOf('className="board-search"') && page.indexOf('className="board-search"') < page.indexOf("<QuoteOfDay"));
     ok("the box is one line that grows, with a round button that keeps it", /className="board-capture__box"\s*rows=\{1\}/.test(bar) && /el\.style\.height = `\$\{Math\.min\(el\.scrollHeight, 260\)\}px`;/.test(bar) && /<button type="submit" className="board-capture__keep" disabled=\{busy \|\| !text\.trim\(\)\}/.test(bar));
     ok("Cmd or Ctrl and Enter still keeps it", /e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\) submit\(e\)/.test(bar));
     ok("the sweet something circle shows once there's something to keep", /const open = Boolean\(text\.trim\(\)\) \|\| sweet;/.test(bar) && /\{open && \(\s*<div className="board-capture__foot">/.test(bar) && /Sweet something/.test(bar));
     ok("the box and its button are a thumb tall and typing doesn't zoom an iPhone", /min-height: 52px;/.test(rule(css, ".board-capture__box")) && /font-size: 16px;/.test(rule(css, ".board-capture__box")) && /width: 52px; height: 52px;/.test(rule(css, ".board-capture__keep")) && /background: var\(--ink\);/.test(rule(css, ".board-capture__keep")));
     ok("search is a white pill a thumb tall", /min-height: 48px;[^}]*background: var\(--card\);[^}]*border-radius: var\(--r-pill\); font-size: 16px;/.test(css));
-    ok("All notes and New long note sit with the board they belong to", page.indexOf('<div className="board-tools">') > page.indexOf("<Browse") && page.indexOf('<div className="board-tools">') < page.indexOf("<CorkBoard") && /min-height: 44px;/.test(rule(css, ".board-tools .btn")));
+    ok("All notes and New long note sit with the board they belong to", page.indexOf("if (showAll && !selectedId)") < page.indexOf('<div className="board-tools">') && page.indexOf('<div className="board-tools">') < page.indexOf("<CorkBoard") && /min-height: 44px;/.test(rule(css, ".board-tools .btn")));
     ok("the week's quote has a plain heading and three even answers a thumb tall", /<h2 className="quote-card__eyebrow">For this week<\/h2>/.test(quote) && /className="seg quote-card__seg" role="group"/.test(quote) && /\.seg\.quote-card__seg \.seg-btn \{ flex: 1; min-height: 44px;/.test(daily) && /\.seg\.quote-card__seg \.seg-btn\.active \{ background: var\(--ink\); color: var\(--on-ink\);/.test(daily));
     ok("Save, Share and Link sit under the answers", quote.indexOf('<div className="quote-card__tools">') > quote.indexOf('className="seg quote-card__seg"') && quote.indexOf("<ShareQuote", quote.indexOf('<div className="quote-card__tools">')) > 0);
     ok("on a phone a card's buttons sit at its foot, never over its words", /@media \(hover: none\) \{\s*\.paper__tools \{ top: auto; bottom: 3px;[^}]*opacity: 1; \}/.test(cork));
@@ -6140,6 +6149,57 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
       return false;
     }
   }
+}
+
+// Board collections (2026-11-27): what's in each, the tray, the guess, the draw.
+{
+  const C = await import("../src/lib/collections.js");
+  const q = (id, text, author, extra = {}) => ({ id, text, author, saved_at: `2026-11-0${id.length}T00:00:00Z`, ...extra });
+  const quotes = [
+    q("a", "Look unto Christ in every thought; doubt not, fear not.", "Jesus Christ"),
+    q("bb", "Christ will make you more than you are. Turn to Christ.", "Ezra Taft Benson"),
+    q("ccc", "Show up and get to work every single day.", "Chuck Close"),
+    q("dddd", "The work is the way. Show up.", "Marcus Aurelius"),
+    q("eeeee", "In every walk with Nature one receives more than he seeks.", "John Muir"),
+  ];
+  const cols = [
+    { id: "christ", name: "Closer to Christ", feeds_today: true },
+    { id: "work", name: "Show up and work", feeds_today: false },
+  ];
+  const items = [
+    { collection_id: "christ", quote_id: "a" },
+    { collection_id: "work", quote_id: "ccc" },
+    { collection_id: "christ", note_id: "n1" },
+    { collection_id: "work", quote_id: "gone" },
+  ];
+  const filled = C.fillCollections(cols, items, quotes, [{ id: "n1", title: "His hand" }]);
+  ok("collections: quotes and thoughts land in their collection", filled[0].entries.map((e) => e.id).join() === "a,n1" && filled[1].entries.map((e) => e.id).join() === "ccc");
+  ok("collections: a quote no longer saved drops out", !filled[1].entries.some((e) => e.id === "gone"));
+  ok("collections: which collections a quote is in", [...C.collectionsOf(items, { quote_id: "a" })].join() === "christ" && C.collectionsOf(items, { note_id: "n1" }).has("christ"));
+  const tray = C.trayQuotes([...quotes, q("ffffff", "x", "y", { filed_at: "2026-11-20" })], items);
+  ok("collections: the tray is saved, unfiled, not kept loose, oldest first", tray.map((t) => t.id).join() === "bb,dddd,eeeee");
+  ok("collections: the guess fits by words", C.suggestCollection(quotes[1], filled) === "christ" && C.suggestCollection(quotes[3], filled) === "work");
+  ok("collections: no guess when nothing fits", C.suggestCollection(quotes[4], filled) === null);
+  const pool = C.drawPool(filled);
+  ok("collections: the draw only takes quotes from collections feeding Today", pool.map((p) => p.id).join() === "a");
+  const two = C.drawPool(C.fillCollections([{ ...cols[0] }, { ...cols[1], feeds_today: true }], items, quotes, []));
+  ok("collections: the same quote all day, and Another moves on", C.drawFor(two, "2026-11-27").id === C.drawFor(two, "2026-11-27").id && C.drawFor(two, "2026-11-27", 1).id !== C.drawFor(two, "2026-11-27").id);
+  ok("collections: no pool, no draw", C.drawFor([], "2026-11-27") === null);
+}
+
+// Tasks (Aaron, 2026-11-28): a project's tasks stay in the project; any
+// task on a column can go to the clipboard.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const home = src("components/tasks/TasksHome.jsx");
+  const api = src("lib/api.js");
+  ok("the Tasks home only asks for the free columns' camps", home.includes("fetchRecentColumnIds(userId, SHOWN, { campIds: freeCampIds(board) })") && home.includes("q.note === COLUMNS_HOME"));
+  ok("recent columns can be kept to some camps, and none means none", api.includes('if (campIds && !campIds.length) return [];') && api.includes('campIds ? q.in("camp_id", campIds) : q'));
+  const row = src("components/tasks/TaskRow.jsx");
+  const acts = src("components/tasks/useTaskActions.js");
+  ok("a column's open task has a To the clipboard button, passed down to sub-tasks", row.includes("{onClip && !done && !editing && (") && row.includes("onClip={onClip} childrenOf={childrenOf}") && src("components/tasks/Columns.jsx").includes("onClip={onClip} />"));
+  ok("it goes to its own camp's clipboard, with Undo", acts.includes("clipSectionOf(userId, step.camp_id)") && acts.includes("moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id })") && acts.includes('"On the clipboard"'));
+  ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

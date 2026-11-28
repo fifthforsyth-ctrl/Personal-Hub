@@ -2839,6 +2839,82 @@ export async function fetchSavedQuotes(userId) {
 }
 
 // ---------------------------------------------------------------------------
+// Board collections (0112): collections he names, the quotes and thoughts
+// filed in them (one can sit in several), and the To sort tray: saved
+// quotes not yet filed or kept loose.
+
+export async function fetchCollections(userId) {
+  const [cols, items] = await Promise.all([
+    supabase.from("board_collections").select("*").eq("user_id", userId).order("position").order("created_at"),
+    selectAllPages(() =>
+      supabase
+        .from("board_collection_items")
+        .select("id, collection_id, quote_id, note_id, position, added_at")
+        .eq("user_id", userId)
+        .order("position")
+        .order("added_at", { ascending: false })
+        .order("id")
+    ),
+  ]);
+  if (cols.error) throw cols.error;
+  return { collections: cols.data ?? [], items };
+}
+
+export async function createCollection(name, position = 0) {
+  const { data, error } = await supabase
+    .from("board_collections")
+    .insert({ name: name.trim().slice(0, 60), position })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCollection(id, fields) {
+  const patch = { updated_at: new Date().toISOString() };
+  if ("name" in fields) patch.name = fields.name.trim().slice(0, 60);
+  if ("feeds_today" in fields) patch.feeds_today = Boolean(fields.feeds_today);
+  if ("position" in fields) patch.position = fields.position;
+  const { data, error } = await supabase.from("board_collections").update(patch).eq("id", id).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCollection(id) {
+  const { error } = await supabase.from("board_collections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Puts a quote ({ quote_id }) or a thought ({ note_id }) in a collection, at
+// its front. Already there is fine. A quote filed leaves the tray.
+export async function fileInCollection(collectionId, { quote_id = null, note_id = null }) {
+  const { data, error } = await supabase
+    .from("board_collection_items")
+    .insert({ collection_id: collectionId, quote_id, note_id, position: -Math.floor(Date.now() / 1000) })
+    .select("id, collection_id, quote_id, note_id, position, added_at")
+    .single();
+  if (error && error.code !== "23505") throw error;
+  if (quote_id) await markFiled(quote_id, true);
+  return data ?? null;
+}
+
+export async function unfileFromCollection(collectionId, { quote_id = null, note_id = null }) {
+  let q = supabase.from("board_collection_items").delete().eq("collection_id", collectionId);
+  q = quote_id ? q.eq("quote_id", quote_id) : q.eq("note_id", note_id);
+  const { error } = await q;
+  if (error) throw error;
+}
+
+// Out of the tray (filed, or kept loose), or back into it (Undo).
+export async function markFiled(quoteId, filed) {
+  const { error } = await supabase
+    .from("quotes")
+    .update({ filed_at: filed ? new Date().toISOString() : null })
+    .eq("id", quoteId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Quote shelves: top picks for the week, and shelves to browse by person,
 // theme or mood. The `quotes` function fills a shelf in the background; the
 // page reads the row until it's ready.
@@ -4729,12 +4805,16 @@ export async function columnsHome(userId, today) {
   return made;
 }
 
-// The columns he's touched most lately, anywhere: by the newest change to a
-// step in them, else when the column was made. Ids, newest first.
-export async function fetchRecentColumnIds(userId, limit = 12) {
+// The columns he's touched most lately: by the newest change to a step in
+// them, else when the column was made. Ids, newest first. With `campIds`,
+// only columns in those camps (the Tasks home passes its free columns' camp,
+// so a project's columns stay inside the project: Aaron, 2026-11-28).
+export async function fetchRecentColumnIds(userId, limit = 12, { campIds = null } = {}) {
+  if (campIds && !campIds.length) return [];
+  const only = (q) => (campIds ? q.in("camp_id", campIds) : q);
   const [sections, steps] = await Promise.all([
-    supabase.from("camp_sections").select("id, created_at").eq("user_id", userId).eq("clipboard", false).order("created_at", { ascending: false }).limit(60),
-    supabase.from("camp_steps").select("section_id, updated_at").eq("user_id", userId).not("section_id", "is", null).order("updated_at", { ascending: false }).limit(600),
+    only(supabase.from("camp_sections").select("id, created_at").eq("user_id", userId).eq("clipboard", false)).order("created_at", { ascending: false }).limit(60),
+    only(supabase.from("camp_steps").select("section_id, updated_at").eq("user_id", userId).not("section_id", "is", null)).order("updated_at", { ascending: false }).limit(600),
   ]);
   for (const r of [sections, steps]) if (r.error) throw r.error;
   const at = new Map();
@@ -4743,7 +4823,7 @@ export async function fetchRecentColumnIds(userId, limit = 12) {
   const ids = [...at.entries()].sort((a, b) => String(b[1]).localeCompare(String(a[1]))).map(([id]) => id);
   if (!ids.length) return [];
   // Steps in a clipboard column count for nothing here.
-  const real = await supabase.from("camp_sections").select("id").eq("clipboard", false).in("id", ids.slice(0, 80));
+  const real = await only(supabase.from("camp_sections").select("id").eq("clipboard", false).in("id", ids.slice(0, 80)));
   if (real.error) throw real.error;
   const ok = new Set((real.data ?? []).map((r) => r.id));
   return ids.filter((id) => ok.has(id)).slice(0, limit);

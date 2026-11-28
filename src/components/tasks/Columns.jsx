@@ -46,7 +46,6 @@ export default function Columns({ userId, camp }) {
     return by;
   }, [steps, camp.id]);
   const loose = (tops.get("") ?? []).filter((st) => !st.done_on);
-
   const { removeColumn, addIn, rename } = useColumnOps(userId);
 
   if (!loadedCamps.has(camp.id)) return error ? <LoadError what="this camp's columns" error={error} onRetry={load} /> : <p className="empty">Loading…</p>;
@@ -154,8 +153,8 @@ export function Column({ title, color, campId, sectionId, items, actions, onAdd,
   const [renaming, setRenaming] = useState(false);
   const open = items.filter((st) => !st.done_on);
   const done = items.filter((st) => st.done_on);
-  const { onTick, onText, onDrop, kidsOf } = actions;
-  const row = (st) => <TaskRow key={st.id} step={st} childrenOf={kidsOf} onTick={onTick} onText={onText} onDrop={onDrop} />;
+  const { onTick, onText, onDrop, onClip, kidsOf } = actions;
+  const row = (st) => <TaskRow key={st.id} step={st} childrenOf={kidsOf} onTick={onTick} onText={onText} onDrop={onDrop} onClip={onClip} />;
 
   return (
     <section className="tk-col" style={color ? { "--col": color } : undefined} aria-label={title} data-col data-camp={campId} data-section={sectionId ?? ""}>
