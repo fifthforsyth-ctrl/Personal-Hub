@@ -3,7 +3,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Flame } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { syncProfileTimezone } from "../lib/api";
-import { Sidebar, TopBar, BottomTabs } from "./NavBar";
+import { Sidebar, PhoneTop, BottomTabs } from "./NavBar";
 import { CaptureProvider } from "./CaptureSheet";
 import { FeedbackProvider } from "./ui/Feedback";
 import ErrorBoundary from "./ErrorBoundary";
@@ -66,8 +66,9 @@ export default function ProtectedRoute() {
       <CaptureProvider>
         <div className="shell">
           <Sidebar />
-          <TopBar />
           <main className="main">
+            {/* A phone's clipboard chip and menu, in the page's top corner. */}
+            <PhoneTop />
             <ErrorBoundary resetKey={location.pathname}>
               <Suspense fallback={<p className="empty page">Loading…</p>}>
                 <Outlet />

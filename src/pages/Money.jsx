@@ -79,7 +79,11 @@ export default function Money() {
   const loadError = (buys.error && !buys.data) || (budgetsLoad.error && !budgetsLoad.data) ? buys.error || budgetsLoad.error : null;
 
   return (
-    <div className="page">
+    <div className="page money-page">
+      <header className="hub-head money-head">
+        <h1 className="page-title">Money</h1>
+      </header>
+
       <BankTotals overview={bank.data} onReconnected={bank.reload} />
 
       {loading ? (
@@ -320,9 +324,9 @@ function BudgetRow({ budget, spent, avg, isCurrentMonth, onOpen }) {
           {budget.kind === "business" && <span className="money-tag">Business</span>}
         </span>
         <span className="row" style={{ gap: 6, flexShrink: 0 }}>
-          <span className="money-budget__figure mono">
-            <span className={over ? "is-over" : undefined}>{fmtMoney(spent, { round: true })}</span>
-            {limit != null && <span className="muted"> / {fmtMoney(limit, { round: true })}</span>}
+          <span className="money-budget__figure">
+            <span className={"money-budget__spent" + (over ? " is-over" : "")}>{fmtMoney(spent, { round: true })}</span>
+            {limit != null && <span className="money-budget__limit"> of {fmtMoney(limit, { round: true })}</span>}
           </span>
           <ChevronRight size={15} className="money-budget__chev" aria-hidden="true" />
         </span>

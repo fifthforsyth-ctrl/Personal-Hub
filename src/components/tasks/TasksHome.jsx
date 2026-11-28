@@ -13,13 +13,20 @@ import { useTaskActions } from "./useTaskActions";
 // The Tasks home (Aaron, 2026-11-23): "just be the option to click a big +
 // to form a new column, or to scrub to look at my most recent columns".
 //
-// First a big +, then the columns he's touched most lately, wherever they
-// are (a project's, or free-standing ones made with the +), newest first,
-// swiped through sideways. Each one he didn't make here says which project
-// and target it's in, a tap from there. The order is set when the page
-// opens, so ticking a task doesn't shuffle the row under his finger.
+// First a big +, then the free-standing columns made with it that he's
+// touched most lately, newest first, swiped through sideways. A project's
+// columns stay inside that project and aren't shown here (Aaron, 2026-11-28:
+// "hide the tasks from the projects and keep them just in the project").
+// The order is set when the page opens, so ticking a task doesn't shuffle
+// the row under his finger.
 
 const SHOWN = 12;
+
+// The camps of the free columns' own home (api.js columnsHome).
+export function freeCampIds(board) {
+  const home = new Set((board?.quests ?? []).filter((q) => q.note === COLUMNS_HOME).map((q) => q.id));
+  return (board?.camps ?? []).filter((c) => home.has(c.quest_id)).map((c) => c.id);
+}
 
 export default function TasksHome({ userId, board }) {
   const toast = useToast();
@@ -34,7 +41,7 @@ export default function TasksHome({ userId, board }) {
 
   async function load() {
     try {
-      const recent = await fetchRecentColumnIds(userId, SHOWN);
+      const recent = await fetchRecentColumnIds(userId, SHOWN, { campIds: freeCampIds(board) });
       await loadColumns(userId, recent);
       setIds(recent);
       setError(null);
@@ -100,7 +107,7 @@ export default function TasksHome({ userId, board }) {
             <NewColumn onDone={() => setAdding(false)} onSave={newColumn} />
           ) : (
             <button type="button" className="tk-newcol tk-newcol--big" onClick={() => setAdding(true)} aria-label="New column">
-              <Plus size={44} strokeWidth={1.6} aria-hidden="true" />
+              <Plus size={28} strokeWidth={2} aria-hidden="true" />
               <span>New column</span>
             </button>
           )}

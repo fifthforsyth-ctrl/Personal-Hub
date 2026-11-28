@@ -1,13 +1,14 @@
-import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { LEVELS, inRange } from "../../lib/mark";
-import { KIND_NAME, pathOf, pillLine } from "../../lib/ladder";
+import { KIND_NAME, pillLine } from "../../lib/ladder";
+import { arrowWords, faceOf } from "../../lib/arrows";
 import TargetFace from "../mark/TargetFace";
 import Gear from "../ascent/Gear";
 
 // The pieces of the Targets overview's four tiers: the mission's card, a
 // row of small targets (the lifetime goals, the week's focus), and the
-// quests and lessons as compact rows. Each is a link to its own page.
+// quests and lessons as compact rows. A tap on any of them opens its pop-up
+// (place an arrow, add a note, edit it): `onOpen`.
 
 // A face with nothing on it yet, for a target the range hasn't drawn.
 export const NO_MARKS = { shots: [], reasons: [] };
@@ -39,10 +40,11 @@ export function keepDashes(title) {
 
 // --- The mission ---------------------------------------------------------------
 
-// White, like every card: the words carry it. The summit's words in small
-// capitals over the statement, which keeps to three lines here; the whole
-// of it is a tap away on its page.
-export function MissionCard({ mission, onWrite }) {
+// The one black card on the page (Clean slate, 2026-11-23): the summit's
+// words large over the statement, which keeps to three lines here; the
+// whole of it is a tap away on its page. With nothing written yet it's a
+// plain white card asking for it.
+export function MissionCard({ mission, onWrite, onOpen }) {
   if (!mission?.statement) {
     return (
       <section className="card ov-tier ov-mission ov-mission--empty" aria-labelledby="ov-mission-h">
@@ -58,7 +60,7 @@ export function MissionCard({ mission, onWrite }) {
   }
   return (
     <section className="ov-tier ov-tier--mission" aria-labelledby="ov-mission-h">
-      <Link to={pathOf("mission")} className="card ov-mission">
+      <button type="button" className="card ov-mission" onClick={onOpen}>
         <div className="ov-mission__top">
           <h2 className="eyebrow" id="ov-mission-h">
             My mission
@@ -67,7 +69,7 @@ export function MissionCard({ mission, onWrite }) {
         </div>
         {mission.summit && <p className="ov-mission__summit">{mission.summit}</p>}
         <p className="ov-mission__creed">{mission.statement}</p>
-      </Link>
+      </button>
     </section>
   );
 }
@@ -75,20 +77,61 @@ export function MissionCard({ mission, onWrite }) {
 // --- A row of small targets ----------------------------------------------------
 
 // Five across a phone, the rest a swipe away inside the row; on a desk they
-// wrap. Each item: { key, to, label (what a screen reader hears), name,
+// wrap. Each item: { key, onOpen, label (what a screen reader hears), name,
 // gear?, face (the drawn target), answered? }.
 export function FaceRow({ items, week = false, label }) {
   return (
     <ul className={"ov-faces" + (week ? " ov-faces--week" : "")} aria-label={label}>
       {items.map((it) => (
         <li key={it.key} className="ov-faces__cell">
-          <Link to={it.to} className={"ov-face" + (it.answered ? " is-answered" : "")} aria-label={it.label} title={it.title}>
+          <button type="button" onClick={it.onOpen} className={"ov-face" + (it.answered ? " is-answered" : "")} aria-label={it.label} title={it.title}>
             {it.face}
             <span className="ov-face__name">
               {it.gear && <Gear name={it.gear} size={12} className="ov-face__gear" />}
               {it.name}
             </span>
-          </Link>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// --- The week's focus, a row each -----------------------------------------------
+
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_WORDS = { bull: "bullseye", ring: "on the target", miss: "missed", none: "no arrow", now: "today, no arrow yet", later: "to come" };
+
+// The seven letters over the squares, today's in ink.
+export function WeekLetters({ todayIndex = -1 }) {
+  return (
+    <span className="ov-week ov-week--letters" aria-hidden="true">
+      {WEEKDAYS.map((d, i) => (
+        <i key={i} className={i === todayIndex ? "is-today" : undefined}>
+          {d}
+        </i>
+      ))}
+    </span>
+  );
+}
+
+// Each focus by its whole name, with the week as seven small squares:
+// black for a bullseye, grey for an arrow on the target, an outline for a
+// miss, orange for today while it waits, pale for days to come. Each row
+// opens the focus's pop-up. Items: { key, onOpen, title, label, days: [state x7] }.
+export function FocusRows({ items, label }) {
+  return (
+    <ul className="ov-rows" aria-label={label}>
+      {items.map((it) => (
+        <li key={it.key}>
+          <button type="button" onClick={it.onOpen} className="ov-row" aria-label={it.label}>
+            <span className="ov-row__name">{it.title}</span>
+            <span className="ov-week" aria-hidden="true">
+              {it.days.map((d, i) => (
+                <i key={i} className={"ov-day ov-day--" + d} title={DAY_WORDS[d]} />
+              ))}
+            </span>
+          </button>
         </li>
       ))}
     </ul>
@@ -97,10 +140,10 @@ export function FaceRow({ items, week = false, label }) {
 
 // --- The quests and lessons ----------------------------------------------------
 
-// One row each: its last 30 days of marks, its name on one line, and what's
-// waiting there ("Quest · 2 camps · 3 today"). One column on a phone, two
-// from 520 wide.
-export function ClimbRows({ climbs, today }) {
+// One row each, a hairline between: its last 30 days of marks, its name on
+// one line, and what's waiting there ("Quest · 2 camps · 3 today").
+// `arrowsOf(c)` is the arrows on it; `onOpen(c)` opens its pop-up.
+export function ClimbRows({ climbs, today, arrowsOf = () => [], onOpen = () => {} }) {
   return (
     <ul className="ov-climbs">
       {climbs.map((c) => {
@@ -109,18 +152,19 @@ export function ClimbRows({ climbs, today }) {
         const heard = line.replace(/ · /g, ", ");
         return (
           <li key={c.key}>
-            <Link
-              to={pathOf(c.kind, c.key)}
+            <button
+              type="button"
+              onClick={() => onOpen(c)}
               className="ov-climb"
-              aria-label={`${c.title}. ${c.kind === "lesson" ? KIND_NAME.lesson : kind}${heard ? `, ${heard}` : ""}. ${sentence(markWords(c.target, today))}.`}
+              aria-label={`${c.title}. ${c.kind === "lesson" ? KIND_NAME.lesson : kind}${heard ? `, ${heard}` : ""}. ${sentence(arrowWords(arrowsOf(c), today))}.`}
             >
-              <TargetFace target={c.target ?? NO_MARKS} today={today} range="30" mini arrow />
+              <TargetFace target={faceOf(arrowsOf(c))} today={today} range="30" mini arrow />
               <span className="ov-climb__txt">
                 <b className="truncate">{c.title}</b>
                 <small className="truncate">{line ? `${kind} · ${line}` : kind}</small>
               </span>
               <ChevronRight size={16} className="ov-go" aria-hidden="true" />
-            </Link>
+            </button>
           </li>
         );
       })}

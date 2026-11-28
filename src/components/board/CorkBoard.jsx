@@ -8,6 +8,7 @@ import { corkItems, pinOf, tiltOf } from "../../lib/quoteShelves";
 import { dayLabel } from "../study/dayLabel";
 import QuoteCard from "./QuoteCard";
 import LinkToTarget from "../targets/LinkToTarget";
+import { CollectionsButton } from "./Collections";
 
 // The board itself: the quotes you've saved and the thoughts you've
 // kept, pinned up together, newest first. Pinned thoughts go to the top.
@@ -19,7 +20,7 @@ import LinkToTarget from "../targets/LinkToTarget";
 const PAGE = 18;
 
 const SHOW = [
-  { key: "all", label: "Everything" },
+  { key: "all", label: "All" },
   { key: "quotes", label: "Quotes" },
   { key: "thoughts", label: "Thoughts" },
   { key: "sweet", label: "Sweet somethings" },
@@ -72,7 +73,17 @@ export default function CorkBoard({ quotes, notes, onOpenNote, onQuoteChange, on
             {items.slice(0, shown).map((item) => (
               <div key={item.id} className="print-slot">
                 {item.kind === "quote" ? (
-                  <QuoteCard quote={item.quote} variant="cork" onChange={onQuoteChange} extra={<LinkToTarget quote={item.quote} />} />
+                  <QuoteCard
+                    quote={item.quote}
+                    variant="cork"
+                    onChange={onQuoteChange}
+                    extra={
+                      <>
+                        <CollectionsButton target={{ quote_id: item.quote.id }} />
+                        <LinkToTarget quote={item.quote} />
+                      </>
+                    }
+                  />
                 ) : (
                   <PaperNote note={item.note} onOpen={onOpenNote} onChanged={onNotesChanged} />
                 )}
@@ -198,6 +209,7 @@ export function PaperNote({ note, onOpen, onChanged }) {
         >
           {busy ? <Loader2 size={14} className="spin" /> : <ImagePlus size={14} />}
         </button>
+        <CollectionsButton target={{ note_id: note.id }} className="paper__tool" />
         {hasPicture && (
           <button type="button" className="paper__tool" onClick={removePicture} disabled={busy} aria-label="Remove the picture" title="Remove the picture">
             <ImageOff size={14} />

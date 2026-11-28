@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Plus, Pencil, Trash2, Target as TargetIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Target as TargetIcon } from "lucide-react";
 import { addCamps, addQuest, COLUMNS_HOME, deleteQuest, fetchTaskLists, updateQuest } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLoad } from "../lib/useLoad";
@@ -20,12 +20,16 @@ import "../styles/tasks.css";
 // /tasks is the home (Aaron, 2026-11-23, later): "just be the option to
 // click a big + to form a new column, or to scrub to look at my most recent
 // columns. Not every column has to be organized by task". A column made
-// there belongs to no project (api.js columnsHome). Above it, the projects.
+// there belongs to no project (api.js columnsHome).
+//
+// One row of pills runs under the title on every Tasks page (Clean slate,
+// 2026-11-23): "Recent" (the home), then the projects, then a new one. The
+// pill you're on is black, so the row is also the way back.
 //
 // A project (what were the lists: each quest he's on, and each plain list)
-// opens at /tasks/<id>: its targets (the project's camps) as pills, and the
-// open target's columns side by side. Projects, targets and columns can all
-// be made from here, in any mix.
+// opens at /tasks/<id>: its name, its targets (the project's camps) as
+// pills, and the open target's columns side by side. Projects, targets and
+// columns can all be made from here, in any mix.
 //
 // A column is one of a camp's sections, so everything sorted into sections
 // before is right there. Tasks are carried between columns by their
@@ -123,58 +127,60 @@ export default function Tasks() {
 
   return (
     <div className="page tasks-page">
+      <header className="hub-head tasks-head">
+        <h1 className="page-title">Tasks</h1>
+      </header>
       {board.error && !board.data && <LoadError what="your projects" error={board.error} onRetry={board.reload} />}
       {!board.data ? (
         !board.error && <p className="empty">Loading…</p>
-      ) : !param ? (
-        <>
-          <header className="tasks-head">
-            <div className="eyebrow">Tasks</div>
-            <ProjectPills lists={lists} onNew={newProject} />
-          </header>
-          <TasksHome userId={userId} board={board.data} />
-        </>
-      ) : !open ? (
-        <>
-          <BackToTasks />
-          <section className="card tg-gone">
-            <p>That project isn't here any more.</p>
-            <Link to="/tasks" className="btn btn--accent">
-              Back to Tasks
-            </Link>
-          </section>
-        </>
       ) : (
         <>
-          <BackToTasks />
-          <ProjectTitle open={open} onRename={renameProject} onRemove={removeProject} />
-          <TargetPills camps={camps} on={campId} onPick={(id) => setSearch({ camp: id }, { replace: true })} onNew={newTarget} />
-          {camp ? <Columns key={camp.id} userId={userId} camp={camp} /> : <p className="empty">Add a target to start making columns.</p>}
+          <ProjectPills lists={lists} on={param ?? ""} onNew={newProject} />
+          {!param ? (
+            <TasksHome userId={userId} board={board.data} />
+          ) : !open ? (
+            <section className="card tg-gone">
+              <p>That project isn't here any more.</p>
+              <Link to="/tasks" className="btn btn--accent">
+                Back to Tasks
+              </Link>
+            </section>
+          ) : (
+            <>
+              <ProjectTitle open={open} onRename={renameProject} onRemove={removeProject} />
+              <TargetPills camps={camps} on={campId} onPick={(id) => setSearch({ camp: id }, { replace: true })} onNew={newTarget} />
+              {camp ? <Columns key={camp.id} userId={userId} camp={camp} /> : <p className="empty">Add a target to start making columns.</p>}
+            </>
+          )}
         </>
       )}
     </div>
   );
 }
 
-function BackToTasks() {
-  return (
-    <Link to="/tasks" className="tasks-back">
-      <ChevronLeft size={16} aria-hidden="true" />
-      Tasks
-    </Link>
-  );
-}
-
-// The projects, as pills along the top of the home, and a new one.
-function ProjectPills({ lists, onNew }) {
+// Recent and the projects, as pills under the title, and a new one. The one
+// open is black, and is brought into view when it's off the edge.
+function ProjectPills({ lists, on, onNew }) {
   const [adding, setAdding] = useState(false);
+  const row = useRef(null);
+  useEffect(() => {
+    const ul = row.current;
+    const pill = ul?.querySelector(".is-on");
+    if (!ul || !pill) return;
+    const left = pill.offsetLeft - ul.offsetLeft;
+    if (left < ul.scrollLeft || left + pill.offsetWidth > ul.scrollLeft + ul.clientWidth) ul.scrollLeft = Math.max(0, left - 16);
+  }, [on, lists.length]);
   return (
     <nav className="tasks-lists" aria-label="Projects">
-      <ul>
+      <ul ref={row}>
+        <li>
+          <Link to="/tasks" className={"tasks-pill" + (on ? "" : " is-on")} aria-current={on ? undefined : "page"}>
+            Recent
+          </Link>
+        </li>
         {lists.map((l) => (
           <li key={l.id}>
-            <Link to={`/tasks/${l.id}`} className="tasks-pill">
-              {!l.is_list && <TargetIcon size={12} aria-label="Quest" />}
+            <Link to={`/tasks/${l.id}`} className={"tasks-pill" + (l.id === on ? " is-on" : "")} aria-current={l.id === on ? "page" : undefined}>
               <span className="tasks-pill__text">{l.title}</span>
             </Link>
           </li>
@@ -184,7 +190,7 @@ function ProjectPills({ lists, onNew }) {
             <NameForm label="New project" placeholder="Name the project" submit="Make it" onDone={() => setAdding(false)} onSave={onNew} />
           ) : (
             <button type="button" className="tasks-pill tasks-pill--new" onClick={() => setAdding(true)}>
-              <Plus size={13} aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               Project
             </button>
           )}
@@ -213,19 +219,19 @@ function ProjectTitle({ open, onRename, onRemove }) {
     );
   return (
     <div className="tasks-title">
-      <h1 className="page-title">{open.title}</h1>
+      <h2 className="tasks-title__name">{open.title}</h2>
       {open.is_list ? (
         <div className="tasks-title__tools">
           <button type="button" className="btn-icon" onClick={() => setRenaming(true)} aria-label="Rename the project" title="Rename">
-            <Pencil size={15} />
+            <Pencil size={17} />
           </button>
           <button type="button" className="btn-icon" onClick={() => onRemove(open)} aria-label="Delete the project" title="Delete">
-            <Trash2 size={15} />
+            <Trash2 size={17} />
           </button>
         </div>
       ) : (
         <Link to={`/targets/${open.id}`} className="btn-link tasks-title__target">
-          <TargetIcon size={13} aria-hidden="true" />
+          <TargetIcon size={15} aria-hidden="true" />
           On Targets
         </Link>
       )}
@@ -251,7 +257,7 @@ function TargetPills({ camps, on, onPick, onNew }) {
             <NameForm label="New target" placeholder="Name the target" submit="Add" onDone={() => setAdding(false)} onSave={onNew} />
           ) : (
             <button type="button" className="tasks-pill tasks-pill--camp tasks-pill--new" onClick={() => setAdding(true)}>
-              <Plus size={13} aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               Target
             </button>
           )}

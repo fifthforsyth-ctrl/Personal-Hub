@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronUp, ClipboardList } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../ui/Feedback";
@@ -14,8 +15,13 @@ import "../../styles/tasks.css";
 // "move the clipboard to be a dropdown I can drag down from the top of the
 // screen at any time in the app").
 //
-// Pull down on the top bar (or the little tab hanging under it) and it
-// follows the finger; let go past a short way and it stays open. It holds
+// On a phone its handle is the white chip in the page's top corner, beside
+// the menu, showing how many thoughts wait on it: tap it, or pull down on
+// it, and the clipboard follows the finger; let go past a short way and it
+// stays open. Once the page has scrolled and the chip has gone with the
+// title, a small tab hangs from the top of the screen instead, so the
+// clipboard is still one pull away from anywhere. On a desk the tab hangs
+// from the top of the page all the time. It holds
 // every open thought from every clipboard column, oldest first. New ones go
 // to the camp last open on Tasks. Carry one by its handle onto a column on
 // Tasks (the clipboard stays open over the top of the page, the columns
@@ -23,6 +29,41 @@ import "../../styles/tasks.css";
 // under it, to put it away.
 
 const OPEN_AT = 56;
+const PHONE = "(max-width: 900px)";
+// How far a phone page scrolls before the chip is out of reach.
+const CHIP_GONE = 64;
+
+// Where the handle lives: in the phone's top corner (`slot`), or hanging
+// from the top of the screen (no slot: a desk, or a phone page scrolled
+// past its title).
+function useHandleSlot() {
+  const [phone, setPhone] = useState(() => typeof window !== "undefined" && window.matchMedia(PHONE).matches);
+  const [slot, setSlot] = useState(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia(PHONE);
+    const onChange = (e) => setPhone(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!phone) {
+      setSlot(null);
+      return undefined;
+    }
+    setSlot(document.getElementById("hub-clip-slot"));
+    const main = document.querySelector(".main");
+    if (!main) return undefined;
+    const onScroll = () => setScrolled(main.scrollTop > CHIP_GONE);
+    onScroll();
+    main.addEventListener("scroll", onScroll, { passive: true });
+    return () => main.removeEventListener("scroll", onScroll);
+  }, [phone]);
+
+  return phone && !scrolled ? slot : null;
+}
 
 export default function ClipboardPull() {
   const { user } = useAuth();
@@ -34,6 +75,7 @@ export default function ClipboardPull() {
   const [pull, setPull] = useState(null); // px while a finger is pulling
   const sheet = useRef(null);
   const gesture = useRef(null);
+  const slot = useHandleSlot();
 
   useEffect(() => {
     if (userId) loadClipboard(userId).catch((err) => console.warn(err));
@@ -54,15 +96,14 @@ export default function ClipboardPull() {
   const homeId = homeCamp();
   const homeSec = sections.filter((s) => s.clipboard && s.camp_id === homeId).sort(BYPOS)[0] ?? sections.filter((s) => s.clipboard).sort(BYPOS)[0] ?? null;
 
-  // Pull down from the top bar or the tab, anywhere in the app.
+  // Pull down from the handle, anywhere in the app.
   useEffect(() => {
     const down = (e) => {
       if (isDragging() || (e.button != null && e.button !== 0)) return;
       const t = e.target;
-      const onBar = t.closest?.(".topbar") && !t.closest("a, button, input, textarea");
       const onTab = t.closest?.(".tk-pulltab");
       const onFoot = t.closest?.(".tk-clip__foot");
-      if (!onBar && !onTab && !onFoot) return;
+      if (!onTab && !onFoot) return;
       gesture.current = { id: e.pointerId, y0: e.clientY, from: onFoot ? "open" : "shut", moved: false };
     };
     const move = (e) => {
@@ -81,7 +122,7 @@ export default function ClipboardPull() {
       gesture.current = null;
       const dy = e.clientY - g.y0;
       if (!g.moved) {
-        // A tap on the tab or the foot opens or shuts it; a tap on the bar does nothing.
+        // A tap on the handle opens it; a tap on the foot shuts it.
         if (e.target.closest?.(".tk-pulltab")) setOpen(true);
         else if (g.from === "open") setOpen(false);
       } else if (g.from === "shut") setOpen(dy > OPEN_AT);
@@ -135,12 +176,22 @@ export default function ClipboardPull() {
       ? { transform: `translateY(calc(-100% + ${pull}px))`, transition: "none" }
       : undefined;
 
+  const handle = (
+    <button
+      type="button"
+      className={"tk-pulltab" + (slot ? " tk-pulltab--chip" : "") + (open ? " is-hidden" : "")}
+      aria-label={`Open the clipboard${items.length ? ` (${items.length})` : ""}`}
+      title="Clipboard"
+      aria-expanded={open}
+    >
+      <ClipboardList size={slot ? 17 : 13} aria-hidden="true" />
+      {items.length > 0 && <span>{items.length}</span>}
+    </button>
+  );
+
   return (
     <>
-      <button type="button" className={"tk-pulltab" + (open ? " is-hidden" : "")} aria-label={`Pull down the clipboard${items.length ? ` (${items.length})` : ""}`} aria-expanded={open}>
-        <ClipboardList size={13} aria-hidden="true" />
-        {items.length > 0 && <span>{items.length}</span>}
-      </button>
+      {slot ? createPortal(handle, slot) : handle}
       <section
         ref={sheet}
         className={"tk-clip" + (open ? " is-open" : "") + (shown ? " is-shown" : "")}

@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
 import {
   Sun,
-  CalendarRange,
+  CalendarDays,
   Target,
-  ListChecks,
+  Columns2,
   LogOut,
   Flame,
   Wallet,
@@ -45,8 +45,8 @@ import "../styles/love.css";
 // way in is enough.
 export const NAV = [
   { to: "/", label: "Today", Icon: Sun, end: true },
-  { to: "/plan", label: "Week", Icon: CalendarRange },
-  { to: "/tasks", label: "Tasks", Icon: ListChecks },
+  { to: "/plan", label: "Week", Icon: CalendarDays },
+  { to: "/tasks", label: "Tasks", Icon: Columns2 },
   { to: "/targets", label: "Targets", Icon: Target },
   { to: "/study", label: "Board", Icon: StickyNote },
   { to: "/money", label: "Money", Icon: Wallet },
@@ -84,7 +84,7 @@ function useLoveUnread() {
 }
 
 // Ask: questions about your whole record, answered with words and charts.
-// In the sidebar under the four places; on a phone, one tap from the top bar.
+// In the sidebar under the six places; on a phone, in the menu.
 const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 
 // Each place has one name, the same here as on its page.
@@ -97,9 +97,8 @@ const ASK = { to: "/ask", label: "Ask", Icon: Sparkles };
 // top goals), and the wheel itself is still at /tree, a tap from a goal's
 // edit sheet.
 //
-// Past days went the same way: you weren't opening it. Any day is still one
-// tap away from the week strip on Today, the Week page and the evening, and
-// /day/<date> still works.
+// Past days went the same way: you weren't opening it. Any day is still a
+// tap away from the Week page and the evening, and /day/<date> still works.
 export const MORE = [
   { to: "/temple", label: "Temple", Icon: Landmark },
   { to: "/phone", label: "On your phone", Icon: Smartphone },
@@ -222,10 +221,18 @@ export function Sidebar() {
   );
 }
 
-export function TopBar() {
+// The top of a phone page (Clean slate, 2026-11-23). There's no brand bar:
+// the page's own title leads, and the corner holds the clipboard chip (the
+// pull-down clipboard puts it in the slot here) and one menu button. The
+// menu is everything that isn't a tab: Love, Ask, Temple, the phone and
+// watch settings, Refresh and Sign out. A dot on the button says something
+// new is waiting on Love.
+export function PhoneTop() {
   const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const location = useLocation();
   const unread = useLoveUnread();
+  const on = (to) => isActive(to, location.pathname);
 
   // Following a link out of the menu should close it.
   useEffect(() => setOpen(false), [location.pathname]);
@@ -239,41 +246,53 @@ export function TopBar() {
 
   return (
     <>
-      <header className="topbar">
-        <span className="brand-mark" style={{ width: 26, height: 26, borderRadius: 8 }}>
-          <Flame size={14} strokeWidth={2.4} />
-        </span>
-        <strong style={{ fontSize: 14.5, fontWeight: 650, letterSpacing: "-0.01em" }}>Personal Hub</strong>
-        <span className="spacer" />
-        <RefreshButton />
-        <NavLink
-          to="/love"
-          className={({ isActive: on }) => "btn-icon love-nav" + (on ? " active" : "")}
-          aria-label={unread > 0 ? `Love, ${unread} new` : "Love"}
-          title="Love"
+      <div className="phone-top">
+        <span className="phone-top__slot" id="hub-clip-slot" />
+        <button
+          type="button"
+          className="hub-menu"
+          onClick={() => setOpen(true)}
+          aria-label={unread > 0 ? `Menu, ${unread} new on Love` : "Menu"}
+          title="Menu"
+          aria-expanded={open}
         >
-          <Heart size={18} fill={unread > 0 ? "currentColor" : "none"} />
-          {unread > 0 && <span className="love-nav__dot" />}
-        </NavLink>
-        <NavLink to="/ask" className={({ isActive: on }) => "btn-icon topbar-ask" + (on ? " active" : "")} aria-label="Ask" title="Ask">
-          <Sparkles size={18} />
-        </NavLink>
-        <button className="btn-icon" onClick={() => setOpen(true)} aria-label="More" title="More" aria-expanded={open}>
-          <Menu size={18} />
+          <Menu size={20} strokeWidth={2.1} />
+          {unread > 0 && <span className="hub-menu__dot" />}
         </button>
-      </header>
+      </div>
 
       {open && (
         <div className="sheet-backdrop" onClick={() => setOpen(false)}>
-          <div className="sheet" role="dialog" aria-modal="true" aria-label="More" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="Menu" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-head">
-              <span className="card-title">More</span>
+              <span className="card-title">Menu</span>
               <button className="btn-icon" onClick={() => setOpen(false)} aria-label="Close" title="Close">
                 <X size={17} />
               </button>
             </div>
-            <nav className="more-list" aria-label="More">
+            <nav className="more-list" aria-label="Menu">
+              <Link to={LOVE.to} className={"more-link" + (on(LOVE.to) ? " active" : "")} aria-current={on(LOVE.to) ? "page" : undefined}>
+                <Heart size={17} strokeWidth={2} />
+                Love
+                {unread > 0 && <span className="more-link__count" aria-label={`${unread} new`}>{unread}</span>}
+              </Link>
+              <Link to={ASK.to} className={"more-link" + (on(ASK.to) ? " active" : "")} aria-current={on(ASK.to) ? "page" : undefined}>
+                <Sparkles size={17} strokeWidth={2} />
+                Ask the Hub
+              </Link>
               <MoreLinks className="more-link" iconSize={17} />
+              <button
+                type="button"
+                className={"more-link" + (refreshing ? " busy" : "")}
+                disabled={refreshing}
+                onClick={() => {
+                  setRefreshing(true);
+                  refreshApp();
+                }}
+              >
+                <RotateCw size={17} strokeWidth={2} />
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
             </nav>
             <div className="more-signout">
               <SignOut className="more-link more-link--quiet" iconSize={17} />
@@ -285,22 +304,21 @@ export function TopBar() {
   );
 }
 
-// Round icons with their names under them: the icon is quick once you know
-// it, and the word is there until you do. Six tabs and the ＋ have to fit a
-// 360px phone, so the ＋ sits after the first three (Today, Week, Tasks:
-// the ones you're in all day) rather than dead centre. The round button was
-// a ＋ for capture; since 2026-11-23 it's a mic (Aaron): say what you want
-// done and the Hub does it and answers out loud. Capture is a tap away at
-// the bottom of the voice sheet. A tab stays lit on
-// every page under it, so Targets shows as the place you are on a quest's
-// page, a camp or a plan too (/targets/...).
+// Plain icons with their names under them: the icon is quick once you know
+// it, and the word is there until you do. Seven even slots: three tabs
+// (Today, Week, Tasks: the ones you're in all day), the mic in the middle,
+// three more. The round button was a ＋ for capture; since 2026-11-23 it's a
+// mic (Aaron): say what you want done and the Hub does it and answers out
+// loud. Capture is a tap away at the bottom of the voice sheet. A tab stays
+// lit on every page under it, so Targets shows as the place you are on a
+// quest's page, a camp or a plan too (/targets/...).
 export function BottomTabs() {
   const capture = useCapture();
   const [talking, setTalking] = useState(false);
   const tab = ({ to, label, Icon, end }) => (
     <NavLink key={to} to={to} end={end} className={({ isActive: on }) => "bottom-tab" + (on ? " active" : "")}>
       <span className="bottom-tab__icon">
-        <Icon size={19} strokeWidth={1.8} />
+        <Icon size={22} strokeWidth={1.8} />
       </span>
       <span className="bottom-tab__label">{label}</span>
     </NavLink>
@@ -319,7 +337,7 @@ export function BottomTabs() {
         aria-label="Speak to the Hub"
         title="Speak to the Hub"
       >
-        <Mic size={23} strokeWidth={2.4} />
+        <Mic size={24} strokeWidth={2.2} />
       </button>
       {NAV.slice(3).map(tab)}
       {talking && (

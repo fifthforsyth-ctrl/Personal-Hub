@@ -3,7 +3,9 @@
 .fm { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .fm--compact { margin-top: 12px; padding-top: 12px; }
 
-.fm-check { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; flex-wrap: wrap; }
+/* relative: the hidden checkbox is placed inside the row, not against the page
+   (placed against the page it made the page taller than the phone). */
+.fm-check { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; flex-wrap: wrap; }
 .fm-check input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
 .fm-check__box {
   width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px;

@@ -87,45 +87,56 @@
 
 /* --- Part 2: the Targets overview (add part 2's rules directly under this line) --- */
 
-/* The overview (/targets): the ladder, biggest to smallest, small enough
-   that the four tiers come close to fitting a phone's first screen. The
-   page wears .ascent and .mark for the bow, the patches and the faces. */
-.ov-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
-.ov .ov-top .eyebrow { margin: 0 0 2px; }
+/* The overview (/targets): the ladder, biggest to smallest, a card a tier
+   (Clean slate). The page wears .ascent and .mark for the bow, the patches
+   and the faces. */
 .ov-top .page-title { margin: 0; }
-.ov-top .btn { flex: none; min-height: 40px; }
 
-.ov-tier { margin: 0 0 14px; min-width: 0; }
-.ov-tier__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 6px; }
-.ov-note { font-size: 11.5px; color: var(--text-3); line-height: 1.3; }
-.ov-go { flex: none; color: var(--text-3); }
-.ov-none { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
-.ov-none .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; }
+.ov-tier { margin: 0 0 12px; min-width: 0; }
+.ov-tier__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 28px; margin: 0 0 8px; }
+.ov-h { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; line-height: 1.3; }
+.ov-note { font-size: 12.5px; color: var(--text-2); line-height: 1.3; }
+.ov-go { flex: none; color: var(--text-2); }
+.ov-none { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
+.ov-none .btn-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; }
+.ov-edit { min-height: 44px; margin: -8px auto -8px 0; padding: 0 6px; font-size: 13px; color: var(--text-2); }
+.ov-done { margin-left: auto; min-height: 40px; }
+/* While the week's focus is being set, its own card is the card. */
+.ov-tier--editing > .ov-tier__head { padding: 4px 4px 0 6px; }
 
-/* Tier 1: the mission. White like every card; the words carry it. */
-.ov-mission { display: flex; flex-direction: column; gap: 3px; color: var(--text); text-decoration: none; }
-/* Its own padding beats the card's, and on a phone ascent.css's too, which
-   pads every card on its pages (.ascent .card:not(.card--flush)). */
-.card.ov-mission, .ascent .card.ov-mission:not(.card--flush) { padding: 14px 16px 15px; }
-a.ov-mission { transition: background 0.14s; }
-@media (hover: hover) { a.ov-mission:hover { background: var(--card-hover); } }
+/* A tier's card. Its own padding beats the card's, and on a phone
+   ascent.css's too, which pads every card on its pages
+   (.ascent .card:not(.card--flush)). One that holds rows runs them edge to
+   edge, with a hairline over each. */
+.card.ov-card, .ascent .card.ov-card:not(.card--flush) { padding: 16px 14px 14px; }
+.card.ov-card--rows, .ascent .card.ov-card--rows:not(.card--flush) { padding: 14px 0 6px; }
+.ov-card--rows > .ov-tier__head { padding: 0 18px; margin-bottom: 6px; }
+.ov-card--rows > .ov-none { padding: 4px 18px 10px; }
+
+/* Tier 1: the mission, the one black card. The summit's words large, the
+   statement under them in a softer white. */
+.ov-mission { display: flex; flex-direction: column; gap: 6px; color: var(--text); text-decoration: none; }
+.card.ov-mission, .ascent .card.ov-mission:not(.card--flush) { padding: 20px 20px 22px; }
+.ov-mission:is(a, button) { background: var(--ink); color: var(--on-ink); transition: opacity 0.14s; }
+.ov-mission:is(a, button):active { opacity: 0.92; }
+.ov-mission:is(a, button) .eyebrow, .ov-mission:is(a, button) .ov-go { color: #b9b6af; }
 .ov-mission__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ov-mission__summit { margin: 0; font-family: var(--font-serif); font-variant-caps: small-caps; font-size: 15px; font-weight: 600; letter-spacing: 0.05em; line-height: 1.25; overflow-wrap: anywhere; }
+.ov-mission__summit { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.12; overflow-wrap: anywhere; }
 .ov-mission__creed {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 15.5px;
+  margin: 2px 0 0;
+  font-size: 15px;
   line-height: 1.45;
+  color: #dad7d0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: break-word;
+  text-wrap: pretty;
 }
 .ov-mission--empty { align-items: flex-start; gap: 8px; }
-.ov-mission__none { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
-.ov-mission--empty .btn { min-height: 40px; }
+.ov-mission__none { margin: 0; font-size: 14px; line-height: 1.45; color: var(--text-2); }
+.ov-mission--empty .btn { min-height: 44px; }
 
 /* Tiers 2 and 4: a row of small targets, the same measurements as the
    week's focus at the top of Today (focus.css, .focus-strip__row), under
@@ -165,7 +176,7 @@ a.ov-mission { transition: background 0.14s; }
   text-decoration: none;
   transition: background 0.14s;
 }
-@media (hover: hover) { .ov-face:hover { background: var(--card); } }
+@media (hover: hover) { .ov-face:hover { background: var(--inset); } }
 .mark .ov-face .mk-face { width: calc(100% - 4px); max-width: 64px; }
 @media (prefers-reduced-motion: no-preference) {
   .ov-face .mk-face { transition: transform 0.12s; }
@@ -179,7 +190,7 @@ a.ov-mission { transition: background 0.14s; }
   max-width: calc(100% + 8px);
   margin-inline: -4px;
   padding-inline: 4px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -207,11 +218,11 @@ a.ov-mission { transition: background 0.14s; }
 .mark .ov-faces--week .ov-face:not(.is-answered) .mk-dot--last { fill: var(--ink); }
 
 @media (max-width: 900px) {
-  /* Edge to edge, so a sixth target peeks in from the side. */
-  .ov-faces { margin: 0 -14px; padding: 2px 12px 4px; scroll-padding-inline: 12px; }
+  /* To the card's edges, so a sixth target peeks in from the side. */
+  .ov-faces { margin: 0 -14px; padding: 2px 10px 0; scroll-padding-inline: 10px; }
 }
 @media (max-width: 380px) {
-  .ov-face__name { font-size: 10px; }
+  .ov-face__name { font-size: 11px; }
 }
 @media (min-width: 901px) {
   .ov-faces {
@@ -222,42 +233,58 @@ a.ov-mission { transition: background 0.14s; }
     scroll-snap-type: none;
   }
   .ov-faces__cell { max-width: none; }
-  .ov-face__name { font-size: 11.5px; line-height: 1.25; letter-spacing: -0.01em; }
+  .ov-face__name { font-size: 12.5px; line-height: 1.25; letter-spacing: -0.01em; }
   .mark .ov-face .mk-face { max-width: 72px; }
 }
 
-/* Tier 3: the quests and lessons, a compact row each. One column on a
-   phone, two from 520 wide. */
-.ov-climbs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-@media (min-width: 520px) { .ov-climbs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.ov-climbs > li { min-width: 0; }
+/* Tier 3: the quests and lessons, a row each with a hairline over it. */
+.ov-climbs { list-style: none; margin: 0; padding: 0; }
+.ov-climbs > li { min-width: 0; border-top: 1px solid var(--line); }
 .ov-climb {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   min-width: 0;
-  min-height: 56px;
-  padding: 3px 10px 3px 6px;
-  background: var(--card);
-  border: 1px solid rgba(20, 18, 14, 0.04);
-  border-radius: var(--r);
-  box-shadow: var(--shadow);
+  min-height: 60px;
+  padding: 6px 14px 6px 14px;
   color: var(--text);
   text-decoration: none;
   transition: background 0.14s;
 }
 @media (hover: hover) { .ov-climb:hover { background: var(--card-hover); } }
-.mark .ov-climb .mk-face { flex: none; width: 48px; height: 48px; }
-.ov-climb__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ov-climb__txt b { font-size: 14px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
-.ov-climb__txt small { font-size: 11.5px; color: var(--text-2); line-height: 1.3; }
-.ov-adds { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.ov-adds .btn { min-height: 40px; }
+.ov-climb:active { background: var(--inset); }
+.mark .ov-climb .mk-face { flex: none; width: 44px; height: 44px; }
+.ov-climb__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ov-climb__txt b { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.ov-climb__txt small { font-size: 13px; color: var(--text-2); line-height: 1.3; }
+.ov-adds { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 8px; border-top: 1px solid var(--line); }
+.ov-adds .btn { min-height: 44px; padding: 0 14px; text-decoration: none; }
+
+/* Tier 4: the week's focus, a row each: its name, then the week as seven
+   squares under the letters of the days. Black is a bullseye, grey an arrow
+   on the target, an outline a miss, orange today while it waits, pale a day
+   to come, and a day gone by with no arrow is a small dash. */
+.ov-rows { list-style: none; margin: 0; padding: 0; }
+.ov-rows > li { border-top: 1px solid var(--line); }
+.ov-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 18px; color: var(--text); text-decoration: none; transition: background 0.14s; }
+@media (hover: hover) { .ov-row:hover { background: var(--card-hover); } }
+.ov-row:active { background: var(--inset); }
+.ov-row__name { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.ov-week { flex: none; display: grid; grid-template-columns: repeat(7, 12px); gap: 4px; align-items: center; justify-items: center; }
+.ov-week--letters { margin-left: auto; }
+.ov-week--letters i { font-style: normal; font-size: 11.5px; line-height: 1; color: var(--text-3); }
+.ov-week--letters i.is-today { color: var(--text); font-weight: 700; }
+.ov-day { width: 12px; height: 12px; border-radius: 4px; background: #e7e5e0; }
+.ov-day--bull { background: var(--ink); }
+.ov-day--ring { background: #8f8b84; }
+.ov-day--miss { background: transparent; box-shadow: inset 0 0 0 1.5px #a8a49c; }
+.ov-day--now { background: var(--accent); }
+.ov-day--none { width: 8px; height: 2px; border-radius: 1px; background: #c9c5bd; }
 
 /* Below the ladder: the bow, and what's behind. Side by side from a
    tablet up, and beside the ladder only where the ladder still has room
    for five goals across (the desk's sidebar takes 232px of the window). */
-.ov-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ov-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .ov-side > .card + .card { margin-top: 0; }
 .ov-side .mk-rack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 701px) and (max-width: 1239px) {
@@ -545,11 +572,43 @@ a.ov-mission { transition: background 0.14s; }
 @media (max-width: 420px) {
   .tg-head__top { gap: 10px; }
   .btn.tg-act { padding: 8px 13px; }
-  .tg-mission__statement { font-size: 17.5px; }
+  .tg-mission__statement { font-size: 19px; }
   .tg-link__kind { flex-basis: 46px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tg-history__chev, .tg-fold__chev { transition: none; }
+}
+
+/* --- Clean slate (2026-11-23) ---------------------------------------------- */
+
+/* A card's heading is plain words, as on the overview, not small capitals.
+   The kind of target over its name keeps them. */
+.tg-page h2.eyebrow, .ov-side h2.eyebrow { font-family: var(--font); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text); }
+
+/* The way up the ladder is quiet grey words, no underline. */
+.tg-crumbs ol li a { font-weight: 500; font-size: 13px; color: var(--text-2); text-decoration: none; }
+.tg-crumbs ol li:last-child a { color: var(--text); font-weight: 600; }
+
+/* The mission's own words in the page's type, large. */
+.tg-mission__summit { font-family: var(--font-mono); font-variant-caps: normal; text-transform: uppercase; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; }
+.tg-mission__statement { font-family: var(--font); font-size: 21px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.4; text-wrap: pretty; }
+
+/* Reflect, Note and Quote are white pills a thumb tall. */
+.btn.tg-act { min-height: 44px; border-color: transparent; font-size: 14px; }
+.btn-icon.tg-act__edit { width: 44px; height: 44px; border-color: transparent; }
+
+@media (max-width: 900px) {
+  /* The way up shares the top row with the clipboard and the menu. */
+  .main:has(> .tg-page) .phone-top { margin-bottom: calc(-1 * var(--top-row-h)); }
+  .phone-top + .tg-page { padding-top: 14px; }
+  .tg-crumbs { display: flex; align-items: center; min-height: 44px; padding-right: 124px; }
+  .tg-crumbs ol { flex-wrap: nowrap; margin: 0; min-width: 0; }
+  .tg-crumbs li { flex: 0 1 auto; }
+  .tg-crumbs li:first-child { flex: none; }
+  .tg-crumbs li svg { flex: none; }
+  .tg-crumbs ol li a { display: block; line-height: 44px; min-height: 44px; max-width: none; }
+  .page-title.tg-title { font-size: 32px; }
+  .tg-mission__statement { font-size: 20px; }
 }
 
 /* --- end of part 3 --- */
@@ -773,3 +832,46 @@ a.ov-mission { transition: background 0.14s; }
 .tg-tasks { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .tg-tasks .eyebrow { margin: 0 0 4px; }
 .tg-tasks .btn { display: inline-flex; align-items: center; min-height: 40px; }
+
+/* --- A target's pop-up: place an arrow, add a note (2026-11-28) ------------- */
+
+.ar-sheet { display: flex; flex-direction: column; gap: 16px; }
+.ar-top { display: flex; align-items: center; gap: 16px; }
+.mark .mk-face.ar-face, .ar-face { width: 112px; height: 112px; max-width: 112px; flex: none; margin: 0; }
+.ar-count { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ar-count b { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.ar-count small { font-size: 13px; color: var(--text-2); }
+.ar-acts { display: flex; align-items: center; gap: 8px; }
+.ar-act { flex: 1 1 0; min-height: 48px; font-size: 14px; }
+.ar-act.is-on:not(.btn--accent) { background: var(--card); border-color: var(--ink); }
+.ar-edit { flex: none; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 999px; }
+.ascent-sheet .ar-form, .ar-form { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 20px; background: var(--inset); }
+.ar-form--edit { margin: 2px 0 6px; }
+.ar-label { font-size: 13px; font-weight: 600; }
+.ar-input { width: 100%; min-height: 44px; background: var(--card); font-size: 16px; }
+.ar-note { resize: vertical; line-height: 1.45; }
+.ar-form__row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.ar-form__row .btn { min-height: 44px; }
+.ar-form__gap { flex: 1; }
+.ar-form .btn { background: var(--card); }
+.ar-form .btn.ar-go { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 650; }
+@media (hover: hover) { .ar-form .btn.ar-go:hover { background: var(--accent-hot); } }
+.btn-link.ar-remove { color: var(--danger); min-height: 44px; }
+.ar-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.ar-list ul { list-style: none; margin: 0; padding: 0; }
+.ar-day { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.ar-list li:first-child .ar-day { margin-top: 0; }
+.ar-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.ar-dot { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--ink); }
+.ar-row__txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ar-row__txt b { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.ar-row__txt b.ar-row__plain { font-weight: 500; color: var(--text-2); }
+.ar-row__txt small { font-size: 13px; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ar-none { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.ar-more { margin-top: 8px; min-height: 40px; }
+
+/* The overview's targets are buttons now (they open the pop-up). */
+button.ov-face, button.ov-climb, button.ov-row, button.ov-mission { border: 0; font: inherit; text-align: left; cursor: pointer; width: 100%; }
+button.ov-face { background: none; text-align: center; }
+button.ov-climb, button.ov-row { background: none; }
+button.ov-face, button.ov-climb, button.ov-row { color: inherit; }

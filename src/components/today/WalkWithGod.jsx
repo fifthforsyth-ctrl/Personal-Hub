@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { HandHeart, RefreshCw, RotateCw } from "lucide-react";
+import { RefreshCw, RotateCw } from "lucide-react";
 import { fetchDailyWalk, generateDailyWalk, logExperience, fetchExperiences, updateExperience, deleteExperience } from "../../lib/api";
 import { useLoad } from "../../lib/useLoad";
 import { friendlyError } from "../../lib/errors";
@@ -57,7 +57,7 @@ export default function WalkWithGod({ userId, date }) {
   return (
     <div className="card walk-card">
       <div className="card-head" style={{ marginBottom: 12 }}>
-        <span className="card-title"><HandHeart size={14} />Walk with God</span>
+        <span className="card-title">Walk with God</span>
         {walk && (
           <button className="btn-link walk-card__new" onClick={generate} disabled={generating} title="Write a new prompt from the day so far. The verse stays.">
             <RefreshCw size={12} className={generating ? "spin" : ""} />
@@ -162,7 +162,7 @@ function Moments({ userId, date, toast, quietErrors }) {
           placeholder="I saw His hand when…"
           aria-label="Where you saw God's hand"
         />
-        <button type="submit" className="btn btn--accent" disabled={saving || !moment.trim()} style={{ flexShrink: 0 }}>
+        <button type="submit" className="btn btn--accent walk-card__save" disabled={saving || !moment.trim()}>
           {saving ? "Saving…" : "Save"}
         </button>
       </form>

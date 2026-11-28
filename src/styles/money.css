@@ -7,31 +7,36 @@
    three things at once.
    =========================================================================== */
 
-/* --- Page head: the month between its arrows, then the two figures, both
-   reading from the left like everything under them. ----------------------- */
+/* --- Page head (Clean slate, 2026-11-23): the title shares the phone's top
+   row; under it the month between its arrows, then the month's three figures
+   in one card. ---------------------------------------------------------------- */
 
-.money-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 14px 28px;
-  flex-wrap: wrap;
-  margin-bottom: 22px;
+.money-head { margin-bottom: 10px; }
+.money-head .page-title { margin: 0; }
+
+.money-month { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; }
+.money-month__name { flex: 1; min-width: 0; margin: 0; text-align: center; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.money-month__btn {
+  flex: none; display: grid; place-items: center; width: 48px; height: 44px; border: 0; border-radius: var(--r-pill);
+  background: var(--card); color: var(--text);
 }
+.money-month__btn:disabled { opacity: 0.3; }
 
-.money-month { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.money-month .page-title { margin: 2px 0 0; }
-
-.money-figures { display: flex; gap: 26px; flex-wrap: wrap; }
-.money-figure__value {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  margin-top: 3px;
-}
+.card.money-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 16px 18px; margin-bottom: 12px; }
+.money-figure { min-width: 0; }
+.money-figure__value { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.money-figure__label { margin-top: 3px; font-size: 12.5px; color: var(--text-2); }
 
 .money-loading { color: var(--text-2); font-size: 13px; margin: 0; }
+
+/* One even gap down the page, whatever follows whatever. */
+.money-page .stack { gap: 12px; }
+.money-page .stack > .card + .card { margin-top: 0; }
+
+/* A card's plain heading and the quiet link beside it. */
+.money-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin: -8px 0 2px; }
+.money-card-h { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.btn-link.money-card-link { min-height: 44px; font-size: 13px; }
 
 /* Budgets and Business side by side: the shared "card after card" margin
    would push the second one down out of line. */
@@ -43,31 +48,42 @@
 .money-history { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .money-history__icon { color: var(--text-3); flex-shrink: 0; }
 .money-history__text { flex: 1; min-width: 200px; }
-.money-history__title { display: block; font-size: 13.5px; font-weight: 600; }
-.money-history__sub { display: block; color: var(--text-2); font-size: 12px; line-height: 1.5; margin-top: 2px; }
+.money-history__title { display: block; font-size: 14px; font-weight: 600; }
+.money-history__sub { display: block; color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin-top: 2px; }
+.money-history .btn { min-height: 44px; padding: 0 16px; }
 
-.money-caught-up { gap: 10px; }
+/* Nothing waiting. */
+.card.money-caught-up { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 18px; }
+.money-caught-up__tick { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
+.money-caught-up__words { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.money-caught-up .btn { min-height: 44px; padding: 0 16px; }
+.money-caught-up .btn-link { min-height: 44px; }
 .money-stale { margin-bottom: 12px; }
 
 .money-nudge { gap: 10px; color: inherit; }
 
-/* "More": everything you don't need every day, one tap away. */
-.money-more { border-top: 1px solid var(--line); padding-top: 4px; }
-.money-more__summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 14px;
-  font-weight: 600;
+/* One card of rows that open in place: the business, income, every
+   transaction, catching up. What a row holds loses its own card there. */
+.card.money-folds { padding: 4px 0; }
+.money-fold + .money-fold { border-top: 1px solid var(--line); }
+.money-fold__row {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px 0 18px;
+  cursor: pointer; list-style: none; font-size: 15px; font-weight: 500;
 }
-.money-more__summary::-webkit-details-marker { display: none; }
-.money-more__hint { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.money-more__chevron { color: var(--text-2); transition: transform 0.15s ease; flex-shrink: 0; }
-.money-more[open] .money-more__chevron { transform: rotate(180deg); }
-.money-more__body { padding-top: 8px; }
+.money-fold__row::-webkit-details-marker { display: none; }
+.money-fold__name { flex: 1; min-width: 0; }
+.money-fold__hint { font-size: 13.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.money-fold__chev { flex: none; color: var(--text-2); transition: transform 0.15s ease; }
+.money-fold[open] > .money-fold__row .money-fold__chev { transform: rotate(90deg); }
+.money-fold[open] > .money-fold__row { font-weight: 600; }
+.money-fold__body { padding: 2px 18px 16px; }
+.money-fold__body:empty::after { content: "Nothing here for this month."; display: block; font-size: 13.5px; color: var(--text-2); }
+.money-fold__body > .card:not(.money-question) { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.money-fold__body > .card + .card { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.money-fold__body > .card.money-question { margin: 0 -4px; }
+.money-fold__body .card-title { font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.money-fold__body .card-title svg { display: none; }
+.money-fold__body .card-head { min-height: 36px; margin-bottom: 8px; }
 
 /* --- Sheets: white, so the grey fields inside read as fields --------------- */
 
@@ -218,16 +234,60 @@
 .money-switch.is-on .money-switch__track { background: var(--ink); }
 .money-switch.is-on .money-switch__knob { transform: translateX(16px); }
 
-/* --- "What was this?" ------------------------------------------------------ */
+/* --- "What was this?": the page's one black card -------------------------- */
 
-.money-question .card-head { flex-wrap: wrap; row-gap: 6px; }
-.money-question .card-title { white-space: nowrap; }
-.money-question__count { font-size: 11.5px; color: var(--text-2); }
-.money-question__who { font-weight: 650; letter-spacing: -0.02em; line-height: 1.25; overflow-wrap: anywhere; }
-.money-question__amount { font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.card.money-question {
+  --q-soft: #2a2a2a;
+  --q-dim: #b9b6af;
+  padding: 18px;
+  border: 0;
+  background: var(--ink);
+  color: var(--on-ink);
+  box-shadow: none;
+}
+.money-question__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 28px; margin-bottom: 10px; }
+.money-question__title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--on-ink); }
+.money-question__count { flex: 1; min-width: 0; font-size: 12.5px; color: var(--q-dim); font-variant-numeric: tabular-nums; }
+.btn-link.money-question__done { min-height: 44px; margin: -8px 0; color: var(--on-ink); }
+
+.money-question__what { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.money-question__who { min-width: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; overflow-wrap: anywhere; }
+.money-question__amount { flex-shrink: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.money-question__what.is-compact .money-question__who { font-size: 20px; }
+.money-question__what.is-compact .money-question__amount { font-size: 19px; }
+.money-question__when { margin-top: 3px; font-size: 13px; color: var(--q-dim); }
+.money-question__raw { margin: 4px 0 16px; font-size: 10.5px; color: #8d8a84; }
+.money-question__filled { margin: -4px 0 12px; font-size: 12.5px; color: var(--q-dim); }
 .money-question__actions { gap: 8px; flex-wrap: wrap; margin-top: 18px; }
 
-.btn-link.money-more { min-height: 36px; margin-top: 10px; font-size: 13px; }
+.money-question .money-label { color: var(--q-dim); }
+.money-question .muted,
+.money-question .faint { color: var(--q-dim); }
+.money-question a { color: var(--on-ink); }
+
+/* The budgets: two columns of pills a thumb tall. The one chosen is orange. */
+.money-chips--grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.money-chips--grid .chip.money-chip { justify-content: center; min-height: 48px; padding: 0 12px; font-size: 15px; font-weight: 600; text-align: center; }
+.money-question .chip.money-chip { min-height: 44px; padding: 0 16px; background: var(--q-soft); border-color: transparent; color: var(--on-ink); font-size: 14px; font-weight: 500; }
+.money-question .money-chips--grid .chip.money-chip { min-height: 48px; font-size: 15px; font-weight: 600; }
+.money-question .chip.money-chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.money-question .chip.money-chip.is-on .dot { background: var(--on-accent) !important; }
+@media (hover: hover) { .money-question .chip.money-chip:not(.is-on):not(:disabled):hover { border-color: #555; } }
+
+.money-question .money-switch { min-height: 48px; padding: 0 14px; border-radius: 24px; background: var(--q-soft); color: var(--on-ink); font-size: 14.5px; font-weight: 500; }
+.money-question .money-switch__icon { color: var(--q-dim); }
+.money-question .money-switch__track { background: #555; }
+.money-question .money-switch.is-on .money-switch__track { background: var(--accent); }
+.money-question .input { background: var(--q-soft); border-color: transparent; color: var(--on-ink); font-size: 16px; }
+.money-question .input::placeholder { color: #8d8a84; }
+.money-question .btn-link { color: var(--q-dim); }
+.money-question .btn:not(.btn--accent):not(.btn--ghost) { min-height: 44px; background: var(--q-soft); border-color: transparent; color: var(--on-ink); }
+.money-question .btn--ghost { min-height: 48px; color: var(--on-ink); }
+@media (hover: hover) { .money-question .btn--ghost:hover { background: var(--q-soft); color: var(--on-ink); } }
+.money-question .btn--accent { min-height: 48px; padding: 0 24px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 600; }
+.money-question .form-error { background: #3a1f1a; color: #ffb4a3; }
+
+.btn-link.money-more { min-height: 44px; margin-top: 6px; font-size: 13.5px; }
 .money-more__body { margin-top: 6px; }
 
 /* --- Transactions ---------------------------------------------------------- */
@@ -278,20 +338,28 @@
 .money-pending-row { gap: 10px; }
 .money-pending-row.is-transfer { color: var(--text-2); }
 
-/* --- Accounts -------------------------------------------------------------- */
+/* --- Accounts: name and what's there on one line, the rest under it -------- */
 
-.money-accounts { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.money-accounts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .money-accounts > * { min-width: 0; }
 
-.money-account .stat-top { min-height: 36px; margin-bottom: 6px; }
+.stat.money-account {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  padding: 12px 18px 14px; border: 0; box-shadow: none;
+}
+.money-account .stat-top { grid-column: 1; min-height: 44px; margin: 0; }
+.money-account .stat-label { font-size: 16px; font-weight: 600; color: var(--text); }
+.money-account .stat-value { grid-column: 2; grid-row: 1; font-size: 22px; letter-spacing: -0.03em; }
 .money-account__name { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.money-account__name .btn-icon { color: var(--text-3); }
 .money-account__rename { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
-.money-account__rename .input { padding: 7px 10px; font-size: 13px; }
-.money-account__sub { color: var(--text-2); font-size: 11.5px; line-height: 1.5; margin-top: 4px; }
-.money-account__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.money-account__asof { font-size: 11.5px; color: var(--text-2); line-height: 1.45; min-width: 0; }
+.money-account__rename .input { padding: 7px 10px; font-size: 16px; }
+.money-account__sub { grid-column: 1 / -1; color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin: 0 0 4px; text-align: right; }
+.money-account__foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.money-account__asof { font-size: 12.5px; color: var(--text-2); line-height: 1.45; min-width: 0; }
 .money-account__asof.is-stale { color: var(--text); }
-.money-kind .seg-btn { padding: 6px 11px; font-size: 12px; }
+.money-kind .seg-btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.money-kind .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
 
 .money-banner {
   display: flex;
@@ -312,12 +380,13 @@
 .money-banner--quiet { background: var(--inset); color: var(--text-2); font-size: 12.5px; }
 .money-banner--quiet .money-banner__icon { color: var(--text-2); }
 
-.money-sync { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
-.money-sync__note { font-size: 12px; color: var(--text-2); line-height: 1.5; min-width: 0; }
+.money-sync { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; padding: 0 4px; }
+.money-sync__note { font-size: 12.5px; color: var(--text-2); line-height: 1.5; min-width: 0; }
 .money-sync__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.money-sync__actions .btn { min-height: 44px; padding: 0 16px; font-size: 13.5px; }
 /* It sits on the page, not in a card, where the usual grey button would
    vanish into the background. */
-.btn.money-sync__btn { background: var(--card); border-color: var(--line); }
+.btn.money-sync__btn { background: var(--card); border-color: transparent; }
 
 .money-connect-steps { margin: 0 0 16px; padding-left: 20px; font-size: 13.5px; line-height: 1.75; }
 .money-connect-safe { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; }
@@ -325,30 +394,35 @@
 
 /* --- Budgets --------------------------------------------------------------- */
 
-.money-budgets { display: flex; flex-direction: column; gap: 2px; }
+.card.money-budgets-card { padding-bottom: 14px; }
+.money-budgets { display: flex; flex-direction: column; }
 
 .money-budget {
   display: block;
   width: 100%;
-  padding: 10px 0;
+  padding: 10px 0 12px;
   border: none;
   background: none;
   color: inherit;
   font: inherit;
   text-align: left;
 }
-.money-budget__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
-.money-budget__name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; font-weight: 600; }
-.money-budget__figure { flex-shrink: 0; font-size: 12.5px; }
+.money-budget__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.money-budget__name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.money-budget__figure { flex-shrink: 0; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.money-budget__spent { font-weight: 600; }
+.money-budget__spent.is-over,
 .money-budget__figure .is-over { color: var(--danger); }
-.money-budget__foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 11.5px; color: var(--text-2); }
+.money-budget__limit { color: var(--text-2); }
+.money-budget__foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 7px; font-size: 12.5px; color: var(--text-2); }
+.money-budget__foot .mono { font-family: inherit; font-variant-numeric: tabular-nums; }
 .money-budget__foot .is-over { color: var(--danger); font-weight: 600; }
 .money-budget__chev { color: var(--text-3); flex-shrink: 0; align-self: center; }
 @media (hover: hover) {
   .money-budget:hover .money-budget__name > .truncate { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 }
 
-.money-bar { position: relative; height: 10px; border-radius: var(--r-pill); background: var(--inset); }
+.money-bar { position: relative; height: 8px; border-radius: var(--r-pill); background: var(--inset); }
 .money-bar__fill { height: 100%; border-radius: var(--r-pill); transition: width 0.3s; }
 .money-bar__today { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text-2); }
 
@@ -412,8 +486,6 @@
 /* --- Phone ----------------------------------------------------------------- */
 
 @media (max-width: 600px) {
-  .money-head { margin-bottom: 18px; }
-  .money-figures { gap: 22px; }
   .money-account .btn-icon,
   .money-row .btn-icon { width: 40px; height: 40px; }
   .money-sheet__actions .btn { min-height: 42px; }

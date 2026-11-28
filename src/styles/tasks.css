@@ -1,82 +1,99 @@
 /* ===========================================================================
-   The Tasks tab (pages/Tasks.jsx): lists and camps as pills along the top,
-   then the open camp's columns side by side (components/tasks/Columns.jsx);
+   The Tasks tab (pages/Tasks.jsx): Recent and the projects as pills under
+   the title, a project's targets as pills under its name, then columns
+   side by side (components/tasks/Columns.jsx, TasksHome.jsx);
    and the clipboard that pulls down from the top of any page
    (components/tasks/ClipboardPull.jsx).
    =========================================================================== */
 
-.tasks-head { display: flex; flex-direction: column; gap: 10px; margin: 0 0 10px; min-width: 0; }
-.tasks-head .eyebrow { margin: 0; }
+.tasks-head { margin-bottom: 12px; }
 
+/* Recent and the projects, then a project's targets: white pills a thumb
+   tall that slide sideways, edge to edge on a phone. The one you're on is
+   black (a project) or orange (a target); a new one is a dashed outline. */
 .tasks-lists ul,
-.tasks-camps ul { display: flex; gap: 8px; margin: 0; padding: 2px 2px 4px; list-style: none; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+.tasks-camps ul { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; overflow-x: auto; scrollbar-width: none; }
 .tasks-lists ul::-webkit-scrollbar,
 .tasks-camps ul::-webkit-scrollbar { display: none; }
 .tasks-lists li,
-.tasks-camps li { flex: 0 0 auto; scroll-snap-align: start; }
+.tasks-camps li { flex: 0 0 auto; }
+.tasks-lists { margin: 0 0 14px; }
+.tasks-camps { margin: 0 0 14px; }
 .tasks-pill {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; max-width: 240px; padding: 6px 14px;
-  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card); color: inherit;
-  font: inherit; font-size: 13.5px; font-weight: 650; text-decoration: none; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; max-width: 240px; padding: 0 16px;
+  border: 0; border-radius: var(--r-pill); background: var(--card); color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer;
 }
 .tasks-pill svg { flex: 0 0 auto; }
 .tasks-pill__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tasks-pill:hover { border-color: var(--ink); }
-.tasks-pill.is-on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
-.tasks-pill--new { border-style: dashed; color: var(--text-2); font-weight: 600; }
-/* Camps: a size down from the lists, orange when open. */
-.tasks-camps { margin: 0 0 12px; }
-.tasks-pill--camp { min-height: 36px; padding: 5px 12px; font-size: 13px; background: transparent; }
-.tasks-pill--camp.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.tasks-pill:active { transform: scale(0.97); }
+.tasks-pill.is-on { background: var(--ink); color: var(--on-ink); }
+.tasks-pill--camp.is-on { background: var(--accent); color: var(--on-accent); }
+.tasks-pill--new { padding: 0 15px; border: 1.5px dashed #a8a49c; background: transparent; color: #4a4843; }
 
-.tasks-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.tasks-title .page-title { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 19px; line-height: 1.2; }
-.tasks-title__tools { display: inline-flex; gap: 6px; margin-left: auto; }
-.tasks-title__target { display: inline-flex; align-items: center; gap: 5px; min-height: 40px; margin-left: auto; white-space: nowrap; }
+.tasks-title { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; margin: 0 0 8px; padding: 0 2px; }
+.tasks-title__name { flex: 1 1 auto; margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.tasks-title__tools { display: inline-flex; gap: 2px; margin-left: auto; }
+.tasks-title__tools .btn-icon { width: 44px; height: 44px; }
+.tasks-title__target { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-left: auto; white-space: nowrap; font-size: 13.5px; }
 
-.tasks-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.tasks-name .input { flex: 1 1 220px; min-width: 0; }
+.tasks-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+.tasks-name .input { flex: 1 1 150px; min-width: 0; min-height: 44px; }
+.tasks-name .btn { min-height: 44px; }
 .tasks-lists .tasks-name,
-.tasks-camps .tasks-name { min-width: min(420px, 86vw); }
+.tasks-camps .tasks-name { min-width: min(420px, 86vw); margin: 0; }
 
+@media (max-width: 900px) {
+  .tasks-lists ul,
+  .tasks-camps ul { margin: 0 -16px; padding: 0 16px; scroll-padding-inline: 16px; }
+}
 @media (min-width: 901px) {
   .tasks-lists ul,
-  .tasks-camps ul { flex-wrap: wrap; overflow: visible; scroll-snap-type: none; }
+  .tasks-camps ul { flex-wrap: wrap; overflow: visible; }
 }
 
 /* --- Columns ------------------------------------------------------------ */
 
 .tk-cols {
   display: flex; align-items: flex-start; gap: 12px;
-  margin: 0 -14px; padding: 2px 14px 18px;
-  overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 14px;
-  overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
+  margin: 0 -16px; padding: 2px 16px 18px;
+  overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 16px;
+  overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none;
 }
+.tk-cols::-webkit-scrollbar { display: none; }
+/* A column: a white card with its colour as a dot beside its name. */
 .tk-col {
-  flex: 0 0 min(82vw, 330px); scroll-snap-align: start; min-width: 0;
-  display: flex; flex-direction: column;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
-  border-top: 3px solid var(--col, var(--ink));
-  box-shadow: var(--shadow);
+  flex: 0 0 min(76vw, 300px); scroll-snap-align: start; min-width: 0;
+  display: flex; flex-direction: column; padding: 12px 8px 10px;
+  background: var(--card); border-radius: var(--r-lg);
 }
-.tk-col__head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 4px 12px; }
+.tk-col__head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 2px 0 10px; }
+.tk-col__dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--col, var(--ink)); }
 .tk-col__title {
-  flex: 1 1 auto; min-width: 0; padding: 6px 0; border: 0; background: none; color: inherit; text-align: left;
-  font: inherit; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; cursor: text;
+  flex: 1 1 auto; min-width: 0; padding: 8px 0; border: 0; background: none; color: inherit; text-align: left;
+  font: inherit; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; overflow-wrap: anywhere; cursor: text;
 }
 .tk-col__title:disabled { cursor: default; color: var(--text-2); }
 .tk-col__rename { flex: 1 1 auto; min-width: 0; }
-.tk-col__count { color: var(--text-3); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tk-col__del { width: 34px; height: 34px; color: var(--text-3); }
-.tk-col__list { list-style: none; margin: 0; padding: 2px 6px 4px; min-height: 56px; border-radius: 10px; transition: background 0.12s; }
+.tk-col__count { color: var(--text-2); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tk-col__del { width: 40px; height: 40px; color: var(--text-3); }
+.tk-col__where {
+  display: block; margin: -6px 0 4px; padding: 0 10px 0 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-2); font-size: 12.5px; text-decoration: none;
+}
+@media (hover: hover) { .tk-col__where:hover { color: var(--accent-text); } }
+.tk-col__list { list-style: none; margin: 0; padding: 0 0 4px; min-height: 52px; border-radius: 14px; transition: background 0.12s; }
 .tk-col__list--done { opacity: 0.7; min-height: 0; }
-.tk-col__done { align-self: flex-start; margin: 0 8px 10px; padding: 6px 6px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.tk-col.tk-col-hot { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line), var(--shadow); }
+.tk-col__done { align-self: flex-start; min-height: 40px; margin: 2px 4px 0; padding: 0 10px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.tk-col.tk-col-hot { box-shadow: 0 0 0 2px var(--accent-line); }
 .tk-clip__list.tk-col-hot { background: var(--accent-soft); }
 
-.tk-col--new { background: transparent; border: 1.5px dashed var(--line-strong); box-shadow: none; padding: 10px; }
-.tk-newcol { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 56px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+/* A new column: a dashed outline the same shape, with a black +. */
+.tk-col--new { background: transparent; border: 1.5px dashed #a8a49c; padding: 10px; }
+.tk-newcol { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 64px; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.tk-newcol svg { box-sizing: content-box; padding: 11px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
 .tk-newcol-form { display: flex; flex-direction: column; gap: 8px; }
+.tk-newcol-form .input, .tk-newcol-form .btn { min-height: 44px; }
 .tk-newcol-form__btns { display: flex; gap: 8px; }
 
 @media (min-width: 901px) {
@@ -86,44 +103,54 @@
 
 /* --- A task ------------------------------------------------------------- */
 
+/* A round tick, the words, and at the end of the row the handle that
+   carries it. Every row is a thumb tall. */
 .tk-row { list-style: none; }
-.tk-row__line { display: flex; align-items: flex-start; gap: 2px; min-height: 40px; border-radius: 9px; }
+.tk-row__line { display: flex; align-items: flex-start; min-height: 44px; padding-left: 10px; border-radius: 12px; }
 .tk-row.tk-lifted > .tk-row__line { opacity: 0.35; }
-.tk-grip {
-  flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 40px; margin-left: -4px;
-  border: 0; background: none; color: var(--text-3); cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none;
-}
 .tk-tick {
-  flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; margin: 9px 8px 0 0; padding: 0;
-  border: 1.6px solid var(--line-strong); border-radius: 50%; background: var(--card); color: var(--on-ink); cursor: pointer;
+  flex: 0 0 auto; display: grid; place-items: center; width: 24px; height: 24px; margin: 10px 10px 0 0; padding: 0;
+  border: 1.5px solid #a8a49c; border-radius: 50%; background: transparent; color: var(--on-ink); cursor: pointer;
 }
 .tk-tick.is-on { background: var(--ink); border-color: var(--ink); }
-.tk-dot { flex: 0 0 auto; width: 6px; height: 6px; margin: 17px 16px 0 8px; border-radius: 50%; background: var(--text-3); }
+.tk-dot { flex: 0 0 auto; width: 6px; height: 6px; margin: 19px 19px 0 9px; border-radius: 50%; background: var(--text-3); }
 .tk-text {
-  flex: 1 1 auto; min-width: 0; padding: 10px 4px 9px 0; border: 0; background: none; color: inherit; text-align: left;
-  font: inherit; font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text;
+  flex: 1 1 auto; min-width: 0; padding: 12px 0 10px; border: 0; background: none; color: inherit; text-align: left;
+  font: inherit; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text;
 }
-.tk-row.is-done > .tk-row__line .tk-text { color: var(--text-3); text-decoration: line-through; }
+/* To the clipboard: quiet, just before the handle, plain on a hover. */
+.tk-toclip {
+  flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 44px; padding: 0;
+  border: 0; border-radius: 12px; background: none; color: var(--text-2); cursor: pointer; opacity: 0.6;
+}
+.tk-toclip:hover, .tk-toclip:focus-visible { opacity: 1; color: var(--ink); }
+.tk-row.is-done > .tk-row__line .tk-text { color: var(--text-2); text-decoration: line-through; }
 .tk-row.is-note > .tk-row__line .tk-text { color: var(--text-2); font-style: italic; }
+.tk-grip {
+  flex: 0 0 auto; display: grid; place-items: center; width: 32px; height: 44px;
+  border: 0; background: none; color: #c4c0b8; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none;
+}
+@media (hover: hover) { .tk-grip:hover { color: var(--text-2); } }
 .tk-edit {
-  flex: 1 1 auto; min-width: 0; margin: 4px 0; padding: 6px 8px; resize: none; overflow: hidden;
-  border: 1px solid var(--accent-line); border-radius: 8px; background: var(--card); color: inherit; font: inherit; font-size: 16px; line-height: 1.35;
+  flex: 1 1 auto; min-width: 0; margin: 5px 0; padding: 6px 10px; resize: none; overflow: hidden;
+  border: 1px solid var(--accent-line); border-radius: 12px; background: var(--card); color: inherit; font: inherit; font-size: 16px; line-height: 1.35;
 }
-.tk-subs { margin: 0 0 0 26px; padding: 0; }
-.tk-empty { list-style: none; padding: 14px 8px; color: var(--text-3); font-size: 13px; }
-.tk-empty--drop { text-align: center; border: 1px dashed var(--line); border-radius: 9px; margin: 4px 0; }
+.tk-subs { margin: 0 0 0 24px; padding: 0; }
+.tk-empty { list-style: none; padding: 14px 10px; color: var(--text-2); font-size: 13.5px; }
+.tk-empty--drop { text-align: center; border: 1.5px dashed var(--line-strong); border-radius: 14px; margin: 2px 2px 6px; }
 
-.tk-add { padding: 0 8px 8px; }
+.tk-add { padding: 4px 2px 0; }
 .tk-add__input {
-  width: 100%; min-height: 40px; padding: 9px 10px; resize: none;
-  border: 1px solid transparent; border-radius: 9px; background: var(--inset); color: inherit; font: inherit; font-size: 16px; line-height: 1.35;
+  display: block; width: 100%; min-height: 44px; padding: 11px 14px; resize: none;
+  border: 1px solid transparent; border-radius: 16px; background: var(--bg); color: inherit; font: inherit; font-size: 16px; line-height: 1.3;
 }
+.tk-add__input::placeholder { color: var(--text-2); }
 .tk-add__input:focus { outline: none; border-color: var(--accent-line); background: var(--card); }
 
 /* The task being carried, and the line where it would land. */
 .tk-ghost {
   position: fixed; left: 0; top: 0; z-index: 1000; max-width: min(78vw, 300px); padding: 10px 14px;
-  border-radius: 10px; background: var(--ink); color: var(--on-ink); box-shadow: var(--shadow-lift);
+  border-radius: 14px; background: var(--ink); color: var(--on-ink); box-shadow: var(--shadow-lift);
   font-size: 14px; font-weight: 600; line-height: 1.3; pointer-events: none;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
@@ -133,17 +160,27 @@ html.tk-dragging, html.tk-dragging * { -webkit-user-select: none; user-select: n
 /* --- The clipboard, pulled down from the top --------------------------- */
 
 .tk-pulltab {
-  position: fixed; z-index: 60; left: 50%; top: calc(var(--safe-top) + var(--topbar-h) - 4px); transform: translateX(-50%);
+  position: fixed; z-index: 60; left: 50%; top: var(--safe-top); transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 12px;
   border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; background: var(--card); color: var(--text-2);
   font: inherit; font-size: 11.5px; font-weight: 700; box-shadow: 0 2px 6px rgba(20, 18, 14, 0.06); cursor: pointer; touch-action: none;
 }
 .tk-pulltab.is-hidden { opacity: 0; pointer-events: none; }
+/* In the phone's top corner it's a round white chip beside the menu. */
+.tk-pulltab.tk-pulltab--chip {
+  position: relative; z-index: auto; left: auto; top: auto; transform: none;
+  gap: 7px; height: 44px; min-width: 44px; padding: 0 15px; justify-content: center;
+  border: none; border-radius: var(--r-pill); color: var(--ink);
+  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; box-shadow: var(--shadow);
+}
+.tk-pulltab.tk-pulltab--chip:active { transform: scale(0.94); }
+/* Scrolled past the title on a phone, the plain tab hangs from the top of
+   the screen instead, just under the status bar. */
 .tk-clip {
   position: fixed; z-index: 70; left: 0; right: 0; top: 0;
   display: flex; flex-direction: column; max-height: min(58vh, 560px);
   padding-top: var(--safe-top);
-  background: var(--card); border-radius: 0 0 22px 22px; box-shadow: var(--shadow-lift);
+  background: var(--card); border-radius: 0 0 var(--r-lg) var(--r-lg); box-shadow: var(--shadow-lift);
   transform: translateY(-100%); transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); visibility: hidden;
 }
 .tk-clip.is-shown { visibility: visible; }
@@ -153,11 +190,12 @@ html.tk-dragging, html.tk-dragging * { -webkit-user-select: none; user-select: n
 .tk-clip__head small { color: var(--text-3); font-weight: 600; }
 .tk-clip__head .spacer { flex: 1; }
 .tk-clip .tk-add { padding: 4px 12px 6px; }
-.tk-clip__list { flex: 1 1 auto; min-height: 60px; margin: 0; padding: 0 10px 4px 12px; overflow-y: auto; overscroll-behavior: contain; border-radius: 10px; }
+.tk-clip .tk-add__input { background: var(--bg); }
+.tk-clip__list { flex: 1 1 auto; min-height: 60px; margin: 0; padding: 0 6px 4px 6px; overflow-y: auto; overscroll-behavior: contain; border-radius: 10px; }
 .tk-clip__foot { display: grid; place-items: center; height: 26px; flex: 0 0 auto; cursor: grab; touch-action: none; }
 .tk-clip__grab { width: 44px; height: 5px; border-radius: 3px; background: var(--line-strong); }
 
-/* On a desk there's no top bar: the tab hangs from the top of the page,
+/* On a desk the tab hangs from the top of the page,
    and the clipboard drops down over the page beside the sidebar. */
 @media (min-width: 901px) {
   .tk-pulltab { top: 0; left: calc(50% + var(--sidebar-w) / 2); }
@@ -167,16 +205,9 @@ html.tk-dragging .tk-cols { scroll-snap-type: none; }
 
 /* --- The home: a big + first, then the most recent columns -------------- */
 
-.tasks-back { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; margin: 0 0 4px -4px; color: var(--text-2); font-size: 14px; font-weight: 600; text-decoration: none; }
-.tasks-back:hover { color: var(--ink); }
-.tasks-page > .tasks-title { margin: 0 0 10px; }
-.tk-col--big { flex-basis: min(60vw, 220px); align-self: stretch; min-height: 260px; display: flex; }
+.tk-col--big { flex-basis: 124px; align-self: stretch; min-height: 300px; display: flex; padding: 8px; }
+.tk-col--big:has(.tk-newcol-form) { flex-basis: min(76vw, 300px); }
 .tk-col--big .tk-newcol-form { width: 100%; }
-.tk-newcol--big { flex-direction: column; gap: 10px; min-height: 240px; color: var(--ink); font-size: 15px; }
-.tk-newcol--big svg { width: 64px; height: 64px; padding: 10px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
-.tk-col__where {
-  display: block; padding: 8px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-3); font-size: 11.5px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; text-decoration: none;
-}
-.tk-col__where:hover { color: var(--accent-text); }
+.tk-newcol--big { flex-direction: column; gap: 12px; min-height: 280px; }
+.tk-newcol--big svg { padding: 18px; }
 .tk-home-wait { flex: 0 0 auto; align-self: center; margin: 0 12px; }

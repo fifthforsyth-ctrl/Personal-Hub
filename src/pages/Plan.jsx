@@ -42,21 +42,30 @@ export default function Plan() {
       : view === "week"
         ? relative(Math.round((parseDateStr(startOfWeek(date)) - parseDateStr(startOfWeek(today))) / (7 * 86400000)), "week")
         : relative((dt.getFullYear() - parseDateStr(today).getFullYear()) * 12 + dt.getMonth() - parseDateStr(today).getMonth(), "month");
-  const heading = view === "day" ? dt.toLocaleDateString(undefined, { month: "long", day: "numeric" }) : view === "week" ? fmtWeekHeading(date) : fmtMonthYear(date);
+  // This year goes without saying, so the title stays short enough to sit
+  // beside the phone's two buttons.
+  const thisYear = parseDateStr(today).getFullYear();
+  const heading =
+    view === "day"
+      ? dt.toLocaleDateString(undefined, dt.getFullYear() === thisYear ? { month: "long", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" })
+      : view === "week"
+        ? fmtWeekHeading(date, thisYear)
+        : dt.getFullYear() === thisYear
+          ? dt.toLocaleDateString(undefined, { month: "long" })
+          : fmtMonthYear(date);
+  const size = heading.length > 14 ? " plan-head__h--xs" : heading.length > 11 ? " plan-head__h--sm" : "";
   const unit = view === "day" ? "day" : view;
 
   return (
     <div className="page plan-page">
       <div className="page-head plan-head">
-        <div className="plan-head__title">
+        <header className="hub-head plan-head__title">
           <div className="eyebrow">{eyebrow}</div>
-          <h1 className="page-title" style={{ marginTop: 3 }}>
-            {heading}
-          </h1>
-        </div>
+          <h1 className={"page-title" + size}>{heading}</h1>
+        </header>
 
         <div className="plan-head__controls">
-          <div className="seg plan-views" role="group" aria-label="View">
+          <div className="seg seg--page plan-views" role="group" aria-label="View">
             {VIEWS.map((v) => (
               <button key={v.key} type="button" className={"seg-btn" + (view === v.key ? " active" : "")} aria-pressed={view === v.key} onClick={() => go(v.key, date)}>
                 {v.label}
@@ -65,13 +74,13 @@ export default function Plan() {
           </div>
           <div className="plan-head__nav">
             <button className="btn-icon btn-icon--bordered" onClick={() => step(-1)} aria-label={`Previous ${unit}`} title={`Previous ${unit}`}>
-              <ChevronLeft size={16} />
+              <ChevronLeft size={18} />
             </button>
             <button className="btn btn--sm btn--on-page plan-head__today" onClick={() => go(view, today)} disabled={isCurrent} title={`Back to this ${unit}`}>
               Today
             </button>
             <button className="btn-icon btn-icon--bordered" onClick={() => step(1)} aria-label={`Next ${unit}`} title={`Next ${unit}`}>
-              <ChevronRight size={16} />
+              <ChevronRight size={18} />
             </button>
           </div>
         </div>

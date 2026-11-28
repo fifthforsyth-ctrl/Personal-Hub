@@ -538,10 +538,10 @@
   padding: 7px 7px 7px 18px; border-radius: var(--r-pill); background: var(--ink); color: var(--on-ink);
   box-shadow: var(--shadow-lift); animation: fade-in 0.18s ease;
 }
-@media (max-width: 900px) { .pick-bar { bottom: calc(var(--tabs-h) + 12px); } }
+@media (max-width: 900px) { .pick-bar { bottom: calc(var(--tabs-h) + 26px); } }
 /* A toast while picking sits above the bar, not on it. */
 html:has(.pick-bar) .toast-region { bottom: 88px; }
-@media (max-width: 900px) { html:has(.pick-bar) .toast-region { bottom: calc(var(--tabs-h) + 76px); } }
+@media (max-width: 900px) { html:has(.pick-bar) .toast-region { bottom: calc(var(--tabs-h) + 90px); } }
 .pick-bar__count { font-size: 14px; white-space: nowrap; margin-right: 4px; }
 .pick-bar__count b { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .btn.pick-bar__cancel { background: transparent; color: var(--on-ink); border-color: rgba(255, 255, 255, 0.28); }

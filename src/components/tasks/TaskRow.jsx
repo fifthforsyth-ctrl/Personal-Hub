@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, GripVertical } from "lucide-react";
+import { Check, ClipboardPlus, GripVertical } from "lucide-react";
 import { beginDrag } from "../../lib/taskDrag";
 
-// One task (or note) on a column or the clipboard: a handle to carry it,
-// a circle to tick it, and its words, tapped to change (emptied, it goes).
-// Sub-steps sit under it and travel with it.
-export default function TaskRow({ step, subs = [], depth = 0, onTick, onText, onDrop, childrenOf }) {
+// One task (or note) on a column or the clipboard: a circle to tick it, its
+// words, tapped to change (emptied, it goes), and at the row's end a handle
+// to carry it.
+// Sub-steps sit under it and travel with it. On a column (not the clipboard
+// itself) an open one also has a button, just before the handle, to send it
+// to the clipboard (onClip).
+export default function TaskRow({ step, subs = [], depth = 0, onTick, onText, onDrop, onClip, childrenOf }) {
   const [editing, setEditing] = useState(false);
   const note = step.kind === "note";
   const done = Boolean(step.done_on);
@@ -14,19 +17,11 @@ export default function TaskRow({ step, subs = [], depth = 0, onTick, onText, on
   return (
     <li className={"tk-row" + (done ? " is-done" : "") + (note ? " is-note" : "") + (depth ? " is-sub" : "")} {...(depth ? {} : { "data-row": step.id })}>
       <div className="tk-row__line">
-        <button
-          type="button"
-          className="tk-grip"
-          aria-label={`Move “${step.text}”`}
-          onPointerDown={(e) => beginDrag(e, { ids: [step.id], label: step.text, onDrop: (to) => onDrop(step, to) })}
-        >
-          <GripVertical size={15} aria-hidden="true" />
-        </button>
         {note ? (
           <span className="tk-dot" aria-hidden="true" />
         ) : (
           <button type="button" className={"tk-tick" + (done ? " is-on" : "")} aria-label={done ? `Not done: ${step.text}` : `Done: ${step.text}`} aria-pressed={done} onClick={() => onTick(step)}>
-            {done && <Check size={13} strokeWidth={3} aria-hidden="true" />}
+            {done && <Check size={14} strokeWidth={3} aria-hidden="true" />}
           </button>
         )}
         {editing ? (
@@ -36,11 +31,24 @@ export default function TaskRow({ step, subs = [], depth = 0, onTick, onText, on
             {step.text}
           </button>
         )}
+        {onClip && !done && !editing && (
+          <button type="button" className="tk-toclip" aria-label={`To the clipboard: ${step.text}`} title="To the clipboard" onClick={() => onClip(step)}>
+            <ClipboardPlus size={15} aria-hidden="true" />
+          </button>
+        )}
+        <button
+          type="button"
+          className="tk-grip"
+          aria-label={`Move “${step.text}”`}
+          onPointerDown={(e) => beginDrag(e, { ids: [step.id], label: step.text, onDrop: (to) => onDrop(step, to) })}
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </button>
       </div>
       {kids.length > 0 && (
         <ul className="tk-subs">
           {kids.map((k) => (
-            <TaskRow key={k.id} step={k} depth={depth + 1} onTick={onTick} onText={onText} onDrop={onDrop} childrenOf={childrenOf} />
+            <TaskRow key={k.id} step={k} depth={depth + 1} onTick={onTick} onText={onText} onDrop={onDrop} onClip={onClip} childrenOf={childrenOf} />
           ))}
         </ul>
       )}

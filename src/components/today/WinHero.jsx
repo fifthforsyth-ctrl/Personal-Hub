@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Minus, CloudOff } from "lucide-react";
+import { Plus, CloudOff, ChevronDown } from "lucide-react";
 import { useToast } from "../ui/Feedback";
 import { knownWinLabels, loadWinLabels } from "./winLabels";
 import { useOutbox, withTaps, waitingTaps, logTap, renameTap, removeTap, isUnnamed } from "./tapOutbox";
@@ -11,7 +11,11 @@ import Swords from "../ui/Swords";
 import { playClink } from "../../lib/clink";
 import { haptic } from "../../lib/haptics";
 
-// The first thing on Today, because wins are what keep you going.
+// Wins, right under the timer, because wins are what keep you going.
+//
+// The card reads left to right: the count, big; the latest wins by name;
+// and the Win button. Tapping the names opens the list of today's wins,
+// where any of them can be renamed or removed.
 //
 // One tap logs a win and the count jumps immediately: the tap is kept on the
 // phone and sent behind it, so a bad signal never makes you wait for your
@@ -25,12 +29,13 @@ import { haptic } from "../../lib/haptics";
 // with the sound of a sword fight and a strike you feel (sound and haptics can each be
 // turned off under More > On your phone).
 //
-// Losses are deliberately quiet: a small grey link, no count, nothing red.
+// Losses are deliberately quiet: small grey words, no count, nothing red.
 // They're kept because logging them keeps you honest (and, in your own
 // words, keeps you logging the wins), but they only appear in the evening.
 
 const NAMING_MS = 20000;
 const PILLS = 8;
+const NAMES = 3;
 
 export default function WinHero({ userId, date, rows, loaded }) {
   const toast = useToast();
@@ -40,6 +45,7 @@ export default function WinHero({ userId, date, rows, loaded }) {
   const [label, setLabel] = useState("");
   const [editing, setEditing] = useState(null);
   const [weighing, setWeighing] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
   const [chips, setChips] = useState(() => knownWinLabels(userId));
   const namingTimer = useRef(null);
   const labelRef = useRef("");
@@ -111,25 +117,51 @@ export default function WinHero({ userId, date, rows, loaded }) {
     renameTap(id, t).catch((err) => toast.error(err, "Couldn't name that win. Tap it in the list to try again."));
   }
 
+  const nameOf = (w) => (isUnnamed(w) ? "Win" : w.habit_label);
+  const names = newestFirst.slice(0, NAMES).map(nameOf);
+  const more = wins.length - names.length;
+  const lossLink = (
+    <button className="loss-link" onClick={logLoss} title="Log a loss. It's kept quiet until the evening.">
+      Log a loss
+    </button>
+  );
+
   return (
     <div className="card win-hero">
-      <div className="row row--between" style={{ alignItems: "flex-end" }}>
-        <div>
-          <div className="eyebrow win-eyebrow"><Swords size={12} />Wins today</div>
-          <div key={bump} className={"win-count" + (bump ? " win-count--bump" : "")} aria-live="polite">
-            {loaded ? wins.length : <span className="win-count__unknown">–</span>}
+      <div className="win-hero__top">
+        <div key={bump} className={"win-count" + (bump ? " win-count--bump" : "")} aria-live="polite" aria-label={loaded ? `${wins.length} ${wins.length === 1 ? "win" : "wins"} today` : undefined}>
+          {loaded ? wins.length : <span className="win-count__unknown">–</span>}
+        </div>
+        {wins.length > 0 ? (
+          <button
+            type="button"
+            className="win-hero__names"
+            aria-expanded={listOpen}
+            title="See today's wins, to rename or remove one"
+            onClick={() => {
+              setListOpen((o) => !o);
+              setEditing(null);
+            }}
+          >
+            <span className="win-hero__label">
+              Wins today
+              <ChevronDown size={13} className={"win-hero__chev" + (listOpen ? " is-open" : "")} />
+            </span>
+            <span className="win-hero__list">
+              {names.join(" · ")}
+              {more > 0 && ` · +${more}`}
+            </span>
+          </button>
+        ) : (
+          <div className="win-hero__names">
+            <span className="win-hero__label">Wins today</span>
+            {loaded && <span className="win-hero__list win-hero__list--none">The first one is a tap away</span>}
           </div>
-        </div>
-        <div className="win-actions">
-          <button className="btn btn--accent win-btn" onClick={() => logWin()}>
-            <Swords size={24} clash={bump} />
-            Win
-          </button>
-          <button className="loss-link" onClick={logLoss} title="Log a loss. It's kept quiet until the evening.">
-            <Minus size={12} />
-            loss
-          </button>
-        </div>
+        )}
+        <button className="btn btn--accent win-btn" onClick={() => logWin()}>
+          <Swords size={22} clash={bump} />
+          Win
+        </button>
       </div>
 
       {waiting.count > 0 && (
@@ -182,19 +214,22 @@ export default function WinHero({ userId, date, rows, loaded }) {
           )}
         </form>
       ) : (
-        chips.length > 0 && (
-          <div className="win-chips win-chips--log">
+        <div className="win-quick">
+          {/* The wins you log most, in one row that slides sideways. */}
+          <div className="win-quick__chips">
             {chips.map((c) => (
               <button key={c} className="chip chip--tap" onClick={() => logWin(c)} aria-label={`Log a win: ${c}`}>
-                <Plus size={11} />
+                <Plus size={12} />
                 {c}
               </button>
             ))}
           </div>
-        )
+          {lossLink}
+        </div>
       )}
+      {(weighing || naming) && <div className="win-quick">{lossLink}</div>}
 
-      {wins.length > 0 && (
+      {listOpen && wins.length > 0 && (
         <div className="win-list">
           {newestFirst.slice(0, PILLS).map((w) => (
             <button
@@ -219,7 +254,7 @@ export default function WinHero({ userId, date, rows, loaded }) {
         </div>
       )}
 
-      {editingRow && <TapEditor key={editingRow.id} row={editingRow} onClose={() => setEditing(null)} />}
+      {listOpen && editingRow && <TapEditor key={editingRow.id} row={editingRow} onClose={() => setEditing(null)} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { lazy, useRef } from "react";
+import { lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -19,9 +19,8 @@ const Work = lazy(() => import("./pages/Work"));
 const Money = lazy(() => import("./pages/Money"));
 const Spirit = lazy(() => import("./pages/Spirit"));
 const Tree = lazy(() => import("./pages/Tree"));
-// Targets: the mission down to the week's focus, and a page for each.
+// Targets: the mission down to the week's focus, each a tap from its pop-up.
 const Targets = lazy(() => import("./pages/Targets"));
-const Target = lazy(() => import("./pages/Target"));
 const Camp = lazy(() => import("./pages/Camp"));
 const Plans = lazy(() => import("./pages/Plans"));
 // Tasks: every quest's lists and plain lists for anything (2026-11-22).
@@ -43,24 +42,11 @@ function MovedTo({ to }) {
   return <Navigate to={`${path}${search}${hash}`} state={state} replace />;
 }
 
-// Each target's page starts fresh: going from one target to another (a
-// link up the ladder, the quests row) mustn't carry a draft, a search or an
-// open sheet across to the wrong target. The page's own move to the
-// target's address (from a lesson's mountain, an older week of a focus, a
-// goal further down the wheel) is the same target, so the page keeps what
-// it has loaded across it instead of loading it all again.
+// A target's own page became its pop-up on Targets (2026-11-28): an old
+// /targets/<id> address (a bookmark, a link) opens that pop-up instead.
 function TargetAt() {
-  const { pathname } = useLocation();
-  const at = useRef({ key: pathname, alias: null });
-  if (pathname !== at.current.key && pathname !== at.current.alias) at.current = { key: pathname, alias: null };
-  return (
-    <Target
-      key={at.current.key}
-      onCanonical={(path) => {
-        at.current.alias = path;
-      }}
-    />
-  );
+  const { ref } = useParams();
+  return <Navigate to={`/targets?t=${encodeURIComponent(ref ?? "mission")}`} replace />;
 }
 
 function RedirectToToday() {

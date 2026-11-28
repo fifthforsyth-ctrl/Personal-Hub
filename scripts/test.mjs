@@ -3438,18 +3438,15 @@ console.log("\napple watch");
   ok("the sheet deletes through deleteLater and listens for Undo", /toast\.undoable\(\{ message: "Note deleted", \.\.\.deleteLater\(note\) \}\)/.test(sheetSrc) && /onNoteBack\(putBack\)/.test(sheetSrc));
   delete globalThis.__focusSheetStandIns;
 
-  // The strip's titles: whole goals on a phone at 390, and on a desk.
+  // The strip is a row of chips (Clean slate, 2026-11-23): a small target
+  // and the focus's name on one line, a thumb tall.
   const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
-  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
-  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
-  const cell = (390 - 2 * pad - 4 * gap) / 5;
-  // 68px is what "Time developing artistic ability" needs for three lines at 10.5px, measured in the app's font.
-  ok("five across at 390 leave each title room for three lines of its words", cell >= 68 && /font-size: 10\.5px;/.test(css), `${cell}px`);
-  const title = css.slice(css.indexOf(".focus-strip__title {"));
-  ok("titles get three lines, not two", /-webkit-line-clamp: 3;/.test(title) && !/-webkit-line-clamp: 2;/.test(title));
-  const least = Number(css.match(/repeat\(auto-fill, minmax\((\d+)px, 1fr\)\)/)?.[1]);
-  const deskGap = Number(css.match(/gap: 10px (\d+)px;/)?.[1]);
-  ok("five fit across the narrowest desk column (613px at 901 wide), each wider than the old 88px", least > 88 && 5 * least + 4 * deskGap <= 613, `${least}px`);
+  const item = css.slice(css.indexOf(".focus-strip__item {"), css.indexOf("}", css.indexOf(".focus-strip__item {")));
+  ok("each focus is a chip a thumb can hit, 44px tall", /height: 44px;/.test(item) && /border-radius: var\(--r-pill\);/.test(item), item);
+  const title = css.slice(css.indexOf(".focus-strip__title {"), css.indexOf("}", css.indexOf(".focus-strip__title {")));
+  ok("a chip's name stays on one line, at a size that reads", /white-space: nowrap;/.test(title) && /text-overflow: ellipsis;/.test(title) && Number(title.match(/font-size: ([\d.]+)px;/)?.[1]) >= 14, title);
+  const row = css.slice(css.indexOf(".focus-strip__row {"), css.indexOf("}", css.indexOf(".focus-strip__row {")));
+  ok("the chips slide sideways on a phone and wrap on a desk", /overflow-x: auto;/.test(row) && /@media \(min-width: 901px\) \{\s*\.focus-strip__row \{ flex-wrap: wrap; overflow: visible; \}/.test(css));
 }
 
 {
@@ -3640,28 +3637,17 @@ console.log("\napple watch");
     /onNoteLanded\(\(\{ goalId, sent, row \}\) =>/.test(sheetSrc) && /if \(shown\.current\) putBack\(row\);\s*else reload\(\);/.test(sheetSrc) && /mutate\(\(d\) => withNote\(d, note\)\)/.test(sheetSrc)
   );
 
-  // The strip's titles on the narrowest iPhones, and the "…" with room to spare.
+  // The strip's chips on a phone: edge to edge, and never wider than the screen.
   const css = readFileSync(new URL("../src/styles/focus.css", import.meta.url), "utf8");
-  const gap = Number(css.match(/--focus-gap: (\d+)px;/)?.[1]);
-  const pad = Number(css.match(/\.focus-strip__row \{ margin: 0 -14px; padding: 2px (\d+)px 4px;/)?.[1]);
-  const narrow = css.match(/@media \(max-width: (\d+)px\) \{[^}]*\.focus-strip__title \{ font-size: ([\d.]+)px; \}/);
-  const cell375 = (375 - 2 * pad - 4 * gap) / 5;
-  // At 10px, "Time developing artistic ability" fits three lines in a 67px cell, measured in the app's font.
+  const phoneRow = css.match(/\.focus-strip__row \{ margin: 0 -(\d+)px; padding: 1px (\d+)px 3px; scroll-padding-inline: (\d+)px; \}/);
   ok(
-    "375-wide iPhones get 10px titles, which fit the longest real goal in three lines; 390 keeps 10.5px",
-    Boolean(narrow) && Number(narrow[1]) >= 375 && Number(narrow[1]) < 390 && Number(narrow[2]) === 10 && cell375 >= 67,
-    JSON.stringify([narrow?.[1], narrow?.[2], cell375])
+    "the row runs to the screen's edges and its first chip lines up with the page (16px)",
+    Boolean(phoneRow) && phoneRow[1] === "16" && phoneRow[2] === "16" && phoneRow[3] === "16",
+    JSON.stringify(phoneRow?.slice(1))
   );
-  const title = css.slice(css.indexOf(".focus-strip__title {"));
-  const bleed = Number(title.match(/margin-inline: -(\d+)px;/)?.[1]);
-  const padIn = Number(title.match(/padding-inline: (\d+)px;/)?.[1]);
-  const wider = Number(title.match(/max-width: calc\(100% \+ (\d+)px\);/)?.[1]);
-  // Chrome's clamped "…" was measured up to 3px past the end of a line.
-  ok(
-    "the title box reaches a pixel past where a clamped \"…\" can sit, and not into the next cell",
-    bleed === padIn && wider === 2 * bleed && bleed >= 3 + 1 && bleed <= gap,
-    JSON.stringify({ bleed, padIn, wider, gap })
-  );
+  const chip = css.slice(css.indexOf(".focus-strip__item {"), css.indexOf("}", css.indexOf(".focus-strip__item {")));
+  const widest = Number(chip.match(/max-width: (\d+)px;/)?.[1]);
+  ok("the longest name is cut inside its chip, which still fits a 375-wide iPhone", widest > 0 && widest <= 375 - 2 * 16, `${widest}px`);
 }
 
 {
@@ -4765,7 +4751,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("Sunday's carry still leaves a quest or lesson link to addFocusGoal", /const row = await add\(title, goal\.node_id, goal\.id\);/.test(weekSrc));
   const css = read("../src/styles/focus.css");
   ok("what a focus counts toward gives up its end before it widens the card", /\.focus-arrow__toward \{ max-width: 100%; min-width: 0; overflow: hidden;/.test(css));
-  ok("the strip's measurements are still the first the stylesheet has", css.indexOf("--focus-gap:") < css.indexOf(".focus-arrow") && (css.match(/repeat\(auto-fill, minmax\(/g) ?? []).length === 1 && (css.match(/-webkit-line-clamp: 2;/g) ?? []).length === 0);
+  ok("the strip's chips are still the first the stylesheet has", css.indexOf(".focus-strip__item {") > 0 && css.indexOf(".focus-strip__item {") < css.indexOf(".focus-arrow") && (css.match(/\.focus-strip__item \{/g) ?? []).length === 1);
 }
 
 // (end of arrows on the week's focus)
@@ -4885,7 +4871,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // --- The page --------------------------------------------------------------------
   const page = src("src/pages/Evening.jsx");
-  const full = page.slice(page.indexOf(") : (\n        <div className=\"stack\">"), page.indexOf("{volley &&"));
+  // Four steps since 2026-11-23, all on the page at once (one shows), in the same order.
+  const full = page.slice(page.indexOf("<div className=\"eve-steps\">"), page.indexOf("{volley &&"));
   const order = ["<WinsAndLosses", "<MinutesCard", "<ReflectionFlow", "<FocusArrows", "<TonightShots", "<EveningCheckin", "<CloseOut"].map((t) => full.indexOf(t));
   ok("the evening goes in the order it's lived", order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), order.join());
   ok("the reflection questions stay; the watch row, the board card, What got done and the short evening are gone", /<ReflectionFlow\b/.test(page) && !/<WatchLine|<CuratedCards|<EveningTasks|<ShortEvening/.test(page));
@@ -4959,7 +4946,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("each kind names its column", JSON.stringify(["mission", "goal", "quest", "lesson", "focus"].map((kind) => L.refOf({ kind, id: "i" }))) ===
     JSON.stringify([{ mission: true }, { goal_id: "i" }, { quest_id: "i" }, { lesson_id: "i" }, { focus_goal_id: "i" }]));
   ok("no id, no ref", L.refOf({ kind: "quest", id: null }) === null && L.refOf(null) === null);
-  ok("pages live under /targets", L.pathOf("mission") === "/targets/mission" && L.pathOf("quest", "q1") === "/targets/q1");
+  ok("a target opens as a pop-up on Targets", L.pathOf("mission") === "/targets?t=mission" && L.pathOf("quest", "q1") === "/targets?t=q1" && L.pathOf("goal") === "/targets");
 
   const crumbs = (t) => L.crumbsFor(t, data).map((c) => c.label).join(" › ");
   ok("a quest's ladder line", crumbs({ kind: "quest", id: "q1" }) === "My mission › Skilled", crumbs({ kind: "quest", id: "q1" }));
@@ -5092,7 +5079,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   const today = src("pages/Today.jsx");
   const at = (s) => today.indexOf(s);
-  ok("Today's quests row sits between the focus and the week", at("<FocusStrip") > 0 && at("<FocusStrip") < at('<QuestsRow userId={userId} date={date} label="Tasks" tasks />') && at("<QuestsRow") < at("<WeekStrip"));
+  ok(
+    "Today runs focus, timer, wins, plan, then the walk with God (Clean slate)",
+    at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance") && at("<MinutesGlance") < at("<WinHero") && at("<WinHero") < at("<PlanBlocks") && at("<PlanBlocks") < at("<WalkWithGod")
+  );
+  ok("the quests row, the week strip and the quote left Today; the quote opens the Board", !/<QuestsRow|<WeekStrip|<QuoteOfDay/.test(today) && src("pages/Study.jsx").includes("<QuoteOfDay userId={user.id} onChanged={quoteChanged} />"));
+  // Aaron 2026-11-28: the Tasks row at the top of Today is gone; quests live on Tasks.
+  // (On main this also checked the week strip's place; Clean slate took that strip off Today.)
+  ok("Today has no Tasks row at the top; the timer follows the focus", !today.includes("QuestsRow") && at("<FocusStrip") > 0 && at("<FocusStrip") < at("<MinutesGlance"));
   const shots = src("components/mark/TonightShots.jsx");
   ok("tonight's shots open Targets, and a target's history", shots.includes('<Link to="/targets" className="btn-link mk-tonight__range">') && shots.includes("<Link to={`/targets/${t.key}#history`}"));
   ok("a plan's quest opens its lists on Tasks", src("components/today/PlanBlocks.jsx").includes("<Link to={`/tasks/${g.questId}`}"));
@@ -5144,30 +5138,41 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const M = await import("../src/lib/mark.js");
   const day = "2026-11-02";
 
-  const t = { shots: [{ date: "2026-11-01", level: 0 }, { date: "2026-10-01", level: 0 }, { date: day, level: 2 }], today: { level: 2 } };
-  ok("a small target's words count the bullseyes in its 30 days", O.markWords(t, day) === `1 bullseye in 30 days, today's arrow in the ${M.LEVELS[2].name.toLowerCase()} ring`, O.markWords(t, day));
-  ok("and say how today's arrow landed", /a bullseye today$/.test(O.markWords({ ...t, today: { level: 0 } }, day)) && /today's arrow missed$/.test(O.markWords({ ...t, today: { level: M.LEVELS.length - 1 } }, day)) && /no arrow yet today$/.test(O.markWords({ ...t, today: null }, day)));
-  ok("nothing yet is said plainly", O.markWords(null, day) === "no marks yet" && O.markWords(O.NO_MARKS, day) === "no marks yet");
+  const A = await import("../src/lib/arrows.js");
+  const arrows = [{ id: "a1", date: "2026-11-01", goal_id: "g1" }, { id: "a2", date: "2026-10-01", goal_id: "g1" }, { id: "a3", date: day, goal_id: "g1", title: "Read a talk" }, { id: "a4", date: day, quest_id: "q1" }];
+  ok("a small target's words count its arrows in 30 days, and today's", A.arrowWords(A.arrowsOn(arrows, "goal", "g1"), day) === "2 arrows in 30 days, 1 today", A.arrowWords(A.arrowsOn(arrows, "goal", "g1"), day));
+  ok("nothing yet is said plainly", A.arrowWords([], day) === "no arrows yet" && A.arrowWords(null, day) === "no arrows yet");
   ok("a double dash in a focus's name doesn't break", O.keepDashes("Daily form--win by win") === "Daily form‑‑win by win" && O.keepDashes(null) === "");
 
-  const empty = html(O.MissionCard, { mission: null, onWrite: () => {} });
+  const empty = html(O.MissionCard, { mission: null, onWrite: () => {}, onOpen: () => {} });
   ok("no mission yet: a button to write it, no link", empty.includes("Write your mission") && !empty.includes("<a ") && empty.includes("ov-mission--empty"));
   const mission = html(O.MissionCard, { mission: { summit: "An exalted servant", statement: "To become an exalted servant of God" } });
-  ok("the mission's card opens its page", hrefs(mission).join() === "/targets/mission" && mission.includes("An exalted servant") && mission.includes("ov-mission__creed"));
+  ok("the mission's card is a button that opens its pop-up", hrefs(mission).length === 0 && /^<section[^>]*><button type="button" class="card ov-mission"/.test(mission) && mission.includes("An exalted servant") && mission.includes("ov-mission__creed"));
 
   const climbs = html(O.ClimbRows, {
     today: day,
     climbs: [
-      { key: "q1", kind: "quest", title: "Build the plugin", camps: 2, today: 3, target: t },
-      { key: "l1", kind: "lesson", title: "Stop drinking caffeine", camps: 1, today: 0, target: null },
+      { key: "q1", kind: "quest", title: "Build the plugin", camps: 2, today: 3 },
+      { key: "l1", kind: "lesson", title: "Stop drinking caffeine", camps: 1, today: 0 },
     ],
+    arrowsOf: (c) => A.arrowsOn(arrows, c.kind, c.key),
+    onOpen: () => {},
   });
-  ok("each quest and lesson opens its own page", hrefs(climbs).join() === "/targets/q1,/targets/l1", hrefs(climbs).join());
+  ok("each quest and lesson is a button that opens its pop-up", hrefs(climbs).length === 0 && (climbs.match(/<button type="button" class="ov-climb"/g) ?? []).length === 2);
   ok("with what's waiting there", climbs.includes("Quest · 2 camps · 3 today") && climbs.includes(">Lesson · 1 camp<"));
-  ok("and says it all to a screen reader", climbs.includes('aria-label="Stop drinking caffeine. Lesson from God, 1 camp. No marks yet."') && climbs.includes('aria-label="Build the plugin. Quest, 2 camps, 3 today. 1 bullseye in 30 days'));
+  ok("and says it all to a screen reader", climbs.includes('aria-label="Stop drinking caffeine. Lesson from God, 1 camp. No arrows yet."') && climbs.includes('aria-label="Build the plugin. Quest, 2 camps, 3 today. 1 arrow in 30 days, 1 today."'), climbs);
 
-  const faces = html(O.FaceRow, { week: true, label: "This week's focus", items: [{ key: "f1", to: "/targets/f1", label: "Up at 4:30", name: "Up at 4:30", answered: true }, { key: "f2", to: "/targets/f2", label: "Scripture", name: "Scripture" }] });
-  ok("a row of small targets, each a link", hrefs(faces).join() === "/targets/f1,/targets/f2" && faces.includes("ov-faces--week") && (faces.match(/is-answered/g) ?? []).length === 1);
+  const faces = html(O.FaceRow, { week: true, label: "This week's focus", items: [{ key: "f1", onOpen: () => {}, label: "Up at 4:30", name: "Up at 4:30", answered: true }, { key: "f2", onOpen: () => {}, label: "Scripture", name: "Scripture" }] });
+  ok("a row of small targets, each a button", hrefs(faces).length === 0 && (faces.match(/<button type="button" class="ov-face/g) ?? []).length === 2 && faces.includes("ov-faces--week") && (faces.match(/is-answered/g) ?? []).length === 1);
+
+  // The week's focus as rows with seven squares (Clean slate, 2026-11-23).
+  const F = await import("../src/lib/focus.js");
+  ok("a day's square says what landed", F.dayState({ level: 0 }, "2026-11-23", "2026-11-25") === "bull" && F.dayState({ level: 3 }, "2026-11-23", "2026-11-25") === "ring" && F.dayState({ level: 5 }, "2026-11-23", "2026-11-25") === "miss");
+  ok("or what the day is with no arrow on it", F.dayState(null, "2026-11-25", "2026-11-25") === "now" && F.dayState(null, "2026-11-26", "2026-11-25") === "later" && F.dayState(null, "2026-11-24", "2026-11-25") === "none");
+  ok("an arrow from before levels still reads as on the target or missed", F.dayState({ moved: true }, "2026-11-23", "2026-11-25") !== "none" && F.dayState({ moved: false }, "2026-11-23", "2026-11-25") !== "none");
+  const rows = html(O.FocusRows, { label: "This week's focus", items: [{ key: "f1", onOpen: () => {}, title: "Up at 4:30", label: "Up at 4:30. Today: bullseye. 3 arrows this week.", days: ["bull", "ring", "miss", "now", "later", "later", "later"] }] });
+  ok("each focus is a row that opens its pop-up, with its whole name and seven squares", hrefs(rows).length === 0 && rows.includes('<button type="button" class="ov-row"') && rows.includes(">Up at 4:30<") && (rows.match(/class="ov-day ov-day--/g) ?? []).length === 7 && rows.includes("ov-day--now") && rows.includes('aria-label="Up at 4:30. Today: bullseye. 3 arrows this week."'));
+  ok("the letters over them mark today", (html(O.WeekLetters, { todayIndex: 3 }).match(/is-today/g) ?? []).length === 1 && (html(O.WeekLetters, {}).match(/<i/g) ?? []).length === 7);
 
   const view = {
     patches: [{ id: "q3", title: "Finish the garage", finished_on: "2026-10-20" }, { id: "m2", lesson_id: "l5", title: "Patience", finished_on: "2026-10-25" }],
@@ -5176,8 +5181,8 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
     lessonsAside: [{ id: "l3", title: "Patience with the kids" }],
   };
   const behind = html(O.BehindYou, { view });
-  ok("behind you: each patch, lesson learned and thing set aside opens its page", hrefs(behind).join() === "/targets/q3,/targets/l5,/targets/l2,/targets/q4,/targets/l3", hrefs(behind).join());
-  ok("a lesson's patch opens the lesson, never its mountain", !hrefs(behind).includes("/targets/m2"));
+  ok("behind you: each patch, lesson learned and thing set aside opens its pop-up", hrefs(behind).join() === "/targets?t=q3,/targets?t=l5,/targets?t=l2,/targets?t=q4,/targets?t=l3", hrefs(behind).join());
+  ok("a lesson's patch opens the lesson, never its mountain", !hrefs(behind).includes("/targets?t=m2"));
   ok("the fold says what's in it, and stays shut", behind.includes("2 patches · 1 learned · 2 set aside") && !/<details[^>]* open/.test(behind));
   ok("it opens by itself for a patch just earned", /<details[^>]* open=""/.test(html(O.BehindYou, { view, fresh: "q3" })));
   ok("nothing behind you, no fold", html(O.BehindYou, { view: { patches: [], learned: [], setAside: [], lessonsAside: [] } }) === "" && html(O.BehindYou, { view: null }) === "");
@@ -5190,166 +5195,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   const css = src("styles/targets.css");
   const part2 = css.slice(css.indexOf("/* --- Part 2:"), css.indexOf("/* --- end of part 2 --- */"));
   const missionRules = [...part2.matchAll(/([^{}]*ov-mission[^{}]*)\{([^}]*)\}/g)].map((m) => m[2]);
-  ok("the mission's card is white like the rest", missionRules.length > 0 && missionRules.every((r) => !/background:\s*var\(--ink\)/.test(r)));
+  // Clean slate (2026-11-23): the written mission is the page's one black
+  // card; the empty one asking for it stays white.
+  ok("the written mission is the one black card, the empty one stays white", /(^|\n)\.ov-mission:is\(a, button\) \{ background: var\(--ink\); color: var\(--on-ink\);/.test(part2) && missionRules.filter((r) => /background:\s*var\(--ink\)/.test(r)).length === 1 && !/\.ov-mission--empty[^{]*\{[^}]*background/.test(part2));
 }
 
 // (end of targets tab, part 2)
 // ---------------------------------------------------------------------------
 
 
-// ===== Targets tab (PR 3, part 3) =====
-// Add this part's tests directly under the line above.
-{
-  console.log("\ntargets tab: a target's page");
-  const { existsSync, readdirSync } = await import("node:fs");
-  const at = (p) => new URL(`../${p}`, import.meta.url);
-  const read = (p) => readFileSync(at(p), "utf8");
-  // A component's own helpers, with what it imports swapped for stand-ins
-  // except the modules `keep` names (as in "Review fixes, batch C").
-  const helpersOf = async (rel, keep = null) => {
-    const path = fileURLToPath(at(rel));
-    const text = readFileSync(path, "utf8");
-    const built = await esbuildBundle({
-      entryPoints: [path],
-      bundle: true,
-      write: false,
-      format: "esm",
-      jsx: "transform",
-      logLevel: "silent",
-      plugins: [
-        {
-          name: "stand-ins",
-          setup(b) {
-            b.onResolve({ filter: /.*/ }, (a) => (a.importer === path && !(keep && keep.test(a.path)) ? { path: a.path, namespace: "stand-in" } : undefined));
-            b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
-              const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const names = (text.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
-              return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
-            });
-          },
-        },
-      ],
-    });
-    return import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`);
-  };
-
-  // --- The Quests page moved into a quest's own page ---------------------------
-  const body = read("src/components/targets/QuestBody.jsx");
-  const camps = read("src/components/targets/QuestCamps.jsx");
-  const page = read("src/pages/Target.jsx");
-  ok("the Quests page is gone, and its pills with it", !existsSync(at("src/pages/Quests.jsx")) && !existsSync(at("src/components/quests/QuestMap.jsx")));
-  const oldLink = /["'`]\/(quests|ascent)\b/;
-  const questsDir = readdirSync(at("src/components/quests/")).filter((f) => f.endsWith(".jsx") || f.endsWith(".js"));
-  const stale = [
-    ["QuestBody", body],
-    ["QuestCamps", camps],
-    ["Target", page],
-    ["TargetView", read("src/components/mark/TargetView.jsx")],
-    ...questsDir.map((f) => [f, read(`src/components/quests/${f}`)]),
-  ].filter(([, src]) => oldLink.test(src) || /from: "quests"/.test(src));
-  ok("no link on a quest's page, its camps or its lists goes to /quests or /ascent", stale.length === 0, stale.map(([n]) => n).join(", "));
-  ok("a quest's page has no notes box of its own any more (its notes are the target's)", !/saveNote|Notes on this/.test(body));
-  ok("a quest's page never moves the address itself (a lesson's new mountain just reloads)", [...body.matchAll(/navigate\(([^)]*)\)/g)].every((m) => /\/village/.test(m[1])));
-  ok("the quest's page has no header, pills or 'Start a quest' of its own", !/qs-head|QuestMap|Start a quest|NewQuest/.test(body));
-
-  // The camps: always there, never behind a pill or a fold.
-  ok("the camps are drawn on every quest's page, not inside a fold", /\n\s*<QuestCamps\b/.test(body) && !/<details/.test(camps) && /id="camps"/.test(camps) && /className="qs-camps"/.test(camps));
-  ok("each camp goes to its own page under the tab it's on, with no state trick", camps.includes("to={`${under}/camp/${c.id}`}") && !/<Link[^>]*\bstate=/.test(camps));
-  ok("the flag at the next camp goes through the ladder (its ceremony and Undo)", /onReach=\{\(\) => ladder\?\.reachNext\(climb\)\}/.test(body) && /Mark the summit reached/.test(camps));
-  ok("'Bring in a plan' goes to the plans under Targets", /to="\/targets\/plans"/.test(camps));
-
-  // The order on a phone: the grid's cells in the source, as a phone stacks them.
-  const order = ["<QuestCamps", 'className="qs-today"', 'className="qs-ongoing"', 'className="qs-clip"', "{quotes}", "{notes}", "qs-earlier", "{history}"];
-  // (the full page's render: while the lists load, the quotes, notes and history sit under the header instead)
-  const grid = body.slice(body.indexOf("<PhotoProvider"));
-  const spots = order.map((s) => grid.indexOf(s));
-  ok("a quest's page runs camps, Today, ongoing, clipboard, quotes, notes, earlier days, history", spots.every((n, i) => n > 0 && (i === 0 || n > spots[i - 1])), JSON.stringify(spots));
-  const qcss = read("src/styles/quests.css");
-  ok("the phone keeps that order: the grid only places its cells on a desk", !/grid-area:\s*(camps|today|ongoing|clip|side|rest|build)\b/.test(qcss.slice(0, qcss.indexOf("@media (min-width: 901px)"))));
-  ok("on a desk the camps span the top, with the quotes and notes in the right rail under them", /"camps camps" "today side" "ongoing side"/.test(qcss));
-  ok("the closed clipboard's button has a home in the camps' head", /clip=\{clipButton\}/.test(body) && /\{clip\}/.test(camps) && /CLIP_SHUT_KEY = "hub:clip-closed"/.test(body));
-
-  // --- A focus's page -------------------------------------------------------------
-  const focusSrc = read("src/components/targets/TargetFocus.jsx");
-  ok("a focus's page knows this week's row by its week", /const thisWeek = row\.week_start === focusWeekOf\(today\)/.test(focusSrc));
-  ok(
-    "today's arrow shows only on this week's focus, and only once",
-    (focusSrc.match(/<GoalArrow\b/g) ?? []).length === 1 && /\{thisWeek && \(\s*<div className="focus-sheet__arrow[^"]*">\s*<span className="eyebrow">Today's arrow<\/span>\s*<GoalArrow/.test(focusSrc)
-  );
-  ok("an earlier week's focus has no settings pencil", /const weekGoal = thisWeek \?/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
-
-  // --- Notes ---------------------------------------------------------------------
-  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
-  const N = await helpersOf("src/components/targets/NoteSheet.jsx", /lib\/ladder$/);
-  ok("a focus's note takes 2000 characters, every other note and reflection 4000", N.noteLimit("focus", "note") === 2000 && N.noteLimit("focus", "reflect") === 4000 && N.noteLimit("quest", "note") === 4000 && N.FOCUS_NOTE_MAX === 2000);
-  ok("the box's limit is where it saves", /maxLength=\{max\}/.test(sheetSrc) && /const max = noteLimit\(focusNote \? "focus" : kind, mode\)/.test(sheetSrc));
-  const focusSheet = read("src/components/focus/FocusSheet.jsx");
-  ok(
-    "a focus's note keeps Today's draft (hub.focus-note-draft.<id>)",
-    /import \{ readDraft, keepDraft(?:, \w+)* \} from "\.\.\/focus\/FocusSheet";/.test(sheetSrc) && /`hub\.focus-note-draft\.\$\{goalId\}`/.test(focusSheet) && /readDraft\(focusGoal\)/.test(sheetSrc) && /keepDraft\(focusGoal\.id, text\)/.test(sheetSrc)
-  );
-  ok("a focus's note saves through Today's own save", /saveNote\(userId, \{ goalId: target\.id, date: today, sent: text \}\)/.test(read("src/components/targets/NotesSection.jsx")));
-
-  const store = () => {
-    const m = new Map();
-    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
-  };
-  const key = "hub.target-note-draft.quest:q1:note";
-  let s1 = store();
-  N.keepNoteDraft(key, "Half a thought", s1);
-  let threw = false;
-  try {
-    await N.sendNote({ key, sent: "Half a thought", save: () => Promise.reject(new Error("offline")), store: s1 });
-  } catch {
-    threw = true;
-  }
-  ok("a note that doesn't save keeps its draft, word for word", threw && N.readNoteDraft(key, s1) === "Half a thought");
-  await N.sendNote({ key, sent: "Half a thought", save: () => Promise.resolve({ id: "n1" }), store: s1 });
-  ok("a note that saved clears its draft", N.readNoteDraft(key, s1) === "");
-  const s2 = store();
-  N.keepNoteDraft(key, "Typed after Save", s2);
-  await N.sendNote({ key, sent: "The words sent", save: () => Promise.resolve({ id: "n2" }), store: s2 });
-  ok("words typed after Save stay, even once the note saved", N.readNoteDraft(key, s2) === "Typed after Save");
-  N.keepNoteDraft(key, "   ", s2);
-  ok("a blank box leaves no draft behind", !s2.m.has(key));
-  const catchBlock = sheetSrc.slice(sheetSrc.indexOf("} catch {", sheetSrc.indexOf("async function save(")), sheetSrc.indexOf("const near ="));
-  ok("the sheet stays open with the words when a save fails", /setProblem\("Couldn't save that\. Your words are still here\."\)/.test(catchBlock) && !/dropNoteDraft|removeItem|onClose|setText/.test(catchBlock));
-  ok("Cancel keeps the draft (it only closes)", /onClick=\{close\}>\s*Cancel/.test(sheetSrc) && /function close\(\) \{\s*if \(sending\.current != null\) closedSending\.add\(sendToken\(draftKey, sending\.current\)\);\s*onClose\(\);\s*\}/.test(sheetSrc));
-  ok("the drafts are kept per target and per kind of writing", /draftKey=\{`\$\{draftBase\}:\$\{sheet\}`\}/.test(read("src/components/targets/NotesSection.jsx")) && /const draftBase = noteDraftKey\(target\)/.test(read("src/components/targets/NotesSection.jsx")));
-
-  // --- Quotes --------------------------------------------------------------------
-  const linked = read("src/components/targets/LinkedQuotes.jsx");
-  ok("Unlink takes off every week's link to that quote", /unlinkQuote\(link\.linkIds\)/.test(linked) && /relinkQuotes\(await gone\)/.test(linked));
-  ok("the quotes on a target go in QuoteCard's foot as Unlink", /extra=\{unlinkBtn\(l\)\}/.test(linked) && /className="qprint__save tg-unlink"/.test(linked));
-
-  // --- The head ------------------------------------------------------------------
-  const H = await helpersOf("src/components/targets/TargetHead.jsx", /lib\/mark$/);
-  ok(
-    "today's arrow on a target, in words",
-    H.todayWords({ today: null }) === "No arrow yet today" &&
-      H.todayWords({ today: { level: 0 } }) === "Bullseye tonight" &&
-      H.todayWords({ today: { level: 2 } }) === "Middle ring tonight" &&
-      H.todayWords({ today: { level: 5 } }) === "Missed tonight"
-  );
-  ok("there's always a way up: the ladder line starts at Targets", /<Link to="\/targets">Targets<\/Link>/.test(read("src/components/targets/TargetHead.jsx")));
-  ok("a link to a target that's gone says so, with the way back", /That isn't one of your targets any more\./.test(page) && /Back to Targets/.test(page));
-  ok("a link by another id moves to the target's own, keeping the rest", /navigate\(`\/targets\/\$\{key\}\$\{location\.search\}\$\{location\.hash\}`, \{ replace: true, state: location\.state \}\)/.test(page));
-  const view = read("src/components/mark/TargetView.jsx");
-  ok("TargetView drawn on a page has no back link, tabs or lines of its own", /\{!embedded && \(\s*<>\s*<header/.test(view) && /!embedded && noted\.length > 0/.test(view));
-
-  // --- Copy ----------------------------------------------------------------------
-  const mine = [
-    "src/pages/Target.jsx",
-    ...readdirSync(at("src/components/targets/"))
-      .filter((f) => /^(Target|Quest|Notes|Note|Reflect|Quote|Linked|Build)/.test(f))
-      .map((f) => `src/components/targets/${f}`),
-    ...questsDir.map((f) => `src/components/quests/${f}`),
-    "src/components/mark/TargetView.jsx",
-  ];
-  const dashed = mine.filter((p) => /[—–]|["'`>][^"'`<\n]* -- [^"'`<\n]*["'`<]/.test(read(p)));
-  ok("no em or en dashes in a target's page", dashed.length === 0, dashed.join(", "));
-  ok("no model's name on a target's page", mine.every((p) => !/\b(claude|gpt|openai|anthropic|gemini)\b/i.test(read(p))));
-}
 
 // (end of targets tab, part 3)
 // ---------------------------------------------------------------------------
@@ -5463,9 +5317,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 
   // Where it goes.
   const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["the picks and shelves", "src/components/board/Shelves.jsx"]]) {
-    const cards = read(file).match(/<QuoteCard [^\n]*\/>/g) ?? [];
-    ok(`every print on ${where} has Link`, cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  {
+    const cards = read("src/components/board/Shelves.jsx").match(/<QuoteCard [^\n]*\/>/g) ?? [];
+    ok("every print on the picks and shelves has Link", cards.length > 0 && cards.every((c) => /extra=\{<LinkToTarget quote=\{[\w.]+\} \/>\}/.test(c)), cards.join("\n"));
+  }
+  // On the cork and in a collection, a print carries Collections, then Link.
+  for (const [where, file] of [["the cork", "src/components/board/CorkBoard.jsx"], ["a collection", "src/pages/Study.jsx"]]) {
+    const src = read(file);
+    const cards = src.match(/<QuoteCard\b[\s\S]*?\n\s*\/>/g) ?? [];
+    ok(`every print on ${where} has Collections and Link`, cards.length > 0 && cards.every((c) => /<CollectionsButton target=\{\{ quote_id: [\w.]+ \}\} \/>\s*<LinkToTarget quote=\{[\w.]+\} \/>/.test(c)), cards.join("\n"));
   }
   ok("Today's quote has Link beside Share, in its own buttons' style", /<ShareQuote [^\n]*\/>\n\s*<LinkToTarget quote=\{quote\} className="btn btn--sm quote-card__link" \/>/.test(read("src/components/today/QuoteOfDay.jsx")));
 
@@ -5527,219 +5387,14 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("taking off any saved camp asks first, clipboard and all", /r\.id &&\s*!\(await confirm\(/.test(remove) && /clipboard, photos and sketches/.test(remove));
   const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   ok(
-    "each target's page starts fresh",
-    /if \(pathname !== at\.current\.key && pathname !== at\.current\.alias\) at\.current = \{ key: pathname, alias: null \};/.test(app) &&
-      /<Target\s+key=\{at\.current\.key\}\s+onCanonical=\{\(path\) => \{\s*at\.current\.alias = path;\s*\}\}/.test(app) &&
-      (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2
+    "an old target page's address opens its pop-up on Targets",
+    /<Navigate to=\{`\/targets\?t=\$\{encodeURIComponent\(ref \?\? "mission"\)\}`\} replace \/>/.test(app) && (app.match(/element=\{<TargetAt \/>\}/g) ?? []).length === 2 && !/pages\/Target"/.test(app)
   );
 }
 
 // (end of targets tab, part 5)
 
 
-// ===== Targets tab (PR 3, review fix 1: the page loads and its head) =====
-// Add this fix group's tests directly under the line above.
-{
-  console.log("\ntargets tab, review fix 1: the page loads and its head");
-  const { build } = await import("esbuild");
-  const at = (p) => new URL(`../${p}`, import.meta.url);
-  const read = (p) => readFileSync(at(p), "utf8");
-  const body = read("src/components/targets/QuestBody.jsx");
-  const page = read("src/pages/Target.jsx");
-  const headSrc = read("src/components/targets/TargetHead.jsx");
-  const focusSrc = read("src/components/targets/TargetFocus.jsx");
-  const app = read("src/App.jsx");
-
-  // --- QuestBody: one tree whatever the lists are doing --------------------------
-  const tail = body.slice(body.indexOf("// Whatever the lists are doing, the page is one tree"));
-  const mainReturn = body.slice(body.indexOf("// Every part is its own cell of one grid"));
-  ok(
-    "while a quest's lists load, fail or can't be found, QuestBody draws the one tree it draws with them (no early return), so its quotes, notes and history keep their place, and what's open in them, as the lists arrive",
-    tail.length > 0 && !/if \(!(board|sel)\) \{\s*return/.test(tail) && (tail.match(/\n  return \(/g) ?? []).length === 1 && !/tg-body/.test(body)
-  );
-  ok(
-    "the Loading line, the lists' error and Try again for lists that can't be found sit where the lists' load error goes",
-    /const waiting = !board \?/.test(body) &&
-      /<LoadError what="this list" error=\{error\} onRetry=\{reload\} \/>/.test(body) &&
-      /Couldn't find this/.test(body) &&
-      /\{ready \? error && <LoadError what="this list" error=\{error\} onRetry=\{reload\} stale \/> : waiting\}/.test(mainReturn)
-  );
-  ok(
-    "the quotes and notes are always in the grid's side cell and the history at the foot of the rest; the camps, Today and the ongoing list are drawn once the lists are in",
-    /\{\(quotes \|\| notes\) && \(\s*<aside className="qs-side"[^>]*>\s*\{quotes\}\s*\{notes\}\s*<\/aside>/.test(mainReturn) &&
-      /\{history\}\s*<\/div>\s*<\/div>\s*<\/SketchProvider>/.test(mainReturn) &&
-      /\{ready && \(\s*<QuestCamps\b/.test(mainReturn) &&
-      /\{ready && <div className="qs-today">/.test(mainReturn) &&
-      /\{ready && \(\s*<div className="qs-ongoing">/.test(mainReturn)
-  );
-  ok(
-    "the header is drawn once, first and outside the providers, so it never remounts as the lists arrive",
-    /return \(\s*<>\s*\{head\(\)\}\s*<PhotoProvider\b/.test(mainReturn) &&
-      (body.match(/\{head\(/g) ?? []).length === 1
-  );
-  const providers = body.slice(body.indexOf("<PhotoProvider"), body.indexOf("</PhotoProvider>"));
-  ok("nothing inside the photo and tint providers draws the header", providers.length > 0 && !/head\(/.test(providers));
-
-  // --- Target.jsx: the lists load alongside the ladder ----------------------------
-  ok("the page reads a quest's lists itself, alongside the ladder, and QuestBody no longer does", /useLoad\(\(\) => \(userId && wantsBoard \? fetchQuestBoard\(userId\) : null\), \[userId, wantsBoard\]\)/.test(page) && !/fetchQuestBoard\(\w|^\s+fetchQuestBoard,$/m.test(body));
-  ok(
-    "and hands them down with their error, loading, reload and mutate",
-    /board=\{board\.data\}\s*boardError=\{board\.error\}\s*boardLoading=\{board\.loading\}\s*reloadBoard=\{board\.reload\}\s*mutateBoard=\{board\.mutate\}/.test(page) &&
-      /const error = boardError;\s*const loading = boardLoading;\s*const reload = reloadBoard;/.test(body)
-  );
-  ok(
-    "a ladder that fails on a quest's page is a line above its lists, not the whole page",
-    /\{ladder\.error && <LoadError what=\{`this \$\{kind\}'s arrows and climb`\} error=\{ladder\.error\} onRetry=\{ladder\.reload\} stale=\{Boolean\(data\)\} \/>\}\s*<QuestBody/.test(page) &&
-      /if \(!data && ladder\.error && !quest && !\(wantsBoard && board\.loading\)\) \{/.test(page)
-  );
-  ok("drawn from its lists alone, it has no pencil until the ladder's row is in", /const edit = info\.fromBoard\s*\? null/.test(page) && /onEdit: kind === "focus" && !info\.weekGoal \? null : edit/.test(page));
-  const calls = page.match(/resolveRef\(ref, \{[^}]*\}\)/g) ?? [];
-  ok(
-    "every placing of a focus stops at this week (upTo), and the place is told again as the day turns",
-    calls.length === 3 && calls.filter((c) => c !== "resolveRef(ref, {})").every((c) => /\bupTo\b/.test(c)) && /const upTo = focusWeekOf\(today\);/.test(page) && /\[ref, data, board\.data, edges, focusGoals, rows\.data, today\]/.test(page),
-    calls.join(" | ")
-  );
-  ok("the evening's lines get the target's reasons, for the ring and the miss", /reasons=\{t\?\.reasons \?\? null\}/.test(page));
-  ok("a goal's notes and quotes take in the goals under it", /import \{ subtreeIds \} from "\.\.\/lib\/wheel";/.test(page) && /lineage: \[\.\.\.subtreeIds\(edges \?\? \[\], id\)\],/.test(page));
-  ok("a focus's ladder line comes from its row as the week has it now", /crumbs: ladderLine\(\[focusRow\]\),/.test(page));
-  ok("the page tells App.jsx of its own move just before it goes", /onCanonical\?\.\(`\/targets\/\$\{key\}`\);\s*navigate\(`\/targets\/\$\{key\}/.test(page) && /export default function Target\(\{ onCanonical = null \}\)/.test(page));
-  ok("App.jsx keeps the page across that move, and starts afresh for any other", /const at = useRef\(\{ key: pathname, alias: null \}\);/.test(app) && /<Target\s+key=\{at\.current\.key\}/.test(app) && !/<Target key=\{pathname\}/.test(app));
-
-  // --- The head and the focus -----------------------------------------------------
-  ok("a target off the range (done, set aside, learned) doesn't say 'No arrow yet today'", /off=\{Boolean\(chip\)\}/.test(headSrc) && /\{\(!off \|\| t\.today\) && <span className=\{"tg-mark__state"/.test(headSrc));
-  ok("a focus's why line is one line of words", /<div className="tg-why">\s*<p className="tg-why__text">\{why\}<\/p>\s*<\/div>/.test(headSrc));
-  ok("a focus's page says what it counts toward once, above", /toward=\{null\}/.test(focusSrc) && !/towardLabel/.test(focusSrc));
-
-  // --- placeRef and describe, run ---------------------------------------------------
-  // Target.jsx built with everything it imports swapped for stand-ins but
-  // the ladder's, the focus's, the Mark's and the wheel's libraries (and
-  // React's element maker, for a focus's why line).
-  const pagePath = fileURLToPath(at("src/pages/Target.jsx"));
-  const keep = /\/lib\/(ladder|focus|mark|wheel)$|^react\/jsx-runtime$/;
-  const builtPage = await build({
-    entryPoints: [pagePath],
-    bundle: true,
-    write: false,
-    format: "esm",
-    jsx: "automatic",
-    logLevel: "silent",
-    plugins: [
-      {
-        name: "stand-ins",
-        setup(b) {
-          b.onResolve({ filter: /.*/ }, (a) => (a.importer === pagePath && !keep.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
-          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
-            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const clause = page.match(new RegExp(`^import (.+) from "${from}";$`, "m"))?.[1] ?? "";
-            const names = (clause.match(/\{([^}]*)\}/)?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
-            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
-          });
-        },
-      },
-    ],
-  });
-  const P = await import(`data:text/javascript;base64,${Buffer.from(builtPage.outputFiles[0].text).toString("base64")}`);
-  const day = "2026-11-04"; // a Wednesday; its week began Sunday Nov 1
-  const board = {
-    quests: [
-      { id: "q1", title: "Build the best Premiere Pro plugin", note: "Ship it by spring.", status: "on", goal_id: "g1", lesson_id: null },
-      { id: "q2", title: "Run a marathon", note: null, status: "done", goal_id: null, lesson_id: null },
-      { id: "m1", title: "Quit caffeine", note: null, status: "on", goal_id: null, lesson_id: "l1" },
-    ],
-    lessons: [{ id: "l1", title: "Stop drinking caffeine", question: "What does it do to my mornings?", status: "learned", goal_id: "g1" }],
-    goals: [
-      { id: "g1", title: "Highly skilled" },
-      { id: "g2", title: "Highly fit" },
-    ],
-  };
-  const place = (ref, more = {}) => P.placeRef(ref, { data: undefined, board: undefined, edges: null, focusGoals: null, rowsIn: false, today: day, ...more });
-  ok("the mission is placed at once", place("mission")?.kind === "mission");
-  ok("before the ladder and the lists, nothing can be told yet", place("q1") === undefined);
-  const fromBoard = place("q1", { board });
-  ok("the lists alone place a quest", fromBoard?.kind === "quest" && fromBoard.key === "q1");
-  const byMountain = place("m1", { board });
-  ok("and a lesson by its mountain's id, at the lesson's own address", byMountain?.kind === "lesson" && byMountain.key === "l1");
-  ok("but not a goal: that waits for the ladder", place("g1", { board }) === undefined);
-  const data = { goals: [{ id: "g1", title: "Highly skilled" }], quests: board.quests, lessons: board.lessons, marks: { targets: [], aims: [], shots: [] } };
-  ok("once the ladder's in, it places a goal", place("g1", { data, board })?.kind === "goal");
-  ok("what it can't place is nothing of his only once the focus rows are in too", place("zz", { data }) === undefined && place("zz", { data, rowsIn: true }) === null);
-
-  const none = { questView: () => null, lessonView: () => null, targetOf: () => null, focusWeek: { week: [] } };
-  const edges = [{ parent_id: "g2", child_id: "g3" }];
-  const q = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges, today: day });
-  ok(
-    "a quest drawn from its lists: its name, why and ladder line, no target yet, and no pencil",
-    q?.title === "Build the best Premiere Pro plugin" && q.why === "Ship it by spring." && q.mark === null && q.fromBoard === true && q.name === "Plugin" && q.crumbs.map((c) => c.label).join() === "My mission,Skilled",
-    JSON.stringify(q?.crumbs)
-  );
-  const l = P.describe({ kind: "lesson", id: "l1", key: "l1" }, { data: undefined, view: undefined, board, ladder: none, focusGoals: null, edges: null, today: day });
-  ok("a lesson drawn from its lists keeps its question and its Learned chip", l?.why === "What does it do to my mornings?" && l.chip === "Learned" && l.mark === null && l.fromBoard === true);
-  const seen = { ...none, questView: (id) => (id === "q1" ? { ...board.quests[0], state: {} } : null) };
-  const withLadder = P.describe({ kind: "quest", id: "q1", key: "q1" }, { data, view: { goals: [] }, board, ladder: seen, focusGoals: null, edges, today: day });
-  ok("once the ladder's in, its target on the range is there and its pencil with it", withLadder?.mark?.key === "q1" && withLadder.fromBoard === false);
-  ok("a quest in neither is gone", P.describe({ kind: "quest", id: "nope", key: "nope" }, { data, view: { goals: [] }, board, ladder: none, focusGoals: null, edges, today: day }) === null);
-  const goal = P.describe(
-    { kind: "goal", id: "g1", key: "g1" },
-    { data, view: { goals: [{ id: "g1", title: "Highly skilled", short: "Skilled" }] }, board, ladder: none, focusGoals: null, edges: [{ parent_id: "g1", child_id: "g4" }, { parent_id: "g4", child_id: "g5" }, ...edges], today: day }
-  );
-  ok("a goal's page reads its own notes and those of every goal under it", goal?.lineage?.slice().sort().join() === "g1,g4,g5", JSON.stringify(goal?.lineage));
-  const row = { id: "f1", title: "Daily form", week_start: "2026-11-01", node_id: "g1", quest_id: null, lesson_id: null, carried_from: null };
-  const moved = { ...none, focusWeek: { week: [{ ...row, node_id: null, quest_id: "q1" }] } };
-  const f = P.describe(
-    { kind: "focus", id: "f1", key: "f1" },
-    { data, view: { goals: [], quests: board.quests, lessons: board.lessons }, board, ladder: moved, focusGoals: [row], edges, today: day }
-  );
-  ok("a focus moved to count toward a quest shows that quest in its ladder line at once", f?.crumbs.map((c) => c.to).join() === "/targets/mission,/targets/g1,/targets/q1", JSON.stringify(f?.crumbs));
-
-  // --- TargetHead, drawn ------------------------------------------------------------
-  const dir = fileURLToPath(at("src/components/targets/"));
-  const standIns = {
-    "react-router-dom": 'import { createElement } from "react"; export const Link = ({ to, children, className }) => createElement("a", { href: to, className }, children);',
-    "lucide-react": "export const ChevronRight = () => null; export const Pencil = () => null;",
-  };
-  const builtHead = await build({
-    stdin: {
-      contents: 'export { default as TargetHead } from "./TargetHead.jsx"; export { renderToStaticMarkup } from "react-dom/server"; export { createElement, Fragment } from "react";',
-      resolveDir: dir,
-      loader: "jsx",
-    },
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "node",
-    jsx: "automatic",
-    logLevel: "silent",
-    banner: { js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(import.meta.url)});` },
-    plugins: [
-      {
-        name: "stand-ins",
-        setup(b) {
-          b.onResolve({ filter: /^(react-router-dom|lucide-react)$|\/TargetFace$/ }, (a) => ({ path: a.path, namespace: "stand-in" }));
-          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => ({ contents: standIns[a.path] ?? "export default () => null;", loader: "jsx", resolveDir: dir }));
-        },
-      },
-    ],
-  });
-  const H = await import(`data:text/javascript;base64,${Buffer.from(builtHead.outputFiles[0].text).toString("base64")}`);
-  const drawHead = (props) => H.renderToStaticMarkup(H.createElement(H.TargetHead, { title: "Plugin", eyebrow: "Quest", today: day, onHistory: () => {}, ...props }));
-  const mark = { shots: [], today: null };
-  ok("a quest he's on says no arrow yet today", /No arrow yet today/.test(drawHead({ mark })));
-  const doneHead = drawHead({ mark, chip: "Done" });
-  ok("a finished one doesn't, and keeps its History", !/No arrow yet today/.test(doneHead) && /History/.test(doneHead) && /tg-chip">Done</.test(doneHead));
-  ok("an arrow that did land today on one set aside is still said", /Bullseye tonight/.test(drawHead({ mark: { shots: [], today: { level: 0 } }, chip: "Set aside" })));
-  const why = H.createElement(H.Fragment, null, "Counts toward ", H.createElement("a", { href: "/targets/g1" }, "Skilled"), H.createElement("span", { className: "tg-why__week" }, " · Week of Oct 25"));
-  ok("a focus's why stays one line of words", /<div class="tg-why"><p class="tg-why__text">Counts toward <a href="\/targets\/g1">Skilled<\/a><span class="tg-why__week"> · Week of Oct 25<\/span><\/p><\/div>/.test(drawHead({ why })));
-  ok("while a quest's target is coming, its row keeps its place", /<div class="tg-mark" aria-hidden="true"><\/div>/.test(drawHead({ markWaiting: true })) && !/tg-mark/.test(drawHead({})));
-
-  // --- Target.jsx: a #history, #notes or #quotes link waits on the lists -----------
-  ok(
-    "a quest's or lesson's page looks for #history, #notes or #quotes once its lists have answered, not under the header while they load",
-    /const listsIn = !\(resolved\?\.kind === "quest" \|\| resolved\?\.kind === "lesson"\) \|\| !board\.loading;/.test(page) &&
-      /useScrollToPlace\(key && key === ref && listsIn \? key : null, location\.hash\);/.test(page) &&
-      page.indexOf("const listsIn =") < page.indexOf("useScrollToPlace(key") &&
-      (page.match(/useScrollToPlace\(/g) ?? []).length === 2
-  );
-}
 // (end of review fix 1)
 
 
@@ -5875,223 +5530,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // (end of review fix 2)
 
 
-// ===== Targets tab (PR 3, review fix 3: notes, reflections and linked quotes) =====
-// Add this fix group's tests directly under the line above.
-{
-  console.log("\ntargets tab, review fix 3: notes, reflections and linked quotes");
-  const at = (p) => new URL(`../${p}`, import.meta.url);
-  const read = (p) => readFileSync(at(p), "utf8");
-  const sheetSrc = read("src/components/targets/NoteSheet.jsx");
-  const notesSrc = read("src/components/targets/NotesSection.jsx");
-  const linked = read("src/components/targets/LinkedQuotes.jsx");
-  const { REFLECT_PROMPTS, promptFor, promptIndexFor, notesTimeline, noteDraftKey } = await import("../src/lib/ladder.js");
-
-  // NoteSheet's own helpers, with everything it imports but ladder.js
-  // swapped for stand-ins (as part 3's tests build it).
-  const sheetPath = fileURLToPath(at("src/components/targets/NoteSheet.jsx"));
-  const sheetBuilt = await esbuildBundle({
-    entryPoints: [sheetPath],
-    bundle: true,
-    write: false,
-    format: "esm",
-    jsx: "transform",
-    logLevel: "silent",
-    plugins: [
-      {
-        name: "stand-ins",
-        setup(b) {
-          b.onResolve({ filter: /.*/ }, (a) => (a.importer === sheetPath && !/lib\/ladder$/.test(a.path) ? { path: a.path, namespace: "stand-in" } : undefined));
-          b.onLoad({ filter: /.*/, namespace: "stand-in" }, (a) => {
-            const from = a.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const names = (sheetSrc.match(new RegExp(`^import (?:\\w+, )?\\{([^}]*)\\} from "${from}";$`, "m"))?.[1] ?? "").split(",").map((n) => n.trim()).filter(Boolean);
-            return { contents: [...names.map((n) => `export const ${n} = () => undefined;`), "export default () => null;"].join("\n"), loader: "js" };
-          });
-        },
-      },
-    ],
-  });
-  const N = await import(`data:text/javascript;base64,${Buffer.from(sheetBuilt.outputFiles[0].text).toString("base64")}`);
-  const store = () => {
-    const m = new Map();
-    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
-  };
-  const later = () => {
-    let resolve, reject;
-    const promise = new Promise((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    return { promise, resolve, reject };
-  };
-
-  // --- 13: a reflection's draft keeps the question it answers ---------------
-  const quests = REFLECT_PROMPTS.quest;
-  const monday = "2026-10-31";
-  const tuesday = "2026-11-01";
-  ok("the day's opening question differs between the two days of the finding", promptIndexFor("quest", monday) !== promptIndexFor("quest", tuesday));
-  const rKey = "hub.target-note-draft.quest:q1:reflect";
-  const s13 = store();
-  const asked = quests[promptIndexFor("quest", monday)];
-  N.keepNoteDraft(rKey, "Half an answer", s13);
-  N.keepNoteDraft(N.promptKey(rKey), asked, s13);
-  const reopened = N.keptQuestion("quest", N.readNoteDraft(N.promptKey(rKey), s13), promptIndexFor("quest", tuesday));
-  ok("a draft reopened the next day comes back under the question he answered", reopened.text === asked && reopened.turn === quests.indexOf(asked));
-  ok("an older draft that kept only the question's place still reads", N.keptQuestion("quest", "1", 5).text === quests[1] && N.keptQuestion("quest", "1", 5).turn === 1);
-  ok("a question no longer on the list is still the one it's saved under", N.keptQuestion("quest", "What did the old list ask?", 3).text === "What did the old list ask?" && N.keptQuestion("quest", "What did the old list ask?", 3).turn === 3);
-  ok("with nothing kept, the day's question", N.keptQuestion("quest", "", 4).text === promptFor("quest", 4) && N.keptQuestion("quest", null, 4).turn === 4);
-  ok(
-    "the question is kept with the words every time they're kept, as its words, and goes when the box empties",
-    /if \(reflect\) keepNoteDraft\(promptKey\(draftKey\), text\.trim\(\) \? prompt : ""\);/.test(sheetSrc) && /\[focusNote, focusGoal, draftKey, text, reflect, prompt\]/.test(sheetSrc)
-  );
-  ok("a kept question is only read with words to go under it", /keptQuestion\(kind, text\.trim\(\) \? readNoteDraft\(promptKey\(draftKey\)\) : "", promptIndexFor\(kind, today\)\)/.test(sheetSrc));
-  ok("what's saved is the question on screen", /const prompt = ask\?\.text \?\? null;/.test(sheetSrc) && /onSave\(\{ text: sent, prompt \}\)/.test(sheetSrc));
-
-  // --- 14: a focus's reflection follows the focus into its new week ---------
-  const keyOf = (id) => `${noteDraftKey({ kind: "focus", key: id })}:reflect`;
-  const s14 = store();
-  N.keepNoteDraft(keyOf("w1"), "Saturday's lines", s14);
-  N.keepNoteDraft(N.promptKey(keyOf("w1")), REFLECT_PROMPTS.focus[2], s14);
-  const carried = N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14);
-  ok(
-    "a reflection left in last week's focus moves to this week's, with its question",
-    carried === "Saturday's lines" && s14.m.get(keyOf("w2")) === "Saturday's lines" && s14.m.get(N.promptKey(keyOf("w2"))) === REFLECT_PROMPTS.focus[2] && !s14.m.has(keyOf("w1")) && !s14.m.has(N.promptKey(keyOf("w1")))
-  );
-  const s14b = store();
-  N.keepNoteDraft(keyOf("w2"), "This week's own", s14b);
-  N.keepNoteDraft(keyOf("w1"), "Last week's", s14b);
-  ok("a week with its own draft keeps it, and the earlier one stays put", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s14b) === "This week's own" && s14b.m.get(keyOf("w1")) === "Last week's");
-  const s14c = store();
-  N.keepNoteDraft(keyOf("w0"), "Two weeks back", s14c);
-  ok("the newest earlier week with a draft is the one that moves", N.carryNoteDraft(keyOf("w2"), [keyOf("w1"), keyOf("w0")], s14c) === "Two weeks back" && !s14c.m.has(keyOf("w0")));
-  ok("with nothing anywhere, an empty box", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], store()) === "" && N.carryNoteDraft(keyOf("w2"), null, store()) === "");
-  ok(
-    "the page hands the sheet its earlier weeks' keys",
-    /const earlierKeys = isFocus && sheet === "reflect" \? \(lineage \?\? \[\]\)\.filter\(\(id\) => id && id !== target\.id\)\.map\(\(id\) => `\$\{noteDraftKey\(\{ kind: "focus", key: id \}\)\}:\$\{sheet\}`\) : NONE;/.test(notesSrc) &&
-      /earlierKeys=\{earlierKeys\}/.test(notesSrc)
-  );
-  ok(
-    "the move happens before the question is read",
-    /carryNoteDraft\(draftKey, earlierKeys\)/.test(sheetSrc) && sheetSrc.indexOf("carryNoteDraft(draftKey, earlierKeys)") < sheetSrc.indexOf("const [ask, setAsk] = useState(")
-  );
-
-  // --- 16: words still saving aren't offered for a second save ---------------
-  const nKey = "hub.target-note-draft.quest:q1:reflect";
-  const s16 = store();
-  N.keepNoteDraft(nKey, "Sent once", s16);
-  const q16 = quests[2];
-  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
-  const heard = [];
-  const stop = N.onNoteSent((l) => heard.push(l));
-  let d = later();
-  let p = N.sendNote({ key: nKey, sent: "Sent once", question: q16, save: () => d.promise, store: s16 });
-  ok("a sheet opened while it saves finds an empty box", N.readNoteDraft(nKey, s16) === "" && N.carryNoteDraft(nKey, [], s16) === "");
-  d.resolve({ id: "r1" });
-  await p;
-  ok("once saved, the draft and its question are gone", !s16.m.has(nKey) && !s16.m.has(N.promptKey(nKey)));
-  ok("the sheets on screen hear it land", heard.length === 1 && heard[0].key === nKey && heard[0].sent === "Sent once" && heard[0].saved === true);
-
-  // A sheet reopened mid-save empties the box (its keep-as-you-type), and
-  // the first save then fails: the words and their question come back.
-  N.keepNoteDraft(nKey, "Sent again", s16);
-  N.keepNoteDraft(N.promptKey(nKey), q16, s16);
-  d = later();
-  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
-  N.keepNoteDraft(nKey, "", s16);
-  N.keepNoteDraft(N.promptKey(nKey), "", s16);
-  d.reject(new Error("offline"));
-  let threw = false;
-  try {
-    await p;
-  } catch {
-    threw = true;
-  }
-  ok("a failed save after the box was emptied puts the words back, with their question", threw && N.readNoteDraft(nKey, s16) === "Sent again" && s16.m.get(N.promptKey(nKey)) === q16);
-  ok("and the sheets on screen hear that too", heard.length === 2 && heard[1].saved === false && heard[1].question === q16);
-
-  // Typed since, in a sheet opened meanwhile: nothing of either is lost.
-  d = later();
-  p = N.sendNote({ key: nKey, sent: "Sent again", question: q16, save: () => d.promise, store: s16 });
-  N.keepNoteDraft(nKey, "Something new", s16);
-  d.reject(new Error("offline"));
-  await p.catch(() => {});
-  ok("words typed since stay, under the ones that didn't save", N.readNoteDraft(nKey, s16) === "Sent again\n\nSomething new");
-  ok("a box that already holds the unsaved words isn't given them twice", N.withUnsentNote("Sent again\n\nmore", "Sent again") === "Sent again\n\nmore" && N.withUnsentNote("  ", "x") === "x");
-
-  // Saved, with words typed since under it: that draft keeps its question.
-  N.keepNoteDraft(nKey, "Sent last", s16);
-  d = later();
-  p = N.sendNote({ key: nKey, sent: "Sent last", question: q16, save: () => d.promise, store: s16 });
-  N.keepNoteDraft(nKey, "Typed after", s16);
-  N.keepNoteDraft(N.promptKey(nKey), quests[0], s16);
-  d.resolve({ id: "r2" });
-  await p;
-  ok("a save that lands leaves a newer draft and its question alone", N.readNoteDraft(nKey, s16) === "Typed after" && s16.m.get(N.promptKey(nKey)) === quests[0]);
-  stop();
-
-  // An earlier week's draft that's still saving isn't moved across.
-  const s16b = store();
-  N.keepNoteDraft(keyOf("w1"), "On its way", s16b);
-  d = later();
-  p = N.sendNote({ key: keyOf("w1"), sent: "On its way", save: () => d.promise, store: s16b });
-  ok("an earlier week's words that are still saving stay where they are", N.carryNoteDraft(keyOf("w2"), [keyOf("w1")], s16b) === "" && s16b.m.has(keyOf("w1")));
-  d.resolve({ id: "r3" });
-  await p;
-
-  ok("the sheet saves through sendNote, which keeps the words on their way by draft key", /const inFlight = new Map\(\);/.test(sheetSrc) && /sendNote\(\{ key: draftKey, sent, question: prompt, save:/.test(sheetSrc));
-  ok("a sheet closed mid-save doesn't close the one open when it lands", /if \(live\.current\) onClose\(\);/.test(sheetSrc));
-  ok(
-    "a sheet opened while the words saved, with nothing typed in it, closes once they land",
-    /const closeRef = useRef\(onClose\);\s*closeRef\.current = onClose;/.test(sheetSrc) && /const heard = \(\{ sent, question, saved \}\) => \{\s*if \(saved && !shown\.current\.trim\(\) && !closedSending\.has\(sendToken\(draftKey, sent\)\)\) closeRef\.current\(\);/.test(sheetSrc)
-  );
-  ok(
-    "a sheet he closed himself while it saved marks its words, so one he opens again stays open when they land",
-    /<Sheet title=\{reflect \? `Reflect on \$\{name\}` : `A note on \$\{name\}`\} onClose=\{close\}>/.test(sheetSrc) && /sending\.current = sent;/.test(sheetSrc) && /\} finally \{\s*sending\.current = null;\s*closedSending\.delete\(sendToken\(draftKey, sent\)\);\s*\}/.test(sheetSrc)
-  );
-  ok(
-    "an open sheet hears its words land, a target note's or a focus note's",
-    /return onNoteSent\(\(landed\) => landed\.key === draftKey && heard\(landed\)\);/.test(sheetSrc) && /onNoteLanded\(\(\{ goalId, sent, row \}\) => goalId === focusId/.test(sheetSrc)
-  );
-
-  // --- 17: an inline edit isn't thrown away by a tap on another note ---------
-  ok(
-    "a tap on another note is ignored while an edit is changed or saving",
-    /if \(editing && \(editing\.busy \|\| editing\.text !== editing\.orig\)\) \{\s*if \(editBox\.current\) \{\s*editBox\.current\.focus\(\);\s*return;\s*\}/.test(notesSrc) && /setEditing\(\{ id: item\.id, text: item\.text, orig: item\.text, busy: false \}\)/.test(notesSrc)
-  );
-  ok(
-    "a changed edit pushed out of the first notes is shown again, while its note is still there",
-    /if \(groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.id === editing\.id\)\)\) \{\s*setAll\(true\);\s*return;\s*\}/.test(notesSrc)
-  );
-  ok("every note's text opens through that check", /onClick=\{\(\) => startEdit\(item\)\}/.test(notesSrc) && (notesSrc.match(/setEditing\(\{ id: /g) ?? []).length === 1);
-  ok("the box being edited is the one the tap goes back to", /ref=\{editBox\}/.test(notesSrc));
-
-  // --- 18: the picker's unlink has Undo, and a quick second tap counts --------
-  ok("an unlink from the picker is the card's unlink, with Undo", /else if \(hit\.linkIds\?\.length\) unlink\(hit\);/.test(linked) && !/quiet: true|if \(!quiet\)/.test(linked) &&/toast\.show\("Unlinked", \{\s*actionLabel: "Undo"/.test(linked));
-  ok(
-    "a second tap on a link still saving takes it off, and unlinks it once saved",
-    /const unlinkAfter = useRef\(new Map\(\)\);/.test(linked) &&
-      /unlinkAfter\.current\.set\(item\.id, hit\);/.test(linked) &&
-      /const off = unlinkAfter\.current\.delete\(item\.id\);/.test(linked) &&
-      /if \(off\) unlink\(saved\);/.test(linked)
-  );
-  ok("a third tap before it saved keeps the link", /const waiting = unlinkAfter\.current\.get\(item\.id\);/.test(linked) && /mutate\(\(l\) => \[\.\.\.\(l \?\? \[\]\), waiting\]\);/.test(linked));
-  ok("a link tapped off before it failed says nothing", /if \(!unlinkAfter\.current\.delete\(item\.id\)\) toast\.error\(err, "Couldn't link that quote\."\);/.test(linked));
-
-  // --- I1: a lifetime goal reads the goals under it, a focus its weeks -------
-  const lineageCall = /\{ lineage: isFocus \|\| target\.kind === "goal" \? lineage \?\? \[\] : undefined \}/;
-  ok("notes are read with the target's lineage, on a goal as on a focus", lineageCall.test(notesSrc) && /fetchTargetNotes\(userId, ref, \{ lineage:/.test(notesSrc));
-  ok("linked quotes are read the same way", lineageCall.test(linked) && /fetchQuoteLinks\(userId, ref, \{ lineage:/.test(linked));
-  ok("the old option name is gone from these files", ![sheetSrc, notesSrc, linked].some((src) => /focusLineage/.test(src)));
-
-  // --- I3: the evening's lines name their ring --------------------------------
-  ok("the notes take the target's reasons for the evening's lines", /reasons = null/.test(notesSrc) && /eveningLines\(shots \?\? \[\], reasons \?\? \[\]\)/.test(notesSrc) && /\[pending, own, focusNotes\.data, shots, reasons, today\]/.test(notesSrc));
-  ok("the tag reads From the evening, then the ring, then the check's question", /From the evening\s*\{item\.ring \? <span> · \{item\.ring\}<\/span> : null\}\s*\{item\.prompt \? <span> · \{item\.prompt\}<\/span> : null\}/.test(notesSrc));
-  const ringed = notesTimeline({ evening: [{ id: "shot:s1", source: "evening", kind: "evening", date: "2026-11-01", created_at: "2026-11-01T21:00:00Z", text: "Ran out of time", prompt: null, ring: "Outer · Distracted" }] }, "2026-11-02");
-  ok("the ring reaches the timeline's rows", ringed[0]?.items[0]?.ring === "Outer · Distracted");
-
-  // --- Copy ----------------------------------------------------------------------
-  const dashed = [sheetSrc, notesSrc, linked].filter((src) => /[—–]/.test(src));
-  ok("no em or en dashes in the notes, the sheet or the quotes", dashed.length === 0);
-}
 // (end of review fix 3)
 
 
@@ -6153,15 +5591,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   // Each class list in a file that holds the Targets class holds the base too.
   const lists = (p) => [...read(`src/components/targets/${p}`).matchAll(/["`]([^"`]*)["`]/g)].map((m) => m[1].split(/\s+/));
   const wears = [
-    ["TargetHead.jsx", "tg-act", "btn"],
-    ["TargetHead.jsx", "tg-act__edit", "btn-icon"],
-    ["TargetHead.jsx", "tg-title", "page-title"],
-    ["TargetHead.jsx", "tg-mark__history", "btn-link"],
-    ["NotesSection.jsx", "tg-note__del", "btn-icon"],
-    ["NotesSection.jsx", "tg-more", "btn"],
     ["OverviewPatches.jsx", "ov-chip--aside", "chip"],
-    ["NoteSheet.jsx", "tg-sheet__box", "textarea"],
-    ["LinkedQuotes.jsx", "tg-quotes__strip", "picks__strip"],
     ["LinkToTarget.jsx", "qprint__link", "qprint__save"],
   ].filter(([p, own, base]) => {
     const withOwn = lists(p).filter((l) => l.includes(own));
@@ -6173,14 +5603,15 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   // past ascent.css's 16px on every card of its pages.
   ok(
     "the mission card and Behind you keep their own padding, on a phone too",
-    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 14px 16px 15px; \}/.test(css) &&
+    /\.card\.ov-mission, \.ascent \.card\.ov-mission:not\(\.card--flush\) \{ padding: 20px 20px 22px; \}/.test(css) &&
       /\.card\.ov-behind, \.ascent \.card\.ov-behind:not\(\.card--flush\) \{ padding-top: 10px; padding-bottom: 10px; \}/.test(css)
   );
-  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 3px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
+  ok("the mission's layout stays on its own class, so the empty card's wider gap still holds", /(^|\n)\.ov-mission \{ display: flex;[^}]*gap: 6px;/.test(css) && /\.ov-mission--empty \{ align-items: flex-start; gap: 8px; \}/.test(css));
   ok("a target's history card is flush on a phone too", /\.tg-history\.card, \.ascent \.tg-history\.card:not\(\.card--flush\) \{ padding: 0;/.test(css));
   ok("the history sits a little apart from the last day, past .qs .card + .card", /\.tg-page \.qs-rest > \.tg-history\.card \{ margin-top: 4px; \}/.test(css));
   ok("a feeds row is centred on a phone, past ascent.css's own", /\.tg-page \.feeds \.feeds__row \{ min-height: 40px; align-items: center; \}/.test(media(css, "@media (max-width: 900px)")));
-  ok("the overview's eyebrow keeps its 2px, past ascent.css's margin", /\.ov \.ov-top \.eyebrow \{ margin: 0 0 2px; \}/.test(css));
+  ok("the overview opens on its title alone, in the phone's top row", /<header className="hub-head ov-top">\s*<h1 className="page-title">Targets<\/h1>\s*<\/header>/.test(read("src/pages/Targets.jsx")) && !/\.ov-top \.eyebrow/.test(css));
+  ok("each tier's card keeps its own padding, on a phone too", /\.card\.ov-card, \.ascent \.card\.ov-card:not\(\.card--flush\) \{ padding: 16px 14px 14px; \}/.test(css) && /\.card\.ov-card--rows, \.ascent \.card\.ov-card--rows:not\(\.card--flush\) \{ padding: 14px 0 6px; \}/.test(css));
   ok("the quotes strip keeps its own padding, past the Board's", /\.picks__strip\.tg-quotes__strip \{ padding-top: 12px; padding-bottom: 16px; \}/.test(css));
 
   // Link's quiet look and the phone's 4px gap beat cork.css (finding 23).
@@ -6255,8 +5686,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
       ["plain", "board", "clip", "board and clip"].every((k) => (layouts[k].areas ?? []).at(-1)?.join(" ") === ". side")
   );
   ok("opening the clipboard leaves the camps in the first row alone", ["clip", "board and clip"].every((k) => layouts[k].areas?.[0].join(" ") === "camps camps"));
-  const body = read("src/components/targets/QuestBody.jsx");
-  ok("the page draws the clipboard's cell only with the clipboard's grid", /\(clipOpen \? " qs-grid--clip" : ""\)/.test(body) && /clipOpen \? <div className="qs-clip">\{clipCard\}<\/div> : clipCard/.test(body));
   ok(
     "a phone keeps one column in the page's order: the page's grid has no areas outside the desk",
     rules(qcss.replace(qdesk, "")).every(([s, b]) => !s.split(",").some((x) => x.trim().startsWith(".qs-grid")) || !/grid-template-(areas|rows)/.test(b)) && /\.qs-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(qcss)
@@ -6265,41 +5694,6 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
 // (end of review fix 4)
 
 
-// ===== Targets tab (PR 3, review fix 5: the parts checked together) =====
-{
-  console.log("\ntargets tab: the fixes checked together");
-  const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-  const css = read("src/styles/targets.css");
-  const body = read("src/components/targets/QuestBody.jsx");
-  const page = read("src/pages/Target.jsx");
-  const notes = read("src/components/targets/NotesSection.jsx");
-  const view = read("src/components/mark/TargetView.jsx");
-  const hist = read("src/components/targets/TargetHistory.jsx");
-  const hook = read("src/components/targets/useLadder.jsx");
-  const quotes = read("src/components/targets/LinkedQuotes.jsx");
-
-  ok("the Reflect and Note sheets keep their spacing past ascent.css's form rule", /\n\.ascent-sheet \.tg-sheet \{ display: flex; flex-direction: column; gap: 12px; \}/.test(css) && !/\n\.tg-sheet \{/.test(css));
-  ok("an older week's date stays in one piece when its line wraps", /\.tg-why__date \{ white-space: nowrap; \}/.test(css) && /<span className="tg-why__week"> · <span className="tg-why__date">\{weekOfLabel\(row\.week_start\)\}<\/span><\/span>/.test(page));
-  const phone = css.slice(css.indexOf("/* --- A phone ---"));
-  ok("More, Unlink and Another question are 40px under a thumb", /\.btn-link\.tg-why__more, \.qprint__save\.tg-unlink, \.btn-link\.tg-sheet__another \{ min-height: 40px; \}/.test(phone.slice(0, phone.indexOf("@media (max-width: 420px)"))));
-
-  ok("a camp added while the climb still loads has the climb read again, so it can't offer the summit early", /if \(ladder\?\.data\) ladder\.mutate\(\(d\) => d && \{ \.\.\.d, camps: \[\.\.\.d\.camps, \.\.\.rows\] \}\);\s*else ladder\?\.reload\(\);/.test(body));
-
-  const write = hook.slice(hook.indexOf("async function write("), hook.indexOf("// --- The climb"));
-  ok("a delete that leaves the page reads nothing again for the page it leaves", /async function write\(fn, failure, done, \{ leaving = false \} = \{\}\)/.test(write) && /if \(leaving\) \{\s*setTimeout\(announceChange, 0\);\s*return true;\s*\}/.test(write));
-  ok("deleting a quest or a lesson from its page leaves that way", (hook.match(/\{ leaving: Boolean\(onGone\) \}/g) ?? []).length === 2);
-
-  const L = await import("../src/lib/ladder.js");
-  const lines = L.eveningLines([{ id: "s1", date: "2026-11-01", level: 2, reason: 0, note: "Phone in the studio again." }], ["Distracted"]);
-  ok("an evening's line knows its shot", lines.length === 1 && lines[0].shot === "s1" && lines[0].ring === "Middle · Distracted", JSON.stringify(lines));
-  ok("and a tap on it opens that day on the target", /item\.source === "evening" && item\.shot && onOpenDay \? \(\s*<button type="button" className="tg-note__text" onClick=\{\(\) => onOpenDay\(item\.shot\)\}/.test(notes));
-  ok("the page opens its history on that day", /const openDay = t \? \(shotId\) => openHistory\(\{ day: \{ id: shotId \} \}\) : null;/.test(page) && /onOpenDay=\{openDay\}/.test(page) && (page.match(/pick=\{ui\.day\}/g) ?? []).length === 3 && /onHistory=\{t \? \(\) => openHistory\(\) : null\}/.test(page));
-  ok("closing the history forgets the day asked for", /set\(open \? \{ history: true \} : \{ history: false, day: null \}\)/.test(page));
-  ok("the history shows the day asked for, widening the range when it's further back", /pick=\{pick\}/.test(hist) && /setPicked\(pick\.id\);\s*setRange\(\(r\) => \(inRange\(t\.shots, today, r\)\.some\(\(s\) => s\.id === pick\.id\) \? r : "all"\)\);/.test(view) && view.indexOf("setPicked(pick.id)") > view.indexOf("setPicked(null);"));
-
-  ok("a quote tapped again in the picker just after its unlink comes back as it was, as Undo does", /const unlinked = useRef\(new Map\(\)\);/.test(quotes) && /const gone = unlinked\.current\.get\(item\.id\);\s*if \(gone && !list\.find\(linkFor\(item, isNote\)\)\)/.test(quotes) && /relinkQuotes\(await gone\)/.test(quotes));
-  ok("and Undo after that does nothing twice", /if \(unlinked\.current\.get\(id\) !== gone\) return;/.test(quotes));
-}
 // (end of review fix 5)
 
 // Focus mode on a timer.
@@ -6386,7 +5780,7 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("a day opens as its schedule inside the tab", /onOpenDay=\{openDay\}/.test(plan) && /navigate\(`\/plan\/\$\{v\}\/\$\{d\}`\)/.test(plan));
   ok("the week's focus is one line of targets that open on Targets", /pathOf\("focus", g\.id\)/.test(read("src/components/schedule/FocusLine.jsx")) && /focus=edit/.test(read("src/components/schedule/FocusLine.jsx")));
   ok("Targets opens the week's focus for editing from ?focus=edit", /params\.get\("focus"\) === "edit"/.test(read("src/pages/Targets.jsx")) && /<FocusWeek anchorDate=\{editWeek === weekStart \? today : editWeek\} \/>/.test(read("src/pages/Targets.jsx")));
-  ok("nothing still sends you to Week to set the focus", ["src/components/focus/FocusArrows.jsx", "src/components/focus/FocusStrip.jsx", "src/components/focus/FocusSheet.jsx", "src/components/targets/TargetFocus.jsx", "src/pages/Targets.jsx"].every((f) => !/to="\/plan"/.test(read(f))));
+  ok("nothing still sends you to Week to set the focus", ["src/components/focus/FocusArrows.jsx", "src/components/focus/FocusStrip.jsx", "src/components/focus/FocusSheet.jsx", "src/pages/Targets.jsx"].every((f) => !/to="\/plan"/.test(read(f))));
   ok("a block's colour saves with a block preset", /color: color \|\| null, category: category \|\| null/.test(read("src/lib/api.js")));
   ok("Today's plan opens the schedule", /to=\{`\/plan\/day\/\$\{date\}`\}/.test(read("src/components/today/PlanBlocks.jsx")));
 }
@@ -6472,6 +5866,122 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the focus line edits the week it shows", /const edit = focusEditFor\(weekStart\)/.test(line) && (line.match(/to=\{edit\}/g) ?? []).length === 2 && /next\.delete\("week"\)/.test(read("src/pages/Targets.jsx")));
   ok("and draws arrows up to today, or to the end of a past week", /today=\{upTo\}/.test(line) && /const upTo = today < lastDay \? today : lastDay/.test(line));
   ok("a day shows its own week's focus", /<FocusLine date=\{view === "month" \? today : date\} \/>/.test(read("src/pages/Plan.jsx")));
+
+  // The Week tab in the Clean slate look (2026-11-23).
+  {
+    const PD = await import("../src/lib/planDates.js");
+    const wk = read("src/components/schedule/WeekSchedule.jsx");
+    const css = read("src/styles/schedule.css");
+    const planJsx = read("src/pages/Plan.jsx");
+    ok("this year's week is named without the year", PD.fmtWeekHeading("2026-11-23", 2026) === "Nov 22 – 28" && PD.fmtWeekHeading("2026-11-30", 2026) === "Nov 29 – Dec 5", PD.fmtWeekHeading("2026-11-23", 2026));
+    ok("so is a week that crosses into or out of it", PD.fmtWeekHeading("2026-12-28", 2026) === "Dec 27 – Jan 2" && PD.fmtWeekHeading("2026-01-01", 2026) === "Dec 28 – Jan 3");
+    ok("another year's week still says which year", PD.fmtWeekHeading("2027-11-23", 2026) === "Nov 21 – 27, 2027" && PD.fmtWeekHeading("2026-11-23") === "Nov 22 – 28, 2026");
+    ok("the Week tab's title shares the phone's top row, and a long one steps down a size", /<header className="hub-head plan-head__title">/.test(planJsx) && /heading\.length > 14 \? " plan-head__h--xs" : heading\.length > 11 \? " plan-head__h--sm"/.test(planJsx) && /\.plan-head__h--sm \{ font-size: 30px; \}/.test(css));
+    ok("the zoom is a white track with a black pill", /className="seg seg--page plan-views"/.test(planJsx) && /\.seg--page \.seg-btn\.active \{ background: var\(--ink\); color: var\(--on-ink\);/.test(read("src/index.css")));
+    ok("on a phone the arrows are a thumb wide and Today shows only when you've left it", /\.plan-head__nav \.btn-icon \{ width: 44px; height: 44px;/.test(css) && /\.plan-head__today:disabled \{ display: none; \}/.test(css));
+    const list = css.slice(css.indexOf(".wk-list {"), css.indexOf("}", css.indexOf(".wk-list {")));
+    ok("a phone's week is one card with a hairline between days", /border-radius: var\(--r-lg\);/.test(list) && /background: var\(--card\);/.test(list) && /\.wk-list > li \+ li \{ border-top: 1px solid var\(--line\); \}/.test(css));
+    ok("each day is a bar and one line, with no clock under the bar", /<MiniStrip chunks=\{chunks\} range=\{range\} ticks=\{false\} \/>/.test(wk) && /\$\{shortTime\(first\)\} to \$\{shortTime\(last % \(24 \* 60\)\)\}/.test(wk));
+    ok("today is the orange number, not an orange edge", /\.wk-row\.is-today \.wk__num \{ color: var\(--accent\); \}/.test(css) && !/\.wk-row\.is-today \{ box-shadow/.test(css));
+    ok("presets for the week sit under the days on a phone, a thumb tall", wk.indexOf('className="wk-preset"') > wk.indexOf('className="wk-list"') && /\.wk-preset \{[^}]*min-height: 48px;/.test(css) && /\.wk, \.wk-bar \{ display: none; \}\s*\.wk-list, \.wk-preset \{ display: flex; \}/.test(css));
+    ok("a day's two buttons are a thumb tall on a phone", /\.sday__actions \.btn \{ flex: 1; min-height: 48px;/.test(css));
+  }
+
+  // The Tasks tab in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Tasks.jsx");
+    const cols = read("src/components/tasks/Columns.jsx");
+    const rowSrc = read("src/components/tasks/TaskRow.jsx");
+    const css = read("src/styles/tasks.css");
+    const rule = (sel) => css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
+    ok("Tasks opens on its own title, on every Tasks page", /<header className="hub-head tasks-head">\s*<h1 className="page-title">Tasks<\/h1>/.test(page) && !/BackToTasks|tasks-back/.test(page + css));
+    ok("one row of pills holds Recent and the projects, and the one open is marked", /<Link to="\/tasks" className=\{"tasks-pill" \+ \(on \? "" : " is-on"\)\}/.test(page) && /className=\{"tasks-pill" \+ \(l\.id === on \? " is-on" : ""\)\}/.test(page) && /<ProjectPills lists=\{lists\} on=\{param \?\? ""\} onNew=\{newProject\} \/>/.test(page));
+    ok("the open pill is brought into view without moving the page", /ul\.scrollLeft = Math\.max\(0, left - 16\)/.test(page) && !/scrollIntoView/.test(page));
+    ok("pills are a thumb tall; a project's is black, a target's orange with ink on it", /min-height: 44px;/.test(rule(".tasks-pill")) && /\.tasks-pill\.is-on \{ background: var\(--ink\); color: var\(--on-ink\); \}/.test(css) && /\.tasks-pill--camp\.is-on \{ background: var\(--accent\); color: var\(--on-accent\); \}/.test(css));
+    ok("a column is a white card with its colour as a dot by its name", /border-radius: var\(--r-lg\);/.test(rule(".tk-col")) && !/border-top: 3px/.test(css) && /<i className="tk-col__dot" aria-hidden="true" \/>/.test(cols) && /background: var\(--col, var\(--ink\)\);/.test(rule(".tk-col__dot")));
+    ok("where a recent column lives is said under its name", cols.indexOf("{where}") > cols.indexOf("</header>") && cols.indexOf("{where}") < cols.indexOf('<ul className="tk-col__list">'));
+    ok("a task is a round tick, its words, then the handle that carries it", rowSrc.indexOf('className={"tk-tick"') < rowSrc.indexOf('className="tk-text"') && rowSrc.indexOf('className="tk-text"') < rowSrc.indexOf('className="tk-grip"') && /beginDrag\(e, \{ ids: \[step\.id\]/.test(rowSrc));
+    ok("every row, tick and handle is a thumb tall", /min-height: 44px;/.test(rule(".tk-row__line")) && /width: 24px; height: 24px;/.test(rule(".tk-tick")) && /width: 32px; height: 44px;/.test(rule(".tk-grip")) && /touch-action: none;/.test(rule(".tk-grip")));
+    ok("typing a task doesn't zoom an iPhone", /font-size: 16px;/.test(rule(".tk-add__input")) && /font-size: 16px;/.test(rule(".tk-edit")) && /min-height: 44px;/.test(rule(".tk-add__input")));
+    ok("a camp's columns ask for their hooks before they can return early", cols.indexOf("const { removeColumn, addIn, rename } = useColumnOps(userId);") < cols.indexOf("if (!loadedCamps.has(camp.id)) return"));
+  }
+
+  // The Board in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Study.jsx");
+    const bar = read("src/components/study/CaptureBar.jsx");
+    const quote = read("src/components/today/QuoteOfDay.jsx");
+    const css = read("src/styles/board.css");
+    const daily = read("src/styles/daily.css");
+    const cork = read("src/styles/cork.css");
+    const rule = (src, sel) => src.slice(src.indexOf(sel + " {"), src.indexOf("}", src.indexOf(sel + " {")));
+    ok("the Board opens on its own title, with Everything beside it", /<header className="hub-head board-head">\s*<h1 className="page-title">Board<\/h1>\s*<button type="button" className="btn btn--sm btn--on-page board-head__all" onClick=\{\(\) => go\(\{ all: "1" \}\)\}>/.test(page) && !/board-head__actions|page-sub/.test(page));
+    ok("keeping a thought comes first, before search and the week's quote", page.indexOf("<CaptureBar onCapture={capture} />") < page.indexOf('className="board-search"') && page.indexOf('className="board-search"') < page.indexOf("<QuoteOfDay"));
+    ok("the box is one line that grows, with a round button that keeps it", /className="board-capture__box"\s*rows=\{1\}/.test(bar) && /el\.style\.height = `\$\{Math\.min\(el\.scrollHeight, 260\)\}px`;/.test(bar) && /<button type="submit" className="board-capture__keep" disabled=\{busy \|\| !text\.trim\(\)\}/.test(bar));
+    ok("Cmd or Ctrl and Enter still keeps it", /e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)\) submit\(e\)/.test(bar));
+    ok("the sweet something circle shows once there's something to keep", /const open = Boolean\(text\.trim\(\)\) \|\| sweet;/.test(bar) && /\{open && \(\s*<div className="board-capture__foot">/.test(bar) && /Sweet something/.test(bar));
+    ok("the box and its button are a thumb tall and typing doesn't zoom an iPhone", /min-height: 52px;/.test(rule(css, ".board-capture__box")) && /font-size: 16px;/.test(rule(css, ".board-capture__box")) && /width: 52px; height: 52px;/.test(rule(css, ".board-capture__keep")) && /background: var\(--ink\);/.test(rule(css, ".board-capture__keep")));
+    ok("search is a white pill a thumb tall", /min-height: 48px;[^}]*background: var\(--card\);[^}]*border-radius: var\(--r-pill\); font-size: 16px;/.test(css));
+    ok("All notes and New long note sit with the board they belong to", page.indexOf("if (showAll && !selectedId)") < page.indexOf('<div className="board-tools">') && page.indexOf('<div className="board-tools">') < page.indexOf("<CorkBoard") && /min-height: 44px;/.test(rule(css, ".board-tools .btn")));
+    ok("the week's quote has a plain heading and three even answers a thumb tall", /<h2 className="quote-card__eyebrow">For this week<\/h2>/.test(quote) && /className="seg quote-card__seg" role="group"/.test(quote) && /\.seg\.quote-card__seg \.seg-btn \{ flex: 1; min-height: 44px;/.test(daily) && /\.seg\.quote-card__seg \.seg-btn\.active \{ background: var\(--ink\); color: var\(--on-ink\);/.test(daily));
+    ok("Save, Share and Link sit under the answers", quote.indexOf('<div className="quote-card__tools">') > quote.indexOf('className="seg quote-card__seg"') && quote.indexOf("<ShareQuote", quote.indexOf('<div className="quote-card__tools">')) > 0);
+    ok("on a phone a card's buttons sit at its foot, never over its words", /@media \(hover: none\) \{\s*\.paper__tools \{ top: auto; bottom: 3px;[^}]*opacity: 1; \}/.test(cork));
+  }
+
+  // Money in the Clean slate look, spent by hand (2026-11-28).
+  {
+    const page = read("src/pages/Money.jsx");
+    const meter = read("src/components/money/BudgetSheet.jsx");
+    const today = read("src/pages/Today.jsx");
+    const css = read("src/styles/money.css");
+    const rule = (sel) => css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
+    ok("Money opens on its own title, then what's in the bank", /<header className="hub-head money-head">\s*<h1 className="page-title">Money<\/h1>/.test(page) && page.indexOf("<BankTotals") > page.indexOf("</header>"));
+    ok("nothing from the bank is sorted any more: no purchase question, here or on Today", !/PurchaseQuestion|PurchaseNudge|setAsidePurchases/.test(page + today));
+    ok("purchases are only the ones added by hand or by voice", /fetchPurchases\(user\.id\)/.test(page));
+    ok("the page runs bank, the month, budgets, purchases, earlier months", page.indexOf("<BankTotals overview") < page.indexOf('className="card spend-month"') && page.indexOf('className="card spend-month"') < page.indexOf("<BudgetRow") && page.indexOf("<BudgetRow") < page.indexOf("<PurchaseRow") && page.indexOf("<PurchaseRow") < page.indexOf("Earlier months"));
+    ok("the month is the page's one black card, with Add purchase in orange", /background: var\(--ink\); color: var\(--on-ink\);/.test(rule(".spend-month")) && /background: var\(--accent\);/.test(rule(".spend-add")) && /min-height: 52px;/.test(rule(".spend-add")));
+    ok("a purchase needs an amount and a budget, and says where it's coming from", /const ready = value > 0 && Boolean\(budget\);/.test(page) && /Take \$\{fmtMoney\(value\)\} from \$\{budget\.name\}/.test(page));
+    ok("a budget says what's spent of its limit in words, and its usual month once it has one", /<span className="money-budget__limit"> of \{fmtMoney\(limit, \{ round: true \}\)\}<\/span>/.test(page) && /Usually \{fmtMoney\(avg\.average, \{ round: true \}\)\} a month/.test(page));
+    ok("a budget's bar is ink, red once it's over", /background: line\.over \? "var\(--danger\)" : "var\(--ink\)"/.test(meter) && /height: 8px;/.test(rule(".money-bar")));
+    ok("purchase rows are a thumb tall", /min-height: 52px;/.test(css.slice(css.indexOf(".spend-row,"), css.indexOf("}", css.indexOf(".spend-row,")))));
+  }
+
+  // The mic sheet in the Clean slate look (2026-11-23).
+  {
+    const sheet = read("src/components/VoiceSheet.jsx");
+    const css = read("src/styles/voice.css");
+    const rule = (sel) => css.slice(css.indexOf("\n" + sel + " {"), css.indexOf("}", css.indexOf("\n" + sel + " {")));
+    ok("the mic is the screen: a large black circle with one word under it", /width: 150px;\s*height: 150px;/.test(rule(".voice-orb")) && /background: var\(--ink\);/.test(rule(".voice-orb")) && /font-size: 30px; font-weight: 700;/.test(rule(".voice-sheet__status")));
+    ok("that word says what's happening, and is read out when it changes", /recording: \["Listening", "It sends when you stop talking\."\]/.test(sheet) && /working: \["Working on it", ""\]/.test(sheet) && /<p className="voice-sheet__status" aria-live="polite">/.test(sheet));
+    ok("listening keeps the circle black with an orange ring, still for reduced motion", /\.voice-orb--on \{ animation: voice-ring 1\.8s ease-out infinite; \}/.test(css) && /@media \(prefers-reduced-motion: reduce\) \{\s*\.voice-orb--on \{ animation: none;/.test(css));
+    ok("once there's a conversation it takes the room and the mic steps down", /className=\{"voice-full" \+ \(turns\.length \? " voice-full--talking" : ""\)\}/.test(sheet) && /\.voice-full--talking \.voice-sheet__talk \{ flex: 1; \}/.test(css) && /\.voice-full--talking \.voice-orb \{ width: 88px; height: 88px;/.test(css));
+    ok("what he said is a black bubble, the answer a white one", /background: var\(--ink\); color: var\(--on-ink\);/.test(rule(".voice-turn__you")) && /\.voice-turn__hub \{ align-self: flex-start;[^}]*background: var\(--card\);/.test(css));
+    ok("typing is a white pill a thumb tall that doesn't zoom an iPhone, with a round send", /\.voice-sheet__type \.input \{ min-height: 52px;[^}]*font-size: 16px; \}/.test(css) && /width: 52px; height: 52px;/.test(rule(".voice-sheet__send")));
+    ok("close is a white circle a thumb wide, and capture by tapping is still a tap away", /width: 44px;\s*height: 44px;/.test(rule(".voice-full__close")) && /<button type="button" className="voice-sheet__capture" onClick=\{onCapture\}>/.test(sheet) && /min-height: 44px;/.test(rule(".voice-sheet__capture")));
+  }
+
+  // The evening in four steps, in the Clean slate look (2026-11-23).
+  {
+    const page = read("src/pages/Evening.jsx");
+    const flow = read("src/components/day/ReflectionFlow.jsx");
+    const checkin = read("src/components/day/EveningCheckin.jsx");
+    const close = read("src/components/day/CloseOut.jsx");
+    const css = read("src/styles/daily.css");
+    const steps = page.slice(page.indexOf('<div className="eve-steps">'), page.indexOf("{volley &&"));
+    const sections = steps.split('<section className="stack eve-step"').slice(1);
+    ok("the evening is four steps: the day, the reflection, the week's aim, before banking", /const STEPS = \["How the day really went", "Reflection", "This week's aim", "Before you bank it"\];/.test(page) && sections.length === 4);
+    ok("each step holds its own part of the evening", /<WinsAndLosses[\s\S]*<MinutesCard/.test(sections[0]) && /<ReflectionFlow/.test(sections[1]) && /<FocusArrows[\s\S]*<TonightShots/.test(sections[2]) && /<EveningCheckin[\s\S]*<CloseOut/.test(sections[3]));
+    ok("every step stays on the page while another shows, so nothing typed is lost and banking still saves it all", sections.every((sec, i) => new RegExp("^ hidden=\\{step !== " + i + "\\}").test(sec)) && /\.eve-step\[hidden\] \{ display: none; \}/.test(css) && !/step === \d && </.test(steps));
+    ok("the bars at the top say where you are, and a tap on one goes there", /className=\{"eve-progress__step" \+ \(i <= step \? " is-on" : ""\)\}/.test(page) && /aria-current=\{i === step \? "step" : undefined\}/.test(page) && /onClick=\{\(\) => go\(i\)\}/.test(page) && /\.eve-progress__step \{[^}]*height: 44px;/.test(css));
+    ok("Back and Next are a thumb tall, the first step's Back closes to Today, and the last has no Next", /onClick=\{\(\) => \(step > 0 \? go\(step - 1\) : navigate\("\/"\)\)\}/.test(page) && /\{step < STEPS\.length - 1 && \(/.test(page) && /\.eve-foot__next \{ height: 56px;/.test(css));
+    ok("another evening starts at the first step, and a banked day has no steps", /useEffect\(\(\) => setStep\(0\), \[date\]\);/.test(page) && /const stepping = Boolean\(data\) && !banked;/.test(page));
+    ok("all four reflection questions are there by name, a thumb tall, the open one black", /label: "God's hand"/.test(flow) && /label: "Toward the Savior"/.test(flow) && /label: "Learning from today"/.test(flow) && /label: "Anything else"/.test(flow) && /<span className="reflection-step__name">\{c\.label\}<\/span>/.test(flow) && /\.reflection-step \{[^}]*min-height: 48px;/.test(css) && /\.reflection-step--here \{ background: var\(--ink\); color: var\(--on-ink\); \}/.test(css));
+    ok("the reflection's own buttons are named, so they aren't taken for the evening's", /aria-label="Previous question"/.test(flow) && /Next question/.test(flow));
+    ok("the question is large in the page's type and the answer doesn't zoom an iPhone", /\.evening \.question \{[^}]*font-family: var\(--font\); font-size: 22px;/.test(css) && /\.evening \.reflection-card \.textarea,\s*\.evening \.evening-god \.input \{[^}]*font-size: 16px;/.test(css));
+    ok("mood, the note for God and tomorrow's start are a card each", /<div className="evening-alarm">/.test(checkin) && /\.evening \.evening-feel,\s*\.evening \.evening-god,\s*\.evening-alarm \{[^}]*border-radius: var\(--r-lg\); background: var\(--card\);/.test(css));
+    ok("mood is ten blocks a thumb tall and the rings are too", /\.evening \.slider__step \{ height: 44px;/.test(css) && /\.evening \.ck-place__rings button \{ min-height: 44px;/.test(css));
+    ok("Bank the day is the evening's one orange button, with ink on it", /className="btn btn--accent btn--block close-out__bank"/.test(close) && /\.close-out__bank \{ min-height: 56px;[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\);/.test(css));
+  }
   ok("nothing points to the removed Week → Ideal", !/Week → Ideal/.test(read("src/components/day/Tomorrow.jsx")));
 
   // The helpers behind Undo and repeating, run against a stand-in database.
@@ -6612,6 +6122,100 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("builder: a key with a newline is refused", !keyLooksOk("sk-ant-abc\ndefghijk") && keyLooksOk("sk-ant-abcdefghijk"));
   ok("builder: a model name with spaces falls back", modelFor("anthropic", "bad model") === "claude-sonnet-5-5" && modelFor("openrouter", "anthropic/claude-x") === "anthropic/claude-x");
   ok("builder: history keeps only his and its turns", trimHistory([{ role: "system", text: "x" }, { role: "user", text: "a" }, { role: "assistant", text: " " }]).length === 1);
+}
+
+
+// Targets: a target is a pop-up (Aaron, 2026-11-28). Every arrow is a good
+// one, placed by him, any number a day, with a title, a note, both or neither.
+{
+  console.log("\ntargets: place an arrow, add a note");
+  const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const A = await import("../src/lib/arrows.js");
+  ok("an arrow's words are trimmed, and blank is nothing", JSON.stringify(A.cleanArrowWords({ title: "  Read   a talk \n", note: "  \n " })) === JSON.stringify({ title: "Read a talk", note: null }));
+  ok("a title keeps to 120 and a note to 4000", A.cleanArrowWords({ title: "x".repeat(300) }).title.length === 120 && A.cleanArrowWords({ note: "y".repeat(5000) }).note.length === 4000);
+  ok("each kind of target saves under its own column", JSON.stringify(["mission", "goal", "quest", "lesson", "focus"].map((k) => A.arrowRef(k, "id1"))) === JSON.stringify([{ mission: true }, { goal_id: "id1" }, { quest_id: "id1" }, { lesson_id: "id1" }, { focus_goal_id: "id1" }]) && A.arrowRef("camp", "x") === null);
+  const list = [{ id: "a", mission: true }, { id: "b", goal_id: "g" }, { id: "c", goal_id: "h" }, { id: "d", focus_goal_id: "g" }];
+  ok("a target's arrows are only its own", A.arrowsOn(list, "goal", "g").map((a) => a.id).join() === "b" && A.arrowsOn(list, "mission").map((a) => a.id).join() === "a" && A.arrowsOn(list, "focus", "g").map((a) => a.id).join() === "d");
+  const ids = Array.from({ length: 300 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+  const spots = ids.map((id) => A.arrowSpot(id));
+  ok("every arrow lands inside the inner ring (they're all good)", spots.every((p) => Math.hypot(p.x, p.y) <= 32));
+  ok("and spreads round the face rather than piling up", ["++", "+-", "-+", "--"].every((k) => spots.filter((p) => `${p.x >= 0 ? "+" : "-"}${p.y >= 0 ? "+" : "-"}` === k).length > 50));
+  ok("an arrow stays where it landed", JSON.stringify(A.arrowSpot(ids[7])) === JSON.stringify(A.arrowSpot(ids[7])));
+  const face = A.faceOf([{ id: ids[1], date: "2026-11-27", title: "Drew", note: null }]);
+  ok("the face draws each arrow as a good mark", face.shots.length === 1 && face.shots[0].level === 0 && face.shots[0].note === "Drew" && face.reasons.length === 0);
+  ok("a list shows the title, else the note's first line", A.arrowLine({ title: "T", note: "N" }) === "T" && A.arrowLine({ note: "First\nsecond" }) === "First" && A.arrowLine({}) === "An arrow");
+
+  const sheet = read("src/components/targets/ArrowSheet.jsx");
+  ok("the pop-up places an arrow, adds a note, and edits the target", sheet.includes("Place an arrow") && sheet.includes("Add a note") && /onEdit && \(/.test(sheet));
+  ok("an arrow asks for a title but places without one", sheet.includes("What was it for?") && sheet.includes('"Place it without a title"'));
+  ok("a note needs words, and saving it places an arrow", /disabled=\{saving \|\| !note\.trim\(\)\}/.test(sheet) && sheet.includes("Save and place an arrow"));
+  const app = read("src/App.jsx");
+  ok("no target page is left to open", !/import\("\.\/pages\/Target"\)/.test(app) && !existsSyncSafe("src/pages/Target.jsx"));
+  const page = read("src/pages/Targets.jsx");
+  ok("Targets opens the pop-up from ?t=", /params\.get\("t"\)/.test(page) && /<TargetPopup /.test(page));
+  ok("a day he placed an arrow on a focus shows as a good day", /placed\.has\(d\) \? "bull"/.test(page));
+  const sql = read("supabase/migrations/0112_target_arrows.sql");
+  ok("the arrows table is additive and his alone", !/\bdrop\b(?! table if exists public\.target_arrows;)/i.test(sql.replace(/^--.*$/gm, "")) && /enable row level security/.test(sql) && /num_nonnulls\(nullif\(mission, false\), goal_id, quest_id, lesson_id, focus_goal_id\) = 1/.test(sql));
+
+  function existsSyncSafe(rel) {
+    try {
+      readFileSync(new URL(`../${rel}`, import.meta.url));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Board collections (2026-11-27): what's in each, the tray, the guess, the draw.
+{
+  const C = await import("../src/lib/collections.js");
+  const q = (id, text, author, extra = {}) => ({ id, text, author, saved_at: `2026-11-0${id.length}T00:00:00Z`, ...extra });
+  const quotes = [
+    q("a", "Look unto Christ in every thought; doubt not, fear not.", "Jesus Christ"),
+    q("bb", "Christ will make you more than you are. Turn to Christ.", "Ezra Taft Benson"),
+    q("ccc", "Show up and get to work every single day.", "Chuck Close"),
+    q("dddd", "The work is the way. Show up.", "Marcus Aurelius"),
+    q("eeeee", "In every walk with Nature one receives more than he seeks.", "John Muir"),
+  ];
+  const cols = [
+    { id: "christ", name: "Closer to Christ", feeds_today: true },
+    { id: "work", name: "Show up and work", feeds_today: false },
+  ];
+  const items = [
+    { collection_id: "christ", quote_id: "a" },
+    { collection_id: "work", quote_id: "ccc" },
+    { collection_id: "christ", note_id: "n1" },
+    { collection_id: "work", quote_id: "gone" },
+  ];
+  const filled = C.fillCollections(cols, items, quotes, [{ id: "n1", title: "His hand" }]);
+  ok("collections: quotes and thoughts land in their collection", filled[0].entries.map((e) => e.id).join() === "a,n1" && filled[1].entries.map((e) => e.id).join() === "ccc");
+  ok("collections: a quote no longer saved drops out", !filled[1].entries.some((e) => e.id === "gone"));
+  ok("collections: which collections a quote is in", [...C.collectionsOf(items, { quote_id: "a" })].join() === "christ" && C.collectionsOf(items, { note_id: "n1" }).has("christ"));
+  const tray = C.trayQuotes([...quotes, q("ffffff", "x", "y", { filed_at: "2026-11-20" })], items);
+  ok("collections: the tray is saved, unfiled, not kept loose, oldest first", tray.map((t) => t.id).join() === "bb,dddd,eeeee");
+  ok("collections: the guess fits by words", C.suggestCollection(quotes[1], filled) === "christ" && C.suggestCollection(quotes[3], filled) === "work");
+  ok("collections: no guess when nothing fits", C.suggestCollection(quotes[4], filled) === null);
+  const pool = C.drawPool(filled);
+  ok("collections: the draw only takes quotes from collections feeding Today", pool.map((p) => p.id).join() === "a");
+  const two = C.drawPool(C.fillCollections([{ ...cols[0] }, { ...cols[1], feeds_today: true }], items, quotes, []));
+  ok("collections: the same quote all day, and Another moves on", C.drawFor(two, "2026-11-27").id === C.drawFor(two, "2026-11-27").id && C.drawFor(two, "2026-11-27", 1).id !== C.drawFor(two, "2026-11-27").id);
+  ok("collections: no pool, no draw", C.drawFor([], "2026-11-27") === null);
+}
+
+// Tasks (Aaron, 2026-11-28): a project's tasks stay in the project; any
+// task on a column can go to the clipboard.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const home = src("components/tasks/TasksHome.jsx");
+  const api = src("lib/api.js");
+  ok("the Tasks home only asks for the free columns' camps", home.includes("fetchRecentColumnIds(userId, SHOWN, { campIds: freeCampIds(board) })") && home.includes("q.note === COLUMNS_HOME"));
+  ok("recent columns can be kept to some camps, and none means none", api.includes('if (campIds && !campIds.length) return [];') && api.includes('campIds ? q.in("camp_id", campIds) : q'));
+  const row = src("components/tasks/TaskRow.jsx");
+  const acts = src("components/tasks/useTaskActions.js");
+  ok("a column's open task has a To the clipboard button, passed down to sub-tasks", row.includes("{onClip && !done && !editing && (") && row.includes("onClip={onClip} childrenOf={childrenOf}") && src("components/tasks/Columns.jsx").includes("onClip={onClip} />"));
+  ok("it goes to its own camp's clipboard, with Undo", acts.includes("clipSectionOf(userId, step.camp_id)") && acts.includes("moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id })") && acts.includes('"On the clipboard"'));
+  ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
