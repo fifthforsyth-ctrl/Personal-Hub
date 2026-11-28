@@ -14,6 +14,7 @@ import { playClink } from "../lib/clink";
 import { haptic } from "../lib/haptics";
 import WeighIn from "./today/WeighIn";
 import { isWeighIn } from "../lib/honest";
+import { overlay } from "./ui/Overlay";
 
 // Capture, from anywhere.
 //
@@ -68,7 +69,7 @@ function CaptureSheet({ view, setView, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  return overlay(
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label={view === "menu" ? "Capture" : TITLES[view]} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">

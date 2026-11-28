@@ -92,6 +92,10 @@ html, body, #root {
   overscroll-behavior-y: none;
 }
 
+/* No zoom on a quick double tap anywhere (it read as the phone zooming in
+   by itself, Aaron 2026-11-28). Pinch zoom still works. */
+html { touch-action: manipulation; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -863,17 +867,21 @@ button { cursor: pointer; touch-action: manipulation; }
   background: rgba(30, 28, 24, 0.32);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: calc(20px + var(--safe-top)) 20px 20px;
+  padding: calc(20px + var(--safe-top)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
   z-index: 60;
 }
 
+/* margin: auto centres it when it fits; when it doesn't, it starts at the
+   top instead of spilling off both ends, and scrolls inside. */
 .modal {
   width: 100%;
   max-width: 520px;
-  max-height: 88vh;
+  max-height: min(88dvh, 100%);
+  margin: auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--card);
   border: none;
   border-radius: var(--r-xl);
@@ -1458,8 +1466,11 @@ form.card + .card { margin-top: 14px; }
 .sheet {
   width: 100%;
   max-width: 460px;
-  max-height: 86vh;
+  max-height: min(86dvh, 100%);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A box you tap into scrolls up clear of the bottom edge, not flush. */
+  scroll-padding-bottom: 24px;
   background: var(--bg);
   border: none;
   border-radius: var(--r-xl);
@@ -1478,11 +1489,31 @@ form.card + .card { margin-top: 14px; }
   .sheet-backdrop { align-items: flex-end; padding: 0; }
   .sheet {
     max-width: none;
-    max-height: min(86vh, calc(100dvh - var(--safe-top) - 12px));
+    max-height: min(86dvh, calc(100% - var(--safe-top) - 12px));
     border-radius: var(--r-xl) var(--r-xl) 0 0;
     border-bottom: none;
     padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   }
+}
+
+/* --- Every pop-up reaches its bottom (Aaron 2026-11-28) ------------------
+   Pop-ups render at the end of <body> (components/ui/Overlay.jsx), above
+   the tab bar, as tall as the app (--app-h). While the iPhone's keyboard
+   is up they end where the keyboard begins (--vv-h, lib/visibleViewport.js),
+   so the last lines and the Save button can still be scrolled to. The page
+   behind never scrolls along. */
+.sheet-backdrop,
+.modal-backdrop,
+.camp-up,
+.mk-volley,
+.mk-bowup,
+.voice-full,
+.sk-pad,
+.iv {
+  top: var(--vv-top, 0px);
+  bottom: auto;
+  height: var(--vv-h, var(--app-h, 100%));
+  overscroll-behavior: contain;
 }
 
 @keyframes fade-in { from { opacity: 0; } }

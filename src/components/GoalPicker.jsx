@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, CornerDownLeft, Ban, Star, Check } from "lucide-react";
 import "../styles/goals.css";
+import { overlay } from "./ui/Overlay";
 
 // Finding one goal among eighty-six.
 //
@@ -98,7 +99,7 @@ export default function GoalPicker({
     }
   }
 
-  return (
+  return overlay(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal goal-picker" role="dialog" aria-modal="true" aria-label={name}>
         <div className="row" style={{ gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--line)" }}>

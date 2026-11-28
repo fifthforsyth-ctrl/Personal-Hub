@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
+import { overlay } from "../ui/Overlay";
 
 // The Ascent page's edit sheets: a bottom sheet on a phone, a panel on a
 // desk. Escape closes the top one only, so a confirm opened over a sheet
@@ -38,7 +39,7 @@ export default function Sheet({ title, onClose, children }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  return overlay(
     <div
       className="sheet-backdrop"
       ref={backdrop}

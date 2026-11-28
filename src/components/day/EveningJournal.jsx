@@ -7,6 +7,7 @@ import { haptic } from "../../lib/haptics";
 import { friendlyError, plainError } from "../../lib/errors";
 import VoiceButton from "../ui/VoiceButton";
 import { useConfirm } from "../ui/Feedback";
+import { overlay } from "../ui/Overlay";
 
 // The evening's writing (Aaron, 2026-11-28): "allow me to choose from any of
 // my targets to write about, I don't have to do any or all of them. I can
@@ -268,7 +269,7 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
       </div>
 
       {/* The choices pop up over the page, to scroll through and tap one. */}
-      {choosing && (
+      {choosing && overlay(
         <div className="sheet-backdrop ej-sheet" onClick={() => setChoosing(false)}>
           <section className="sheet ej-pick" role="dialog" aria-modal="true" aria-label="What's this entry about?" onClick={(e) => e.stopPropagation()}>
             <div className="ej-pick__top">

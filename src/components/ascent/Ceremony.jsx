@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import ShareWithLove from "../love/ShareWithLove";
+import { overlay } from "../ui/Overlay";
 
 // Planting a flag: a camp reached, or a quest's summit. A quiet moment on a
 // dark screen, the route drawing up to the peak and the flag going in, then
@@ -14,7 +15,7 @@ export default function Ceremony({ summit, campNumber, title, nextTitle, onDone 
     return () => window.removeEventListener("keydown", onKey);
   }, [onDone]);
 
-  return (
+  return overlay(
     <div className="camp-up" role="dialog" aria-modal="true" aria-label={summit ? "Quest complete" : `Camp ${campNumber} reached`}>
       <svg viewBox="0 0 150 100" aria-hidden="true">
         <path className="cu-peak" d="M4 96 L46 54 L60 66 L92 22 L146 96" />

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { friendlyError } from "../../lib/errors";
 import { haptic } from "../../lib/haptics";
+import { overlay } from "./Overlay";
 
 // Toasts, undo and confirm, shared by every page.
 //
@@ -161,7 +162,7 @@ function ConfirmSheet({ title, body, confirmLabel = "Delete", cancelLabel = "Can
     return () => window.removeEventListener("keydown", onKey);
   }, [onAnswer]);
 
-  return (
+  return overlay(
     <div className="sheet-backdrop" onClick={() => onAnswer(false)}>
       <div className="sheet confirm-sheet" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(e) => e.stopPropagation()}>
         <h2 id="confirm-title" className="confirm-sheet__title">{title}</h2>

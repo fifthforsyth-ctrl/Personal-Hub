@@ -6,6 +6,7 @@ import Gear from "../ascent/Gear";
 import TargetFace, { ArrowIn } from "./TargetFace";
 import BowUp from "./BowUp";
 import "../../styles/mark.css";
+import { overlay } from "../ui/Overlay";
 
 // The day is banked and the arrows fly: every target with tonight's answers
 // gets its arrow, one after another, each landing where the answers put it
@@ -93,7 +94,7 @@ export default function Volley({ range, date, flown, onDone }) {
   const arrows = cells.filter((c) => c.shot).length;
   const bulls = cells.filter((c) => c.shot && c.shot.level === 0).length;
 
-  return (
+  return overlay(
     <div className="mark mk-volley" role="dialog" aria-modal="true" aria-label="Tonight's arrows">
       <div className="mk-volley__in">
         <div className="mk-volley__head">

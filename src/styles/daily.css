@@ -1004,7 +1004,7 @@ a.quote-card__source:hover { text-decoration: underline; }
 .ej-sheet .ej-pick { gap: 14px; }
 @media (max-width: 900px) {
   .ej-sheet { align-items: flex-end; padding: 0; }
-  .ej-sheet .sheet { max-width: none; max-height: 82vh; border-radius: 28px 28px 0 0; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+  .ej-sheet .sheet { max-width: none; max-height: min(82dvh, calc(100% - var(--safe-top) - 12px)); border-radius: 28px 28px 0 0; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Today's plan, and tomorrow's one swipe to the right (2026-11-28). */

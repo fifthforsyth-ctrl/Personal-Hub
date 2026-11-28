@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { overlay } from "../ui/Overlay";
 
 // A confirm sheet with more than one way forward ("Replace the day" / "Add
 // on top" / Cancel). Same look as the shared confirm; the shared one only
@@ -35,7 +36,7 @@ function ChoiceSheet({ title, body, options, onAnswer }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onAnswer]);
 
-  return (
+  return overlay(
     <div className="sheet-backdrop" onClick={() => onAnswer(null)}>
       <div className="sheet confirm-sheet" role="alertdialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <h2 id={titleId} className="confirm-sheet__title">{title}</h2>
