@@ -6593,5 +6593,20 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("builder: history keeps only his and its turns", trimHistory([{ role: "system", text: "x" }, { role: "user", text: "a" }, { role: "assistant", text: " " }]).length === 1);
 }
 
+// Tasks (Aaron, 2026-11-28): a project's tasks stay in the project; any
+// task on a column can go to the clipboard.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
+  const home = src("components/tasks/TasksHome.jsx");
+  const api = src("lib/api.js");
+  ok("the Tasks home only asks for the free columns' camps", home.includes("fetchRecentColumnIds(userId, SHOWN, { campIds: freeCampIds(board) })") && home.includes("q.note === COLUMNS_HOME"));
+  ok("recent columns can be kept to some camps, and none means none", api.includes('if (campIds && !campIds.length) return [];') && api.includes('campIds ? q.in("camp_id", campIds) : q'));
+  const row = src("components/tasks/TaskRow.jsx");
+  const acts = src("components/tasks/useTaskActions.js");
+  ok("a column's open task has a To the clipboard button, passed down to sub-tasks", row.includes("{onClip && !done && !editing && (") && row.includes("onClip={onClip} childrenOf={childrenOf}") && src("components/tasks/Columns.jsx").includes("onClip={onClip} />"));
+  ok("it goes to its own camp's clipboard, with Undo", acts.includes("clipSectionOf(userId, step.camp_id)") && acts.includes("moveSteps([step.id], { campId: step.camp_id, sectionId: clip.id })") && acts.includes('"On the clipboard"'));
+  ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
