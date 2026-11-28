@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Mic, Square, Loader2, X, Send, Plus, Volume2 } from "lucide-react";
 import { canRecord, recordingType, voiceCommand, playReply, stopReply, unlockAudio, audioContext } from "../lib/voice";
 import { haptic } from "../lib/haptics";
@@ -14,6 +15,11 @@ import "../styles/voice.css";
 // (or tap to send), the Hub does it, and the answer is spoken back. When the
 // Hub needs more ("How much was it?") it listens again on its own, and your
 // answer goes back with the conversation so it can finish the job.
+//
+// It can do anything he can do in the Hub (Aaron, 2026-11-28): the function
+// gets his tables and the database functions the pages use, under his own
+// session, plus a guide to what each tab is for (watch/full.ts). It knows
+// which page he's on, and "open my money" takes him there.
 //
 // Capture (Win, Loss, Minutes, Thought) is one tap away at the bottom, for
 // when typing or tapping is quicker than talking.
@@ -39,6 +45,9 @@ export default function VoiceSheet({ onClose, onCapture }) {
   const listRef = useRef(null);
 
   const supported = canRecord();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const where = useRef(location.pathname);
 
   const release = () => {
     clearInterval(watch.current);
@@ -59,7 +68,7 @@ export default function VoiceSheet({ onClose, onCapture }) {
     try {
       // Spoken in, spoken back; typed in, words back (no audio, no listening
       // again).
-      const r = await voiceCommand({ blob, text, speak: !text, history: turnsRef.current.filter((t) => t.ok !== false) });
+      const r = await voiceCommand({ blob, text, speak: !text, history: turnsRef.current.filter((t) => t.ok !== false), where: where.current });
       if (!alive.current) return;
       const turn = { heard: r.heard || text || "", say: r.say || "", ok: r.ok !== false };
       setTurns((all) => [...all, turn]);
@@ -70,6 +79,12 @@ export default function VoiceSheet({ onClose, onCapture }) {
         await playReply(r.audio);
       }
       if (!alive.current) return;
+      // "Open my money": go there once it's said so.
+      if (r.go && typeof r.go === "string" && r.go.startsWith("/")) {
+        navigate(r.go);
+        onClose();
+        return;
+      }
       // A question back: listen for the answer straight away.
       if (r.ask && supported && !text) start();
       else setPhase("idle");
