@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Receipt, Check, ChevronRight, ChevronDown, Paperclip, Briefcase, ArrowLeftRight, Loader2, Wallet } from "lucide-react";
+import { Check, ChevronRight, ChevronDown, Paperclip, Briefcase, ArrowLeftRight, Loader2, Wallet } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { fetchPurchaseInbox, fetchBudgets, classifyPurchase, setTransfer, setPurchaseIntent, uploadReceipt } from "../../lib/api";
 import { PURCHASE_KINDS, BUSINESS_CATEGORIES, fmtMoney, spentOf, merchantTitle, kindForBudget } from "../../lib/money";
@@ -9,7 +9,7 @@ import { friendlyError } from "../../lib/errors";
 import { useToast } from "../ui/Feedback";
 import LoadError from "../ui/LoadError";
 import { INTENTS } from "../../lib/honest";
-import { useReloadOn, Chip, Switch } from "./shared";
+import { useReloadOn, Chip, Switch, Sorted } from "./shared";
 
 // "What was this?"
 //
@@ -21,6 +21,10 @@ import { useReloadOn, Chip, Switch } from "./shared";
 // A guess never counts against a budget until you press Save: the money stays
 // in "unsorted" and the budget page says so, rather than a wrong pre-fill
 // quietly making a month look better or worse than it was.
+//
+// It's the page's one black card (Clean slate, 2026-11-23): who, how much
+// and when in large type, the budgets as two columns of pills a thumb tall,
+// and Save in orange.
 //
 // `version` is the Money page's change counter: when another card changes a
 // transaction, the queue is fetched again.
@@ -50,23 +54,24 @@ export default function PurchaseQuestion({ compact = false, includeHistory = fal
   if (!txn) {
     if (queue.length > 0) {
       return (
-        <div className="card row money-caught-up">
-          <span style={{ flex: 1, fontSize: 13.5 }}>
-            {queue.length} put off for later.
-          </span>
+        <div className="card money-caught-up">
+          <span className="money-caught-up__words">{queue.length} put off for later</span>
           <button type="button" className="btn btn--sm" onClick={() => setLater(new Set())}>
             Go through them again
           </button>
         </div>
       );
     }
-    if (answered.size > 0) {
+    // The older purchases say so when they're done, with a way to close.
+    // This month's queue leaves it to the page, which says it once the
+    // month's count comes back as none (it used to be said twice).
+    if (answered.size > 0 && onDismiss) {
       return (
-        <div className="card row money-caught-up">
-          <Check size={16} style={{ color: "var(--good)" }} />
-          <span style={{ flex: 1, fontSize: 13.5 }}>All caught up. Every purchase has a home.</span>
-          {onDismiss && <button type="button" className="btn-link" onClick={onDismiss}>Close</button>}
-        </div>
+        <Sorted>
+          <button type="button" className="btn-link" onClick={onDismiss}>
+            Close
+          </button>
+        </Sorted>
       );
     }
     return null;
@@ -81,19 +86,15 @@ export default function PurchaseQuestion({ compact = false, includeHistory = fal
   }
 
   return (
-    <div className="card card--accent money-question">
-      <div className="card-head">
-        <span className="card-title"><Receipt size={14} />{title}</span>
-        <span className="row" style={{ gap: 14 }}>
-          <span className="mono money-question__count">
-            {remaining === 1 ? "Last one" : `${remaining} to sort · ${fmtMoney(total, { round: true })}`}
-          </span>
-          {onDismiss && (
-            <button type="button" className="btn-link" style={{ minHeight: 36 }} onClick={onDismiss}>
-              Done for now
-            </button>
-          )}
-        </span>
+    <div className="card money-question">
+      <div className="money-question__head">
+        <h2 className="money-question__title">{title}</h2>
+        <span className="money-question__count">{remaining === 1 ? "Last one" : `${remaining} left · ${fmtMoney(total, { round: true })}`}</span>
+        {onDismiss && (
+          <button type="button" className="btn-link money-question__done" onClick={onDismiss}>
+            Done for now
+          </button>
+        )}
       </div>
 
       {error && <LoadError stale error={error} onRetry={reload} className="money-stale" />}
@@ -217,28 +218,18 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotP
   return (
     <div>
       {/* What it was, as plainly as possible: who, how much, when, from where. */}
-      <div className="row row--between" style={{ alignItems: "flex-start", gap: 14, marginBottom: 4 }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="money-question__who" style={{ fontSize: compact ? 17 : 19 }}>
-            {merchantTitle(txn.description)}
-          </div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-            {date} · {txn.account_name ?? "Account"}
-          </div>
-        </div>
-        <div className="money-question__amount" style={{ fontSize: compact ? 22 : 26 }}>
-          {fmtMoney(spentOf(txn.amount))}
-        </div>
+      <div className={"money-question__what" + (compact ? " is-compact" : "")}>
+        <div className="money-question__who">{merchantTitle(txn.description)}</div>
+        <div className="money-question__amount">{fmtMoney(spentOf(txn.amount))}</div>
       </div>
-      <div className="mono faint truncate" style={{ fontSize: 10.5, marginBottom: 14 }} title={txn.description}>
+      <div className="money-question__when">
+        {date} · {txn.account_name ?? "Account"}
+      </div>
+      <div className="mono truncate money-question__raw" title={txn.description}>
         {txn.description}
       </div>
 
-      {prefilled && (
-        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-          Filled in from what you said about this place last time.
-        </div>
-      )}
+      {prefilled && <div className="money-question__filled">Filled in from what you said about this place last time.</div>}
 
       <Label>Which budget?</Label>
       {visibleBudgets.length === 0 ? (
@@ -246,7 +237,7 @@ export function Question({ txn, budgets, compact, userId, onDone, onSkip, onNotP
           No budgets yet. <Link to="/money">Set some up</Link> and they'll appear here.
         </p>
       ) : (
-        <div className="row money-chips">
+        <div className="money-chips money-chips--grid">
           {visibleBudgets.map((b) => (
             <Chip key={b.id} active={chosen === b.id} color={b.color} onClick={() => setBudgetId(chosen === b.id ? "" : b.id)}>
               {b.name}

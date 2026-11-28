@@ -26,8 +26,8 @@ export default defineConfig({
         name: "Personal Hub",
         short_name: "Personal Hub",
         description: "Wins, minutes and your walk with God, day by day.",
-        theme_color: "#f2f1ee",
-        background_color: "#f2f1ee",
+        theme_color: "#f3f2ef",
+        background_color: "#f3f2ef",
         display: "standalone",
         start_url: "/",
         icons: [

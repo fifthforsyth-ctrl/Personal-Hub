@@ -24,7 +24,9 @@ const LOUD = 0.012; // RMS that counts as speech
 const MAX_SECONDS = 60;
 
 // Takes the whole screen, with the X at the top to leave (Aaron,
-// 2026-11-23). Opened from the mic in the tab bar, whose tap already called unlockAudio()
+// 2026-11-23). In the Clean slate look the mic is the screen: a large black
+// circle in the middle with one word under it for what's happening, which
+// steps down to make room once there's a conversation above it. Opened from the mic in the tab bar, whose tap already called unlockAudio()
 // so the answer can play out loud.
 export default function VoiceSheet({ onClose, onCapture }) {
   const [turns, setTurns] = useState([]); // { heard, say, ok }
@@ -211,76 +213,64 @@ export default function VoiceSheet({ onClose, onCapture }) {
     send({ text });
   };
 
-  const status = {
-    recording: "Listening… it sends when you stop talking",
-    working: "Working on it…",
-    speaking: "Tap the mic to answer or say more",
-    idle: turns.length ? "Tap the mic to say more" : "Tap the mic and speak",
+  const [status, hint] = {
+    recording: ["Listening", "It sends when you stop talking."],
+    working: ["Working on it", ""],
+    speaking: ["Answering", "Tap the mic to answer or say more."],
+    idle: turns.length ? ["Say more", "Tap the mic."] : ["Speak to the Hub", "Tap the mic and say what you want done."],
   }[phase];
 
   // On the page itself, not inside the tab bar, whose blur would trap a
   // fixed backdrop.
   return createPortal(
-    <div className="voice-full" role="dialog" aria-modal="true" aria-label="Speak to the Hub">
-        <div className="voice-full__head">
-          <span className="card-title">Speak to the Hub</span>
-          <button className="voice-full__close" onClick={onClose} aria-label="Close" title="Close">
-            <X size={22} />
-          </button>
-        </div>
+    <div className={"voice-full" + (turns.length ? " voice-full--talking" : "")} role="dialog" aria-modal="true" aria-label="Speak to the Hub">
+      <div className="voice-full__head">
+        <button className="voice-full__close" onClick={onClose} aria-label="Close" title="Close">
+          <X size={20} />
+        </button>
+      </div>
 
-        <div className="voice-sheet__talk" ref={listRef}>
-          {turns.map((t, i) => (
-            <div key={i} className="voice-turn">
-              {t.heard && <p className="voice-turn__you">{t.heard}</p>}
-              {t.say && (
-                <p className={"voice-turn__hub" + (t.ok ? "" : " voice-turn__hub--off")}>
-                  {t.say}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
+      <div className="voice-sheet__talk" ref={listRef}>
+        {turns.map((t, i) => (
+          <div key={i} className="voice-turn">
+            {t.heard && <p className="voice-turn__you">{t.heard}</p>}
+            {t.say && <p className={"voice-turn__hub" + (t.ok ? "" : " voice-turn__hub--off")}>{t.say}</p>}
+          </div>
+        ))}
+      </div>
 
-        <div className="voice-sheet__mic">
-          {supported ? (
-            <button
-              type="button"
-              className={"voice-orb" + (phase === "recording" ? " voice-orb--on" : "")}
-              onClick={tapMic}
-              disabled={phase === "working"}
-              aria-label={phase === "recording" ? "Send" : "Speak"}
-            >
-              {phase === "working" ? (
-                <Loader2 size={28} className="voice-spin" />
-              ) : phase === "recording" ? (
-                <Square size={22} />
-              ) : phase === "speaking" ? (
-                <Volume2 size={28} />
-              ) : (
-                <Mic size={28} />
-              )}
-            </button>
-          ) : (
-            <p className="voice-error">This browser can't record. Type it below.</p>
-          )}
-          <p className="voice-sheet__status">{status}</p>
-          {error && <p className="voice-error">{error}</p>}
-        </div>
-
-        <form className="voice-talk__row" onSubmit={submit}>
-          <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type it" aria-label="Type it instead" maxLength={500} />
-          <button type="submit" className="btn btn--accent" disabled={!typed.trim() || phase === "working"} aria-label="Send">
-            <Send size={15} />
-          </button>
-        </form>
-
-        {onCapture && (
-          <button type="button" className="btn btn--ghost btn--sm voice-sheet__capture" onClick={onCapture}>
-            <Plus size={14} />
-            Capture a win, loss, minutes or thought by tapping
+      <div className="voice-sheet__mic">
+        {supported && (
+          <button
+            type="button"
+            className={"voice-orb" + (phase === "recording" ? " voice-orb--on" : "")}
+            onClick={tapMic}
+            disabled={phase === "working"}
+            aria-label={phase === "recording" ? "Send" : "Speak"}
+          >
+            {phase === "working" ? <Loader2 className="voice-spin" /> : phase === "recording" ? <Square className="voice-orb__stop" /> : phase === "speaking" ? <Volume2 /> : <Mic />}
           </button>
         )}
+        <p className="voice-sheet__status" aria-live="polite">
+          {supported ? status : "Type it below"}
+        </p>
+        <p className="voice-sheet__hint">{supported ? hint : "This browser can't record."}</p>
+        {error && <p className="voice-error">{error}</p>}
+      </div>
+
+      <form className="voice-talk__row voice-sheet__type" onSubmit={submit}>
+        <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type it" aria-label="Type it instead" maxLength={500} />
+        <button type="submit" className="voice-sheet__send" disabled={!typed.trim() || phase === "working"} aria-label="Send">
+          <Send size={18} />
+        </button>
+      </form>
+
+      {onCapture && (
+        <button type="button" className="voice-sheet__capture" onClick={onCapture}>
+          <Plus size={15} />
+          Log a win, loss, minutes or a thought by tapping
+        </button>
+      )}
     </div>,
     document.body
   );

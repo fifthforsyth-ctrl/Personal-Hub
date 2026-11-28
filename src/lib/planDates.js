@@ -125,11 +125,13 @@ export function weekDays(dateStr) {
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 }
 
-export function fmtWeekHeading(dateStr) {
+export function fmtWeekHeading(dateStr, leaveOutYear = null) {
   const start = parseDateStr(startOfWeek(dateStr));
   const end = parseDateStr(addDays(startOfWeek(dateStr), 6));
   const sameMonth = start.getMonth() === end.getMonth();
   const left = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const right = end.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" });
+  // A week that touches the year given (this one) is named without it.
+  if (leaveOutYear != null && (start.getFullYear() === leaveOutYear || end.getFullYear() === leaveOutYear)) return `${left} – ${right}`;
   return `${left} – ${right}, ${end.getFullYear()}`;
 }

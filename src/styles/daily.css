@@ -103,9 +103,57 @@
 
 /* --- Today: minutes and the walk ------------------------------------------ */
 
+/* The timer card. White with nothing running; black while something is.
+   The black card flips the tokens it stands on, so everything inside it
+   (the bar, focus mode, the watch row, Going to bed) follows without a
+   dark rule of its own. */
+.card.timer { padding: 22px; }
+.timer--live {
+  --card: #141414;
+  --card-hover: #1f1f1f;
+  --inset: rgba(255, 255, 255, 0.12);
+  --surface: rgba(255, 255, 255, 0.06);
+  --line: rgba(255, 255, 255, 0.14);
+  --line-strong: rgba(255, 255, 255, 0.3);
+  --text: #ffffff;
+  --text-2: #b9b6af;
+  --text-3: #8f8c86;
+  --ink: #ffffff;
+  --ink-hover: #ecebe7;
+  --on-ink: #141414;
+  --accent-text: #ff9a5c;
+  --accent-soft: rgba(242, 106, 27, 0.2);
+  background: var(--card);
+  border-color: transparent;
+  color: var(--text);
+}
+.timer__head { display: flex; align-items: center; gap: 14px; }
+.timer__words { flex: 1; min-width: 0; }
+.timer__since { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--text-2); }
+.timer__what {
+  margin-top: 5px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.timer__sep { font-weight: 500; }
+.timer__elapsed { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.timer__what-sub { font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--text-2); }
+.timer__plan { margin-top: 7px; font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer__go { flex: none; height: 56px; padding: 0 24px; font-size: 17px; gap: 9px; }
+.timer__go:active { transform: scale(0.96); }
+.timer__bar { height: 8px; margin-top: 20px; }
+.timer__legend { display: flex; align-items: baseline; gap: 12px; margin-top: 11px; font-size: 13px; color: var(--text-2); }
+.timer__cats { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 14px; }
+.timer__cat { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.timer__cat .mono { font-size: 12px; }
+.timer__total { flex: none; font-size: 13.5px; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
 .minutes-note { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-2); }
-.running-row__time { display: flex; flex-wrap: wrap; column-gap: 8px; font-size: 12px; color: var(--text-2); margin-top: 1px; }
-.running-row__since { white-space: nowrap; }
+/* Going to bed, on the black card, is a quiet outlined pill. */
+.timer .bed-btn { margin-top: 14px; min-height: 46px; }
 /* From your watch, under the minutes: one quiet row, words first. */
 .minutes-watch { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .minutes-watch__icon { flex-shrink: 0; color: var(--text-3); position: relative; top: 2px; }
@@ -126,12 +174,6 @@
 }
 .noted__actions { display: flex; gap: 14px; flex-shrink: 0; }
 .noted__actions .btn-link { min-height: 36px; padding: 0 7px; margin: 0 -5px; }
-
-/* --- The week strip's key ------------------------------------------------- */
-
-.week-strip-wrap { margin-bottom: 16px; max-width: 460px; }
-.week-strip-wrap .week-strip { margin-bottom: 0; }
-.week-strip__key { margin: 8px 0 0; font-size: 11.5px; color: var(--text-2); text-align: center; }
 
 /* --- Capture sheet --------------------------------------------------------- */
 
@@ -313,29 +355,18 @@
 
 /* --- Reflection, close-out and the banked card ----------------------------- */
 
-/* Four steps, each a 4px bar inside a 24px-tall target, so jumping back to a
-   card is a tap rather than an aim. */
-.reflection-steps { display: flex; gap: 4px; margin: -6px 0 12px; }
+/* The four questions by name, under the one being answered: a pill each, a
+   thumb tall. The one open is black; one that's written has a tick. */
+.reflection-steps { display: flex; flex-direction: column; gap: 6px; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
 .reflection-step {
-  position: relative;
-  flex: 1;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: none;
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 18px; border: none;
+  border-radius: 24px; background: var(--bg); color: var(--text); font: inherit; font-size: 14.5px; font-weight: 600; text-align: left;
 }
-.reflection-step::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 10px;
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: var(--inset);
-}
-.reflection-step--done::before { background: var(--accent-line); }
-.reflection-step--here::before { background: var(--accent); }
+.reflection-step__n { font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+.reflection-step__name { flex: 1; min-width: 0; }
+.reflection-step__tick { flex: none; color: var(--text-2); }
+.reflection-step--here { background: var(--ink); color: var(--on-ink); }
+.btn.reflection-card__prev { width: 44px; padding: 0; justify-content: center; }
 
 .close-out__skip { display: flex; margin: 12px auto 0; min-height: 36px; padding: 0 6px; font-size: 13px; }
 
@@ -363,21 +394,24 @@
 
 .quote-card { display: flex; flex-direction: column; gap: 14px; }
 .quote-card--waiting { gap: 0; }
-.quote-card__eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); }
+.quote-card__eyebrow { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--text); }
 
+/* The words in the page's own type, large (Clean slate). */
 .quote-card__text {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 19px;
-  line-height: 1.5;
+  margin: -4px 0 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
   color: var(--text);
+  text-wrap: pretty;
 }
 
 .quote-card__who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 
 .quote-card__face {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   object-fit: cover;
   object-position: center 20%;
@@ -392,8 +426,8 @@
   justify-content: center;
   background: var(--ink);
   color: var(--on-ink);
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 
@@ -420,19 +454,23 @@ a.quote-card__source:hover { text-decoration: underline; }
 }
 .quote-card__why svg { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
 
-.quote-card__rate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.quote-card__rate .seg-btn { padding: 7px 13px; font-size: 12.5px; }
-.quote-card__rated { font-size: 12px; color: var(--text-2); }
-.quote-card__save { margin-left: auto; }
-.quote-card__share { margin-left: -4px; }
-.quote-card__save.is-on { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-line); }
+/* Applies, Somewhat, Not now: three even pills a thumb tall, then what
+   else can be done with it on a line of its own. */
+.quote-card__rate { display: flex; flex-direction: column; gap: 6px; }
+.seg.quote-card__seg { display: flex; width: 100%; gap: 6px; padding: 0; background: none; }
+.seg.quote-card__seg .seg-btn { flex: 1; min-height: 44px; padding: 0 8px; background: var(--bg); color: var(--text); font-size: 13.5px; font-weight: 600; }
+.seg.quote-card__seg .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.quote-card__rated { font-size: 12.5px; color: var(--text-2); }
+.quote-card__tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: -4px; }
+.quote-card__tools .btn { min-height: 40px; background: none; border-color: transparent; padding: 0 10px; color: var(--text-2); }
+.quote-card__tools .btn:first-child { margin-left: -10px; }
+.quote-card__save.is-on { color: var(--accent-text); }
 
 .quote-card__credit { margin: -4px 0 0; font-size: 10.5px; color: var(--text-3); }
 .quote-card__credit-link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-decoration-thickness: 1px; }
 
 @media (min-width: 700px) {
-  .quote-card__text { font-size: 21px; }
-  .quote-card__face { width: 72px; height: 72px; }
+  .quote-card__text { font-size: 24px; max-width: 34ch; }
 }
 
 /* The next temple trip, when one is a week out or closer. */
@@ -443,31 +481,53 @@ a.quote-card__source:hover { text-decoration: underline; }
 
 /* --- Today's plan: every block of the day, with what's in it ------------ */
 
-/* The card sizes its own rows: on a phone, or in the narrower desk column,
-   a block's time sits over its name so the name isn't cut to a word. */
-.plan-blocks { container: plan-blocks / inline-size; }
-.plan-blocks .plan-blocks__head { margin-bottom: 6px; }
-.plan-blocks__open { min-height: 36px; padding: 0 2px; gap: 4px; }
-.plan-blocks__error { margin-bottom: 8px; }
+/* Rows run edge to edge inside the card, each one line: when it starts,
+   its name, and what's left in it. */
+.card.plan-blocks { padding: 0; overflow: hidden; }
+.plan-blocks__head { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 56px; padding: 6px 22px 4px; }
+.plan-blocks__head .card-title { flex: none; }
+/* The blocks behind you, in one line; a tap brings them back. */
+.plan-blocks__earlier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13.5px;
+}
+.plan-blocks__open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+@media (hover: hover) { .plan-blocks__open:hover, .plan-blocks__earlier:hover { color: var(--text); } }
+.plan-blocks__error { margin: 0 22px 8px; }
+.plan-blocks__note { padding: 0 22px 16px; }
 
 .plan-blocks__list,
 .plan-blocks__items,
 .plan-item__subs { list-style: none; margin: 0; padding: 0; }
 
-.plan-block + .plan-block { border-top: 1px solid var(--line); }
-/* The tinted line for now needs no rule against it. */
-.plan-block + .plan-block--now,
-.plan-block--now:not(.has-items) + .plan-block { border-top-color: transparent; }
+.plan-block { border-top: 1px solid var(--line); padding: 0 22px; }
 
 .plan-blocks__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "time aside" "title aside";
+  grid-template-columns: 50px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 10px;
-  row-gap: 1px;
-  min-height: 44px;
-  padding: 7px 0;
+  column-gap: 8px;
+  min-height: 58px;
+  padding: 8px 0;
 }
 
 /* A block behind you with things in it opens with a tap on its line. */
@@ -482,31 +542,25 @@ a.quote-card__source:hover { text-decoration: underline; }
   cursor: pointer;
 }
 
-.plan-blocks__time {
-  grid-area: time;
-  font-size: 11.5px;
-  color: var(--text-2);
-  white-space: nowrap;
-}
+.plan-blocks__time { font-size: 13px; color: var(--text-2); white-space: nowrap; }
 
 .plan-blocks__title {
-  grid-area: title;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 14px;
-  font-weight: 560;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
 }
+.plan-blocks__title .dot { width: 9px; height: 9px; }
+/* A long name takes a second line before it's cut. */
+.plan-blocks__title .truncate { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 
-.plan-blocks__aside {
-  grid-area: aside;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.plan-blocks__aside { display: flex; align-items: center; gap: 10px; }
 
-.plan-blocks__count { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.plan-blocks__count { font-size: 13.5px; color: var(--text-2); white-space: nowrap; }
 .plan-blocks__chev { flex-shrink: 0; color: var(--text-3); transition: transform 0.15s ease; }
 .plan-blocks__chev.is-open { transform: rotate(180deg); }
 @media (hover: hover) {
@@ -514,59 +568,58 @@ a.quote-card__source:hover { text-decoration: underline; }
   .plan-blocks__row--tap:hover .plan-blocks__chev { color: var(--text); }
 }
 
-@container plan-blocks (min-width: 440px) {
-  .plan-blocks__row {
-    /* Wide enough for "11:00 AM–5:00 PM", so the names line up. */
-    grid-template-columns: 128px minmax(0, 1fr) auto;
-    grid-template-areas: "time title aside";
-    column-gap: 12px;
-    min-height: 40px;
-  }
-  .plan-blocks__time { font-size: 12px; }
-  /* With room for the time column, a block's things sit under its name. */
-  .plan-block > .plan-blocks__items { padding-left: 140px; }
-}
-
 /* Behind you: quieter, but how much got done stays easy to read. */
+.plan-blocks__row.is-past { min-height: 48px; }
 .plan-blocks__row.is-past .plan-blocks__time,
 .plan-blocks__row.is-past .plan-blocks__title { opacity: 0.55; }
+.plan-blocks__row.is-past .plan-blocks__title { font-size: 15px; font-weight: 550; }
 
-.plan-blocks__row.is-now {
-  margin: 0 -10px;
-  padding-left: 10px;
-  padding-right: 10px;
-  background: var(--accent-soft);
-  border-radius: var(--r-sm);
-}
-.plan-blocks__row.is-now .plan-blocks__time { color: var(--accent-text); }
-.plan-blocks__row.is-now .plan-blocks__title { font-weight: 650; }
-
+/* Now: an orange pill with ink words, the one loud thing on the card. */
 .plan-blocks__now {
   flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--accent-text);
 }
 
 /* What's in a block: a box to tick, the words, and where it's from. */
-.plan-blocks__items { padding-bottom: 6px; }
-.plan-block--now .plan-blocks__items { padding-top: 4px; }
+.plan-blocks__items { padding-bottom: 10px; }
 
-.plan-item__row { display: flex; align-items: flex-start; gap: 2px; }
+.plan-item__row { display: flex; align-items: flex-start; gap: 6px; }
 .plan-item__check {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
-  margin-left: -9px;
+  margin-left: -10px;
   cursor: pointer;
 }
-.plan-item__check input { width: 17px; height: 17px; margin: 0; accent-color: var(--ink); cursor: pointer; }
-.plan-item__main { flex: 1; min-width: 0; padding: 8px 0 7px; }
-.plan-item__title { display: block; font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+/* A round box: empty with a grey rim, ink with a white tick when done. */
+.plan-item__check input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--card) center / 13px no-repeat;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.plan-item__check input:checked {
+  border-color: var(--ink);
+  background-color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+.plan-item__main { flex: 1; min-width: 0; padding: 11px 0 9px; }
+.plan-item__title { display: block; font-size: 15.5px; line-height: 1.4; overflow-wrap: anywhere; }
 .plan-item__from {
   display: block;
   margin-top: 1px;
@@ -581,21 +634,21 @@ a.quote-card__source:hover { text-decoration: underline; }
 .plan-item__pen {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 40px;
   flex-shrink: 0;
-  margin-left: -9px;
+  margin-left: -10px;
   color: var(--text-3);
 }
-.plan-item--heading > .plan-item__row .plan-item__main { padding: 9px 0 5px; }
+.plan-item--heading > .plan-item__row .plan-item__main { padding: 10px 0 5px; }
 .plan-item__label { display: block; font-size: 12.5px; font-weight: 650; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
 
-.plan-item__subs { margin: -2px 0 2px 18px; padding-left: 8px; border-left: 1px solid var(--line); }
-.plan-item__subs .plan-item__title { font-size: 12.5px; }
-.plan-item__subs .plan-item__main { padding: 8px 0 6px; }
+.plan-item__subs { margin: -2px 0 2px 34px; }
+.plan-item__subs .plan-item__title { font-size: 14.5px; }
+.plan-item__subs .plan-item__main { padding: 11px 0 9px; }
 
 /* What's on today but tied to no block. */
-.plan-blocks__list + .plan-blocks__loose { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.plan-blocks__loose { padding: 14px 22px 10px; border-top: 1px solid var(--line); }
 .plan-blocks__loose-head { margin-bottom: 2px; }
 .plan-blocks__group { margin-top: 4px; }
 .plan-blocks__group-title {
@@ -763,3 +816,125 @@ a.quote-card__source:hover { text-decoration: underline; }
 .evening__switching { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
 .evening-length[aria-busy="true"] .seg-btn { cursor: progress; }
 .evening-length[aria-busy="true"] .seg-btn:not(.active) { opacity: 0.6; }
+
+/* ===========================================================================
+   The evening in four steps (Clean slate, 2026-11-23). The bars at the top
+   say where you are; each step is a screen of white cards; Back and Next sit
+   under it. Rules here are under .evening so they hold over the shared ones.
+   =========================================================================== */
+
+.evening .eve-head { display: flex; align-items: center; margin-bottom: 6px; }
+.eve-progress { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.eve-progress__step { position: relative; flex: 1; height: 44px; padding: 0; border: 0; background: none; cursor: pointer; }
+.eve-progress__step::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 5px; margin-top: -2.5px;
+  border-radius: 3px; background: var(--line-strong); transition: background 0.15s;
+}
+.eve-progress__step.is-on::before { background: var(--ink); }
+.eve-progress__count { flex: none; width: 40px; text-align: right; font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.eve-head__when { font-size: 13px; color: var(--text-2); }
+
+.eve-title { padding: 0 4px; margin-bottom: 14px; }
+.eve-title__when { font-size: 13px; color: var(--text-2); }
+.eve-title__h { margin: 2px 0 0; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; text-wrap: balance; }
+.evening .evening-nav { margin-top: 4px; }
+.evening .evening-nav .btn-link { min-height: 44px; font-size: 13.5px; }
+
+.eve-step[hidden] { display: none; }
+.evening .stack { gap: 12px; }
+.evening .card--accent { border-color: transparent; }
+.evening .card-title { font-size: 13px; font-weight: 600; letter-spacing: 0; margin: 0; }
+.evening .card-title svg { display: none; }
+
+.eve-foot { display: flex; gap: 8px; margin-top: 16px; }
+.eve-foot__back,
+.eve-foot__next { height: 56px; border: 0; border-radius: 28px; font: inherit; font-size: 16px; font-weight: 600; }
+.eve-foot__back { flex: none; padding: 0 24px; background: var(--card); color: var(--text); }
+.eve-foot__next { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--ink); color: var(--on-ink); }
+.eve-foot__back:active,
+.eve-foot__next:active { transform: scale(0.98); }
+
+/* Step one: wins with their count large, losses quietly under a line. */
+.evening .evening-wl { display: block; }
+.evening-wl__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.evening-wl__h { margin: 0; font-size: 13px; font-weight: 600; }
+.evening .evening-wl__count { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--text); }
+.evening-wl__none { margin: 4px 0 0; font-size: 14px; color: var(--text-2); }
+.evening .evening-wl__row { min-height: 36px; align-items: center; font-size: 15px; }
+.evening .evening-wl__row .evening-wl__mark { margin-top: 0; }
+.evening-wl__col--loss { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.evening-wl__col--loss .evening-wl__h { font-weight: 500; color: var(--text-2); }
+.evening .evening-wl__col--loss .evening-wl__count { font-size: 17px; font-weight: 600; color: var(--text-2); }
+.evening .evening-wl__hint { margin-top: 10px; font-size: 12.5px; }
+
+.evening-minutes__total { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.evening .time-strip--tall { height: 10px; gap: 2px; border-radius: 5px; }
+.evening .time-strip--tall > i { border-radius: 5px; }
+.evening .minutes-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin-top: 14px; font-size: 14px; }
+.evening .minutes-legend > .row { justify-content: space-between; }
+.evening .minutes-legend .truncate { flex: 1; }
+.evening .minutes-legend .mono { font-family: inherit; font-variant-numeric: tabular-nums; }
+
+/* Step two: the question large in the page's type, the answer on the page's
+   ground, and the four questions by name under it. */
+.evening .reflection-card { padding: 20px 18px 16px; }
+.evening .reflection-card__label { margin-bottom: 8px; color: var(--accent-text); }
+.evening .question { margin: 0 0 14px; font-family: var(--font); font-size: 22px; font-weight: 600; line-height: 1.28; letter-spacing: -0.02em; text-wrap: pretty; }
+.evening .reflection-card .textarea,
+.evening .evening-god .input {
+  min-height: 132px; padding: 14px 16px; border-color: transparent; border-radius: 18px;
+  background: var(--bg); font-size: 16px; line-height: 1.4;
+}
+.evening .reflection-card .textarea:focus,
+.evening .evening-god .input:focus { border-color: var(--line-strong); }
+.evening .reflection-card .btn,
+.evening .focus-arrows .btn,
+.evening .close-out .btn { min-height: 48px; padding: 0 18px; font-size: 14.5px; }
+.evening .reflection-card .voice-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.evening .reflection-card .btn.reflection-card__prev { width: 48px; padding: 0; justify-content: center; }
+.evening .reflection-card__nav .btn--ghost { padding: 0 6px; }
+
+/* Step three: each focus's rings are a thumb tall, three to a row. */
+.evening .ck-place__rings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.evening .ck-place__rings button { min-height: 44px; padding: 0 6px; border-color: transparent; border-radius: 22px; background: var(--bg); font-size: 14px; font-weight: 600; }
+.evening .ck-place__rings button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.evening .focus-arrow__title { font-size: 16px; font-weight: 600; }
+.evening .ck-place { align-items: stretch; }
+.evening .ck-place__face { align-self: center; }
+.evening .ck-place__read { text-align: center; }
+
+/* Step four: mood, the note for God and tomorrow's start are a card each. */
+.evening .card.evening-checkin { display: flex; flex-direction: column; gap: 12px; padding: 0; border: 0; background: none; box-shadow: none; }
+.evening .evening-checkin > .card-head { min-height: 0; margin: 0; padding: 0 4px; }
+.evening .evening-checkin > .card-head:empty,
+.evening .evening-checkin .card-title { display: none; }
+.evening .evening-checkin > .card-note { margin: 0 !important; padding: 0 4px; font-size: 13.5px; }
+.evening .evening-feel,
+.evening .evening-god,
+.evening-alarm { margin: 0; padding: 18px; border-radius: var(--r-lg); background: var(--card); }
+.evening .slider { gap: 8px; }
+.evening .slider__label,
+.evening .evening-god__q,
+.evening .evening-alarm .honest-label { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.evening .slider__track { gap: 4px; padding: 0; }
+.evening .slider__step { height: 44px; border-radius: 10px; background: var(--bg); box-shadow: none; }
+.evening .slider__step.is-on { background: var(--ink); }
+.evening .slider__thumb { display: none; }
+.evening .slider__ends { font-size: 12.5px; }
+.evening .evening-god__q { margin-bottom: 12px; }
+.evening .evening-god .input { min-height: 84px; }
+.evening .evening-god .voice-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.evening .evening-god__sunday .name-chip,
+.evening-alarm .name-chip { min-height: 44px; padding: 0 18px; border-color: transparent; border-radius: 22px; background: var(--bg); font-size: 15px; font-weight: 600; }
+.evening .evening-god__sunday .name-chip--on,
+.evening-alarm .name-chip.name-chip--on { background: var(--ink); color: var(--on-ink); }
+.evening-alarm .honest-chips { gap: 6px; margin-top: 12px; }
+.evening-alarm .honest-chips > .name-chip { flex: 1; justify-content: center; text-align: center; }
+.evening-alarm .name-chip--add { border-style: solid; color: var(--text); }
+.evening-alarm .input { min-height: 44px; font-size: 16px; }
+.evening .evening-checkin__lights { margin-top: 10px; font-size: 13px; }
+
+.evening .close-out .card-note { font-size: 13.5px; }
+.evening .close-out .btn.close-out__bank { min-height: 56px; border-radius: 28px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-size: 16px; font-weight: 600; }
+.evening .close-out .btn.close-out__bank:disabled { background: var(--inset); border-color: var(--inset); color: var(--text-2); opacity: 1; }
+.evening .close-out__skip { min-height: 44px; font-size: 13.5px; }

@@ -486,31 +486,9 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         </span>
       </div>
 
-      {/* Steps rather than a bar: you can see how many are left and jump
-          back to one you want to change. */}
-      <div className="reflection-steps">
-        {cards.map((c, i) => (
-          <button
-            key={c.key}
-            type="button"
-            onClick={() => {
-              if (i !== step) save();
-              setStep(i);
-            }}
-            title={c.label}
-            aria-label={`${c.label}${i === step ? " (this card)" : ""}`}
-            aria-current={i === step ? "step" : undefined}
-            className={
-              "reflection-step" +
-              (i === step ? " reflection-step--here" : (answers[c.key] ?? "").trim() ? " reflection-step--done" : "")
-            }
-          />
-        ))}
-      </div>
-
       {notice && <p className="reflection-nudge" style={{ marginTop: 0 }}>{notice}</p>}
 
-      <div className="eyebrow" style={{ marginBottom: 6 }}>{card.label}</div>
+      <div className="eyebrow reflection-card__label">{card.label}</div>
       <p className="question">{card.question}</p>
       {card.nudge && <p className="reflection-nudge">{card.nudge}</p>}
 
@@ -609,21 +587,23 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
         </div>
       )}
 
-      <div className="row row--between" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+      <div className="row row--between reflection-card__nav" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
         <button className="btn btn--ghost" onClick={() => close({ finish: false })} disabled={closing}>
           Save &amp; close
         </button>
         <div className="row" style={{ gap: 8 }}>
+          {/* By name, so it isn't taken for the evening's own Back and Next. */}
           <button
-            className="btn"
+            className="btn reflection-card__prev"
             onClick={() => {
               save();
               setStep((s) => Math.max(0, s - 1));
             }}
             disabled={step === 0}
+            aria-label="Previous question"
+            title="Previous question"
           >
-            <ChevronLeft size={14} />
-            Back
+            <ChevronLeft size={16} />
           </button>
           {isLast ? (
             <button className="btn btn--accent" onClick={() => close({ finish: !allEmpty })} disabled={closing}>
@@ -638,11 +618,37 @@ export default function ReflectionFlow({ userId, date, journal, moments = [], on
                 setStep((s) => s + 1);
               }}
             >
-              Next
+              Next question
               <ChevronRight size={14} />
             </button>
           )}
         </div>
+      </div>
+      {/* The four questions by name, under the one being answered: you can
+          see which are written and go straight to any of them. */}
+      <div className="reflection-steps" role="group" aria-label="The four questions">
+        {cards.map((c, i) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => {
+              if (i !== step) save();
+              setStep(i);
+            }}
+            aria-label={`${c.label}${i === step ? " (this card)" : (answers[c.key] ?? "").trim() ? " (written)" : ""}`}
+            aria-current={i === step ? "step" : undefined}
+            className={
+              "reflection-step" +
+              (i === step ? " reflection-step--here" : (answers[c.key] ?? "").trim() ? " reflection-step--done" : "")
+            }
+          >
+            <span className="reflection-step__n" aria-hidden="true">
+              {i + 1}
+            </span>
+            <span className="reflection-step__name">{c.label}</span>
+            {i !== step && (answers[c.key] ?? "").trim() && <Check size={15} className="reflection-step__tick" aria-hidden="true" />}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -39,9 +39,10 @@ export function keepDashes(title) {
 
 // --- The mission ---------------------------------------------------------------
 
-// White, like every card: the words carry it. The summit's words in small
-// capitals over the statement, which keeps to three lines here; the whole
-// of it is a tap away on its page.
+// The one black card on the page (Clean slate, 2026-11-23): the summit's
+// words large over the statement, which keeps to three lines here; the
+// whole of it is a tap away on its page. With nothing written yet it's a
+// plain white card asking for it.
 export function MissionCard({ mission, onWrite }) {
   if (!mission?.statement) {
     return (
@@ -95,11 +96,51 @@ export function FaceRow({ items, week = false, label }) {
   );
 }
 
+// --- The week's focus, a row each -----------------------------------------------
+
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_WORDS = { bull: "bullseye", ring: "on the target", miss: "missed", none: "no arrow", now: "today, no arrow yet", later: "to come" };
+
+// The seven letters over the squares, today's in ink.
+export function WeekLetters({ todayIndex = -1 }) {
+  return (
+    <span className="ov-week ov-week--letters" aria-hidden="true">
+      {WEEKDAYS.map((d, i) => (
+        <i key={i} className={i === todayIndex ? "is-today" : undefined}>
+          {d}
+        </i>
+      ))}
+    </span>
+  );
+}
+
+// Each focus by its whole name, with the week as seven small squares:
+// black for a bullseye, grey for an arrow on the target, an outline for a
+// miss, orange for today while it waits, pale for days to come. Each row
+// opens the focus's page. Items: { key, to, title, label, days: [state x7] }.
+export function FocusRows({ items, label }) {
+  return (
+    <ul className="ov-rows" aria-label={label}>
+      {items.map((it) => (
+        <li key={it.key}>
+          <Link to={it.to} className="ov-row" aria-label={it.label}>
+            <span className="ov-row__name">{it.title}</span>
+            <span className="ov-week" aria-hidden="true">
+              {it.days.map((d, i) => (
+                <i key={i} className={"ov-day ov-day--" + d} title={DAY_WORDS[d]} />
+              ))}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // --- The quests and lessons ----------------------------------------------------
 
-// One row each: its last 30 days of marks, its name on one line, and what's
-// waiting there ("Quest · 2 camps · 3 today"). One column on a phone, two
-// from 520 wide.
+// One row each, a hairline between: its last 30 days of marks, its name on
+// one line, and what's waiting there ("Quest · 2 camps · 3 today").
 export function ClimbRows({ climbs, today }) {
   return (
     <ul className="ov-climbs">

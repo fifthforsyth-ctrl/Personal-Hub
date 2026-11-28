@@ -225,14 +225,15 @@ a.qprint__source:hover { color: var(--accent-text); }
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 23px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
-.picks__title svg { color: var(--accent); }
-.picks__sub { margin: 3px 0 0; font-size: 13px; color: var(--text-2); }
+.picks__title svg { display: none; }
+.picks__sub { margin: 3px 0 0; font-size: 13.5px; color: var(--text-2); }
+.picks__head .btn { min-height: 40px; }
 
 .picks__strip {
   display: grid;
@@ -263,6 +264,11 @@ a.qprint__source:hover { color: var(--accent-text); }
 }
 
 .browse .seg-btn { display: inline-flex; align-items: center; gap: 5px; }
+.browse .seg { background: var(--bg); }
+.browse .seg-btn { min-height: 40px; }
+.browse .seg-btn.active, .cork-wrap__head .seg-btn.active { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.cork-wrap__head .seg { background: var(--card); }
+.cork-wrap__head .seg-btn { min-height: 40px; }
 
 .browse__people {
   display: grid;
@@ -522,7 +528,13 @@ a.qprint__source:hover { color: var(--accent-text); }
 
 .paper:hover .paper__tools,
 .paper:focus-within .paper__tools { opacity: 1; }
-@media (hover: none) { .paper__tools { opacity: 0.75; } }
+/* On a phone the tools are always there, so they sit on the date's line at
+   the foot of the card and never over its words (Clean slate, 2026-11-23). */
+@media (hover: none) {
+  .paper__tools { top: auto; bottom: 3px; right: 5px; gap: 2px; opacity: 1; }
+  .paper__tools .paper__tool { width: 30px; height: 30px; background: transparent; box-shadow: none; color: var(--text-2); }
+  .paper__open { padding-bottom: 14px; }
+}
 
 .paper__tool {
   display: grid;
@@ -606,7 +618,7 @@ a.qprint__source:hover { color: var(--accent-text); }
 /* --- small screens ------------------------------------------------------------ */
 
 @media (max-width: 560px) {
-  .cork { padding: 22px 12px 6px; border-radius: 18px; }
+  .cork { padding: 22px 12px 6px; border-radius: 24px; }
   .cork__items { columns: 2; column-gap: 14px; }
   .cork__items > * { margin-bottom: 12px; }
   .cork .qprint,

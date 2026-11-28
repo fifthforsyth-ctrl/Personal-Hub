@@ -142,6 +142,17 @@ export function checkinOn(checkins, goalId, date) {
   return (checkins ?? []).find((c) => c.goal_id === goalId && String(c.date).slice(0, 10) === date) ?? null;
 }
 
+// One day of a focus's week, for the row of seven squares on Targets: what
+// landed ("bull", "ring", "miss"), or what the day is with no arrow on it
+// ("now" for today, "later" for days to come, "none" for a day gone by).
+export function dayState(checkin, date, today) {
+  if (checkin) {
+    const level = checkinLevel(checkin);
+    return level === 0 ? "bull" : level >= 5 ? "miss" : "ring";
+  }
+  return date === today ? "now" : date > today ? "later" : "none";
+}
+
 // A focus's checks still being asked, in order.
 export function checksFor(goalId, checks) {
   return (checks ?? [])

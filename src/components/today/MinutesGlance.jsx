@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Clock, Square, Play, Watch } from "lucide-react";
+import { Square, Play, Watch } from "lucide-react";
 import { stopTimeEntry, goToBed, fetchHealthDays } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useLoad } from "../../lib/useLoad";
-import { addDays } from "../../lib/planDates";
+import { addDays, fmtTime } from "../../lib/planDates";
+import { blocksOf } from "../../lib/todayPlan";
 import { minutesWatch } from "../../lib/watch";
 import { friendlyError } from "../../lib/errors";
 import { colorFor, fmtMinutes } from "../../lib/categories";
@@ -18,15 +19,20 @@ import { trackedMinutes, minutesByCategory, fmtElapsed, timeOf, OVERLAP_NOTE } f
 import FocusModeBox from "../focusmode/FocusModeBox";
 import "../../styles/watch.css";
 
-// Where today has gone, at a glance, with the timer one tap away.
+// The timer, first on Today, and where today has gone at a glance.
 //
-// The full tracker (categories, past time, the timeline) opens in the
-// capture sheet. Here it's just the shape of the day and, when something is
-// running, the running thing with its stop button, because that's the one
-// action you can't put off.
+// While something is running the card is black and says three things: what
+// is running and for how long, since when, and what the plan has in this
+// hour and until when (from the day's blocks, when Today passes them in as
+// `chunks`). Stop is the white pill beside it, because that's the one
+// action you can't put off. With nothing running it's a white card with the
+// day's tracked time and a Start pill; the full tracker (categories, past
+// time, the timeline) opens in the capture sheet from there.
 //
-// The number in the corner is the time tracked (the entries, end to end).
-// The legend credits every category on an entry, so it can add up to more.
+// Under either, one thin bar shows the shape of the day by category, with
+// each category's time in a line under it. The total is the time tracked
+// (the entries, end to end). The line credits every category on an entry,
+// so it can add up to more.
 //
 // Stopping work or time with people opens a short row of chips about it
 // (deep or shallow, who it was with), which folds away on its own. In the
@@ -45,7 +51,7 @@ import "../../styles/watch.css";
 // (noon, or Not today), rather than show the night twice a few lines apart.
 // `checkinOnPage` is whether Today has the check-in up at all: with a
 // runaway timer asked about in its place, the row says them itself.
-export default function MinutesGlance({ entries, running, loaded, date, checkinOnPage = false }) {
+export default function MinutesGlance({ entries, running, loaded, date, chunks = null, checkinOnPage = false }) {
   const { user } = useAuth();
   const checkinShowsNight = useNightInCheckin(loaded, checkinOnPage);
   const watch = useWatchRow(user?.id, date, !checkinShowsNight);
@@ -100,53 +106,60 @@ export default function MinutesGlance({ entries, running, loaded, date, checkinO
   }
 
   return (
-    <div className="card">
-      <div className="card-head" style={{ marginBottom: 10 }}>
-        <span className="card-title"><Clock size={14} />Minutes</span>
-        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }} title="Tracked today">{total > 0 ? fmtMinutes(total) : "—"}</span>
-      </div>
+    <div className={"card timer" + (live ? " timer--live" : "")}>
+      {live ? (
+        <RunningHead entry={live} chunks={chunks} onStop={stop} busy={busy} />
+      ) : (
+        <div className="timer__head">
+          <div className="timer__words">
+            <div className="timer__since">No timer running</div>
+            <div className="timer__what">
+              {total > 0 ? (
+                <>
+                  {fmtMinutes(total)} <span className="timer__what-sub">tracked today</span>
+                </>
+              ) : loaded ? (
+                "Nothing tracked yet"
+              ) : (
+                "\u00a0"
+              )}
+            </div>
+          </div>
+          <button type="button" className="btn btn--accent timer__go" onClick={() => capture.open("minutes")}>
+            <Play size={14} fill="currentColor" />
+            Start
+          </button>
+        </div>
+      )}
 
-      {rows.length > 0 ? (
+      {rows.length > 0 && (
         <>
-          <div className="time-strip time-strip--tall">
+          <div className="time-strip timer__bar">
             {rows.map((r) => (
               <i key={r.category} title={`${r.category} · ${fmtMinutes(r.minutes)}`} style={{ width: `${(r.minutes / catTotal) * 100}%`, background: colorFor(r.category) }} />
             ))}
           </div>
-          <div className="minutes-legend">
-            {rows.map((r) => (
-              <span key={r.category} className="row" style={{ gap: 6, minWidth: 0 }}>
-                <span className="dot" style={{ background: colorFor(r.category) }} />
-                <span className="truncate">{r.category}</span>
-                <span className="mono muted">{fmtMinutes(r.minutes)}</span>
-              </span>
-            ))}
+          <div className="timer__legend">
+            <span className="timer__cats">
+              {rows.map((r) => (
+                <span key={r.category} className="timer__cat">
+                  <span className="dot" style={{ background: colorFor(r.category) }} />
+                  {r.category} <span className="mono">{fmtMinutes(r.minutes)}</span>
+                </span>
+              ))}
+            </span>
+            {live && <strong className="timer__total" title="Tracked today">{fmtMinutes(total)}</strong>}
           </div>
           {catTotal > total + 0.5 && <p className="minutes-note">{OVERLAP_NOTE}</p>}
         </>
-      ) : (
-        loaded && !live && <p className="empty" style={{ marginBottom: 4 }}>Nothing logged yet today.</p>
       )}
 
       {watch.length > 0 && <WatchRow parts={watch} />}
 
       {followUp && !live && <StopFollowUp key={followUp.id} userId={user?.id} entry={followUp} onClose={() => setFollowUp(null)} />}
 
-      {live ? (
-        <>
-          <RunningRow entry={live} onStop={stop} busy={busy} />
-          {!isSleep(live) && <FocusModeBox entry={live} compact />}
-        </>
-      ) : (
-        <div className={bedtime ? "minutes-actions" : undefined}>
-          <button className="btn btn--block" style={{ marginTop: 14 }} onClick={() => capture.open("minutes")}>
-            <Play size={14} />
-            Track time
-          </button>
-          {bedtime && <BedButton onClick={bed} busy={busy} />}
-        </div>
-      )}
-      {live && bedtime && <BedButton onClick={bed} busy={busy} />}
+      {live && !isSleep(live) && <FocusModeBox entry={live} compact />}
+      {bedtime && <BedButton onClick={bed} busy={busy} />}
       {error && <div className="form-error" style={{ marginTop: 10 }}>{error}</div>}
     </div>
   );
@@ -200,7 +213,9 @@ function WatchRow({ parts }) {
   );
 }
 
-function RunningRow({ entry, onStop, busy }) {
+// What's running: since when, what and how long, and what the plan has in
+// this hour. The white pill stops it ("I'm up" when it's Sleep).
+function RunningHead({ entry, chunks, onStop, busy }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 15000);
@@ -208,22 +223,36 @@ function RunningRow({ entry, onStop, busy }) {
   }, []);
 
   const tags = entry.tags?.length ? entry.tags : [entry.category];
+  const sleeping = isSleep(entry);
+  const block = sleeping ? null : blockNow(chunks);
 
   return (
-    <div className="running-row">
-      <span className="running-dot" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="truncate" style={{ fontSize: 13.5, fontWeight: 600 }}>{entry.description || tags.join(" · ")}</div>
-        <div className="running-row__time">
-          <span className="mono">{fmtElapsed(entry.started_at)}</span>
-          <span className="running-row__since">since {timeOf(entry.started_at)}</span>
+    <div className="timer__head">
+      <div className="timer__words">
+        <div className="timer__since">
+          <span className="running-dot" />
+          {sleeping ? "Asleep" : "Running"} since {timeOf(entry.started_at)}
         </div>
+        <div className="timer__what">
+          {entry.description || tags.join(" · ")} <span className="timer__sep">·</span> <span className="timer__elapsed">{fmtElapsed(entry.started_at)}</span>
+        </div>
+        {block && (
+          <div className="timer__plan mono">
+            {block.title ? `${block.title} until` : "Planned until"} {fmtTime(block.end_time).replace(/ [AP]M$/, "")}
+          </div>
+        )}
       </div>
-      <button className="btn btn--accent" onClick={onStop} disabled={busy}>
-        {!isSleep(entry) && <Square size={12} />}
-        {busy ? "Stopping…" : isSleep(entry) ? "I'm up" : "Stop timer"}
+      <button type="button" className="btn btn--accent timer__go" onClick={onStop} disabled={busy}>
+        {!sleeping && <Square size={12} fill="currentColor" />}
+        {busy ? "Stopping…" : sleeping ? "I'm up" : "Stop"}
       </button>
     </div>
   );
 }
 
+// The block of today's plan the clock is in, if the day has one.
+function blockNow(chunks) {
+  if (!chunks?.length) return null;
+  const d = new Date();
+  return blocksOf(chunks, d.getHours() * 60 + d.getMinutes()).find((b) => b.state === "now") ?? null;
+}

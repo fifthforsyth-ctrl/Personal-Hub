@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Quote as QuoteIcon, Sparkles, RotateCw, ExternalLink, Pin } from "lucide-react";
+import { Sparkles, RotateCw, ExternalLink, Pin } from "lucide-react";
 import { fetchQuoteDay, pickQuote, rateQuote, saveQuote } from "../../lib/api";
 import { useToast } from "../ui/Feedback";
 import { useLoad } from "../../lib/useLoad";
@@ -55,7 +55,10 @@ function ask(date) {
   return asked.get(date);
 }
 
-export default function QuoteOfDay({ userId, date = todayStr() }) {
+// It opens the Board (it sat at the foot of Today until 2026-11-23);
+// `onChanged` tells the Board when it's saved or taken off, so the cork
+// below follows.
+export default function QuoteOfDay({ userId, date = todayStr(), onChanged }) {
   const { data, error, loading, reload, mutate } = useLoad(() => fetchQuoteDay(userId, date), [userId, date]);
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState(null);
@@ -121,7 +124,15 @@ export default function QuoteOfDay({ userId, date = todayStr() }) {
     return null;
   }
 
-  return <QuoteCard day={data} onRated={(quote) => mutate((d) => d && { ...d, quote })} />;
+  return (
+    <QuoteCard
+      day={data}
+      onRated={(quote) => {
+        mutate((d) => d && { ...d, quote });
+        onChanged?.(quote);
+      }}
+    />
+  );
 }
 
 function QuoteCard({ day, onRated }) {
@@ -172,10 +183,7 @@ function QuoteCard({ day, onRated }) {
 
   return (
     <section className="card quote-card" aria-label="Quote for today">
-      <div className="quote-card__eyebrow eyebrow">
-        <QuoteIcon size={12} aria-hidden="true" />
-        For this week
-      </div>
+      <h2 className="quote-card__eyebrow">For this week</h2>
 
       <blockquote className="quote-card__text">{quote.text}</blockquote>
 
@@ -209,7 +217,7 @@ function QuoteCard({ day, onRated }) {
       )}
 
       <div className="quote-card__rate">
-        <div className="seg" role="group" aria-label="How much does this apply?">
+        <div className="seg quote-card__seg" role="group" aria-label="How much does this apply?">
           {RATINGS.map((r) => (
             <button
               key={r.key}
@@ -224,6 +232,8 @@ function QuoteCard({ day, onRated }) {
           ))}
         </div>
         {rating && <span className="quote-card__rated">{ratedLine(rating)}</span>}
+      </div>
+      <div className="quote-card__tools">
         <button
           type="button"
           className={"btn btn--sm quote-card__save" + (saved ? " is-on" : "")}

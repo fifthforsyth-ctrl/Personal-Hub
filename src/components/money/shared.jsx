@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import { X } from "lucide-react";
+import { X, Check } from "lucide-react";
 import "../../styles/money.css";
 
 // Money's cards keep each other current. Anything that changes a transaction
@@ -121,5 +121,18 @@ export function Switch({ on, onChange, icon: Icon, children, disabled = false })
         <span className="money-switch__knob" />
       </span>
     </button>
+  );
+}
+
+// Nothing waiting: said once, plainly.
+export function Sorted({ children }) {
+  return (
+    <div className="card money-caught-up">
+      <span className="money-caught-up__tick" aria-hidden="true">
+        <Check size={18} strokeWidth={2.6} />
+      </span>
+      <span className="money-caught-up__words">Everything is sorted</span>
+      {children}
+    </div>
   );
 }

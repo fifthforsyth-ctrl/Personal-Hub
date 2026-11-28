@@ -88,8 +88,8 @@ export default function Columns({ userId, camp }) {
             <NewColumn onDone={() => setAdding(false)} onSave={newColumn} />
           ) : (
             <button type="button" className="tk-newcol" onClick={() => setAdding(true)}>
-              <Plus size={16} aria-hidden="true" />
-              New column
+              <Plus size={22} aria-hidden="true" />
+              <span>New column</span>
             </button>
           )}
         </div>
@@ -158,8 +158,8 @@ export function Column({ title, color, campId, sectionId, items, actions, onAdd,
 
   return (
     <section className="tk-col" style={color ? { "--col": color } : undefined} aria-label={title} data-col data-camp={campId} data-section={sectionId ?? ""}>
-      {where}
       <header className="tk-col__head">
+        <i className="tk-col__dot" aria-hidden="true" />
         {renaming ? (
           <input
             className="input tk-col__rename"
@@ -185,10 +185,11 @@ export function Column({ title, color, campId, sectionId, items, actions, onAdd,
         <small className="tk-col__count">{open.length}</small>
         {onRemove && !renaming && (
           <button type="button" className="btn-icon tk-col__del" onClick={onRemove} aria-label={`Delete the column “${title}”`} title="Delete column">
-            <Trash2 size={14} />
+            <Trash2 size={15} />
           </button>
         )}
       </header>
+      {where}
       <ul className="tk-col__list">
         {open.map(row)}
         {open.length === 0 && <li className="tk-empty tk-empty--drop">Drop tasks here</li>}

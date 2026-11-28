@@ -10,10 +10,7 @@ import LoadError from "../components/ui/LoadError";
 import WinHero from "../components/today/WinHero";
 import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
-import WeekStrip from "../components/today/WeekStrip";
 import FocusStrip from "../components/focus/FocusStrip";
-import CuratedCards from "../components/curator/CuratedCards";
-import QuoteOfDay from "../components/today/QuoteOfDay";
 import TempleTrip from "../components/today/TempleTrip";
 import MorningCheckin from "../components/today/MorningCheckin";
 import RunawayCard, { runawayFor } from "../components/today/RunawayCard";
@@ -25,27 +22,31 @@ import { isEvening, isLateNight } from "../components/today/dayParts";
 import { useBackOnline } from "../components/today/useBackOnline";
 import "../styles/daily.css";
 
-// Today: wins, minutes, your plan, and your walk with God.
+// Today: the timer, wins, your plan, and your walk with God.
 //
-// The page you open dozens of times a day. This week's focus sits at the
-// very top as a row of small targets, the smallest ones you aim at, so the
-// week is in view before the day is. Then the one action that matters most
-// (Win) where a thumb finds it, the minutes, and right under them the day's
-// plan: every block, with the ones still ahead opened up to show their
-// tasks. Beside them (under them on a phone) the walk with God. Below the
-// fold: a quote chosen for this week, the curator's cards, and a one-line
-// note about purchases to sort.
+// The page you open dozens of times a day, cut to what the day is made of
+// (Clean slate, 2026-11-23). Under the title, this week's focus as a row of
+// small chips, so the week is in view before the day is. Then the timer:
+// what's running and its Stop, black while it runs. Then wins, with the one
+// button that matters most where a thumb finds it. Then the day's plan from
+// the block you're in now onward, with its tasks to tick. Then the walk
+// with God: a verse, a prompt, and a line to write where you saw His hand.
+// Last, a one-line note about purchases to sort and the way into the
+// evening.
+//
+// What used to sit here and doesn't: the quote for the week now opens the
+// Board, the week's days are the Week tab, and projects are the Tasks tab.
 //
 // The evening reflection is reached from here and only here: a big black
 // button. On a computer it heads the right-hand column all day. On a phone
-// it waits under the plan during the day and moves to the top after seven.
+// it closes the page during the day and moves to the top after seven.
 //
 // Two things are asked here at the right moment and only then: a timer
 // that ran away (at the very top, once), and in the morning, how last night
 // went (just under the wins, until noon). In the evening the same spot
 // carries one line: when the lights go out for tomorrow's alarm. Old timers
 // that ran through the night before any of that existed are offered once,
-// under the minutes.
+// under the plan.
 //
 // After seven in the evening the top of the page becomes the way into the
 // evening reflection. If yesterday never got banked, Today says so and takes
@@ -114,16 +115,17 @@ export default function Today() {
   const eveningBanked = lateNight ? Boolean(data?.yesterdayBanked) : banked;
   const runaway = data?.running && runawayFor(data.running) ? data.running : null;
 
+  const showEvening = !(yesterdayOpen && lateNight);
+  const eveningOnTop = evening || eveningBanked;
+
   return (
     <div className="page today">
-      <div style={{ marginBottom: 14 }}>
+      <header className="hub-head">
         <div className="eyebrow">{fmtDayHeading(date)}</div>
-        <h1 className="page-title" style={{ marginTop: 2 }}>Today</h1>
-      </div>
+        <h1 className="page-title">Today</h1>
+      </header>
 
       <FocusStrip userId={userId} date={date} />
-
-      <WeekStrip date={date} />
 
       {error && <LoadError what="today" error={error} onRetry={reload} stale={Boolean(data)} className="today__error" />}
 
@@ -132,37 +134,33 @@ export default function Today() {
       <div className="today-grid">
         <div className="stack">
           {yesterdayOpen && lateNight && <YesterdayBanner date={yesterday} urgent />}
-          {(evening || eveningBanked) && !(yesterdayOpen && lateNight) && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--phone" />}
+          {eveningOnTop && showEvening && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--phone" />}
           {yesterdayOpen && !lateNight && <YesterdayBanner date={yesterday} />}
+          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} chunks={data?.chunks} checkinOnPage={Boolean(userId && data && !runaway)} />
           <WinHero userId={userId} date={date} rows={data?.wins} loaded={Boolean(data)} />
           {userId && data && !runaway && <MorningCheckin userId={userId} date={date} dayPlan={data.dayPlan} running={data.running} onChanged={reload} />}
           {data && (
             <WindDown date={date} tomorrow={addDays(date, 1)} todayAlarm={data.dayPlan?.alarm_at} tomorrowAlarm={data.tomorrowAlarm} running={data.running} />
           )}
-          <MinutesGlance entries={data?.entries} running={data?.running} loaded={Boolean(data)} date={date} checkinOnPage={Boolean(userId && data && !runaway)} />
-          {/* The day's plan, right under the minutes it turns into. */}
+          {/* The day's plan, from the block you're in now. */}
           {data && <PlanBlocks userId={userId} date={date} chunks={data.chunks} />}
-          {/* Old timers that ran through the night, offered once, under the
-              minutes they'd otherwise keep inflating. */}
+          {/* Old timers that ran through the night, offered once. */}
           {userId && data && !runaway && <OldRunaways userId={userId} />}
-          {/* On a phone during the day, the way into the evening waits here,
-              at the end of the day's own cards. */}
-          {!evening && !eveningBanked && !(yesterdayOpen && lateNight) && <EveningButton className="today-evening--phone" />}
         </div>
         <div className="stack">
           {/* Just after midnight the yesterday banner is the way in; a second
               link to the same evening would only compete with it. */}
-          {!(yesterdayOpen && lateNight) && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--desk" />}
+          {showEvening && <EveningButton banked={eveningBanked} lastNight={lateNight} evening={evening} className="today-evening--desk" />}
           <WalkWithGod userId={userId} date={date} />
           <TempleTrip userId={userId} date={date} />
         </div>
       </div>
 
-      <div className="stack" style={{ marginTop: 14 }}>
-        <QuoteOfDay userId={userId} date={date} />
-        <CuratedCards slot="home" title="For today" compact />
+      <div className="stack today__foot">
         {/* One line, and only when there's something to sort. */}
         <PurchaseNudge />
+        {/* On a phone during the day, the way into the evening closes the page. */}
+        {!eveningOnTop && showEvening && <EveningButton className="today-evening--phone" />}
       </div>
     </div>
   );

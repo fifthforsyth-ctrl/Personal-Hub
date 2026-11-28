@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { Minus, Clock, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Minus, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { fetchDayArchive, fetchDayPlan, fetchCategories, fetchTimeChunks, fetchTasks, unbankDay, looseShots, fetchRange } from "../lib/api";
 import { buildAscent } from "../lib/ascent";
@@ -41,8 +41,18 @@ import "../styles/daily.css";
 // so its arrow has to be in before the target's shot is worked out), and
 // the mood and notes. The targets' shots save last, as the arrows fly.
 //
+// It's taken in four steps, one screen each (Clean slate, 2026-11-23): how
+// the day went (wins, losses, minutes), the reflection, this week's aim (the
+// focus arrows and tonight's shots), and what's left before banking it (mood,
+// the note for God, tomorrow's start, and Bank the day). The bars at the top
+// say where you are and a tap on one goes there. Every step stays on the
+// page while another shows, so nothing typed is lost by moving between
+// them and banking still saves what each one holds.
+//
 // Before four in the morning it opens on yesterday: a reflection written at
 // half past midnight is still about the day you just lived.
+
+const STEPS = ["How the day really went", "Reflection", "This week's aim", "Before you bank it"];
 
 async function loadEvening(userId, date) {
   const [archive, dayPlan, chunks, tasks, cats] = await Promise.all([
@@ -74,6 +84,15 @@ export default function Evening() {
   const flushShots = useRef(null);
 
   const { data, error, loading, reload } = useLoad(() => loadEvening(userId, date), [userId, date]);
+
+  // Which of the four steps is showing. Another evening starts at the first.
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  useEffect(() => setStep(0), [date]);
+  const go = (i) => {
+    setStep(Math.max(0, Math.min(STEPS.length - 1, i)));
+    document.querySelector(".main")?.scrollTo?.({ top: 0 });
+  };
 
   // A win captured from the sheet over this page shows up here too.
   useEffect(() => {
@@ -110,31 +129,60 @@ export default function Evening() {
   const banked = Boolean(data?.dayPlan?.banked_at);
   const reflectionDone = Boolean(a.journal?.reflection_completed_at);
   const isToday = date === todayStr();
+  // The steps are for a day still open; a banked day is one card.
+  const stepping = Boolean(data) && !banked;
+  const titleOf = (i) => (i === 0 && isToday ? "How today really went" : STEPS[i]);
 
   return (
     <div className="page page--narrow evening">
-      <div className="page-head">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Just after midnight, the evening you're still in is "tonight". */}
-          <div className="eyebrow">{date === tonight ? "Tonight" : "Evening"} · {fmtDayHeading(date)}</div>
-          <h1 className="page-title" style={{ marginTop: 3 }}>{isToday ? "How today really went" : "How the day really went"}</h1>
+      <header className="hub-head eve-head">
+        {stepping ? (
+          <div className="eve-progress" role="group" aria-label="The evening's four steps">
+            {STEPS.map((name, i) => (
+              <button
+                key={name}
+                type="button"
+                className={"eve-progress__step" + (i <= step ? " is-on" : "")}
+                aria-label={`Step ${i + 1} of ${STEPS.length}: ${titleOf(i)}`}
+                aria-current={i === step ? "step" : undefined}
+                onClick={() => go(i)}
+              />
+            ))}
+            <span className="eve-progress__count" aria-hidden="true">
+              {step + 1} / {STEPS.length}
+            </span>
+          </div>
+        ) : (
+          <span className="eve-head__when">{fmtDayHeading(date)}</span>
+        )}
+      </header>
+
+      <div className="eve-title">
+        {/* Just after midnight, the evening you're still in is "tonight". */}
+        {stepping && (
+          <div className="eve-title__when">
+            {date === tonight ? "Tonight" : "Evening"} · {fmtDayHeading(date)}
+          </div>
+        )}
+        <h1 className="eve-title__h">{stepping ? titleOf(step) : titleOf(0)}</h1>
+        {(!stepping || step === 0) && (
           <nav className="evening-nav" aria-label="Other evenings">
             <Link to={`/evening/${addDays(date, -1)}`} className="btn-link">
-              <ChevronLeft size={13} />
+              <ChevronLeft size={14} />
               Previous evening
             </Link>
             {date < tonight && (
               <Link to={next === tonight ? "/evening" : `/evening/${next}`} className="btn-link">
                 Next evening
-                <ChevronRight size={13} />
+                <ChevronRight size={14} />
               </Link>
             )}
             <Link to={`/day/${date}`} className="btn-link evening-nav__day">
               Full day
-              <ArrowRight size={13} />
+              <ArrowRight size={14} />
             </Link>
           </nav>
-        </div>
+        )}
       </div>
 
       {error && <LoadError what="this evening" error={error} onRetry={reload} stale={Boolean(data)} className="evening__error" />}
@@ -158,23 +206,46 @@ export default function Evening() {
           onChanged={reload}
         />
       ) : (
-        <div className="stack">
-          <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
-          <MinutesCard archive={a} />
-          <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} flushRef={flushReflection} />
-          <FocusArrows key={`focus-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} dayPlan={data.dayPlan} flushRef={flushFocus} quick />
-          <TonightShots
-            key={`shots-${date}`}
-            userId={userId}
-            date={date}
-            entries={a.time_entries ?? []}
-            dayPlan={data.dayPlan}
-            flushRef={flushShots}
-            onReady={setArrows}
-            quick
-          />
-          <EveningCheckin key={`checkin-${date}`} userId={userId} date={date} dayPlan={data.dayPlan} journal={a.journal} flushRef={flushCheckin} slim />
-          <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} arrows={arrows} onLoose={loose} onBefore={beforeBank} />
+        <div className="eve-steps">
+          <section className="stack eve-step" hidden={step !== 0} aria-label={titleOf(0)}>
+            <WinsAndLosses userId={userId} date={date} rows={a.wins_losses ?? []} />
+            <MinutesCard archive={a} />
+          </section>
+
+          <section className="stack eve-step" hidden={step !== 1} aria-label={STEPS[1]}>
+            <ReflectionFlow key={date} userId={userId} date={date} journal={a.journal} moments={a.experiences ?? []} onSaved={reload} flushRef={flushReflection} />
+          </section>
+
+          <section className="stack eve-step" hidden={step !== 2} aria-label={STEPS[2]}>
+            <FocusArrows key={`focus-${date}`} userId={userId} date={date} entries={a.time_entries ?? []} dayPlan={data.dayPlan} flushRef={flushFocus} quick />
+            <TonightShots
+              key={`shots-${date}`}
+              userId={userId}
+              date={date}
+              entries={a.time_entries ?? []}
+              dayPlan={data.dayPlan}
+              flushRef={flushShots}
+              onReady={setArrows}
+              quick
+            />
+          </section>
+
+          <section className="stack eve-step" hidden={step !== 3} aria-label={STEPS[3]}>
+            <EveningCheckin key={`checkin-${date}`} userId={userId} date={date} dayPlan={data.dayPlan} journal={a.journal} flushRef={flushCheckin} slim />
+            <CloseOut userId={userId} date={date} reflectionDone={reflectionDone} onBanked={reload} arrows={arrows} onLoose={loose} onBefore={beforeBank} />
+          </section>
+
+          <div className="eve-foot">
+            <button type="button" className="eve-foot__back" onClick={() => (step > 0 ? go(step - 1) : navigate("/"))}>
+              {step > 0 ? "Back" : "Close"}
+            </button>
+            {step < STEPS.length - 1 && (
+              <button type="button" className="eve-foot__next" onClick={() => go(step + 1)}>
+                Next
+                <ArrowRight size={18} aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -193,13 +264,13 @@ function WinsAndLosses({ userId, date, rows }) {
   const losses = withTaps(rows, outbox, { userId, date, kind: "loss" });
 
   const column = (kind, list) => (
-    <div style={{ minWidth: 0 }}>
-      <div className="row row--between" style={{ marginBottom: 8 }}>
-        <span className="eyebrow" style={kind === "win" ? { color: "var(--accent-text)" } : undefined}>{kind === "win" ? "Wins" : "Losses"}</span>
-        <span className={"evening-wl__count" + (kind === "win" ? " evening-wl__count--win" : " faint")}>{list.length}</span>
+    <div className={"evening-wl__col evening-wl__col--" + kind}>
+      <div className="evening-wl__head">
+        <h2 className="evening-wl__h">{kind === "win" ? "Wins" : "Losses"}</h2>
+        <span className={"evening-wl__count" + (kind === "win" ? " evening-wl__count--win" : "")}>{list.length}</span>
       </div>
       {list.length === 0 ? (
-        <p className="muted" style={{ fontSize: 13, margin: 0 }}>None logged.</p>
+        <p className="evening-wl__none">None logged.</p>
       ) : (
         list.map((w) =>
           editing === w.id ? (
@@ -223,7 +294,7 @@ function WinsAndLosses({ userId, date, rows }) {
   );
 
   return (
-    <div className="card">
+    <div className="card evening-wl-card">
       <div className="evening-wl">
         {column("win", wins)}
         {column("loss", losses)}
@@ -240,10 +311,12 @@ function MinutesCard({ archive }) {
   const tracked = trackedMinutes(archive.time_entries);
 
   return (
-    <div className="card">
+    <div className="card evening-minutes">
       <div className="card-head">
-        <span className="card-title"><Clock size={14} />Minutes</span>
-        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }} title="Tracked">{tracked > 0 ? fmtMinutes(tracked) : "—"}</span>
+        <h2 className="card-title">Minutes</h2>
+        <span className="evening-minutes__total" title="Tracked">
+          {tracked > 0 ? fmtMinutes(tracked) : "—"}
+        </span>
       </div>
       {rows.length === 0 ? (
         <p className="empty">Nothing tracked.</p>

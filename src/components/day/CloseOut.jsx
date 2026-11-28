@@ -82,7 +82,7 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
   }
 
   return (
-    <div className={"card" + (reflectionDone || short ? " card--accent" : "")}>
+    <div className={"card close-out" + (reflectionDone || short ? " card--accent" : "")}>
       <div className="card-head">
         <span className="card-title"><Archive size={14} />Close out the day</span>
       </div>
@@ -99,7 +99,7 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
           </span>
           <span style={{ minWidth: 0 }}>
             <span style={{ fontSize: 13, fontWeight: 550, color: reflectionDone ? "var(--text)" : "var(--text-2)" }}>Reflection written</span>
-            {!reflectionDone && <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>Finish the four cards above.</span>}
+            {!reflectionDone && <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 1 }}>Finish the four reflection questions first.</span>}
           </span>
         </div>
       )}
@@ -122,7 +122,7 @@ export default function CloseOut({ userId, date, reflectionDone, onBanked, arrow
 
       {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
 
-      <button className="btn btn--accent btn--block" onClick={bank} disabled={busy || (!reflectionDone && !short)}>
+      <button className="btn btn--accent btn--block close-out__bank" onClick={bank} disabled={busy || (!reflectionDone && !short)}>
         <Archive size={15} />
         {busy ? stage : "Bank the day"}
       </button>

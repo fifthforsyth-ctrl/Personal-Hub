@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, ArrowRight, ChevronDown, NotebookPen } from "lucide-react";
+import { ArrowRight, ChevronDown, NotebookPen } from "lucide-react";
 import { colorOf } from "../../lib/schedule";
-import { fmtTimeRange } from "../../lib/planDates";
+import { fmtTime, fmtTimeRange } from "../../lib/planDates";
 import { planForToday, applyOverrides } from "../../lib/todayPlan";
 import LoadError from "../ui/LoadError";
 import { usePlanTicks } from "./usePlanTicks";
@@ -11,14 +11,19 @@ import { usePlanTicks } from "./usePlanTicks";
 // daily blocks visible, with just the blocks ahead of me expanded to see all
 // the tasks."
 //
-// Every block you laid out for today is listed, in the order you'll live
-// it. The one you're in now is marked and open, and so is each one ahead,
+// The block you're in now is marked and open, and so is each one ahead,
 // with what you'll do in it: the tasks you planned into it on the day page,
 // and what you picked for today on a quest's page when the block is tied
 // to that quest or camp (src/lib/todayPlan.js decides which block takes
 // what). A note you picked there with tasks under it is a small heading
-// over them. Blocks behind you shrink to one line with how much of them got
-// done; a tap opens one to tick something you finished late.
+// over them. Each row is one line: when it starts, its name, and how many
+// things in it are still to do.
+//
+// Blocks behind you fold into one line in the card's corner ("Up and
+// grind, Exercise done"), so the card starts at now (Clean slate,
+// 2026-11-23). A tap on that line brings them back, each with how much of
+// it got done, and a tap on one opens it to tick something you finished
+// late.
 //
 // A tick saves straight away and shows before it's saved, and it holds until
 // the card has read it back, so a reload already on its way (another card's
@@ -34,6 +39,7 @@ import { usePlanTicks } from "./usePlanTicks";
 export default function PlanBlocks({ userId, date, chunks }) {
   const now = useNowMinutes();
   const [openPast, setOpenPast] = useState(() => new Set());
+  const [showPast, setShowPast] = useState(false);
 
   // Loading, reloading and ticking live in usePlanTicks, which the evening's
   // "What got done" shares, so a tick behaves the same in both places.
@@ -59,37 +65,45 @@ export default function PlanBlocks({ userId, date, chunks }) {
   const { blocks, loose } = plan;
   const looseCount = loose.planned.length + loose.quests.length;
   const blocksMissing = chunks === null;
+  const past = blocks.filter((b) => b.state === "past");
+  // With nothing now or ahead, the day's blocks are all there is to show.
+  const allPast = past.length === blocks.length;
+  const listed = showPast || allPast ? blocks : blocks.filter((b) => b.state !== "past");
 
   return (
     <div className="card plan-blocks">
-      <div className="card-head plan-blocks__head">
-        <span className="card-title">
-          <CalendarClock size={14} />
-          Today's plan
-        </span>
-        <Link to={`/plan/day/${date}`} className="btn-link plan-blocks__open">
-          {blocks.length > 0 ? "Open schedule" : "Plan it"}
-          <ArrowRight size={13} />
-        </Link>
+      <div className="plan-blocks__head">
+        <span className="card-title">Today's plan</span>
+        {!blocksMissing && past.length > 0 && !allPast && (
+          <button type="button" className="plan-blocks__earlier" aria-expanded={showPast} onClick={() => setShowPast((v) => !v)}>
+            <span className="truncate">{past.map((b) => b.title || "Untitled block").join(", ")} done</span>
+            <ChevronDown size={14} className={"plan-blocks__chev" + (showPast ? " is-open" : "")} />
+          </button>
+        )}
       </div>
 
       {error && <LoadError what="today's tasks" error={error} onRetry={reload} stale={Boolean(data)} className="plan-blocks__error" />}
 
       {blocksMissing ? (
-        <p className="card-note">Couldn't load today's blocks. They'll be back when Today reloads.</p>
+        <p className="card-note plan-blocks__note">Couldn't load today's blocks. They'll be back when Today reloads.</p>
       ) : (
-        blocks.length === 0 && looseCount === 0 && <p className="card-note">Nothing planned for today yet.</p>
+        blocks.length === 0 && looseCount === 0 && <p className="card-note plan-blocks__note">Nothing planned for today yet.</p>
       )}
 
-      {!blocksMissing && blocks.length > 0 && (
+      {!blocksMissing && listed.length > 0 && (
         <ol className="plan-blocks__list">
-          {blocks.map((b) => (
+          {listed.map((b) => (
             <Block key={b.id} block={b} open={b.state !== "past" || openPast.has(b.id)} onFlip={() => flipPast(b.id)} onToggle={toggle} />
           ))}
         </ol>
       )}
 
       {!blocksMissing && looseCount > 0 && <Loose loose={loose} date={date} onToggle={toggle} />}
+
+      <Link to={`/plan/day/${date}`} className="plan-blocks__open">
+        {blocks.length > 0 ? "Open schedule" : "Plan the day"}
+        <ArrowRight size={14} />
+      </Link>
     </div>
   );
 }
@@ -100,16 +114,20 @@ function Block({ block: b, open, onFlip, onToggle }) {
   const past = b.state === "past";
   const isNow = b.state === "now";
   const canFlip = past && b.items.length > 0;
+  const left = b.total - b.done;
   const head = (
     <>
-      <span className="plan-blocks__time mono">{fmtTimeRange(b.start_time, b.end_time)}</span>
+      <span className="plan-blocks__time mono" title={fmtTimeRange(b.start_time, b.end_time)}>
+        {shortTime(b.start_time)}
+      </span>
       <span className="plan-blocks__title">
-        {b.color && <span className="dot" style={{ background: colorOf(b.color).hex }} />}
+        <span className="dot" style={{ background: b.color ? colorOf(b.color).hex : "var(--line-strong)" }} />
         <span className="truncate">{b.title || "Untitled block"}</span>
       </span>
       <span className="plan-blocks__aside">
         {isNow && <span className="plan-blocks__now">Now</span>}
         {past && b.total > 0 && <span className="plan-blocks__count">{b.done} of {b.total} done</span>}
+        {!past && b.total > 0 && <span className="plan-blocks__count">{left > 0 ? `${left} to do` : "All done"}</span>}
         {canFlip && <ChevronDown size={14} className={"plan-blocks__chev" + (open ? " is-open" : "")} />}
       </span>
     </>
@@ -217,6 +235,12 @@ function Item({ item, onToggle, hideFrom }) {
       {item.subs.length > 0 && <Items items={item.subs} onToggle={onToggle} sub />}
     </li>
   );
+}
+
+// "5:50a", "12:45p": when a block starts, short enough for one mono column.
+function shortTime(t) {
+  const full = fmtTime(t);
+  return full.slice(0, -3) + (full.endsWith("PM") ? "p" : "a");
 }
 
 // Minutes since midnight, kept current so "Now" moves with the clock.

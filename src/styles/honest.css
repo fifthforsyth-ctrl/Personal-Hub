@@ -94,7 +94,6 @@
 /* --- Going to bed ------------------------------------------------------------- */
 
 .bed-btn { margin-top: 8px; }
-.card .running-row + .bed-btn { margin-top: 8px; }
 
 /* --- A runaway timer ----------------------------------------------------------- */
 
@@ -157,12 +156,13 @@
 .morning-summary {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 10px 14px;
-  border-radius: var(--r);
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 14px 8px 18px;
+  border-radius: var(--r-lg);
   background: var(--card);
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: 14px;
 }
 .morning-summary__mark { color: var(--accent); flex-shrink: 0; }
 .morning-summary__text { flex: 1; min-width: 0; color: var(--text-2); }
