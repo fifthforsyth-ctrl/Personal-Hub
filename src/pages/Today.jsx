@@ -12,7 +12,6 @@ import MinutesGlance from "../components/today/MinutesGlance";
 import WalkWithGod from "../components/today/WalkWithGod";
 import WeekStrip from "../components/today/WeekStrip";
 import FocusStrip from "../components/focus/FocusStrip";
-import QuestsRow from "../components/targets/QuestsRow";
 import CuratedCards from "../components/curator/CuratedCards";
 import QuoteOfDay from "../components/today/QuoteOfDay";
 import TempleTrip from "../components/today/TempleTrip";
@@ -123,9 +122,6 @@ export default function Today() {
       </div>
 
       <FocusStrip userId={userId} date={date} />
-
-      {/* The quests and lessons a tap away, camps and all (hidden when none). */}
-      <QuestsRow userId={userId} date={date} label="Tasks" tasks />
 
       <WeekStrip date={date} />
 
