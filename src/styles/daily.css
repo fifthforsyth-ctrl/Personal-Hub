@@ -981,11 +981,28 @@ a.quote-card__source:hover { text-decoration: underline; }
 .ej-earlier { display: flex; flex-direction: column; gap: 12px; }
 .ej-earlier__q { font-size: 13px; color: var(--text-2); font-family: var(--font-serif); margin-bottom: 4px; }
 .ej-close { align-self: center; min-height: 44px; }
-/* The big + for a new entry, as on the Tasks home: a white card with a
-   black circle and its name under it. */
+.ej-pick__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Like the Tasks home: the entries are a row swiped left and right, a big
+   + first (a white card with a black circle and its name under it), then
+   each entry as a card most of the screen wide, snapping into place. */
+.ej-row {
+  display: flex; align-items: stretch; gap: 12px;
+  margin: 0 -16px; padding: 2px 16px 8px;
+  overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 16px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.ej-row::-webkit-scrollbar { display: none; }
+.ej-row > * { scroll-snap-align: start; }
 .ej-new {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-  width: 100%; min-height: 168px; border: 0; color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  flex: 0 0 124px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  min-height: 300px; padding: 8px; border: 0; border-radius: var(--r-lg); background: var(--card); box-shadow: var(--shadow);
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: center; cursor: pointer;
 }
 .ej-new svg { box-sizing: content-box; padding: 18px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
-.ej-pick__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ej-row .ej-entry { flex: 0 0 min(84vw, 400px); min-width: 0; margin: 0; }
+/* The choices: a pop-up to scroll through, rising from the bottom on a phone. */
+.ej-sheet .ej-pick { gap: 14px; }
+@media (max-width: 900px) {
+  .ej-sheet { align-items: flex-end; padding: 0; }
+  .ej-sheet .sheet { max-width: none; max-height: 82vh; border-radius: 28px 28px 0 0; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+}

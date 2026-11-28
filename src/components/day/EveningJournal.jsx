@@ -97,7 +97,7 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
         return next;
       });
     },
-    [userId, date]
+    [userId, date],
   );
 
   useEffect(() => {
@@ -142,12 +142,15 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
       chains.current.set(local, run);
       return run;
     },
-    [userId, date, update]
+    [userId, date, update],
   );
 
   const saveSoon = (local) => {
     clearTimeout(timers.current.get(local));
-    timers.current.set(local, setTimeout(() => saveOne(local), SAVE_AFTER_MS));
+    timers.current.set(
+      local,
+      setTimeout(() => saveOne(local), SAVE_AFTER_MS),
+    );
   };
 
   // Words left on this phone by a save that didn't go through are sent as
@@ -182,7 +185,7 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
     setFocusLocal(entry.local);
     setChoosing(false);
     haptic("tap");
-    requestAnimationFrame(() => document.getElementById(`ej-${entry.local}`)?.scrollIntoView?.({ behavior: "smooth", block: "center" }));
+    requestAnimationFrame(() => document.getElementById(`ej-${entry.local}`)?.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "start" }));
   };
 
   async function chooseForMe() {
@@ -210,7 +213,8 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
   }
 
   async function remove(e) {
-    if (e.text.trim() && !(await confirm({ title: "Remove this entry?", body: "What you wrote in it goes too.", confirmLabel: "Remove", danger: true }))) return;
+    if (e.text.trim() && !(await confirm({ title: "Remove this entry?", body: "What you wrote in it goes too.", confirmLabel: "Remove", danger: true })))
+      return;
     clearTimeout(timers.current.get(e.local));
     try {
       await chains.current.get(e.local);
@@ -236,74 +240,78 @@ export default function EveningJournal({ userId, date, ladder, flushRef, onCount
     <div className="ej">
       {loadError && <div className="form-error">{loadError}</div>}
 
-      {entries.map((e) => (
-        <EntryCard
-          key={e.local}
-          entry={e}
-          saving={savingIds.has(e.local)}
-          autoFocus={focusLocal === e.local && talkingLocal !== e.local}
-          talking={talkingLocal === e.local}
-          onTalk={(on) => setTalkingLocal(on ? e.local : null)}
-          onText={(text) => {
-            update((list) => list.map((x) => (x.local === e.local ? { ...x, text } : x)));
-            saveSoon(e.local);
-          }}
-          onSaveNow={() => saveOne(e.local)}
-          onRemove={() => remove(e)}
-        />
-      ))}
-
       {error && <div className="form-error">{error}</div>}
 
-      {/* Like the Tasks home: a big + adds an entry, and only then do you
-          choose what it's about. */}
-      {choosing ? (
-        <section className="card ej-pick" aria-label="What's this entry about?">
-          <div className="ej-pick__top">
-            <h2 className="ej-pick__h">What's this entry about?</h2>
-            <button type="button" className="btn-icon" onClick={() => setChoosing(false)} aria-label="Cancel" title="Cancel">
-              <X size={18} />
-            </button>
-          </div>
-          <div className="ej-pick__ways">
-            <button type="button" className="ej-way ej-way--ink" onClick={chooseForMe} disabled={asking}>
-              {asking ? <Loader2 size={18} className="voice-spin" aria-hidden="true" /> : <Sparkles size={18} aria-hidden="true" />}
-              <span>{asking ? "Writing a question…" : "Choose for me"}</span>
-            </button>
-            <button type="button" className="ej-way" onClick={() => add(newEntry("free"))}>
-              <PenLine size={18} aria-hidden="true" />
-              <span>I pick</span>
-            </button>
-          </div>
-          {choices.length > 0 && (
-            <div className="ej-targets">
-              {groups.map((g) => (
-                <div key={g.name} className="ej-targets__group">
-                  <div className="eyebrow">{g.name}</div>
-                  <div className="ej-targets__chips">
-                    {g.items.map((c) => (
-                      <button
-                        key={`${c.kind}-${c.key}`}
-                        type="button"
-                        className={"ej-chip" + (written.has(c.key) ? " is-written" : "")}
-                        onClick={() => add(newEntry("target", { choice: c }))}
-                      >
-                        {written.has(c.key) && <Check size={13} aria-hidden="true" />}
-                        {c.title}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {!ladder && <p className="muted ej-pick__note">Loading your targets…</p>}
-        </section>
-      ) : (
-        <button type="button" className="card ej-new" onClick={() => setChoosing(true)} aria-label="New entry">
+      {/* Like the Tasks home: a big + first, then the entries side by side,
+          the newest beside the +, swiped left and right. */}
+      <div className="ej-row" data-hscroll>
+        <button type="button" className="ej-new" onClick={() => setChoosing(true)} aria-label="New entry">
           <Plus size={28} strokeWidth={2} aria-hidden="true" />
           <span>{entries.length ? "New entry" : "Add an entry"}</span>
         </button>
+        {[...entries].reverse().map((e) => (
+          <EntryCard
+            key={e.local}
+            entry={e}
+            saving={savingIds.has(e.local)}
+            autoFocus={focusLocal === e.local && talkingLocal !== e.local}
+            talking={talkingLocal === e.local}
+            onTalk={(on) => setTalkingLocal(on ? e.local : null)}
+            onText={(text) => {
+              update((list) => list.map((x) => (x.local === e.local ? { ...x, text } : x)));
+              saveSoon(e.local);
+            }}
+            onSaveNow={() => saveOne(e.local)}
+            onRemove={() => remove(e)}
+          />
+        ))}
+      </div>
+
+      {/* The choices pop up over the page, to scroll through and tap one. */}
+      {choosing && (
+        <div className="sheet-backdrop ej-sheet" onClick={() => setChoosing(false)}>
+          <section className="sheet ej-pick" role="dialog" aria-modal="true" aria-label="What's this entry about?" onClick={(e) => e.stopPropagation()}>
+            <div className="ej-pick__top">
+              <h2 className="ej-pick__h">What's this entry about?</h2>
+              <button type="button" className="btn-icon" onClick={() => setChoosing(false)} aria-label="Cancel" title="Cancel">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="ej-pick__ways">
+              <button type="button" className="ej-way ej-way--ink" onClick={chooseForMe} disabled={asking}>
+                {asking ? <Loader2 size={18} className="voice-spin" aria-hidden="true" /> : <Sparkles size={18} aria-hidden="true" />}
+                <span>{asking ? "Writing a question…" : "Choose for me"}</span>
+              </button>
+              <button type="button" className="ej-way" onClick={() => add(newEntry("free"))}>
+                <PenLine size={18} aria-hidden="true" />
+                <span>I pick</span>
+              </button>
+            </div>
+            {choices.length > 0 && (
+              <div className="ej-targets">
+                {groups.map((g) => (
+                  <div key={g.name} className="ej-targets__group">
+                    <div className="eyebrow">{g.name}</div>
+                    <div className="ej-targets__chips">
+                      {g.items.map((c) => (
+                        <button
+                          key={`${c.kind}-${c.key}`}
+                          type="button"
+                          className={"ej-chip" + (written.has(c.key) ? " is-written" : "")}
+                          onClick={() => add(newEntry("target", { choice: c }))}
+                        >
+                          {written.has(c.key) && <Check size={13} aria-hidden="true" />}
+                          {c.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!ladder && <p className="muted ej-pick__note">Loading your targets…</p>}
+          </section>
+        </div>
       )}
     </div>
   );
@@ -461,7 +469,9 @@ function TalkBar({ prompt, onWords, onDone }) {
 
   const text = {
     reading: "Reading the question…",
-    listening: heardOnce.current ? "Still listening… say “that's it” or tap Done when you've said it all." : "Listening… it writes down what you say when you pause.",
+    listening: heardOnce.current
+      ? "Still listening… say “that's it” or tap Done when you've said it all."
+      : "Listening… it writes down what you say when you pause.",
     writing: "Writing it down…",
     missed: problem || "I didn't catch that.",
   }[phase];
@@ -469,7 +479,15 @@ function TalkBar({ prompt, onWords, onDone }) {
   return (
     <div className={"talk-bar" + (phase === "listening" ? " talk-bar--on" : "")} role="status">
       <span className="talk-bar__icon">
-        {phase === "reading" ? <Volume2 size={16} /> : phase === "listening" ? <Mic size={16} /> : phase === "writing" ? <Loader2 size={16} className="voice-spin" /> : <RotateCcw size={16} />}
+        {phase === "reading" ? (
+          <Volume2 size={16} />
+        ) : phase === "listening" ? (
+          <Mic size={16} />
+        ) : phase === "writing" ? (
+          <Loader2 size={16} className="voice-spin" />
+        ) : (
+          <RotateCcw size={16} />
+        )}
       </span>
       <span className="talk-bar__text">{text}</span>
       <span className="row" style={{ gap: 6, marginLeft: "auto" }}>
