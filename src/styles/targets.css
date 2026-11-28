@@ -640,9 +640,16 @@
   inset: -4px -2px -10px;
 }
 
+/* The button holds its own larger tap area (a print's Link already does,
+   above). Without this, the ::after measures from the page instead and
+   covers the whole Board, tab bar included: the Board froze on the
+   phone, 2026-11-27. */
+.quote-card__link {
+  position: relative;
+}
+
 /* On Today's card it sits beside Share. */
 .quote-card__rate .quote-card__link {
-  position: relative;
   margin-left: -4px;
 }
 

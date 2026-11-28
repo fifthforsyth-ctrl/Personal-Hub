@@ -6218,5 +6218,12 @@ export const supabase = new PostgrestClient("https://hub.test/rest/v1", { fetch:
   ok("the clipboard itself has no To the clipboard button", !src("components/tasks/ClipboardPull.jsx").includes("onClip"));
 }
 
+// The week's quote's Link keeps its tap area to itself (2026-11-27: its
+// ::after covered the whole Board, so no tap reached the tab bar).
+{
+  const css = readFileSync(new URL("../src/styles/targets.css", import.meta.url), "utf8");
+  ok("the week's quote's Link is positioned, wherever it sits", /\n\.quote-card__link \{\s*position: relative;\s*\}/.test(css));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
